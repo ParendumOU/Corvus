@@ -18,6 +18,7 @@ GitHub Releases of ParendumOU/Corvus.
   crash log.
 - **Device sync and management**: reading notes, watches and workspaces now sync end to end; list
   and revoke devices at `corvus://devices`.
+- **Settings search**: filter the settings and jump straight to the matching control.
 - **Onboarding**: a first-run wizard for the AI provider, sync phrase, bookmark import and
   preferences.
 - **Auto-update**: from GitHub Releases by default, or from a self-hosted feed set in
@@ -30,6 +31,8 @@ GitHub Releases of ParendumOU/Corvus.
   `corvus://agent-runs`. Step previews now say which page the agent opened or read.
 - **Scheduled agents**: cron or interval AI runs on the watches scheduler, with an
   unattended-approval gate.
+- **Per-site AI profiles**: a per-domain prompt addendum and a narrower access cap for the agent
+  on that site.
 - **Recorded flows**: record a browser flow and replay it as an approval-gated macro at
   `corvus://flows`.
 
@@ -37,6 +40,8 @@ GitHub Releases of ParendumOU/Corvus.
 - **Remote MCP over Streamable HTTP**: bind to 127.0.0.1 or 0.0.0.0 with mandatory bearer auth;
   off by default.
 - **Snapshot tool**: a read-only page artifact (screenshot, DOM outline and network).
+- **Automation tools** at the Full access level, each approval-gated: `run_flow` (replay a saved
+  recorded flow), cookies, `fill_fields` and `download`.
 - **Corvus-MCP**: the connector now has its own MIT repo,
   [ParendumOU/Corvus-MCP](https://github.com/ParendumOU/Corvus-MCP), with setup for Claude Code,
   Claude Desktop, Cursor, VS Code, Zed, Cline, Codex CLI, Gemini CLI and any stdio client. The

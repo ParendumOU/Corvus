@@ -27,6 +27,9 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 - [x] **Recorded flows** — record a browser flow → replay as an approval-gated macro, `corvus://flows`
 - [x] **Onboarding** — first-run wizard (provider, sync phrase, bookmark import, prefs)
 - [x] **Annotations** — in-page highlights + notes (CSS Custom Highlight API), text-quote anchors, E2E-synced
+- [x] **Settings search**: filter settings and jump to the matching control
+- [x] **Per-site AI profiles**: per-domain prompt addendum and narrowing access cap
+- [x] **MCP automation tools**: `run_flow`, cookies, `fill_fields`, `download` (Full level, gated)
 - [x] **Split view** — tile two live tabs, draggable divider, focus routing
 
 ---
@@ -83,12 +86,10 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [ ] **Trusted code-signing cert** — kills Windows SmartScreen → *blocked on user (see Open Decisions)*
 - [ ] **macOS builds** on a mac runner (notarization) → *blocked on user*
 - [x] **Update-feed host**: GitHub Releases of ParendumOU/Corvus
-- [ ] Settings search + settings reorg
 - [ ] Bundle-size / startup pass — lazy-load `corvus://` pages, trim the ~431MB artifact
 - [x] Cut v0.2.0 (unsigned Windows + Linux); signed builds follow once the cert and Apple ID land
 
 **AI depth (M3)**
-- [ ] Per-site AI profiles — custom system prompt + allowed-tool set per domain
 - [ ] Inline AI in form/text fields (rewrite, translate, draft) with approval
 - [ ] Multi-tab agent tasks (agent coordinates across several tabs)
 
@@ -98,8 +99,6 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [ ] Sync command-bar history
 
 **Automation (M5)**
-- [ ] Scope-gated cookie-jar / form-fill / download MCP tools
-- [ ] `run_flow` MCP tool (trigger a saved recorded flow from an agent)
 - [ ] WebScope depth: active checks opt-in, match/replace rules UI, session export/import
 - [ ] Per-tool audit log + rate limits surfaced in UI
 
