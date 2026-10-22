@@ -51,10 +51,19 @@ if [ "$checksums_only" -eq 0 ]; then
   [ "$(release_state)" != "false" ] || die "$tag is already published on $PUBLIC_REPO: refusing to touch a public release"
   command -v docker >/dev/null 2>&1 || die "docker is required"
 
+  # electron-builder uploads several artifacts at once, and when no release exists yet each upload
+  # can create its own draft (v0.2.0 ended up split over two). Create the draft first so every
+  # upload finds it and lands in the same one.
+  if [ -z "$(release_state)" ]; then
+    GH_TOKEN="$token" gh release create "$tag" -R "$PUBLIC_REPO" --draft --title "$version" --notes "" >/dev/null
+  fi
+
   echo "Building $tag (Windows + Linux) and publishing to the draft release on $PUBLIC_REPO..."
   CORVUS_PUBLISH=always GH_TOKEN="$token" docker compose --profile release run --rm builder win linux
 fi
 
+drafts="$(GH_TOKEN="$token" gh api "repos/$PUBLIC_REPO/releases" --jq "[.[] | select(.draft and .tag_name == \"$tag\")] | length")"
+[ "$drafts" -le 1 ] || die "$drafts draft releases for $tag on $PUBLIC_REPO: move their assets into one and delete the others"
 [ "$(release_state)" = "true" ] || die "no draft release $tag on $PUBLIC_REPO (expected electron-builder to create it)"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/corvus-release.XXXXXX")"
