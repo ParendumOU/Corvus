@@ -15,7 +15,8 @@ import {
   type AgentTool,
   type AgentToolResult,
 } from "@corvus/ai-engine";
-import type { AccessLevel, AIProviderKind, PageSnapshot, SnapshotElement, TabId } from "@corvus/shared";
+import type { AccessLevel, ActionTarget, AIProviderKind, PageSnapshot, SnapshotElement, TabId } from "@corvus/shared";
+import { classifyAction, stricterRisk, type ActionRisk } from "../shared/agent-safety";
 import type { AppContext } from "./context";
 
 export const PER_TURN_TOKENS = 1536;
@@ -245,6 +246,28 @@ export interface ToolRunState {
   /** Workflow capture: elements (ref, role, name) and URL of the latest snapshot. */
   lastElements?: Array<{ ref: string; role: string; name: string }>;
   lastUrl?: string;
+}
+
+/**
+ * Classifies a tool call for the approval gate. For click and type it reads the target live (role,
+ * name, page URL and form, via controller.describeTarget) and also classifies what the last snapshot
+ * said, keeping the stricter verdict: a "Books" link is not a purchase, "Buy now" is, and Enter in a
+ * checkout form spends money even when the field itself looks harmless.
+ */
+export async function classifyToolCall(ctx: AppContext, state: ToolRunState, name: string, input: unknown): Promise<ActionRisk> {
+  if (name !== "click" && name !== "type") return classifyAction(name, input);
+  const ref = argStr(input, "ref");
+  const snapName = state.elementNames.get(ref) ?? "";
+  const snapRole = state.lastElements?.find((e) => e.ref === ref)?.role ?? "";
+  let live: ActionTarget | null = null;
+  const describe = ctx.controller.describeTarget?.bind(ctx.controller);
+  if (describe && state.tabId && ref) live = await describe(state.tabId, ref).catch(() => null);
+  const url = live?.url || state.lastUrl || "";
+  const form = live?.form ? { form: live.form } : {};
+  const fromSnapshot = classifyAction(name, input, snapName, { role: snapRole || live?.role || "", url, ...form });
+  if (!live) return fromSnapshot;
+  const fromPage = classifyAction(name, input, live.name || snapName, { role: live.role || snapRole, url, ...form });
+  return stricterRisk(fromSnapshot, fromPage);
 }
 
 function num(input: unknown, key: string, dflt: number): number {

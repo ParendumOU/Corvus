@@ -69,6 +69,7 @@ describe("run_flow behavior", () => {
     expect(res.isError).toBeFalsy();
     expect(textOf(res)).toMatch(/Started flow "Login" \(4 steps\); status running/);
     expect(textOf(res)).toContain("pause for your approval");
+    expect(textOf(res)).toContain("spends money asks the user");
     expect(started).toEqual(["f1"]);
   });
 

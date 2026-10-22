@@ -24,7 +24,8 @@ function summary(f: FlowSummary): Record<string, unknown> {
  * (recorded flows and workflows saved from agent runs), optionally only those for a host; reads one
  * workflow's steps so a client can follow or adapt it; and starts a replay by name or id with values
  * for its parameters. Replay runs through the desktop FlowService, which keeps its own approval
- * gate: risky steps pause for the user and secret fields are never typed unattended. This tool only
+ * gate: risky steps pause for the user, a step that spends money asks in a native dialog (Allow once /
+ * Deny), and secret fields are never typed unattended. This tool only
  * triggers that replay; it never bypasses the gate. Saved names and steps are returned as untrusted
  * data.
  */
@@ -36,7 +37,7 @@ export function registerRunFlowTools(ctx: ToolContext): void {
     "run_flow",
     {
       description:
-        "List saved workflows (optionally for one host), read a workflow's steps, or run one with parameter values. Runs keep the approval gate; secrets are never stored or typed unattended.",
+        "List saved workflows (optionally for one host), read a workflow's steps, or run one with parameter values. Runs keep the approval gate (steps that spend money always ask the user); secrets are never stored or typed unattended.",
       inputSchema: {
         action: z.enum(["list", "read", "run"]).default("list"),
         flow: z.string().min(1).max(200).optional().describe("Workflow name or id; required for read and run"),
@@ -51,7 +52,7 @@ export function registerRunFlowTools(ctx: ToolContext): void {
         if (!a.flow) return errorResult("action 'run' requires a flow name or id.");
         const r = a.params ? await runner.run(a.flow, a.params) : await runner.run(a.flow);
         const steps = `${r.steps} step${r.steps === 1 ? "" : "s"}`;
-        return text(`Started flow "${r.name}" (${steps}); status ${r.status}. Risky steps pause for your approval in Corvus.`);
+        return text(`Started flow "${r.name}" (${steps}); status ${r.status}. Risky steps pause for your approval in Corvus, and a step that spends money asks the user in a browser dialog (Deny stops the run).`);
       }
       if (a.action === "read") {
         if (!a.flow) return errorResult("action 'read' requires a flow name or id.");

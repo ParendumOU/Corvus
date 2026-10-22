@@ -1,6 +1,7 @@
 import type { FieldValue, SnapshotElement } from "@corvus/shared";
 import { z } from "zod";
 import { truncate } from "../content.js";
+import { spendGate } from "../spend-gate.js";
 import { errorResult, need, optionalTabId, text, type ToolContext } from "./types.js";
 
 const fieldValue = z.union([z.string().max(10000), z.boolean(), z.array(z.string().max(1000)).max(100)]);
@@ -31,14 +32,14 @@ const clip = (err: unknown): string => truncate(err instanceof Error ? err.messa
 /**
  * Full access only. Fills several form fields in one call using semantic targeting (role + accessible
  * name, like click/type) instead of refs, then optionally submits. Filling and submitting go through
- * the same controller primitives as the other tools, so a risky submit still hits the approval gate —
- * this tool adds no bypass.
+ * the same controller primitives as the other tools, and a submit that spends money asks the user in
+ * the browser first (spendGate), so this tool adds no bypass.
  */
 export function registerFillFieldsTools({ controller, register, resolveTab }: ToolContext): void {
   register(
     "fill_fields",
     {
-      description: "Fill several form fields by role/name in one call; optionally submit. Submitting still asks for approval.",
+      description: "Fill several form fields by role/name in one call; optionally submit. A submit that spends money asks the user first.",
       inputSchema: {
         fields: z
           .array(
@@ -51,7 +52,7 @@ export function registerFillFieldsTools({ controller, register, resolveTab }: To
           )
           .min(1)
           .max(100),
-        submit: z.boolean().optional().describe("Click a submit button after filling (risky; still gated)"),
+        submit: z.boolean().optional().describe("Click a submit button after filling (one that spends money asks the user first)"),
         submitName: z.string().min(1).max(200).optional().describe("Name of the button to submit with"),
         tabId: optionalTabId,
       },
@@ -83,6 +84,12 @@ export function registerFillFieldsTools({ controller, register, resolveTab }: To
         if (!btn) {
           submitNote = "; submit skipped: no submit button found";
         } else {
+          // A submit that spends money (a "Pay now" button, or any submit on a checkout page) asks first.
+          const refused = await spendGate(controller, id, { kind: "form-button", name: btn.name, role: btn.role, url: fresh.url });
+          if (refused) {
+            const reason = refused.content.map((c) => (c.type === "text" ? c.text : "")).join("");
+            return errorResult(`filled ${filled}/${a.fields.length}; not submitted. ${reason}`);
+          }
           try {
             await controller.click(id, btn.ref);
             submitNote = `; submitted via "${truncate(btn.name, 60).text}"`;

@@ -2,6 +2,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
+import { spendDialog } from "./spend-approvals";
 import type { BrowserWindowCtl } from "./window";
 
 /**
@@ -32,6 +33,15 @@ async function poll(wc: WebContents, expr: string, timeoutMs = 12000): Promise<b
     await sleep(120);
   }
   return false;
+}
+
+async function until(cond: () => boolean, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (cond()) return true;
+    await sleep(100);
+  }
+  return cond();
 }
 
 export async function runFlowsSmoke(ctx: AppContext, h: Helpers): Promise<void> {
@@ -89,7 +99,48 @@ export async function runFlowsSmoke(ctx: AppContext, h: Helpers): Promise<void> 
     const ended = await poll(wc, "!document.querySelector('.flow-approval')", 8000);
     const stopped = ctx.flows.list(win.profile).find((f) => f.id === flowId);
     check("replay stopped from the UI", ended && stopped?.replay === null, stopped?.replay);
+
+    // A replay an MCP client started (run_flow) has no run panel: its "Buy now" step gets the native
+    // spend dialog (answered here by the test hook) instead of the in-page card. Deny stops it first.
+    const flowView = () => ctx.flows.list(win.profile).find((f) => f.id === flowId);
+    const prompts: Array<{ message: string; inPageCard: boolean; tabId: string | null }> = [];
+    let allow = false;
+    ctx.spendApprovals.setTestApprover((p) => {
+      const replay = flowView()?.replay;
+      prompts.push({ message: spendDialog(p).message, inPageCard: Boolean(replay?.approval), tabId: replay?.tabId ?? null });
+      return allow;
+    });
+    const host = new URL(url).host;
+    const outText = async (tabId: string | null): Promise<string> => {
+      const tab = tabId ? ctx.windows.findTab(tabId)?.tab : undefined;
+      return tab ? String(await tab.view.webContents.executeJavaScript("document.getElementById('out')?.textContent ?? ''").catch(() => "")) : "";
+    };
+    ctx.flows.replay(win.profile, flowId, undefined, "agent");
+    const deniedDone = await until(() => prompts.length === 1 && flowView()?.replay === null, 20000);
+    const denied = prompts[0];
+    check(
+      "MCP-started replay asks the native spend dialog for Buy now",
+      deniedDone && denied?.message === `An AI client wants to spend money: Click "Buy now" on ${host}.` && denied.inPageCard === false,
+      denied,
+    );
+    check("spend denied: replay stopped before the click", flowView()?.usage.lastStatus === "stopped" && (await outText(denied?.tabId ?? null)) === "idle", {
+      usage: flowView()?.usage,
+      out: await outText(denied?.tabId ?? null),
+    });
+
+    allow = true;
+    ctx.flows.replay(win.profile, flowId, undefined, "agent");
+    const allowedDone = await until(() => prompts.length === 2 && flowView()?.replay === null, 20000);
+    const allowedTab = prompts[1]?.tabId ?? null;
+    let out = "";
+    for (let i = 0; i < 20 && out !== "bought"; i++) {
+      out = await outText(allowedTab);
+      if (out !== "bought") await sleep(150);
+    }
+    check("spend allowed once: the replay clicks Buy now", allowedDone && out === "bought" && flowView()?.usage.lastStatus === "ok", { out, usage: flowView()?.usage });
+    for (const id of [denied?.tabId, allowedTab]) if (id && win.hasTab(id)) win.closeTab(id);
   } finally {
+    ctx.spendApprovals.setTestApprover(null);
     if (flowId) ctx.flows.remove(win.profile, flowId);
     if (!win.isDisposed()) {
       if (win.hasTab(page.id)) win.closeTab(page.id);

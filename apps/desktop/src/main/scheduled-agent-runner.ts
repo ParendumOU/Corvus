@@ -13,12 +13,11 @@ import { Notification } from "electron";
 import { AgentStopError, runAgent, type AgentModelProvider, type AgentStep, type AgentToolResult, type ToolExecutor } from "@corvus/ai-engine";
 import type { TabId } from "@corvus/shared";
 import { summarizeArgs } from "../shared/agent-activity";
-import { classifyAction } from "../shared/agent-safety";
 import type { AgentApprovalDecision } from "../shared/command-bar-ipc";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { MAX_CONCURRENT_RUNS, clampMaxSteps, selectDueSchedules, type AgentSchedule, type ScheduleRunRecord } from "../shared/schedule";
 import type { ScheduleApprovalView, ScheduleInput, ScheduleView } from "../shared/schedule-ipc";
-import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, argStr, providerFromSettings, runAgentTool, type ToolRunState } from "./agent-tools";
+import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, argStr, classifyToolCall, providerFromSettings, runAgentTool, type ToolRunState } from "./agent-tools";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
 import { ScheduleStore } from "./schedule-store";
@@ -303,8 +302,7 @@ export class ScheduledAgentRunner {
 
   private async execute(run: ActiveRun, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
     if (signal.aborted) throw new AgentStopError("aborted");
-    const elementName = name === "click" || name === "type" ? run.elementNames.get(argStr(input, "ref")) ?? "" : "";
-    const risk = classifyAction(name, input, elementName);
+    const risk = await classifyToolCall(this.ctx, run, name, input);
 
     if (name === "ask_user") {
       const reason = argStr(input, "message") || "The agent needs your help to continue.";
@@ -313,7 +311,9 @@ export class ScheduledAgentRunner {
       return { content: decision === "approve" ? "The user handled it and asked you to continue." : "The user skipped this; continue without it." };
     }
 
-    // A scheduled run always asks before a risky action — it is never auto-approved.
+    // A scheduled run always asks before a risky action — it is never auto-approved. Spending money
+    // ("Spends money: ...") is risky too, so an unattended run stops at that step until the user
+    // approves, skips or stops it, whatever "Ask before risky actions" says.
     if (risk.risky) {
       const decision = await this.requestApproval(run, { tool: name, summary: summarizeArgs(name, input), reason: risk.reason, handoff: risk.handoff }, signal);
       if (decision === "stop") throw new AgentStopError("stopped by user");

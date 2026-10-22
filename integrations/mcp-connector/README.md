@@ -275,7 +275,10 @@ Tabs an agent is driving show an **AI** badge, an on-screen cursor and an activi
 you can pause agents at any time. CAPTCHAs are always handed to you and never solved
 automatically. Two-factor prompts are handed to you too, unless you let agents use the 2FA code of
 a specific saved login: then Corvus fills the code itself after you approve each use, and the
-agent never sees it. Text that agents read from web pages is marked as untrusted.
+agent never sees it. Anything that spends money (a "Buy now", "Place order" or "Pay" click, a
+submit on a checkout or payment page, a workflow step that pays) shows an **Allow once / Deny**
+dialog first, at every access level; Deny tells the agent you declined. Text that agents read
+from web pages is marked as untrusted.
 
 ## Troubleshooting
 

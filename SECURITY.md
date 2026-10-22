@@ -33,7 +33,8 @@ reproduce the issue on the newest version.
   auto-updater
 - The MCP server and its stdio bridge (`packages/mcp-server`, `integrations/claude-code`): bearer
   token and client approval, the access levels (read-only, standard, full), the approval gate for
-  risky agent actions, and the Host and Origin checks, both local and with remote access enabled
+  risky agent actions (spending money always asks, in auto mode and for every MCP client), and the
+  Host and Origin checks, both local and with remote access enabled
 - Prompt injection from web content that makes an agent act beyond its access level or skip an
   approval Corvus should have asked for
 - End-to-end encrypted sync (`packages/sync-core`, `services/sync-server`): anything that exposes

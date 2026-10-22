@@ -125,8 +125,9 @@ function FlowsPage() {
             <h2>Workflows: steps you repeat, saved once</h2>
             <p className="muted">
               Save the steps of a finished agent run (Save as workflow), or record your own browsing. Run a workflow from here or from the
-              Workflows side panel; the agent also finds the ones saved for the site it works on. Anything risky (sign-in, payment,
-              submitting a form) still pauses for your approval, and secret fields are never stored or filled for you.
+              Workflows side panel; the agent also finds the ones saved for the site it works on. A step that spends money always asks
+              you first. Other risky steps (sign-in, submitting a form) pause for your approval when you run a workflow, and for the
+              agent when Ask before risky actions is on. Secret fields are never stored or filled for you.
             </p>
           </div>
         </div>

@@ -69,7 +69,9 @@ Providers:
   bookmark_add, history_search, web_search` (+ `evaluate` only if enabled by the user).
 - Safety: per-client permission prompt on first connection; agent-driven tabs get a visible
   AI badge; page content returned to agents is wrapped as untrusted data; no file:// or
-  corvus://settings access for agents.
+  corvus://settings access for agents. A click, submit or workflow step that spends money (shared
+  rules in `packages/shared/src/spend.ts`) shows a native "Allow once / Deny" dialog at every
+  access level (`packages/mcp-server/src/spend-gate.ts`, `controller.confirmSpend`).
 
 ## 6. Sync (Brave-Sync-like)
 

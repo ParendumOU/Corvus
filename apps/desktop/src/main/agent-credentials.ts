@@ -9,11 +9,12 @@
  *
  * Nothing here logs, returns or stores a password, a code or a 2FA secret.
  */
-import { dialog, type WebContents } from "electron";
+import type { WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { totpCode } from "../shared/totp";
 import { approvalReason, pickAgentLogin, type CredentialUse } from "./agent-credential-policy";
+import { askNativeApproval } from "./approval-dialog";
 import { AUTOFILL_WORLD_ID, fillLoginByRefScript, fillOtpByRefScript, type FillOutcome } from "./credential-scripts";
 import type { AppContext } from "./context";
 import type { LoginRecord } from "./login-sources";
@@ -103,18 +104,12 @@ export class AgentCredentialService {
   dialogApprover(): CredentialApprover {
     return async (req) => {
       if (this.testApprover) return this.testApprover(req);
-      const parent = this.ctx.windows.focused()?.win;
-      const options: Electron.MessageBoxOptions = {
-        type: "warning",
-        buttons: [req.use === "totp" ? "Fill code" : "Sign in", "Deny"],
-        defaultId: 1,
-        cancelId: 1,
+      return askNativeApproval(this.ctx, {
+        allow: req.use === "totp" ? "Fill code" : "Sign in",
         title: "AI agent wants to use a saved login",
         message: req.use === "totp" ? `Let “${req.client}” fill your 2FA code for ${req.host}?` : `Let “${req.client}” sign in to ${req.host}?`,
         detail: `${req.reason}\n\nOnly this one use is approved.`,
-      };
-      const { response } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
-      return response === 0;
+      });
     };
   }
 

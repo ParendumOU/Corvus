@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type {
+  ActionTarget,
   Bookmark,
   BrowserController,
   CookieInfo,
@@ -11,6 +12,7 @@ import type {
   GroupId,
   HistoryEntry,
   PageSnapshot,
+  SpendApprovalRequest,
   Tab,
   TabGroup,
   TabId,
@@ -25,6 +27,7 @@ import type { AppContext } from "./context";
 import {
   AGENT_WORLD_ID,
   clickScript,
+  describeTargetScript,
   focusForTypingScript,
   locateScript,
   scrollScript,
@@ -367,6 +370,19 @@ export class Controller implements BrowserController {
   async fillLogin(id: TabId, opts: { ref?: string; username?: string } = {}): Promise<CredentialFillResult> {
     this.locate(id);
     return this.ctx.agentCredentials.fillLogin(id, opts.ref ?? null, this.credentialOptions(opts.username));
+  }
+
+  /** Role, name, page and form of one element, read live for the spend gate. Never acts on the page. */
+  async describeTarget(id: TabId, ref: string): Promise<ActionTarget | null> {
+    if (!REF_RE.test(ref)) return null;
+    const { wc } = this.readable(id);
+    return this.exec<ActionTarget | null>(wc, describeTargetScript(ref));
+  }
+
+  /** MCP spend gate: the native "Allow once / Deny" dialog for one action that spends money. */
+  async confirmSpend(id: TabId, request: SpendApprovalRequest): Promise<boolean> {
+    this.locate(id);
+    return this.ctx.spendApprovals.confirm({ client: this.ctx.agents.currentClient, action: request.action, host: request.host });
   }
 
   private credentialOptions(username: string | undefined) {

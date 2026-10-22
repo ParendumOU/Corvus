@@ -87,6 +87,8 @@ describe("fill_fields behavior", () => {
     });
     expect(textOf(res)).toBe('filled 1/1; submitted via "Pay now"');
     expect(c.calls.filter((x) => x.method === "click").map((x) => x.args[1])).toEqual(["e5"]);
+    // "Pay now" spends money: the user was asked first (the mock dialog allows).
+    expect(c.spendPrompts.map((p) => p.request.action)).toEqual(['Click "Pay now" on form.example']);
   });
 
   it("notes when no submit button is found", async () => {

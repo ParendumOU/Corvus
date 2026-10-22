@@ -11,6 +11,7 @@ import type { DownloadManager } from "./downloads";
 import type { FlowService } from "./flow-service";
 import type { KeePassService } from "./keepass-service";
 import type { SecretFillGuard } from "./secret-fill-guard";
+import type { SpendApprovalService } from "./spend-approvals";
 import type { McpService } from "./mcp-service";
 import type { PageMonitor } from "./page-monitor";
 import type { ProfileRegistry } from "./profiles";
@@ -44,6 +45,8 @@ export interface AppContext {
   agentRunner: AgentRunner;
   /** Agent use of opted-in saved logins and 2FA codes (fill by reference, approval-gated). */
   agentCredentials: AgentCredentialService;
+  /** Native "Allow once / Deny" prompt for MCP clients that want to spend money. */
+  spendApprovals: SpendApprovalService;
   adblock: AdblockService;
   webscope: WebScopeService;
   monitor: PageMonitor;

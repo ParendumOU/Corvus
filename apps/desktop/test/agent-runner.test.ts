@@ -402,6 +402,117 @@ describe("AgentRunner", () => {
     expect(credentials.service.fillLogin).toHaveBeenCalledWith("agent1", null, expect.anything());
   });
 
+  it("asks before a click that spends money even in auto mode", async () => {
+    const controller = mockController();
+    // "Ask before risky actions" is off: a spend must still ask.
+    const { ctx } = fakeContext(controller, false);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e1" } }],
+      [{ type: "text", text: "Bought it." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "buy the item");
+
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    expect(runner.windowExtras(win).agentRun!.approval!.reason).toBe('Spends money: clicks "Buy now".');
+    expect(controller.calls).toEqual(["snapshot"]);
+    runner.approve(win, "approve");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(controller.calls).toEqual(["snapshot", "click:e1"]);
+  });
+
+  it("does not ask before an ordinary form submit in auto mode", async () => {
+    const controller = Object.assign(mockController(), {
+      async snapshot(this: { calls: string[] }) {
+        this.calls.push("snapshot");
+        return { ...snap, elements: [...snap.elements, { ref: "e3", role: "searchbox", name: "Search products" }] };
+      },
+      async describeTarget() {
+        return { url: snap.url, role: "searchbox", name: "Search products", form: { action: "https://shop.test/search", submitName: "Search", submitRole: "button" } };
+      },
+    });
+    const { ctx } = fakeContext(controller, false);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "type", input: { ref: "e3", text: "umbrella", submit: true } }],
+      [{ type: "text", text: "Searched." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "search for umbrellas");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(controller.calls).toEqual(["snapshot", "type"]);
+    expect(runner.windowExtras(win).agentRun!.steps.every((s) => s.status !== "skipped")).toBe(true);
+  });
+
+  it("asks before Enter in a checkout form found on the live page, even in auto mode", async () => {
+    // The snapshot only shows a harmless field; the page says its form submits "Place order".
+    const controller = Object.assign(mockController(), {
+      async snapshot(this: { calls: string[] }) {
+        this.calls.push("snapshot");
+        return { ...snap, elements: [{ ref: "e5", role: "textbox", name: "Promo code" }] };
+      },
+      async describeTarget() {
+        return { url: snap.url, role: "textbox", name: "Promo code", form: { action: snap.url, submitName: "Place order", submitRole: "button" } };
+      },
+    });
+    const { ctx } = fakeContext(controller, false);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "type", input: { ref: "e5", text: "SPRING", submit: true } }],
+      [{ type: "text", text: "Done." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "apply the promo code");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    expect(runner.windowExtras(win).agentRun!.approval!.reason).toBe('Spends money: presses Enter in "Promo code", which submits "Place order".');
+    runner.approve(win, "skip");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(controller.calls).toEqual(["snapshot"]);
+  });
+
+  it("asks before a saved workflow's step that spends money, even in auto mode", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false);
+    const flow = {
+      id: "wf1",
+      name: "Buy the item",
+      startUrl: "",
+      steps: [{ kind: "click", url: snap.url, label: 'Click "Buy now"', target: { role: "button", name: "Buy now", index: 0, tag: "", selector: "" } }],
+      createdAt: 1,
+      updatedAt: 1,
+      description: "",
+      origin: "agent",
+      sourceRunId: null,
+      sites: ["shop.test"],
+      params: [],
+      usage: { runs: 0, ok: 0, failed: 0, lastRunAt: null, lastStatus: null, lastError: null, lastBrokenStep: null, lastRunBy: null },
+    };
+    const recordRun = vi.fn();
+    Object.assign(ctx, { flows: { storeFor: () => ({ list: () => [flow] }), memory: { enabled: () => false, learn: vi.fn() }, recordRun } });
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "run_workflow", input: { workflow: "wf1" } }],
+      [{ type: "text", text: "Ran it." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "buy the item again");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    expect(runner.windowExtras(win).agentRun!.approval!.reason).toBe('Spends money: clicks "Buy now".');
+    expect(controller.calls).not.toContain("click:e1");
+    runner.approve(win, "approve");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(controller.calls).toContain("click:e1");
+    expect(recordRun).toHaveBeenCalledWith(expect.anything(), "wf1", expect.objectContaining({ status: "ok" }));
+  });
+
   it("refuses run_workflow on a tab where a saved secret was filled", async () => {
     const { ctx, secretFills } = fakeContext(mockController(), false);
     secretFills.mark("agent1");

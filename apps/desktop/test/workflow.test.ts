@@ -411,6 +411,30 @@ describe("runWorkflowSteps", () => {
     expect(onStep).toHaveBeenCalledWith(1, expect.anything(), "error", expect.stringContaining("no longer on the page"));
   });
 
+  it("marks a recorded spend step always-ask, with its recorded role", async () => {
+    const gate = vi.fn(async () => "approve" as const);
+    const { h, log } = hooks({ gate });
+    await runWorkflowSteps("", [{ kind: "click", url: "https://shop.example/", label: "Buy", target: t("button", "Buy now") }], h);
+    expect(gate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ alwaysAsk: true, spend: true }));
+    expect(log).toEqual(["click e3"]);
+  });
+
+  it("re-checks a step against the live page: a harmless recording that now spends still asks", async () => {
+    const gate = vi.fn(async () => "skip" as const);
+    const inspect = vi.fn(async (ref: string) => ({
+      url: "https://shop.example/",
+      role: "textbox",
+      name: "Search products",
+      ...(ref === "e1" ? { form: { submitName: "Place order", submitRole: "button" } } : {}),
+    }));
+    const { h, log } = hooks({ gate, inspect });
+    const out = await runWorkflowSteps("", [{ kind: "type", url: "https://shop.example/", label: "Type", target: t("textbox", "Search products"), value: "x", submit: true }], h);
+    expect(inspect).toHaveBeenCalledWith("e1");
+    expect(gate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ alwaysAsk: true, spend: true }));
+    expect(out.skipped).toBe(1);
+    expect(log).toEqual([]);
+  });
+
   it("returns stopped when the user stops at the gate", async () => {
     const { h } = hooks({ gate: async () => "stop" });
     const out = await runWorkflowSteps("", [{ kind: "click", url: "", label: "Buy", target: t("button", "Buy now") }], h);

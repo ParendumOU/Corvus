@@ -13,7 +13,7 @@
  * typed unattended — it is handed to the user exactly like the agent's ask_user path.
  */
 import { Notification, type WebContents } from "electron";
-import type { TabId } from "@corvus/shared";
+import { describeSpend, spendHost, type TabId } from "@corvus/shared";
 import { classifyAction } from "../shared/agent-safety";
 import {
   MAX_STEPS_PER_FLOW,
@@ -567,11 +567,26 @@ export class FlowService {
     await this.waitWhilePaused(r);
     if (r.abort.signal.aborted) throw new ReplayStop();
 
-    const { tool, input, elementName } = stepToToolCall(step);
-    let risk = classifyAction(tool, input, elementName);
+    const { tool, input, elementName, context } = stepToToolCall(step);
+    let risk = classifyAction(tool, input, elementName, context);
     if (step.secret) risk = { risky: true, handoff: true, reason: risk.reason || "This field needs your password or another secret." };
 
-    if (risk.risky) {
+    if (risk.spend && !risk.handoff && r.by === "agent") {
+      // An MCP client started this replay (run_flow): it has no run panel, so a spend gets the same
+      // native "Allow once / Deny" dialog as its own clicks. Deny stops the replay.
+      const allowed = await this.ctx.spendApprovals.confirm({
+        client: this.ctx.agents.currentClient,
+        action: describeSpend({ kind: tool === "type" ? "submit" : "click", name: elementName, url: step.url }),
+        host: spendHost(step.url),
+      });
+      if (r.abort.signal.aborted) throw new ReplayStop();
+      if (!allowed) {
+        r.error = `You declined a step that spends money (${step.label}). The replay stopped there.`;
+        r.stepStatuses[r.cursor] = "skipped";
+        r.abort.abort();
+        throw new ReplayStop();
+      }
+    } else if (risk.risky) {
       const decision = await this.requestApproval(r, { kind: risk.handoff ? "handoff" : "risky", title: step.label, reason: risk.reason });
       if (decision === "stop") throw new ReplayStop();
       if (decision === "skip") return "skipped";

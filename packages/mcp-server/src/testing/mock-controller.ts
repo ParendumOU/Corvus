@@ -1,4 +1,5 @@
 import type {
+  ActionTarget,
   AgentInput,
   Bookmark,
   Capture,
@@ -28,6 +29,7 @@ import type {
   GroupId,
   HistoryEntry,
   PageSnapshot,
+  SpendApprovalRequest,
   Tab,
   TabGroup,
   TabId,
@@ -45,6 +47,8 @@ export interface MockPage {
   dialog?: Omit<DialogInfo, "url" | "at">;
   console?: ConsoleEntry[];
   network?: NetworkEntry[];
+  /** Form of an element, by ref (action URL and default submit button), for the spend gate. */
+  forms?: Record<string, { action?: string; submitName?: string; submitRole?: string }>;
 }
 
 export interface PendingUserAction {
@@ -73,6 +77,8 @@ export interface MockBrowserControllerOptions {
   cookies?: Record<string, CookieInfo[]>;
   /** Outcome of fill_totp / fill_login. Default: a handoff, as when the user has not opted in. */
   credentialFill?: (kind: "totp" | "login", tabId: TabId, opts: { ref?: string; username?: string }) => CredentialFillResult;
+  /** Answer to the spend dialog (confirmSpend). Default: allow, as a person clicking "Allow once". */
+  spendApproval?: (request: SpendApprovalRequest, tabId: TabId) => boolean;
 }
 
 const VIEWPORT = { width: 1280, height: 800 };
@@ -106,6 +112,7 @@ export class MockBrowserController implements BrowserController {
   private readonly downloads: DownloadEntry[];
   private readonly cookieJar: Map<string, CookieInfo[]>;
   private readonly credentialFill: NonNullable<MockBrowserControllerOptions["credentialFill"]>;
+  private readonly spendApproval: NonNullable<MockBrowserControllerOptions["spendApproval"]>;
   private readonly pages: Record<string, MockPage>;
   private readonly tabs = new Map<TabId, TabState>();
   private readonly groups = new Map<GroupId, TabGroup>();
@@ -117,6 +124,7 @@ export class MockBrowserController implements BrowserController {
     this.pages = { ...opts.pages };
     this.downloads = [...(opts.downloads ?? [])];
     this.credentialFill = opts.credentialFill ?? (() => ({ status: "handoff", message: "The user has not allowed agents to use this login. Call request_user_action." }));
+    this.spendApproval = opts.spendApproval ?? (() => true);
     this.cookieJar = new Map(Object.entries(opts.cookies ?? {}).map(([host, list]) => [host, list.map((c) => ({ ...c }))]));
     for (const b of opts.bookmarks ?? []) this.insertBookmark(b);
     opts.initialTabs?.forEach((url, i) => this.createTab(url, { background: i > 0, agent: false }));
@@ -618,6 +626,28 @@ export class MockBrowserController implements BrowserController {
     const result = this.credentialFill("login", id, opts);
     if (result.status === "filled") this.lockedTabs.add(id);
     return result;
+  }
+
+  /** Role, name and page of an element, plus its form when the page declares one (`MockPage.forms`). */
+  async describeTarget(id: TabId, ref: string): Promise<ActionTarget | null> {
+    const s = this.state(id);
+    const page = this.page(s.tab.url);
+    const el = (page.elements ?? []).find((e) => e.ref === ref);
+    if (!el) return null;
+    const form = page.forms?.[ref];
+    return { url: s.tab.url, role: el.role, name: el.name, ...(form ? { form: { ...form } } : {}) };
+  }
+
+  /** Spend prompts answered so far (the "dialog"), newest last. */
+  readonly spendPrompts: Array<{ tabId: TabId; request: SpendApprovalRequest; allowed: boolean }> = [];
+
+  /** The native spend dialog: answered by `spendApproval` (default: allow). */
+  async confirmSpend(id: TabId, request: SpendApprovalRequest): Promise<boolean> {
+    this.record("confirmSpend", id, request);
+    this.state(id);
+    const allowed = this.spendApproval(request, id) === true;
+    this.spendPrompts.push({ tabId: id, request, allowed });
+    return allowed;
   }
 
   /** Tabs where a saved secret was filled; cleared when the tab loads a new document, like the browser. */

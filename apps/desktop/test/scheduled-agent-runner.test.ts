@@ -190,6 +190,42 @@ describe("ScheduledAgentRunner", () => {
     expect(controller.calls).toEqual(["snapshot", "click:e1"]);
   });
 
+  it("stops at a click that spends money and waits for the user, whatever auto mode says", async () => {
+    const controller = Object.assign(mockController(), {
+      async snapshot(this: { calls: string[] }) {
+        this.calls.push("snapshot");
+        // "Comprar" was not on the old risky word list: the spend rules catch it.
+        return { ...snap, elements: [{ ref: "e7", role: "button", name: "Comprar" }] };
+      },
+    });
+    const { ctx } = fakeContext(controller);
+    const settings = ctx.settings as unknown as { get: () => Record<string, unknown> };
+    const get = settings.get;
+    settings.get = () => ({ ...get(), agent: { askBeforeRisky: false, maxSteps: 15 } });
+    const runner = new ScheduledAgentRunner(ctx);
+    runner.setTestProvider(
+      scripted([
+        [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+        [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e7" } }],
+        [{ type: "text", text: "Bought it." }],
+      ]),
+    );
+    runner.attach(runtime);
+    const id = runner.add(runtime, INTERVAL)[0]!.id;
+    runner.runNow(runtime, id);
+
+    await waitFor(() => only(runner).approval !== null);
+    expect(only(runner).approval!.reason).toBe('Spends money: clicks "Comprar".');
+    expect(only(runner).lastRun!.status).toBe("awaiting-approval");
+    await new Promise((r) => setTimeout(r, 40));
+    // Still waiting: an unattended run never buys on its own.
+    expect(controller.calls).toEqual(["snapshot"]);
+
+    runner.approve(runtime, id, "stop");
+    await waitFor(() => !only(runner).running && only(runner).lastRun?.status === "stopped");
+    expect(controller.calls).toEqual(["snapshot"]);
+  });
+
   it("skips a risky action when the user skips", async () => {
     const controller = mockController();
     const { ctx } = fakeContext(controller);

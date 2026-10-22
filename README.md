@@ -29,7 +29,8 @@ first launch.
 - AI search: results come from a retriever (self-hosted SearXNG, Brave or DuckDuckGo) and one
   small model call writes a short answer with citations, in your language
 - Assist panel to summarize a page, ask about it or translate it
-- Command bar (Ctrl/Cmd+K) with a built-in browser agent that asks before risky steps
+- Command bar (Ctrl/Cmd+K) with a built-in browser agent that asks before risky steps, and
+  always before spending money
 - Scheduled agents, recorded flows you can replay, AI tab organizer, semantic search over your
   history, bookmarks and saved reading
 - Providers: Anthropic API, your local Claude Code login, or local models (Ollama or any

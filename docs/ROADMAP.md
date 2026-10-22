@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-22 · current release: **v0.3.0** (Windows + Linux, unsigned)
+Last updated: 2026-10-22 · current release: **v0.3.1** (Windows + Linux, unsigned)
 
 ---
 
@@ -128,9 +128,13 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 ## Guiding principles
 
 - **Local-first, E2E by default** — user data encrypted client-side; server is dumb storage.
-- **Agent actions are gated**: risky steps (forms, logins, payments) always need human approval.
-  CAPTCHAs are never solved: they go to the human. 2FA codes go to the human too, unless the user
-  opted that login in (global setting plus per-login switch, both off by default); then Corvus
-  fills the code itself after an approval prompt and the agent never sees it.
+- **Agent actions are gated**: risky steps (forms, logins) need human approval while "Ask before
+  risky actions" is on. Spending money (a "Buy now", "Place order" or "Pagar" click, Enter in a
+  checkout or payment form) always asks, even with it off, in scheduled runs and saved workflows,
+  and for MCP clients at every access level (a native Allow once / Deny dialog). CAPTCHAs are
+  never solved: they go to the human, and so do card and password fields. 2FA codes go to the
+  human too, unless the user opted that login in (global setting plus per-login switch, both off
+  by default); then Corvus fills the code itself after an approval prompt and the agent never
+  sees it.
 - **Provider-agnostic** — Anthropic API, local Claude Code, and (M3) local models interchangeable.
 - **pnpm only**, Dockerized builds, tests + smoke green before merge.

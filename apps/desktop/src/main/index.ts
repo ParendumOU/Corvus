@@ -11,6 +11,7 @@ import { AssistService } from "./assist-service";
 import { AutofillService } from "./autofill-service";
 import type { AppContext } from "./context";
 import { AgentCredentialService } from "./agent-credentials";
+import { SpendApprovalService } from "./spend-approvals";
 import { Controller } from "./controller";
 import { KeePassService } from "./keepass-service";
 import { SecretFillGuard } from "./secret-fill-guard";
@@ -104,6 +105,7 @@ async function main(): Promise<void> {
   ctx.controller = new Controller(ctx);
   ctx.agentRunner = new AgentRunner(ctx);
   ctx.agentCredentials = new AgentCredentialService(ctx);
+  ctx.spendApprovals = new SpendApprovalService(ctx);
   ctx.webscope = new WebScopeService(ctx);
   ctx.monitor = new PageMonitor(ctx);
   ctx.scheduledAgents = new ScheduledAgentRunner(ctx);

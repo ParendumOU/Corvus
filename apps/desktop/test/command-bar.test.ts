@@ -110,7 +110,9 @@ describe("classifyAction", () => {
       expect(risk.alwaysAsk).toBe(true);
       expect(risk.handoff).toBe(false);
     }
-    expect(classifyAction("click", { ref: "e1" }, "Place order").alwaysAsk).toBeUndefined();
+    // Spending money always asks too; an ordinary risky click (deleting, signing in) does not.
+    expect(classifyAction("click", { ref: "e1" }, "Place order").alwaysAsk).toBe(true);
+    expect(classifyAction("click", { ref: "e1" }, "Delete").alwaysAsk).toBeUndefined();
   });
 
   it("still hands typing into a 2FA field to the person", () => {

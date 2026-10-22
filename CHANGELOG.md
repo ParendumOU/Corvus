@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.1
+
+### For AI agents
+- **Spending money always asks, even in auto mode and for MCP clients**: a click on "Buy now",
+  "Place order", "Pay" and the like (also in Spanish, Estonian and other common languages), or
+  Enter in a checkout or payment form, now asks you every time, whatever "Ask before risky
+  actions" says. Scheduled agents stop at that step until you answer, and saved workflows ask
+  too. MCP clients get an "Allow once / Deny" dialog at every access level (click, type with
+  submit, fill_fields and run_flow steps); Deny tells the agent you declined. Adding to a cart, a
+  "Books" link or "Order history" do not ask. Settings now says exactly what auto mode does.
+
 ## v0.3.0
 
 ### Before you update

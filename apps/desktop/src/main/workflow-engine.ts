@@ -6,11 +6,15 @@
  *
  * Every step is classified with the same shared gate as everything else (classifyAction): risky
  * steps and secret fields go to `hooks.gate`, which the runner wires to its own approval prompt. A
- * secret is never typed: approving a handoff means the person did it in the tab.
+ * secret is never typed: approving a handoff means the person did it in the tab. A step that spends
+ * money comes with `alwaysAsk`, so the gate asks even in auto mode; when the runner can read the live
+ * target (`hooks.inspect`), a click or type step is classified with what is on the page now too, so
+ * a saved workflow cannot buy because its recording looked harmless.
  *
  * No Electron imports: the primitives come in through hooks, so it is unit tested.
  */
-import { classifyAction, type ActionRisk } from "../shared/agent-safety";
+import type { ActionTarget } from "@corvus/shared";
+import { classifyAction, stricterRisk, type ActionRisk } from "../shared/agent-safety";
 import { resolveTargetRef, stepToToolCall, type FlowStep, type SnapElement } from "../shared/flow";
 
 export type GateDecision = "approve" | "skip" | "stop";
@@ -25,6 +29,8 @@ export interface WorkflowEngineHooks {
   type(ref: string, text: string, submit: boolean): Promise<void>;
   /** Ask the person about a risky step or hand them a secret field. */
   gate(step: FlowStep, risk: ActionRisk): Promise<GateDecision>;
+  /** The live role, name, page and form of an element (for the spend rules), or null. */
+  inspect?(ref: string): Promise<ActionTarget | null>;
   /** Wait here while the user has paused agents. */
   waitWhilePaused?(): Promise<void>;
   onStep?(index: number, step: FlowStep, status: EngineStepStatus, detail?: string): void;
@@ -66,6 +72,25 @@ async function resolveRef(step: FlowStep, hooks: WorkflowEngineHooks): Promise<s
   return null;
 }
 
+const SAFE: ActionRisk = { risky: false, handoff: false, reason: "" };
+
+/**
+ * The step classified against the live page: the element its target resolves to now, with its
+ * current name, role, URL and form. SAFE when the target cannot be found (the step then breaks when
+ * it runs, before anything happens) or the page cannot tell.
+ */
+async function liveRisk(step: FlowStep, call: ReturnType<typeof stepToToolCall>, hooks: WorkflowEngineHooks): Promise<ActionRisk> {
+  const ref = await resolveRef(step, hooks);
+  if (!ref) return SAFE;
+  const live = await hooks.inspect!(ref).catch(() => null);
+  if (!live) return SAFE;
+  return classifyAction(call.tool, call.input, live.name || call.elementName, {
+    role: live.role || call.context.role,
+    url: live.url || call.context.url,
+    ...(live.form ? { form: live.form } : {}),
+  });
+}
+
 /** Navigate to `startUrl`, then carry out `steps` in order through the gate. */
 export async function runWorkflowSteps(startUrl: string, steps: readonly FlowStep[], hooks: WorkflowEngineHooks): Promise<WorkflowEngineOutcome> {
   let completed = 0;
@@ -87,8 +112,9 @@ export async function runWorkflowSteps(startUrl: string, steps: readonly FlowSte
       hooks.onStep?.(i, step, "running");
 
       const call = stepToToolCall(step);
-      let risk = classifyAction(call.tool, call.input, call.elementName);
+      let risk = classifyAction(call.tool, call.input, call.elementName, call.context);
       if (step.secret) risk = { risky: true, handoff: true, reason: risk.reason || "This field needs your password or another secret." };
+      else if (step.kind !== "navigate" && hooks.inspect) risk = stricterRisk(risk, await liveRisk(step, call, hooks));
       if (risk.risky) {
         const decision = await hooks.gate(step, risk);
         if (decision === "stop") throw new Stopped();

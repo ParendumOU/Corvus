@@ -287,6 +287,34 @@ export interface AgentCapabilities {
    * navigates to a new document. The MCP server checks this before evaluate and raw DOM/text reads.
    */
   secretFillLock?(id: TabId): Promise<string | null>;
+  /**
+   * Role, accessible name and page context of the element `ref` (computed like page_snapshot), plus
+   * its form's action and default submit button. Used by the spend gate; null when the element is gone.
+   */
+  describeTarget?(id: TabId, ref: string): Promise<ActionTarget | null>;
+  /**
+   * Asks the person, in a native browser dialog, to allow one action that spends money. Resolves true
+   * only when they allow it. MCP tools call this for every spend, at every access level.
+   */
+  confirmSpend?(id: TabId, request: SpendApprovalRequest): Promise<boolean>;
+}
+
+/** The element an action targets, as the spend gate sees it. */
+export interface ActionTarget {
+  /** URL of the page the element is on. */
+  url: string;
+  role: string;
+  name: string;
+  /** The form the element belongs to, when it is in one. */
+  form?: { action?: string; submitName?: string; submitRole?: string };
+}
+
+/** One money-spending action an AI client wants to take. */
+export interface SpendApprovalRequest {
+  /** What it does, e.g. `Click "Place order" on shop.example`. */
+  action: string;
+  /** Host of the page, e.g. "shop.example". */
+  host: string;
 }
 
 /** Outcome of a credential fill by reference. `message` is safe to show a model: it never holds a secret. */

@@ -278,6 +278,7 @@ export async function runWorkflowAgentTool(deps: WorkflowToolDeps, name: string,
     click: (ref) => c.click(tabId, ref),
     type: (ref, text, submit) => c.type(tabId, ref, text, { submit }),
     gate: (step, risk) => deps.gate(step, risk),
+    ...(c.describeTarget ? { inspect: (ref: string) => c.describeTarget!(tabId, ref) } : {}),
     waitWhilePaused: () => deps.waitWhilePaused(),
     onStep: (i, step, status, detail) => {
       if (status === "running") {

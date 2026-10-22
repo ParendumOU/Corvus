@@ -13,7 +13,7 @@ import {
 import type { TabId } from "@corvus/shared";
 import { summarizeArgs } from "../shared/agent-activity";
 import { isResumableStatus, recentRunMemoryNote, type AgentRunStopReason, type StoredRunStatus } from "../shared/agent-run";
-import { CREDENTIAL_TOOLS, classifyAction } from "../shared/agent-safety";
+import { CREDENTIAL_TOOLS } from "../shared/agent-safety";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import type {
   AgentApprovalDecision,
@@ -26,7 +26,7 @@ import type { AgentResumeResult } from "../shared/agent-run-ipc";
 import type { StoredAgentRun } from "./agent-run-store";
 import { TranscriptBuilder, normalizeResumeTranscript } from "./agent-transcript";
 import type { CredentialApprover } from "./agent-credentials";
-import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, agentToolset, argStr, capAgentTools, providerFromSettings, runAgentTool, stepPreview, type ProviderOverride } from "./agent-tools";
+import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, agentToolset, argStr, capAgentTools, classifyToolCall, providerFromSettings, runAgentTool, stepPreview, type ProviderOverride } from "./agent-tools";
 import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared/site-profiles";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
@@ -398,14 +398,15 @@ export class AgentRunner {
 
     if (CREDENTIAL_TOOLS.has(name)) return this.executeCredential(win, run, name, input, signal);
 
-    const elementName = name === "click" || name === "type" ? run.elementNames.get(argStr(input, "ref")) ?? "" : "";
-    const risk = classifyAction(name, input, elementName);
+    const risk = await classifyToolCall(this.ctx, run, name, input);
     if (name === "ask_user") {
       const decision = await this.requestApproval(win, run, name, input, { handoff: true, reason: argStr(input, "message") || "The agent needs your help to continue." }, signal);
       run.steps = run.steps.map((s) => (s.id === findRunningId(run, name) ? { ...s, status: decision === "approve" ? "ok" : "skipped" } : s));
       if (decision === "stop") throw new AgentStopError("stopped by user");
       return { content: decision === "approve" ? "The user handled it and asked you to continue." : "The user skipped this; continue without it." };
     }
+    // "Ask before risky actions" off (auto mode) skips this prompt, except for spending money and
+    // saved secrets (alwaysAsk): those ask every time.
     if (risk.risky && (risk.alwaysAsk === true || this.ctx.settings.get().agent.askBeforeRisky)) {
       const decision = await this.requestApproval(win, run, name, input, risk, signal);
       if (decision === "stop") throw new AgentStopError("stopped by user");
@@ -480,7 +481,8 @@ export class AgentRunner {
         siteUrl: run.wf.siteUrl,
         parentStepId: findRunningId(run, name) ?? null,
         gate: (step, risk) => {
-          if (!risk.handoff && !this.ctx.settings.get().agent.askBeforeRisky) return Promise.resolve("approve");
+          // Auto mode runs risky steps on its own, but a spend (alwaysAsk) or a handoff always asks.
+          if (!risk.handoff && risk.alwaysAsk !== true && !this.ctx.settings.get().agent.askBeforeRisky) return Promise.resolve("approve");
           const call = stepToToolCall(step);
           return this.requestApproval(win, run, call.tool, call.input, risk, signal);
         },

@@ -143,12 +143,17 @@ export function resolveTargetRef(elements: readonly SnapElement[], target: FlowT
   return null;
 }
 
-/** The tool call a step maps to, used for the risky-action classification and for execution. */
-export function stepToToolCall(step: FlowStep): { tool: string; input: unknown; elementName: string } {
-  if (step.kind === "navigate") return { tool: "navigate", input: { url: step.url }, elementName: "" };
+/**
+ * The tool call a step maps to, used for the risky-action classification and for execution. `context`
+ * carries the recorded role and page URL, which the spend rules read ("Books" link vs "Buy" button,
+ * Enter on a checkout page).
+ */
+export function stepToToolCall(step: FlowStep): { tool: string; input: unknown; elementName: string; context: { role: string; url: string } } {
+  if (step.kind === "navigate") return { tool: "navigate", input: { url: step.url }, elementName: "", context: { role: "", url: "" } };
   const elementName = step.target?.name ?? "";
-  if (step.kind === "type") return { tool: "type", input: { ref: "e0", text: step.value ?? "", submit: step.submit === true }, elementName };
-  return { tool: "click", input: { ref: "e0" }, elementName };
+  const context = { role: step.target?.role ?? "", url: step.url };
+  if (step.kind === "type") return { tool: "type", input: { ref: "e0", text: step.value ?? "", submit: step.submit === true }, elementName, context };
+  return { tool: "click", input: { ref: "e0" }, elementName, context };
 }
 
 function hostOf(url: string): string {

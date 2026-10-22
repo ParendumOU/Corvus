@@ -534,8 +534,10 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       <Row label="Max steps" hint="Most tool actions one task may take before it stops.">
         <LazyInput value={String(agent.maxSteps)} type="number" width={120} onSave={(v) => update({ agent: { maxSteps: Math.max(1, Math.min(50, Number(v) || 15)) } })} />
       </Row>
-      <Row label="Ask before risky actions" hint="Confirm before submitting forms, spending money or signing in. Payments and CAPTCHAs are always handed back to you, and so are passwords and 2FA codes unless you let agents use a login (Settings, Passwords). Using a saved login always asks first.">
-
+      <Row
+        label="Ask before risky actions"
+        hint="When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and CAPTCHAs and card or password fields are always handed back to you."
+      >
         <Toggle label="Ask before risky actions" checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
       </Row>
       <Row
