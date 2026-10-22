@@ -230,6 +230,10 @@ export interface SyncStatus {
   intervalMinutes: number;
   /** Opt-in: also sync machine-specific service URLs (SearXNG). */
   syncServiceUrls: boolean;
+  /** Sync saved workflows (per device, default on). */
+  syncWorkflows: boolean;
+  /** Sync what Corvus learned about sites (per device, default on). */
+  syncSiteMemory: boolean;
 }
 
 export const SYNC_INTERVALS_MINUTES = [1, 5, 15, 30, 60] as const;
@@ -241,6 +245,8 @@ export interface SyncDeviceView extends DeviceInfo {
 export interface SyncOptions {
   intervalMinutes?: number;
   syncServiceUrls?: boolean;
+  syncWorkflows?: boolean;
+  syncSiteMemory?: boolean;
 }
 
 export interface EngineInfo {

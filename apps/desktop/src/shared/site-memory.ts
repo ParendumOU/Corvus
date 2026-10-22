@@ -16,6 +16,11 @@
  *
  * SIZE: each host entry is compacted to MAX_ENTRY_BYTES; the store keeps MAX_HOSTS (LRU). Items
  * decay with age and are dropped when their targets keep failing.
+ *
+ * SYNC: counters can carry a per-device breakdown (`by`, keyed by a replica id) so devices can
+ * merge memory without counting the same run twice (see site-memory-sync.ts). The aggregate
+ * fields (ok, fail, last, runs, fails, firstSeen, lastSeen) stay what every reader uses; when `by`
+ * is present they are its sum / maximum.
  */
 import type { CapturedAction } from "./workflow";
 import { fenceData, hostKey } from "./workflow";
@@ -31,6 +36,11 @@ export type MemoryIntent =
   | "submit"
   | "other";
 
+/** One device's share of an item's counters: [ok, fail, last seen]. */
+export type ItemCounts = [ok: number, fail: number, last: number];
+/** One device's share of a host's counters: [successful runs, failed runs, first seen, last seen]. */
+export type HostCounts = [runs: number, fails: number, first: number, last: number];
+
 export interface MemoryTarget {
   intent: MemoryIntent;
   act: "click" | "type";
@@ -39,6 +49,8 @@ export interface MemoryTarget {
   ok: number;
   fail: number;
   last: number;
+  /** Per-device counters (replica id -> counts); ok/fail/last are their sum and max. */
+  by?: Record<string, ItemCounts>;
 }
 
 export interface MemoryUrl {
@@ -48,6 +60,7 @@ export interface MemoryUrl {
   pattern: string;
   ok: number;
   last: number;
+  by?: Record<string, ItemCounts>;
 }
 
 export interface MemoryObstacle {
@@ -55,12 +68,14 @@ export interface MemoryObstacle {
   how: string;
   ok: number;
   last: number;
+  by?: Record<string, ItemCounts>;
 }
 
 export interface MemorySequence {
   steps: MemoryIntent[];
   ok: number;
   last: number;
+  by?: Record<string, ItemCounts>;
 }
 
 export interface SiteMemoryEntry {
@@ -75,6 +90,8 @@ export interface SiteMemoryEntry {
   urls: MemoryUrl[];
   obstacles: MemoryObstacle[];
   sequences: MemorySequence[];
+  /** Per-device run counters (replica id -> counts); runs/fails/firstSeen/lastSeen derive from them. */
+  by?: Record<string, HostCounts>;
 }
 
 export type MemoryHintKind = "target" | "url" | "obstacle" | "sequence";
@@ -92,10 +109,10 @@ const LIST_CAPS = { targets: 24, urls: 12, obstacles: 6, sequences: 4 } as const
 
 // ------------------------------------------------------------------ privacy filters
 
-const SAFE_ROLES = new Set(["button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio", "menuitem", "tab", "option", "switch", "spinbutton"]);
+export const SAFE_ROLES: ReadonlySet<string> = new Set(["button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio", "menuitem", "tab", "option", "switch", "spinbutton"]);
 
 /** Fields whose identity alone is sensitive (passwords, one-time codes, cards): skipped entirely. */
-const SENSITIVE_FIELD =
+export const SENSITIVE_FIELD =
   /\b(passwords?|passcodes?|passphrases?|pass|contraseñas?|otp|one[-\s]?time|verification|2fa|two[-\s]?factor|totp|authenticator|cvv|cvc|card number|credit card|debit card|card|tarjeta|pin|security code|ssn|iban)\b/i;
 
 /** Query keys that may carry personal or secret values: dropped from URL patterns. */
@@ -295,8 +312,17 @@ function itemScore(i: { ok: number; last: number }, now: number): number {
 }
 
 export function entryBytes(entry: SiteMemoryEntry): number {
-  // Hosts and names are short ASCII/UTF-8; the JSON length is a close enough byte measure.
-  return new TextEncoder().encode(JSON.stringify(entry)).length;
+  // Hosts and names are short ASCII/UTF-8; the JSON length is a close enough byte measure. The
+  // per-device breakdown is bookkeeping for sync, not knowledge, so it does not count.
+  return new TextEncoder().encode(JSON.stringify(entry, (key, value: unknown) => (key === "by" ? undefined : value))).length;
+}
+
+/** Best first; equal scores fall back to the item key so every device keeps the same items. */
+function ranked<T>(list: T[], score: (item: T) => number, key: (item: T) => string): T[] {
+  return list
+    .map((item) => ({ item, score: score(item), key: key(item) }))
+    .sort((a, b) => b.score - a.score || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map((r) => r.item);
 }
 
 /** Drop stale and failing items, cap each list, then shrink until the entry fits MAX_ENTRY_BYTES. */
@@ -304,13 +330,14 @@ export function compactEntry(entry: SiteMemoryEntry, now: number, maxBytes = MAX
   const fresh = <T extends { last: number }>(list: T[]): T[] => list.filter((i) => now - i.last <= MAX_ITEM_AGE_MS);
   const e: SiteMemoryEntry = {
     ...entry,
-    targets: fresh(entry.targets)
-      .filter((t) => t.fail < t.ok + 2)
-      .sort((a, b) => targetScore(b, now) - targetScore(a, now))
-      .slice(0, LIST_CAPS.targets),
-    urls: fresh(entry.urls).sort((a, b) => itemScore(b, now) - itemScore(a, now)).slice(0, LIST_CAPS.urls),
-    obstacles: fresh(entry.obstacles).sort((a, b) => itemScore(b, now) - itemScore(a, now)).slice(0, LIST_CAPS.obstacles),
-    sequences: fresh(entry.sequences).sort((a, b) => itemScore(b, now) - itemScore(a, now)).slice(0, LIST_CAPS.sequences),
+    targets: ranked(
+      fresh(entry.targets).filter((t) => t.fail < t.ok + 2),
+      (t) => targetScore(t, now),
+      (t) => hintKey("target", t),
+    ).slice(0, LIST_CAPS.targets),
+    urls: ranked(fresh(entry.urls), (u) => itemScore(u, now), (u) => hintKey("url", u)).slice(0, LIST_CAPS.urls),
+    obstacles: ranked(fresh(entry.obstacles), (o) => itemScore(o, now), (o) => hintKey("obstacle", o)).slice(0, LIST_CAPS.obstacles),
+    sequences: ranked(fresh(entry.sequences), (q) => itemScore(q, now), (q) => hintKey("sequence", q)).slice(0, LIST_CAPS.sequences),
   };
   while (entryBytes(e) > maxBytes) {
     // Remove the single weakest item across lists (lists are sorted best-first, so check the tails).
@@ -323,54 +350,133 @@ export function compactEntry(entry: SiteMemoryEntry, now: number, maxBytes = MAX
     tails.sort((a, b) => a.score - b.score);
     tails[0]!.list.pop();
   }
+  // Which items stay is decided above with a fixed tie-break; among equal scores the kept items
+  // keep the order they were learned in (the prompt reads them in that order).
+  const inOrder = <T>(kept: T[], input: T[], score: (i: T) => number): T[] => {
+    const index = new Map(input.map((item, i) => [item, i]));
+    return [...kept].sort((a, b) => score(b) - score(a) || index.get(a)! - index.get(b)!);
+  };
+  e.targets = inOrder(e.targets, entry.targets, (t) => targetScore(t, now));
+  e.urls = inOrder(e.urls, entry.urls, (u) => itemScore(u, now));
+  e.obstacles = inOrder(e.obstacles, entry.obstacles, (o) => itemScore(o, now));
+  e.sequences = inOrder(e.sequences, entry.sequences, (q) => itemScore(q, now));
   return e;
 }
 
-/** Merge one run's lessons for a host into its entry. Only a successful run adds knowledge. */
-export function mergeLessons(existing: SiteMemoryEntry | undefined, lessons: HostLessons, runOk: boolean, now: number): SiteMemoryEntry {
-  const e: SiteMemoryEntry = existing
-    ? { ...existing, targets: existing.targets.map((t) => ({ ...t })), urls: existing.urls.map((u) => ({ ...u })), obstacles: existing.obstacles.map((o) => ({ ...o })), sequences: existing.sequences.map((s) => ({ ...s, steps: [...s.steps] })) }
-    : emptyEntry(lessons.host, now);
-  e.lastSeen = now;
+const copyBy = <T extends unknown[]>(by: Record<string, T> | undefined): Record<string, T> | undefined =>
+  by ? Object.fromEntries(Object.entries(by).map(([k, v]) => [k, [...v] as T])) : undefined;
+
+function cloneEntry(e: SiteMemoryEntry): SiteMemoryEntry {
+  const item = <T extends { by?: Record<string, ItemCounts> }>(i: T): T => {
+    const by = copyBy(i.by);
+    return by ? { ...i, by } : { ...i };
+  };
+  const by = copyBy(e.by);
+  return {
+    ...e,
+    targets: e.targets.map(item),
+    urls: e.urls.map(item),
+    obstacles: e.obstacles.map(item),
+    sequences: e.sequences.map((q) => ({ ...item(q), steps: [...q.steps] })),
+    ...(by ? { by } : {}),
+  };
+}
+
+/**
+ * Count `ok` / `fail` for an item. With a replica id the device's own slot moves too (counts the
+ * entry had before any breakdown existed are attributed to this device first), and the aggregate
+ * is re-derived from the slots. Like the aggregate, a slot's `last` only moves on success.
+ */
+function bumpItem(item: { ok: number; fail?: number; last: number; by?: Record<string, ItemCounts> }, ok: number, fail: number, now: number, replica?: string): void {
+  if (!replica) {
+    item.ok += ok;
+    if (fail && item.fail !== undefined) item.fail += fail;
+    if (ok) item.last = now;
+    return;
+  }
+  const by = (item.by ??= { [replica]: [item.ok, item.fail ?? 0, item.last] });
+  const own = (by[replica] ??= [0, 0, item.last]);
+  own[0] += ok;
+  own[1] += fail;
+  if (ok) own[2] = Math.max(own[2], now);
+  settleItem(item);
+}
+
+/** Re-derive an item's aggregate counters from its per-device slots. */
+export function settleItem(item: { ok: number; fail?: number; last: number; by?: Record<string, ItemCounts> }): void {
+  if (!item.by) return;
+  const slots = Object.values(item.by);
+  item.ok = slots.reduce((a, c) => a + c[0], 0);
+  if (item.fail !== undefined) item.fail = slots.reduce((a, c) => a + c[1], 0);
+  item.last = slots.reduce((a, c) => Math.max(a, c[2]), 0);
+}
+
+/** Re-derive a host's runs / fails / firstSeen / lastSeen from its per-device slots. */
+export function settleHost(e: SiteMemoryEntry): void {
+  if (!e.by) return;
+  const slots = Object.values(e.by);
+  if (slots.length === 0) return;
+  e.runs = slots.reduce((a, c) => a + c[0], 0);
+  e.fails = slots.reduce((a, c) => a + c[1], 0);
+  e.firstSeen = Math.min(...slots.map((c) => c[2]));
+  e.lastSeen = Math.max(...slots.map((c) => c[3]));
+}
+
+function bumpHost(e: SiteMemoryEntry, runOk: boolean, now: number, replica?: string): void {
+  if (!replica) {
+    if (runOk) e.runs += 1;
+    else e.fails += 1;
+    e.lastSeen = now;
+    return;
+  }
+  const by = (e.by ??= e.runs + e.fails > 0 ? { [replica]: [e.runs, e.fails, e.firstSeen, e.lastSeen] } : {});
+  const own = (by[replica] ??= [0, 0, now, now]);
+  if (runOk) own[0] += 1;
+  else own[1] += 1;
+  own[2] = Math.min(own[2], now);
+  own[3] = Math.max(own[3], now);
+  settleHost(e);
+}
+
+/**
+ * Merge one run's lessons for a host into its entry. Only a successful run adds knowledge. With
+ * a replica id (the store always passes one) this device's per-device counters move as well.
+ */
+export function mergeLessons(existing: SiteMemoryEntry | undefined, lessons: HostLessons, runOk: boolean, now: number, replica?: string): SiteMemoryEntry {
+  const e: SiteMemoryEntry = existing ? cloneEntry(existing) : emptyEntry(lessons.host, now);
+  bumpHost(e, runOk, now, replica);
   if (runOk) {
-    e.runs += 1;
     for (const t of lessons.targets) {
       const hit = e.targets.find((x) => x.intent === t.intent && x.act === t.act && x.role === t.role && x.name === t.name);
-      if (hit) {
-        hit.ok += 1;
-        hit.last = now;
-      } else e.targets.push({ ...t, ok: 1, fail: 0, last: now });
+      if (hit) bumpItem(hit, 1, 0, now, replica);
+      else e.targets.push({ ...t, ok: 1, fail: 0, last: now, ...(replica ? { by: { [replica]: [1, 0, now] as ItemCounts } } : {}) });
     }
     for (const u of lessons.urls) {
       const hit = e.urls.find((x) => x.label === u.label && x.pattern === u.pattern);
-      if (hit) {
-        hit.ok += 1;
-        hit.last = now;
-      } else e.urls.push({ ...u, ok: 1, last: now });
+      if (hit) bumpItem(hit, 1, 0, now, replica);
+      else e.urls.push({ ...u, ok: 1, last: now, ...(replica ? { by: { [replica]: [1, 0, now] as ItemCounts } } : {}) });
     }
     for (const o of lessons.obstacles) {
       const hit = e.obstacles.find((x) => x.kind === o.kind && x.how === o.how);
-      if (hit) {
-        hit.ok += 1;
-        hit.last = now;
-      } else e.obstacles.push({ ...o, ok: 1, last: now });
+      if (hit) bumpItem(hit, 1, 0, now, replica);
+      else e.obstacles.push({ ...o, ok: 1, last: now, ...(replica ? { by: { [replica]: [1, 0, now] as ItemCounts } } : {}) });
     }
     if (lessons.sequence.length >= 2) {
       const sig = lessons.sequence.join(">");
       const hit = e.sequences.find((s) => s.steps.join(">") === sig);
-      if (hit) {
-        hit.ok += 1;
-        hit.last = now;
-      } else e.sequences.push({ steps: [...lessons.sequence], ok: 1, last: now });
+      if (hit) bumpItem(hit, 1, 0, now, replica);
+      else e.sequences.push({ steps: [...lessons.sequence], ok: 1, last: now, ...(replica ? { by: { [replica]: [1, 0, now] as ItemCounts } } : {}) });
     }
-  } else {
-    e.fails += 1;
   }
   for (const f of lessons.failures) {
-    for (const t of e.targets) if (t.role === f.role && t.name === f.name) t.fail += 1;
+    for (const t of e.targets) if (t.role === f.role && t.name === f.name) bumpItem(t, 0, 1, now, replica);
   }
-  // An obstacle whose button keeps failing goes with it.
-  e.obstacles = e.obstacles.filter((o) => !e.targets.some((t) => o.how === `click ${t.role} "${t.name}"` && t.fail >= t.ok + 2));
+  return tidyEntry(e, now);
+}
+
+/** The decay rules: an obstacle whose button keeps failing goes with it, then compaction. */
+export function tidyEntry(entry: SiteMemoryEntry, now: number): SiteMemoryEntry {
+  const e = { ...entry, obstacles: entry.obstacles.filter((o) => !entry.targets.some((t) => o.how === `click ${t.role} "${t.name}"` && t.fail >= t.ok + 2)) };
   return compactEntry(e, now);
 }
 
@@ -380,8 +486,8 @@ export function evictHosts(entries: readonly SiteMemoryEntry[], max = MAX_HOSTS)
 }
 
 /** A failed target seen outside a run (e.g. a workflow step that broke) counts against memory. */
-export function noteTargetFailure(entry: SiteMemoryEntry, role: string, name: string, now: number): SiteMemoryEntry {
-  return mergeLessons(entry, { host: entry.host, targets: [], urls: [], obstacles: [], sequence: [], failures: [{ role, name }] }, false, now);
+export function noteTargetFailure(entry: SiteMemoryEntry, role: string, name: string, now: number, replica?: string): SiteMemoryEntry {
+  return mergeLessons(entry, { host: entry.host, targets: [], urls: [], obstacles: [], sequence: [], failures: [{ role, name }] }, false, now, replica);
 }
 
 // ------------------------------------------------------------------ editing
@@ -421,9 +527,35 @@ export function hintCount(entry: SiteMemoryEntry): number {
 
 // ------------------------------------------------------------------ revive
 
-const INTENTS: readonly MemoryIntent[] = ["accept_cookies", "close_dialog", "search", "add_to_cart", "checkout", "login", "next_page", "submit", "other"];
+export const INTENTS: readonly MemoryIntent[] = ["accept_cookies", "close_dialog", "search", "add_to_cart", "checkout", "login", "next_page", "submit", "other"];
 const n0 = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
 const s = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
+
+/** Replica ids are short random lowercase hex/alphanumerics (see main/replica-id.ts). */
+export const REPLICA_RE = /^[a-z0-9]{6,32}$/;
+/** Most per-device slots kept on one item (far more than anyone's devices). */
+export const MAX_SLOTS = 32;
+
+/** Validate a per-device counter map; tuples of `size` non-negative integers. Undefined when absent or empty. */
+export function reviveSlots<T extends number[]>(raw: unknown, size: number): Record<string, T> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, T> = {};
+  let count = 0;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!REPLICA_RE.test(key) || !Array.isArray(value) || value.length !== size) continue;
+    out[key] = value.map(n0) as T;
+    if (++count >= MAX_SLOTS) break;
+  }
+  return count > 0 ? out : undefined;
+}
+
+function withSlots<T extends { ok: number; fail?: number; last: number; by?: Record<string, ItemCounts> }>(item: T, raw: unknown): T {
+  const by = reviveSlots<ItemCounts>(raw, 3);
+  if (!by) return item;
+  const out = { ...item, by };
+  settleItem(out);
+  return out;
+}
 
 export function reviveEntry(raw: unknown, now: number): SiteMemoryEntry | null {
   const r = raw as Partial<SiteMemoryEntry> | null;
@@ -439,23 +571,28 @@ export function reviveEntry(raw: unknown, now: number): SiteMemoryEntry | null {
       const t = x as Partial<MemoryTarget>;
       const name = safeName(s(t.name, MAX_NAME_CHARS));
       if (!name || !SAFE_ROLES.has(s(t.role, 40)) || (t.act !== "click" && t.act !== "type")) return [];
-      return [{ intent: INTENTS.includes(t.intent as MemoryIntent) ? (t.intent as MemoryIntent) : "other", act: t.act, role: s(t.role, 40), name, ok: n0(t.ok), fail: n0(t.fail), last: n0(t.last) || now }];
+      return [withSlots({ intent: INTENTS.includes(t.intent as MemoryIntent) ? (t.intent as MemoryIntent) : "other", act: t.act, role: s(t.role, 40), name, ok: n0(t.ok), fail: n0(t.fail), last: n0(t.last) || now }, t.by)];
     }),
     urls: arr(r.urls).flatMap((x) => {
       const u = x as Partial<MemoryUrl>;
       const pattern = s(u.pattern, 200);
-      return pattern.startsWith("/") ? [{ label: s(u.label, 40) || "page", pattern, ok: n0(u.ok), last: n0(u.last) || now }] : [];
+      return pattern.startsWith("/") ? [withSlots({ label: s(u.label, 40) || "page", pattern, ok: n0(u.ok), last: n0(u.last) || now }, u.by)] : [];
     }),
     obstacles: arr(r.obstacles).flatMap((x) => {
       const o = x as Partial<MemoryObstacle>;
-      return o.kind && o.how ? [{ kind: s(o.kind, 40), how: s(o.how, 120), ok: n0(o.ok), last: n0(o.last) || now }] : [];
+      return o.kind && o.how ? [withSlots({ kind: s(o.kind, 40), how: s(o.how, 120), ok: n0(o.ok), last: n0(o.last) || now }, o.by)] : [];
     }),
     sequences: arr(r.sequences).flatMap((x) => {
       const q = x as Partial<MemorySequence>;
       const steps = Array.isArray(q.steps) ? q.steps.filter((i): i is MemoryIntent => INTENTS.includes(i as MemoryIntent)).slice(0, 12) : [];
-      return steps.length >= 2 ? [{ steps, ok: n0(q.ok), last: n0(q.last) || now }] : [];
+      return steps.length >= 2 ? [withSlots({ steps, ok: n0(q.ok), last: n0(q.last) || now }, q.by)] : [];
     }),
   };
+  const by = reviveSlots<HostCounts>(r.by, 4);
+  if (by) {
+    e.by = by;
+    settleHost(e);
+  }
   return compactEntry(e, now);
 }
 

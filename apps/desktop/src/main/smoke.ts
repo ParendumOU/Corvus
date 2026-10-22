@@ -16,6 +16,7 @@ import { runSplitSmoke } from "./smoke-split";
 import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
+import { runSyncLearnedSmoke } from "./smoke-sync-learned";
 import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runPdfSmoke } from "./smoke-pdf";
@@ -275,6 +276,7 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
 
   const listed = await ctx.sync.devices(profile);
   check("sync devices", listed.length === 2 && listed[0]?.current === true && listed[1]?.name === "Smoke phone", listed);
+  await runSyncLearnedSmoke(ctx, { profile, phone, win, check });
 
   const history = win.createTab("corvus://history");
   const shown = await waitForText(history.view.webContents, ".remote-tabs", "Remote tab");

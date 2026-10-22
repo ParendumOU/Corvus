@@ -248,7 +248,8 @@ function LearnedSites({ api, onError }: { api: Api; onError: (e: string | null) 
               After each successful agent run, Corvus keeps a few small hints per site: which buttons and fields worked, URL shapes with the
               values removed, obstacles such as cookie banners, and the usual order of steps. A new task on that site gets the top hints (about
               300 tokens), marked as data, so it needs fewer steps. A saved workflow for the site always comes first. Never typed values,
-              passwords or codes; at most 2 KB per site; stored only on this device.
+              passwords or codes; at most 2 KB per site. With sync on, it syncs end to end to your other devices (Settings, Sync, Site
+              memory), and forgetting here forgets there too.
             </p>
           </div>
           <div className="mem-head-ctrl">

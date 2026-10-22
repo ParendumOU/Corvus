@@ -14,6 +14,8 @@ import { isReadingItem, type ReadingItem } from "../shared/reading";
 import { parseDeviceTabs, type DeviceTabs } from "../shared/open-tabs";
 import type { Settings, SettingsPatch } from "../shared/settings";
 import type { Workspace } from "../shared/workspaces";
+import { WIPE_RECORD_ID, parseSiteMemoryWipe, parseSyncedSiteMemory, type SiteMemoryWipe, type SyncedSiteMemory } from "../shared/site-memory-sync";
+import { parseSyncedWorkflow, type SyncedWorkflow } from "../shared/workflow-sync";
 import { readSetting, settingsPatch, syncedSettingKeys, type SyncedSettingKey } from "../shared/sync-settings";
 import { JsonFile } from "./json-file";
 import type { BookmarkStore, HistoryStore } from "./stores";
@@ -189,6 +191,65 @@ export function annotationsAdapter(store: AnnotationSyncStore): SyncAdapter<Anno
   };
 }
 
+export interface WorkflowSyncStore {
+  syncList(): SyncedWorkflow[];
+  applyRemote(changes: ReadonlyArray<{ id: string; record: SyncedWorkflow | null }>): void;
+  resetSyncMarkers(): void;
+}
+
+/**
+ * Saved workflows, keyed by their stable id. Records merge (last writer wins by updatedAt, usage
+ * per device) instead of replacing; deletions travel as dated records (shared/workflow-sync.ts).
+ */
+export function workflowsAdapter(store: WorkflowSyncStore): SyncAdapter<SyncedWorkflow> {
+  return {
+    list: () => store.syncList().map((w) => ({ id: w.id, payload: w })),
+    apply: (items) => {
+      const changes: Array<{ id: string; record: SyncedWorkflow | null }> = [];
+      for (const item of items) {
+        if (item.deleted) changes.push({ id: item.id, record: null });
+        else {
+          const record = parseSyncedWorkflow(item.payload, item.id);
+          if (record) changes.push({ id: item.id, record });
+        }
+      }
+      store.applyRemote(changes);
+    },
+    join: () => store.resetSyncMarkers(),
+  };
+}
+
+export interface SiteMemorySyncStore {
+  syncList(): Array<{ id: string; payload: SyncedSiteMemory | SiteMemoryWipe }>;
+  applyRemote(changes: ReadonlyArray<{ id: string; record: SyncedSiteMemory | SiteMemoryWipe | null }>): void;
+  resetSyncMarkers(): void;
+}
+
+/**
+ * Site memory, one record per host plus the "Forget everything" marker. Records merge (see
+ * shared/site-memory-sync.ts). A host this device evicts under its 200-host cap is only dropped
+ * here (`retain`): eviction is never pushed as a deletion.
+ */
+export function siteMemoryAdapter(store: SiteMemorySyncStore): SyncAdapter<SyncedSiteMemory | SiteMemoryWipe> {
+  return {
+    list: () => store.syncList(),
+    apply: (items) => {
+      const changes: Array<{ id: string; record: SyncedSiteMemory | SiteMemoryWipe | null }> = [];
+      for (const item of items) {
+        if (item.deleted) {
+          changes.push({ id: item.id, record: null });
+          continue;
+        }
+        const record = item.id === WIPE_RECORD_ID ? parseSiteMemoryWipe(item.payload) : parseSyncedSiteMemory(item.payload, item.id);
+        if (record) changes.push({ id: item.id, record });
+      }
+      store.applyRemote(changes);
+    },
+    join: () => store.resetSyncMarkers(),
+    retain: () => true,
+  };
+}
+
 export function settingsAdapter(settings: SettingsAccess, includeServiceUrls: () => boolean): SyncAdapter<{ v: unknown }> {
   return {
     list: () => {
@@ -345,6 +406,10 @@ export interface SyncSources {
   watches: WatchSyncStore;
   workspaces: WorkspaceSyncStore;
   annotations: AnnotationSyncStore;
+  /** Saved workflows; left out when the user turned sync of workflows off on this device. */
+  workflows?: WorkflowSyncStore;
+  /** Site memory; left out when the user turned sync of site memory off on this device. */
+  siteMemory?: SiteMemorySyncStore;
   settings: SettingsAccess;
   /** User opt-in to also sync machine-specific service URLs (SearXNG). */
   includeServiceUrls: () => boolean;
@@ -364,6 +429,8 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
     watches: watchesAdapter(src.watches),
     workspaces: workspacesAdapter(src.workspaces),
     annotations: annotationsAdapter(src.annotations),
+    ...(src.workflows ? { workflows: workflowsAdapter(src.workflows) } : {}),
+    ...(src.siteMemory ? { site_memory: siteMemoryAdapter(src.siteMemory) } : {}),
     settings: settingsAdapter(src.settings, src.includeServiceUrls),
     profiles: profileAdapter(src.profile),
     open_tabs: deviceRecordsAdapter({

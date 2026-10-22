@@ -45,6 +45,21 @@ export interface CorvusSyncClient extends SyncClient {
   pullPages(onPage: (items: SyncItem[]) => Promise<void> | void): Promise<number>;
   /** Forget cursor and known record versions (next pull starts from scratch). Keeps the device id. */
   resetLocalState(): Promise<void>;
+  /** Persisted pull cursor; 0 means this device has not pulled anything from the chain yet. */
+  cursor(): Promise<number>;
+  /**
+   * Collections the server rejected as unknown (an older server). They are left out of pushes and
+   * collection pulls for the rest of this client's life; a restart tries again.
+   */
+  unsupported(): ReadonlySet<SyncCollection>;
+  /** Forget the known record versions of one collection, so its next pull re-delivers every record. */
+  forgetCollection(collection: SyncCollection): Promise<void>;
+  /**
+   * Pull every record of one collection from the start (server-side filter), without moving the
+   * main cursor. Used when a collection joins an existing chain on this device. At-least-once like
+   * pullPages. Resolves to 0 without throwing when the server does not know the collection.
+   */
+  pullCollection(collection: SyncCollection, onPage: (items: SyncItem[]) => Promise<void> | void): Promise<number>;
 }
 
 /** [version, deviceId] of the newest revision this device knows for a record. */
@@ -52,6 +67,21 @@ type KnownVersion = [number, string];
 
 const MAX_BATCH_RECORDS = 500;
 const MAX_BATCH_BYTES = 1_500_000;
+
+/**
+ * The collection an older server refused in a push batch. Its zod validation answers 400
+ * `invalid_request` with the path of the first bad field, e.g. `records.3.collection: Invalid enum`.
+ */
+function rejectedCollection(err: unknown, batch: readonly EncryptedRecord[]): SyncCollection | null {
+  if (!(err instanceof SyncError) || err.status !== 400 || err.code !== "invalid_request") return null;
+  const match = /^records\.(\d+)\.collection\b/.exec(err.message);
+  return match ? (batch[Number(match[1])]?.collection ?? null) : null;
+}
+
+/** A pull filtered by a collection the server does not know (`collection: Invalid enum ...`). */
+function rejectedCollectionFilter(err: unknown): boolean {
+  return err instanceof SyncError && err.status === 400 && err.code === "invalid_request" && /^collection\b/.test(err.message);
+}
 
 /** LWW order: higher version wins; equal versions fall back to the higher deviceId. */
 export function isNewer(version: number, deviceId: string, than: KnownVersion | undefined): boolean {
@@ -68,6 +98,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
 
   let deviceIdPromise: Promise<string> | undefined;
   const versionCache = new Map<SyncCollection, Map<string, KnownVersion>>();
+  const unsupported = new Set<SyncCollection>();
 
   function getDeviceId(): Promise<string> {
     deviceIdPromise ??= (async () => {
@@ -139,6 +170,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     const deviceId = await getDeviceId();
     const pending = new Map<string, EncryptedRecord>();
     for (const item of items) {
+      if (unsupported.has(item.collection)) continue;
       const id = recordIdFor(keys, item.collection, item.id);
       const known = (await versions(item.collection)).get(id);
       pending.set(
@@ -155,8 +187,22 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     }
 
     const conflicts: SyncItem[] = [];
-    for (const batch of batches([...pending.values()])) {
-      const res = await request<SyncPushResponse>("POST", `${chainPath}/records`, { records: batch });
+    for (let batch of batches([...pending.values()])) {
+      let res: SyncPushResponse | undefined;
+      // An older server rejects a whole batch over one collection it does not know: leave that
+      // collection out (the caller sees it in unsupported()) and send the rest.
+      while (!res) {
+        batch = batch.filter((r) => !unsupported.has(r.collection));
+        if (batch.length === 0) break;
+        try {
+          res = await request<SyncPushResponse>("POST", `${chainPath}/records`, { records: batch });
+        } catch (err) {
+          const rejected = rejectedCollection(err, batch);
+          if (!rejected || unsupported.has(rejected)) throw err;
+          unsupported.add(rejected);
+        }
+      }
+      if (!res) continue;
       const byId = new Map(batch.map((r) => [r.id, r]));
       for (const id of res.accepted) {
         const rec = byId.get(id);
@@ -194,6 +240,40 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     }
   }
 
+  async function pullCollection(collection: SyncCollection, onPage: (items: SyncItem[]) => Promise<void> | void): Promise<number> {
+    if (unsupported.has(collection)) return 0;
+    let since = 0;
+    let delivered = 0;
+    for (;;) {
+      let res: SyncPullResponse;
+      try {
+        res = await request<SyncPullResponse>("GET", `${chainPath}/records?since=${since}&collection=${collection}`);
+      } catch (err) {
+        if (!rejectedCollectionFilter(err)) throw err;
+        unsupported.add(collection);
+        return delivered;
+      }
+      const map = await versions(collection);
+      const fresh: { record: EncryptedRecord; item: SyncItem }[] = [];
+      for (const record of res.records) {
+        if (record.collection !== collection || !isNewer(record.version, record.deviceId, map.get(record.id))) continue;
+        const item = tryDecrypt(record);
+        if (item) fresh.push({ record, item });
+      }
+      if (fresh.length > 0) await onPage(fresh.map((f) => f.item));
+      for (const { record } of fresh) map.set(record.id, [record.version, record.deviceId]);
+      if (fresh.length > 0) await saveVersions([collection]);
+      delivered += fresh.length;
+      since = res.cursor;
+      if (!res.hasMore) return delivered;
+    }
+  }
+
+  async function forgetCollection(collection: SyncCollection): Promise<void> {
+    versionCache.set(collection, new Map());
+    await opts.storage.set(storageKey(`versions/${collection}`), "{}");
+  }
+
   async function pull(): Promise<SyncItem[]> {
     const latest = new Map<string, SyncItem>();
     await pullPages((items) => {
@@ -215,7 +295,13 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     push,
     pull,
     pullPages,
+    pullCollection,
+    forgetCollection,
     resetLocalState,
+    async cursor(): Promise<number> {
+      return Number((await opts.storage.get(storageKey("cursor"))) ?? 0) || 0;
+    },
+    unsupported: () => unsupported,
     async renameDevice(name: string): Promise<void> {
       const deviceId = await getDeviceId();
       const device: SyncRegisterDeviceRequest = { id: deviceId, name, platform: opts.platform };

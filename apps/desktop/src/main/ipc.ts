@@ -447,6 +447,8 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       return ctx.sync.setOptions(c.profile, {
         ...(typeof o.intervalMinutes === "number" ? { intervalMinutes: o.intervalMinutes } : {}),
         ...(typeof o.syncServiceUrls === "boolean" ? { syncServiceUrls: o.syncServiceUrls } : {}),
+        ...(typeof o.syncWorkflows === "boolean" ? { syncWorkflows: o.syncWorkflows } : {}),
+        ...(typeof o.syncSiteMemory === "boolean" ? { syncSiteMemory: o.syncSiteMemory } : {}),
       });
     },
     "sync.devices": (c) => ctx.sync.devices(c.profile),

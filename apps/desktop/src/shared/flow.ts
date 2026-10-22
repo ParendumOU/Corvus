@@ -87,7 +87,13 @@ export interface SavedFlow {
   /** Hosts it applies to (lowercase, no "www."); subdomains match too. */
   sites: string[];
   params: FlowParam[];
+  /** Totals over every device (when synced) or this device's own counters. */
   usage: FlowUsage;
+  /**
+   * Per-device counters once the workflow takes part in sync (replica id -> that device's usage);
+   * `usage` is then derived from them (shared/workflow-sync.ts). Absent on flows never synced.
+   */
+  usageBy?: Record<string, FlowUsage>;
 }
 
 export function emptyUsage(): FlowUsage {

@@ -75,6 +75,11 @@ export class SyncScheduler {
     return this.running;
   }
 
+  /** Resolves once no cycle is running (use after stop() to hand over cleanly). */
+  async idle(): Promise<void> {
+    while (this.running) await this.running.catch(() => undefined);
+  }
+
   stop(): void {
     this.stopped = true;
     if (this.debounce) clearTimeout(this.debounce);

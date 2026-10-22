@@ -14,6 +14,8 @@ export const SYNC_COLLECTIONS = [
   "watches",
   "workspaces",
   "annotations",
+  "workflows",
+  "site_memory",
 ] as const satisfies readonly SyncCollection[];
 
 // Compile-time guard: fails if a collection is added to @corvus/shared but not listed above.

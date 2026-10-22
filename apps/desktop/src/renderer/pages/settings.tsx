@@ -540,7 +540,7 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       </Row>
       <Row
         label="Learn from runs (site memory)"
-        hint="After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Stays on this device. See and forget them on the Workflows page."
+        hint="After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Learning is per device; what is learned syncs end to end when Site memory sync is on. See and forget them on the Workflows page."
       >
         <Toggle label="Learn from runs (site memory)" checked={agent.siteMemory} onChange={(v) => update({ agent: { siteMemory: v } })} />
       </Row>

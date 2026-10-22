@@ -24,6 +24,10 @@ interface ProfileSyncState {
   lastSyncAt: number | null;
   intervalMinutes: number;
   syncServiceUrls: boolean;
+  /** Sync saved workflows (per device, default on; off keeps local data). */
+  syncWorkflows: boolean;
+  /** Sync site memory (per device, default on; off keeps local data). */
+  syncSiteMemory: boolean;
   /** Client/engine state written by older versions; moved to sync-kv.json on first start. */
   kv?: Record<string, string>;
 }
@@ -78,7 +82,9 @@ function metaKey(profile: ProfileRuntime): string {
 
 /**
  * Per-profile, end-to-end encrypted sync through @corvus/sync-core's SyncEngine: bookmarks, history,
- * allowlisted settings, profile name/avatar, open tabs and installed extensions (see sync-adapters.ts).
+ * allowlisted settings, profile name/avatar, open tabs and installed extensions, reading list,
+ * watches, workspaces, annotations, and (unless turned off on this device) workflows and site
+ * memory (see sync-adapters.ts).
  * A sync chain belongs to exactly one profile. Crypto and the wire protocol live in sync-core.
  */
 export class SyncService {
@@ -164,6 +170,8 @@ export class SyncService {
         lastSyncAt: null,
         intervalMinutes: DEFAULT_INTERVAL_MINUTES,
         syncServiceUrls: false,
+        syncWorkflows: true,
+        syncSiteMemory: true,
       });
       file = JsonFile.load<ProfileSyncState>(
         path.join(profile.dataDir, "sync.json"),
@@ -244,6 +252,9 @@ export class SyncService {
     tabs.refresh();
 
     const seen = { extensionIds: extensionIdsKey(profile), meta: metaKey(profile) };
+    // Workflows and site memory are categories the user can leave out on this device.
+    const flows = file.get().syncWorkflows ? this.ctx.flows?.storeFor(profile) : undefined;
+    const memory = file.get().syncSiteMemory ? this.ctx.flows?.memory.storeFor(profile) : undefined;
     const published = { key: "", extensions: [] as SyncedExtension[] };
     const engine = new mod.SyncEngine({
       client,
@@ -256,6 +267,8 @@ export class SyncService {
         watches: this.ctx.monitor.storeFor(profile),
         workspaces: profile.workspaces,
         annotations: profile.annotations,
+        ...(flows ? { workflows: flows } : {}),
+        ...(memory ? { siteMemory: memory } : {}),
         settings: this.ctx.settings,
         includeServiceUrls: () => file.get().syncServiceUrls,
         profile: {
@@ -304,6 +317,8 @@ export class SyncService {
         profile.workspaces.onChange(() => scheduler.poke()),
         profile.annotations.onChange(() => scheduler.poke()),
         this.ctx.monitor.storeFor(profile).onChange(() => scheduler.poke()),
+        ...(flows ? [flows.onChange(() => scheduler.poke())] : []),
+        ...(memory ? [memory.onChange(() => scheduler.poke())] : []),
       ],
     };
     this.runtimes.set(id, rt);
@@ -331,6 +346,8 @@ export class SyncService {
       profile.workspaces.flush();
       profile.annotations.flush();
       this.ctx.monitor.storeFor(profile).flush();
+      this.ctx.flows?.storeFor(profile).flush();
+      this.ctx.flows?.memory.storeFor(profile).flush();
       await engine.sync();
       file.update((s) => ({ ...s, lastSyncAt: Date.now() }));
       this.errors.delete(id);
@@ -364,6 +381,8 @@ export class SyncService {
       syncing: rt?.scheduler.busy ?? false,
       intervalMinutes: s.intervalMinutes,
       syncServiceUrls: s.syncServiceUrls,
+      syncWorkflows: s.syncWorkflows,
+      syncSiteMemory: s.syncSiteMemory,
     };
   }
 
@@ -461,8 +480,20 @@ export class SyncService {
         ? opts.intervalMinutes
         : s.intervalMinutes;
     const syncServiceUrls = opts.syncServiceUrls ?? s.syncServiceUrls;
-    this.state(profile).update((st) => ({ ...st, intervalMinutes, syncServiceUrls }));
+    const syncWorkflows = opts.syncWorkflows ?? s.syncWorkflows;
+    const syncSiteMemory = opts.syncSiteMemory ?? s.syncSiteMemory;
+    this.state(profile).update((st) => ({ ...st, intervalMinutes, syncServiceUrls, syncWorkflows, syncSiteMemory }));
     const rt = this.runtimes.get(profile.profile.id);
+    if (rt && (syncWorkflows !== s.syncWorkflows || syncSiteMemory !== s.syncSiteMemory)) {
+      // The engine's collections are fixed when it is built: rebuild it. A category turned off
+      // forgets what it synced (local data stays); turned on, it joins with a full merge. A cycle
+      // already running finishes first, so two engines never share the state.
+      rt.scheduler.stop();
+      await rt.scheduler.idle();
+      this.dispose(profile.profile.id);
+      (await this.active(profile)).scheduler.poke();
+      return this.status(profile);
+    }
     if (rt && intervalMinutes !== s.intervalMinutes) rt.scheduler.setIntervalMs(intervalMinutes * 60_000);
     if (rt && syncServiceUrls !== s.syncServiceUrls) rt.scheduler.poke();
     return this.status(profile);

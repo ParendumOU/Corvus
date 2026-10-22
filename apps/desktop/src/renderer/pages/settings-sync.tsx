@@ -352,9 +352,21 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       </Row>
       <Row
         label="What syncs"
-        hint="Bookmarks, history, open tabs, the list of Web Store extensions, your reading list, watched pages and saved workspaces, this profile's name and color, appearance and AI search preferences. Never API keys, the MCP token or MCP settings."
+        hint="Bookmarks, history, open tabs, the list of Web Store extensions, your reading list, watched pages, saved workspaces and annotations, this profile's name and color, appearance and AI search preferences, plus the categories below. Never API keys, the MCP token or MCP settings."
       >
         <span />
+      </Row>
+      <Row
+        label="Workflows"
+        hint="Saved workflows, recorded or saved from agent runs, with their run counts. Secrets are never part of a workflow. Off: this device keeps its workflows but stops syncing them."
+      >
+        <Toggle label="Sync workflows" checked={status.syncWorkflows} onChange={(v) => act(api.call("sync.setOptions", { syncWorkflows: v }))} />
+      </Row>
+      <Row
+        label="Site memory"
+        hint="What Corvus learned about sites from successful agent runs, and what you told it to forget. Never typed values, passwords or codes. Whether this device learns stays its own switch. Off: this device keeps what it learned but stops syncing it."
+      >
+        <Toggle label="Sync site memory" checked={status.syncSiteMemory} onChange={(v) => act(api.call("sync.setOptions", { syncSiteMemory: v }))} />
       </Row>
       <Row label="Also sync the SearXNG URL" hint="Off by default because service URLs often point to this machine (localhost).">
         <Toggle label="Also sync the SearXNG URL" checked={status.syncServiceUrls} onChange={(v) => act(api.call("sync.setOptions", { syncServiceUrls: v }))} />

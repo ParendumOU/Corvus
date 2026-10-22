@@ -18,7 +18,9 @@ export type SyncCollection =
   | "reading"
   | "watches"
   | "workspaces"
-  | "annotations";
+  | "annotations"
+  | "workflows"
+  | "site_memory";
 
 export interface EncryptedRecord {
   id: string; // random, opaque

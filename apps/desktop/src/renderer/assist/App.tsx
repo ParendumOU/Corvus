@@ -615,7 +615,7 @@ function LearnedPane({ view, call }: { view: WorkflowsPaneView; call: (p: Promis
       <div className="wf-pane-head">
         <div>
           <h3>{view.host ? `Learned about ${view.host}` : "Learned about sites"}</h3>
-          <p className="muted small">Small hints from successful runs, so the agent needs fewer steps here. Local only.</p>
+          <p className="muted small">Small hints from successful runs, so the agent needs fewer steps here. Synced end to end when Site memory sync is on.</p>
         </div>
         <div className="mem-switch">
           <span>{mem.enabled ? "Learning" : "Off"}</span>

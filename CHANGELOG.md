@@ -7,8 +7,19 @@
   device still running Corvus 0.2.0, that device saves the login without its 2FA secret and sync
   removes the secret everywhere. Update all your devices before you add 2FA secrets, and avoid
   editing logins on 0.2.0 in the meantime.
+- **Self-hosted sync server**: update it as well to sync workflows and site memory. A 0.2.0 server
+  does not know them yet: Corvus then keeps them on each device and everything else keeps syncing.
+  Devices still on 0.2.0 simply ignore them, and pick them up when they update.
 
 ### Browser
+- **Workflows and site memory sync**: saved workflows (recorded or saved from agent runs) and what
+  Corvus learned about sites now sync end to end across your devices, each as its own category in
+  Settings > Sync (on by default, per device; turning one off keeps that device's data). Edits
+  follow the last change, run counts and learned hints add up across devices without counting
+  anything twice, and deleting a workflow, "Forget this hint", "Forget this site" and "Forget
+  everything" apply on every device, even one that comes back online with old data. Site memory
+  never carries typed values, passwords, codes or credential fields; whether a device learns stays
+  its own switch.
 - **2FA codes**: add a time-based (TOTP) 2FA secret to a saved login by pasting an `otpauth://`
   link, importing a QR code image (decoded on your device) or typing the base32 secret. The
   secret is stored in the end-to-end encrypted vault and synced. `corvus://passwords` shows the

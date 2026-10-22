@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildServer } from "../../../services/sync-server/src/app";
 import { AnnotationStore } from "../src/main/annotation-store";
 import { CredentialVault } from "../src/main/credential-store";
+import { FlowStore } from "../src/main/flow-store";
+import { SiteMemoryStore } from "../src/main/site-memory-store";
 import { ReadingStore } from "../src/main/reading-store";
 import { SettingsStore, type SecretCipher } from "../src/main/settings-store";
 import { BookmarkStore, HistoryStore } from "../src/main/stores";
@@ -18,6 +20,8 @@ import { BAR_FOLDER_ID, OTHER_FOLDER_ID, ROOT_IDS, toTree } from "../src/shared/
 import { extensionSuggestions, webstoreExtensions } from "../src/shared/extension-suggestions";
 import type { ExtensionInfo } from "../src/shared/ipc";
 import { OpenTabsPublisher, parseDeviceTabs, type SyncedTab } from "../src/shared/open-tabs";
+import type { FlowStep } from "../src/shared/flow";
+import { hintKey, type TrailEvent } from "../src/shared/site-memory";
 
 const PHRASE = `${"abandon ".repeat(23)}art`;
 const UBLOCK = "cjpalhdlnbpafiamejdnhcphjbkeiagm";
@@ -60,6 +64,8 @@ class Device {
   readonly annotations = new AnnotationStore(this.dir);
   readonly watches = new WatchStore(this.dir, () => 100);
   readonly workspaces = new WorkspaceStore(this.dir);
+  readonly flows = new FlowStore(this.dir);
+  readonly memory = new SiteMemoryStore(this.dir);
   readonly settings = new SettingsStore(this.dir, cipher, {});
   readonly remote = new SyncRemoteStore(path.join(this.dir, "sync-remote.json"));
   readonly client: CorvusSyncClient;
@@ -88,6 +94,8 @@ class Device {
         watches: this.watches,
         workspaces: this.workspaces,
         annotations: this.annotations,
+        workflows: this.flows,
+        siteMemory: this.memory,
         settings: this.settings,
         includeServiceUrls: () => this.shareUrls,
         profile: { get: () => this.meta, set: (m) => (this.meta = m) },
@@ -137,6 +145,8 @@ class Device {
     this.annotations.flush();
     this.watches.flush();
     this.workspaces.flush();
+    this.flows.flush();
+    this.memory.flush();
     this.settings.flush();
   }
 }
@@ -312,5 +322,116 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     expect(c.annotations.all()).toEqual([]);
 
     for (const d of [a, b, c]) d.close();
+  });
+
+  it("syncs workflows and site memory both ways, and forgets stick against a stale device", async () => {
+    const a = new Device("Laptop", "Work");
+    const b = new Device("Desktop", "Work");
+    await a.client.register();
+    await a.client.wipeChain(); // start from an empty chain
+    await a.client.register();
+    await b.client.register();
+
+    const steps: FlowStep[] = [
+      { kind: "navigate", url: "https://shop.example/", label: "Go to shop.example" },
+      { kind: "type", url: "https://shop.example/", label: "Search", target: { role: "searchbox", name: "Search", index: 0, tag: "", selector: "" }, value: "{{query}}", submit: true, secret: false },
+      { kind: "type", url: "https://shop.example/login", label: "Pass", target: { role: "textbox", name: "Password", index: 0, tag: "", selector: "" }, secret: true },
+    ];
+    const agentFlow = a.flows.create("Reorder", "https://shop.example/", steps, { origin: "agent", sourceRunId: "run-1", description: "Search and buy", params: [{ name: "query", label: "Query", default: "umbrella" }] })!;
+    const recorded = a.flows.create("Recorded", "https://shop.example/", steps.slice(0, 2))!;
+    a.flows.recordRun(agentFlow.id, { status: "ok", by: "agent" });
+    a.flows.recordRun(agentFlow.id, { status: "ok", by: "user" });
+    const target = (role: string, name: string) => ({ role, name, index: 0, tag: "", selector: "" });
+    const shopRun: TrailEvent[] = [
+      { type: "action", ok: true, action: { kind: "navigate", url: "https://shop.example/" } },
+      { type: "action", ok: true, action: { kind: "click", url: "https://shop.example/", target: target("button", "Accept all") } },
+      { type: "action", ok: true, action: { kind: "type", url: "https://shop.example/", target: target("textbox", "Username"), value: "alice", submit: false, secret: false } },
+      { type: "action", ok: true, action: { kind: "type", url: "https://shop.example/", target: target("searchbox", "Search products"), value: "umbrella", submit: true, secret: false } },
+      { type: "action", ok: true, action: { kind: "click", url: "https://shop.example/", target: target("button", "Add to cart") } },
+    ];
+    a.memory.learn(shopRun, true);
+
+    await a.sync();
+    await b.sync();
+    await a.sync();
+    expect(await b.sync()).toEqual(QUIET);
+    expect(await a.sync()).toEqual(QUIET);
+
+    // Both workflows (agent and recorded) arrive, with usage and without any secret.
+    expect(b.flows.list().map((f) => f.name).sort()).toEqual(["Recorded", "Reorder"]);
+    expect(b.flows.get(agentFlow.id)).toMatchObject({ origin: "agent", sourceRunId: "run-1", usage: { runs: 2, ok: 2 } });
+    expect(b.flows.get(agentFlow.id)!.steps[2]).toMatchObject({ secret: true });
+    expect(b.flows.get(agentFlow.id)!.steps[2]!.value).toBeUndefined();
+    // Site memory arrives without the credential-like field or any typed value.
+    const learned = b.memory.get("shop.example")!;
+    expect(learned.targets.map((t) => t.name).sort()).toEqual(["Accept all", "Add to cart", "Search products"]);
+    expect(JSON.stringify(learned)).not.toMatch(/alice|umbrella|Username/);
+
+    // Edits, runs and learning on B merge back: last writer wins, counts add up once.
+    await new Promise((r) => setTimeout(r, 5));
+    b.flows.rename(recorded.id, "Recorded (renamed on B)");
+    b.flows.recordRun(agentFlow.id, { status: "failed", by: "user", error: "Step 2 broke", brokenStep: 1 });
+    b.memory.learn(shopRun, true);
+    await b.sync();
+    await a.sync();
+    await b.sync();
+    expect(await a.sync()).toEqual(QUIET);
+    for (const d of [a, b]) {
+      expect(d.flows.get(recorded.id)?.name).toBe("Recorded (renamed on B)");
+      expect(d.flows.get(agentFlow.id)!.usage).toMatchObject({ runs: 3, ok: 2, failed: 1, lastStatus: "failed", lastBrokenStep: 1 });
+      expect(d.memory.get("shop.example")!.targets.find((t) => t.name === "Add to cart")!.ok).toBe(2);
+      expect(d.memory.get("shop.example")!.runs).toBe(2);
+    }
+
+    // A third device joins, then goes offline with the old data.
+    const stale = new Device("Old phone", "Work");
+    await stale.client.register();
+    await stale.sync();
+    expect(stale.flows.get(agentFlow.id)).toBeDefined();
+    expect(stale.memory.get("shop.example")).toBeDefined();
+    // While offline it learns about another site, before the "Forget everything" below.
+    stale.memory.learn(
+      [
+        { type: "action", ok: true, action: { kind: "navigate", url: "https://old.example/" } },
+        { type: "action", ok: true, action: { kind: "click", url: "https://old.example/", target: target("link", "Next") } },
+      ],
+      true,
+    );
+
+    // Deletes and forgets on one device reach the others.
+    await new Promise((r) => setTimeout(r, 5));
+    a.flows.remove(agentFlow.id);
+    const cart = b.memory.get("shop.example")!.targets.find((t) => t.name === "Add to cart")!;
+    b.memory.removeHint("shop.example", "target", hintKey("target", cart));
+    await a.sync();
+    await b.sync();
+    await a.sync();
+    expect(b.flows.get(agentFlow.id)).toBeUndefined();
+    expect(a.memory.get("shop.example")!.targets.map((t) => t.name)).not.toContain("Add to cart");
+
+    b.memory.forgetAll();
+    await new Promise((r) => setTimeout(r, 5));
+    await b.sync();
+    await a.sync();
+    expect(a.memory.list()).toEqual([]);
+
+    // The stale device comes back: it receives the deletions and nothing old comes back anywhere.
+    await stale.sync();
+    await a.sync();
+    await b.sync();
+    expect(stale.flows.get(agentFlow.id)).toBeUndefined();
+    expect(stale.memory.list()).toEqual([]);
+    expect(a.memory.list()).toEqual([]);
+    expect(b.memory.list()).toEqual([]);
+    expect(a.flows.list().map((f) => f.id)).toEqual([recorded.id]);
+
+    // Learning after the wipe syncs as usual.
+    stale.memory.learn(shopRun, true);
+    await stale.sync();
+    await a.sync();
+    expect(a.memory.get("shop.example")!.targets.find((t) => t.name === "Add to cart")!.ok).toBe(1);
+    expect(await stale.sync()).toMatchObject({ pushed: 0, deleted: 0 });
+
+    for (const d of [a, b, stale]) d.close();
   });
 });
