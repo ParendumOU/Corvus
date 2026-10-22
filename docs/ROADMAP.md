@@ -4,11 +4,11 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-21 · current release: **v0.1.1** · **15 features merged on `main`** since, unreleased
+Last updated: 2026-10-22 · current release: **v0.2.0** (Windows + Linux, unsigned)
 
 ---
 
-## Shipped on `main` since v0.1.1 (unreleased — next tag)
+## Shipped in v0.2.0
 
 Built across five parallel subagent waves; each merged only on green unit tests + headless smoke.
 
@@ -82,10 +82,10 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 **Ship-ready (M2)** — the gate to a real release
 - [ ] **Trusted code-signing cert** — kills Windows SmartScreen → *blocked on user (see Open Decisions)*
 - [ ] **macOS builds** on a mac runner (notarization) → *blocked on user*
-- [ ] **Update-feed host** — wire auto-update's placeholder feed to a real host → *blocked on user*
+- [x] **Update-feed host**: GitHub Releases of ParendumOU/Corvus
 - [ ] Settings search + settings reorg
 - [ ] Bundle-size / startup pass — lazy-load `corvus://` pages, trim the ~431MB artifact
-- [ ] Tag the next release once the above cert/host land (CHANGELOG + `vX`)
+- [x] Cut v0.2.0 (unsigned Windows + Linux); signed builds follow once the cert and Apple ID land
 
 **AI depth (M3)**
 - [ ] Per-site AI profiles — custom system prompt + allowed-tool set per domain

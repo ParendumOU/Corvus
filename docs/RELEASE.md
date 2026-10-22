@@ -11,8 +11,8 @@ The website (https://corvus.parendum.com) links to
 `Corvus-Setup-<v>.exe`, `Corvus-Portable-<v>.exe`, `Corvus-<v>-x86_64.AppImage`,
 `corvus_<v>_amd64.deb` (`test/update-feed.test.ts` pins the patterns in `electron-builder.yml`).
 
-Current: `v0.1.1` tagged. `main` is **18 features ahead**, unreleased (see ROADMAP.md). The owner
-decides when to cut `v0.2.0`; nothing below has been run for it yet.
+Current: `v0.2.0` (Windows + Linux, unsigned), built as a **draft** release on ParendumOU/Corvus;
+the owner reviews and publishes it. Previous tag: `v0.1.1`.
 
 ---
 
