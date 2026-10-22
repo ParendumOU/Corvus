@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { faviconSrcToShow } from "../../shared/favicon";
 import { CorvusMark, IconGlobe } from "./icons";
 
 const LETTER_COLORS = ["#5b5bd6", "#1a73e8", "#188038", "#d93025", "#e37400", "#9334e6", "#007b83", "#d01884"];
@@ -33,10 +34,13 @@ export function LetterIcon({ text, size = 16 }: { text: string; size?: number })
 
 /** Favicon with graceful fallback (letter tile, globe, or the Corvus mark for internal pages). */
 export function Favicon({ url, src, size = 16 }: { url: string; src?: string; size?: number }) {
-  const [failed, setFailed] = useState(false);
+  // Remember which icon failed, not that one did: a tab's <Favicon> stays mounted while its page
+  // swaps icons, and a working icon must not stay hidden behind an earlier one's load error.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (url.startsWith("corvus:")) return <CorvusMark size={size} />;
-  if (src && !failed) {
-    return <img className="favicon" src={src} width={size} height={size} alt="" draggable={false} onError={() => setFailed(true)} />;
+  const shown = faviconSrcToShow(src, failedSrc);
+  if (shown) {
+    return <img key={shown} className="favicon" src={shown} width={size} height={size} alt="" draggable={false} onError={() => setFailedSrc(shown)} />;
   }
   const host = hostOf(url);
   if (host && /^https?:/.test(url)) return <LetterIcon text={host} size={size} />;

@@ -3,6 +3,7 @@
  * validation of a possibly corrupt file and the restore plan are unit tested.
  */
 import type { GroupColor, TabGroup } from "@corvus/shared";
+import { isFaviconUrl, MAX_SAVED_FAVICON_URL } from "./favicon";
 import { GROUP_COLORS } from "./tab-strip";
 
 export interface SessionTab {
@@ -10,6 +11,8 @@ export interface SessionTab {
   title: string;
   pinned: boolean;
   groupId?: string;
+  /** Icon the tab showed, so a restored tab that is not loaded yet still shows its site icon. */
+  faviconUrl?: string;
 }
 
 export interface SessionGroup {
@@ -56,7 +59,7 @@ export interface LiveWindow {
   profileId: string;
   bounds?: SessionBounds;
   maximized: boolean;
-  tabs: Array<{ url: string; title: string; pinned: boolean; groupId?: string; active: boolean }>;
+  tabs: Array<{ url: string; title: string; pinned: boolean; groupId?: string; faviconUrl?: string; active: boolean }>;
   groups: TabGroup[];
 }
 
@@ -69,11 +72,12 @@ export function serializeWindow(win: LiveWindow): SessionWindow | null {
     .filter((g) => usedGroups.has(g.id))
     .map(({ id, title, color, collapsed }) => ({ id, title, color, collapsed }));
   const known = new Set(groups.map((g) => g.id));
-  const tabs = kept.map(({ url, title, pinned, groupId }) => ({
+  const tabs = kept.map(({ url, title, pinned, groupId, faviconUrl }) => ({
     url,
     title,
     pinned,
     ...(groupId && known.has(groupId) && !pinned ? { groupId } : {}),
+    ...(isFaviconUrl(faviconUrl, MAX_SAVED_FAVICON_URL) ? { faviconUrl } : {}),
   }));
   const activeIndex = Math.max(0, kept.findIndex((t) => t.active));
   return {
@@ -118,7 +122,16 @@ function reviveWindow(raw: unknown): SessionWindow | null {
       if (typeof t.url !== "string" || !isRestorableUrl(t.url)) return [];
       const pinned = t.pinned === true;
       const groupId = typeof t.groupId === "string" && groupIds.has(t.groupId) && !pinned ? t.groupId : undefined;
-      return [{ url: t.url, title: typeof t.title === "string" ? t.title.slice(0, 500) : "", pinned, ...(groupId ? { groupId } : {}) }];
+      const faviconUrl = isFaviconUrl(t.faviconUrl, MAX_SAVED_FAVICON_URL) ? t.faviconUrl : undefined;
+      return [
+        {
+          url: t.url,
+          title: typeof t.title === "string" ? t.title.slice(0, 500) : "",
+          pinned,
+          ...(groupId ? { groupId } : {}),
+          ...(faviconUrl ? { faviconUrl } : {}),
+        },
+      ];
     });
   if (tabs.length === 0) return null;
   const used = new Set(tabs.map((t) => t.groupId));

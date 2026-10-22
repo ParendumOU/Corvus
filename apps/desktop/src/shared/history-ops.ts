@@ -1,5 +1,6 @@
 /** Pure browsing-history operations. Entries are unique per URL. */
 import type { HistoryEntry } from "@corvus/shared";
+import { isFaviconUrl } from "./favicon";
 
 export interface HistoryRecord extends HistoryEntry {
   faviconUrl?: string;
@@ -40,6 +41,40 @@ export function updateEntry(list: HistoryRecord[], url: string, patch: { title?:
     return { ...e, title, ...(faviconUrl !== undefined ? { faviconUrl } : {}) };
   });
   return changed ? next : list;
+}
+
+/** "scheme://host[:port]" of an http(s) URL, lower-cased. String-based: it runs over the whole history. */
+function siteOf(url: string): string | null {
+  const m = /^(https?:\/\/[^/?#]+)/i.exec(url);
+  return m?.[1] ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Last known favicon for each of `urls`: the icon recorded for that exact page, else the one of the
+ * most recently visited page of the same site. Seeds tabs that are restored without loading (session
+ * restore, workspaces), so they show their site icon instead of the letter placeholder. One pass.
+ */
+export function faviconsFromHistory(list: readonly HistoryRecord[], urls: readonly string[]): Map<string, string> {
+  const wanted = new Set(urls);
+  const sites = new Set(urls.map(siteOf).filter((s): s is string => s !== null));
+  const exact = new Map<string, string>();
+  const bySite = new Map<string, HistoryRecord>();
+  for (const e of list) {
+    if (!isFaviconUrl(e.faviconUrl)) continue;
+    if (wanted.has(e.url) && !exact.has(e.url)) exact.set(e.url, e.faviconUrl);
+    const site = siteOf(e.url);
+    if (site && sites.has(site)) {
+      const best = bySite.get(site);
+      if (!best || e.visitedAt > best.visitedAt) bySite.set(site, e);
+    }
+  }
+  const out = new Map<string, string>();
+  for (const url of urls) {
+    const site = siteOf(url);
+    const icon = exact.get(url) ?? (site ? bySite.get(site)?.faviconUrl : undefined);
+    if (icon) out.set(url, icon);
+  }
+  return out;
 }
 
 /** Keep the `max` most recently visited entries. */

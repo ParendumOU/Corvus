@@ -19,9 +19,10 @@ they also hold for the MCP tools:
   (`packages/webscope/test/scope.test.ts`).
 - **Scope enforced everywhere.** `WebScopeEngine.repeaterSend` and `fuzz` refuse out-of-scope targets,
   and every generated fuzz request is re-checked, so a payload can never redirect an attack off-scope.
-- **Authorization banner.** The `corvus://webscope` page shows a persistent banner: *Only test
-  systems you are authorized to test.* The Fuzzer additionally requires an explicit "I am authorized
-  to test this target" confirmation before an attack can start.
+- **Authorization notice.** The `corvus://webscope` command bar always shows an *Authorized testing
+  only* notice; clicking it expands the full text (only test systems you own or have explicit
+  written permission to test). The Fuzzer additionally requires an explicit "I am authorized to
+  test this target" confirmation, plus a confirm dialog, before an attack can start.
 - **Mandatory rate limiting.** The fuzzer always paces requests (conservative default; clamped to a
   safe ceiling of 50 req/s in the engine, 10 req/s over MCP) and caps total requests.
 - **Audit log.** Scope/rule changes, repeater sends and fuzz start/finish are recorded in an
@@ -53,8 +54,44 @@ Private, Electron-free engine so it is unit-testable and reusable. Key exports (
 
 `apps/desktop/src/main/webscope-service.ts` keeps one `WebScopeEngine` per profile. When the setting
 is on, it attaches each tab's `webContents.debugger` as a `CdpClient` to the active profile's engine.
-The `corvus://webscope` page (left nav: History, Intercept, Repeater, Fuzzer, Rules, Scope, Decoder,
-Comparer) talks to the engine over the typed internal IPC in `src/shared/webscope-ipc.ts`.
+The `corvus://webscope` page talks to the engine over the typed internal IPC in
+`src/shared/webscope-ipc.ts`. UI code: `src/renderer/pages/webscope.tsx` (views),
+`webscope-lib.tsx` (shared components) and `webscope-format.ts` (pure helpers, unit-tested).
+
+## Using the workbench
+
+The page has three thin rows of chrome above one working surface:
+
+- **Command bar:** the *Authorized testing only* notice, captured and attached-tab counts, and the
+  **Capture** switch.
+- **Tool tabs**, grouped by job: History, Intercept, Repeater, Fuzzer | Target, Findings | Scope,
+  Rules, Decoder, Comparer. Left/Right arrows move between tabs when one has focus.
+- **Scope strip**, visible on every tool: whether the scope is armed and the in-scope hosts, with
+  an **Edit scope** button.
+
+Per tool:
+
+- **History:** filter by host, method, status class, resource type, in-scope and free-text search
+  (URL, headers, bodies). Click a column header to sort. Long lists are windowed so thousands of
+  rows stay fast. Selecting a row opens the request and response side by side; both panes and the
+  table/detail divider can be dragged (or moved with the arrow keys when focused). Each message has
+  **Pretty** (indented JSON and HTML), **Raw**, **Headers** and **Hex** tabs. From the request pane,
+  **Send to Repeater** or **Send to Fuzzer**. Mark two rows to **Compare** them. HAR export and
+  import, and **Clear** (asks first).
+- **Repeater:** one tab per request; sending from History opens a new tab. **Ctrl+Enter** sends.
+- **Fuzzer:** setup is grouped (Target, Attack, Payload sets, Payload processing, Throttle, Grep and
+  extract). It shows how many `§` positions are marked and how many requests the attack will send
+  before you start. Results sort by index, status, size or time, can be narrowed to grep hits and
+  exported as CSV.
+- **Intercept:** turn interception on, optionally narrow it with host, method and path filters, then
+  edit and **Forward edited**, **Forward** or **Drop**. **F** forwards (edited) and **D** drops the
+  selected item.
+- **Target:** collapsible host-to-path tree with method and request counts. **Findings:** grouped by
+  severity (Medium, Low, Info); the same observation on several responses is one card listing
+  where it was seen.
+- **Scope** and **Rules:** labelled tables; the audit log sits under the scope lists.
+- **Decoder:** encode, decode, hash and JWT operations in labelled groups. **Comparer:** header and
+  body diff of two responses.
 
 ## MCP tools
 
@@ -75,14 +112,18 @@ untrusted content.
   match/replace, encoders, HAR round-trip, HTTP client, scope enforcement incl. out-of-scope refusal).
 - MCP tools: `packages/mcp-server/test/webscope-tools.test.ts` (full-level gating, scope refusal,
   untrusted wrapping, bounded fuzz) against a local test server.
+- Desktop UI helpers: `apps/desktop/test/webscope-format.test.ts` (formatting, pretty-print, hex
+  dump, and the Fuzzer request preview checked against the engine's `planRequests`).
 - Desktop smoke: `apps/desktop/src/main/smoke-webscope.ts` captures a request over CDP, replays it,
-  runs a 3-payload in-scope fuzz, and screenshots History/Repeater/Fuzzer in light and dark.
+  runs a 3-payload in-scope fuzz, holds and forwards an intercepted request, and screenshots Target,
+  Intercept, History, Repeater, Fuzzer and Findings in light and dark.
 
 ## Interactive intercept
 
 With **Intercept on** (Intercept tab), in-scope requests that match the optional filters are
 paused and listed in a held queue. You can edit a paused request’s method, URL, headers and body,
-then **Forward** it, **Forward edited**, or **Drop** it. Enable **Hold responses** to pause and
+then **Forward** it, **Forward edited**, or **Drop** it (keyboard: **F** / **D**). The host,
+method and path filters sit in the Intercept toolbar. Enable **Hold responses** to pause and
 edit responses before they reach the page. Everything out of scope, or not matching the filters,
 is forwarded untouched; held items auto-forward after 30s so the browser never deadlocks. Match &
 replace and block rules are applied on forward. Agents can drive this at Full access via the

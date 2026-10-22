@@ -85,15 +85,16 @@ export async function runWebscopeSmoke(
   const page = win.createTab("corvus://webscope");
   const wc = page.view.webContents;
   await delay(1500);
-  const ready = await wc.executeJavaScript("Boolean(window.corvusInternal && document.querySelector('.ws-root') && document.querySelector('.ws-banner'))");
+  const ready = await wc.executeJavaScript("Boolean(window.corvusInternal && document.querySelector('.ws-root') && document.querySelector('.ws-tabs') && document.querySelector('.ws-scopestrip'))");
   check("corvus://webscope rendered", ready === true);
 
   const click = async (script: string): Promise<void> => {
     await wc.executeJavaScript(script);
     await delay(500);
   };
+  // Switch tools by clicking the top tab whose label matches.
   const showView = (label: string): Promise<void> =>
-    click(`(()=>{const b=[...document.querySelectorAll('.ws-nav button')].find(x=>x.textContent.includes(${JSON.stringify(label)}));if(b)b.click();return !!b;})()`);
+    click(`(()=>{const b=[...document.querySelectorAll('.ws-tab')].find(x=>x.textContent.trim()===${JSON.stringify(label)});if(b)b.click();return !!b;})()`);
 
   const original = nativeTheme.themeSource;
   try {
@@ -101,9 +102,12 @@ export async function runWebscopeSmoke(
       nativeTheme.themeSource = theme;
       await delay(400);
       await showView("History");
-      await click("document.querySelector('.ws-table tbody tr')?.click()");
+      // Prefer the probe page (an HTML body, so the Pretty view has content); else the first row.
+      await click(
+        "(()=>{const rows=[...document.querySelectorAll('.ws-table tbody tr:not(.ws-spacer-row)')];const r=rows.find(x=>x.textContent.includes('/webscope-probe'))||rows[0];if(r)r.click();return !!r;})()",
+      );
       await capture(`webscope-history-${theme}`, wc);
-      await click("(()=>{const b=[...document.querySelectorAll('.ws-pane-head button')].find(x=>x.textContent.includes('Repeater'));if(b)b.click();return !!b;})()");
+      await click("(()=>{const b=[...document.querySelectorAll('button')].find(x=>x.textContent.includes('Send to Repeater'));if(b)b.click();return !!b;})()");
       await capture(`webscope-repeater-${theme}`, wc);
       await showView("Fuzzer");
       await capture(`webscope-fuzzer-${theme}`, wc);
@@ -122,6 +126,10 @@ export async function runWebscopeSmoke(
       await delay(100);
       held = ctx.webscope.interceptState().queue;
     }
+    // The held load opened a new tab; bring WebScope back to the front so it renders (a background
+    // tab does not run CSS transitions, which would freeze button colours mid theme switch).
+    win.activate(page.id);
+    await delay(400);
     for (const theme of ["light", "dark"] as const) {
       nativeTheme.themeSource = theme;
       await delay(400);

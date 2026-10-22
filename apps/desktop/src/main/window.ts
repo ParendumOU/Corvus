@@ -3,6 +3,7 @@ import type { GroupColor, GroupId, Tab, TabGroup, TabId } from "@corvus/shared";
 import { hostFromUrl } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
+import { pickFavicon } from "../shared/favicon";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
@@ -111,6 +112,8 @@ export interface OpenTabOptions {
   /** Do not load until the tab is shown (session restore). */
   lazy?: boolean;
   title?: string;
+  /** Icon a lazy tab shows until it loads and its page reports its own (last known site icon). */
+  faviconUrl?: string;
 }
 
 export interface WindowOpenOptions {
@@ -554,6 +557,7 @@ export class BrowserWindowCtl {
       audible: false,
       find: null,
       ...(lazy ? { pendingUrl: url } : {}),
+      ...(lazy && opts.faviconUrl ? { faviconUrl: opts.faviconUrl } : {}),
     };
     this.tabs.set(id, tab);
     this.wire(tab);
@@ -622,7 +626,7 @@ export class BrowserWindowCtl {
       push();
     });
     wc.on("page-favicon-updated", (_e, favicons) => {
-      const favicon = favicons.find((f) => /^(https?|data):/.test(f));
+      const favicon = pickFavicon(favicons);
       if (!favicon) return;
       tab.faviconUrl = favicon;
       if (isHistoryWorthy(tab.url)) this.profile.history.update(tab.url, { faviconUrl: favicon });
@@ -1283,6 +1287,7 @@ export class BrowserWindowCtl {
             title: tab.title,
             pinned: entry.pinned,
             ...(entry.groupId ? { groupId: entry.groupId } : {}),
+            ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}),
             active: entry.id === this.strip.activeId,
           },
         ];
@@ -1296,10 +1301,14 @@ export class BrowserWindowCtl {
     // The active tab goes first so the strip never auto-activates (and loads) a lazy tab.
     const ids: Array<TabId | undefined> = [];
     const activeTab = saved.tabs[saved.activeIndex];
+    // Background tabs do not load until shown: give them their saved icon, or the last one history
+    // knows for the page or site (sessions saved before icons were persisted), not the placeholder.
+    const known = this.profile.history.faviconsFor(saved.tabs.filter((t) => !t.faviconUrl).map((t) => t.url));
     if (activeTab) ids[saved.activeIndex] = this.createTab(activeTab.url, { pinned: activeTab.pinned, title: activeTab.title }).id;
     saved.tabs.forEach((t, i) => {
       if (i === saved.activeIndex) return;
-      ids[i] = this.createTab(t.url, { activate: false, index: i, pinned: t.pinned, lazy: true, title: t.title }).id;
+      const faviconUrl = t.faviconUrl ?? known.get(t.url);
+      ids[i] = this.createTab(t.url, { activate: false, index: i, pinned: t.pinned, lazy: true, title: t.title, ...(faviconUrl ? { faviconUrl } : {}) }).id;
     });
     const activeId = ids[saved.activeIndex];
     for (const g of saved.groups) {
@@ -1326,9 +1335,11 @@ export class BrowserWindowCtl {
 
   private applyWorkspaceAppend(mat: ReturnType<typeof materializeWorkspace>, activateFirst: boolean): void {
     const ids: Array<TabId | undefined> = [];
+    const known = this.profile.history.faviconsFor(mat.tabs.map((t) => t.url));
     mat.tabs.forEach((t, i) => {
       const active = activateFirst && i === 0;
-      ids.push(this.createTab(t.url, { activate: active, lazy: !active, pinned: t.pinned, title: t.title }).id);
+      const faviconUrl = known.get(t.url);
+      ids.push(this.createTab(t.url, { activate: active, lazy: !active, pinned: t.pinned, title: t.title, ...(faviconUrl ? { faviconUrl } : {}) }).id);
     });
     for (const g of mat.groups) {
       const members = mat.tabs.flatMap((t, i) => (t.groupId === g.id && ids[i] ? [ids[i] as TabId] : []));

@@ -19,6 +19,7 @@ import { runFeaturesSmoke } from "./smoke-features";
 import { runPdfSmoke } from "./smoke-pdf";
 import { runReaderSmoke } from "./smoke-reader";
 import { runExtensionSmoke } from "./smoke-extensions";
+import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
 import { runSearchSmoke } from "./smoke-search";
 import { runWebscopeSmoke } from "./smoke-webscope";
 
@@ -59,6 +60,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
   }
   const server = http.createServer((req, res) => {
     if (serveBrowserSmokeRoute(req, res)) return;
+    if (serveFaviconSmokeRoute(req, res)) return;
     const path = (req.url ?? "/").split("?")[0];
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(path === "/login" ? LOGIN_PAGE : path === "/after-login" ? "<!doctype html><title>Signed in</title><main>Welcome</main>" : PAGE);
@@ -142,6 +144,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       fs.writeFileSync(path.join(outDir, `${name}.png`), image.toPNG());
     };
     await capture("chrome", win.chrome.webContents);
+    await runFaviconSmoke(ctx, { url, win, check, capture });
     const pages: Array<[string, string]> = [
       ["newtab", ".nt-search"],
       ["search?q=what%20is%20corvus", ".search-header"],

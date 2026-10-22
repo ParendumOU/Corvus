@@ -18,6 +18,7 @@ import {
 } from "../shared/bookmark-tree";
 import {
   applySyncedHistory,
+  faviconsFromHistory,
   queryHistory,
   recordVisit,
   removeEntries,
@@ -178,6 +179,11 @@ export class HistoryStore {
     const list = this.file.get();
     const next = updateEntry(list, url, patch);
     if (next !== list) this.file.set(next);
+  }
+
+  /** Last known favicon per URL (exact page, else same site), for tabs restored without loading. */
+  faviconsFor(urls: readonly string[]): Map<string, string> {
+    return faviconsFromHistory(this.file.get(), urls);
   }
 
   query(q: string, offset: number, limit: number): { entries: HistoryRecord[]; total: number } {
