@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.3.0
 
 ### Before you update
 - **Update every device.** Saved logins can now carry a 2FA secret. If you edit a synced login on a
