@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "corvus-mcp",
+  "owner": { "name": "Parendum", "url": "https://parendum.com" },
+  "description": "Claude Code plugin for the Corvus AI browser.",
+  "plugins": [
+    {
+      "name": "corvus",
+      "source": "./",
+      "description": "Drive the Corvus browser from Claude Code over MCP: tabs, page reading/extraction, click/type/forms, screenshots and AI search in your own logged-in session."
+    }
+  ]
+}

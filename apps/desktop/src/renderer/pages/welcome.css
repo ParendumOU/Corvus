@@ -1,0 +1,287 @@
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.wz {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+.wz-side {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 28px 22px;
+  background: var(--field);
+  border-right: 1px solid var(--border);
+}
+
+.wz-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.wz-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.wz-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  color: var(--text-2);
+  font-size: 14px;
+}
+
+.wz-steps li i {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  flex: none;
+}
+
+.wz-steps li.active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.wz-steps li.active i {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wz-steps li.done i {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.wz-skip {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.wz-skip:hover {
+  color: var(--text);
+}
+
+.wz-main {
+  display: flex;
+  flex-direction: column;
+  padding: 36px 44px;
+  max-width: 760px;
+}
+
+.wz-head h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.wz-sub {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.wz-content {
+  flex: 1;
+  padding: 24px 0;
+}
+
+.wz-step {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.wz-lead {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.wz-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wz-field > span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wz-hint {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.wz-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.wz-inline .input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.wz-secret {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wz-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.wz-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.wz-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.wz-check,
+.wz-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+}
+
+.wz-phrase {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.wz-phrase span {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 9px;
+  background: var(--field);
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.wz-phrase i {
+  color: var(--text-3);
+  font-style: normal;
+  font-size: 11px;
+  min-width: 15px;
+}
+
+.wz-pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wz-pill.ok {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+  color: var(--success);
+}
+
+.wz-pill.bad {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+
+.wz-notice {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--field);
+}
+
+.wz-notice.ok {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+}
+
+.wz-notice.warn {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.wz-notice.error {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.wz-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.wz-foot-right {
+  display: flex;
+  gap: 10px;
+}
+
+@media (max-width: 680px) {
+  .wz {
+    grid-template-columns: 1fr;
+  }
+  .wz-side {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .wz-two {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,87 @@
+# Corvus CI: tests on every push/MR, release packages on tags (and manually on main).
+#
+# CI/CD variables (Settings > CI/CD > Variables):
+#   CSC_LINK          (type File, protected)     Windows code-signing .pfx/.p12. Optional: unsigned without it.
+#   CSC_KEY_PASSWORD  (masked, protected)        Its password.
+#   MACOS_BUILDS      ("true")                   Enables the macOS job (needs GitLab macOS runners: Premium/Ultimate, or a self-hosted mac runner).
+
+stages: [test, package]
+
+default:
+  interruptible: true
+
+variables:
+  PNPM_VERSION: "9.15.4"
+  npm_config_store_dir: "$CI_PROJECT_DIR/.pnpm-store" # overrides store-dir in .npmrc
+  ELECTRON_CACHE: "$CI_PROJECT_DIR/.cache/electron"
+  ELECTRON_BUILDER_CACHE: "$CI_PROJECT_DIR/.cache/electron-builder"
+
+.pnpm:
+  before_script:
+    - corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+    - pnpm install --frozen-lockfile
+  cache:
+    key: { files: [pnpm-lock.yaml] }
+    paths: [.pnpm-store, .cache]
+
+test:
+  stage: test
+  image: node:22-bookworm
+  extends: .pnpm
+  script:
+    - pnpm -r build
+    - pnpm -r typecheck
+    - pnpm -r test
+
+smoke:
+  stage: test
+  image: node:22-bookworm
+  extends: .pnpm
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends xvfb libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 >/dev/null
+    - !reference [.pnpm, before_script]
+  script:
+    - pnpm -r build
+    - pnpm --filter @corvus/desktop test:smoke
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths: [apps/desktop/out/smoke/]
+
+.release-rules:
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+package:windows-linux:
+  stage: package
+  image: electronuserland/builder:wine
+  extends: .release-rules
+  before_script:
+    - corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+  script:
+    - bash scripts/release.sh win linux
+  cache:
+    key: { files: [pnpm-lock.yaml] }
+    paths: [.pnpm-store, .cache]
+  artifacts:
+    expire_in: 30 days
+    paths: [release/]
+
+package:macos:
+  stage: package
+  tags: [saas-macos-medium-m1]
+  image: macos-15-xcode-16
+  rules:
+    - if: $MACOS_BUILDS != "true"
+      when: never
+    - !reference [.release-rules, rules]
+  before_script:
+    - corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
+  script:
+    - CSC_IDENTITY_AUTO_DISCOVERY=false bash scripts/release.sh mac
+  artifacts:
+    expire_in: 30 days
+    paths: [release/]

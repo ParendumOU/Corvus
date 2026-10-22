@@ -1,0 +1,53 @@
+{
+  "name": "@corvus/desktop",
+  "version": "0.1.1",
+  "license": "MPL-2.0",
+  "private": true,
+  "description": "Corvus desktop browser shell (Electron).",
+  "author": "Parendum <info@parendum.com>",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "test": "vitest run",
+    "test:smoke": "sh scripts/smoke.sh",
+    "capture:marketing": "sh scripts/capture-marketing.sh",
+    "icons": "node scripts/generate-icons.mjs",
+    "dist": "electron-vite build && electron-builder",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "dist:mac": "electron-vite build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "2.20.1",
+    "electron-chrome-extensions": "4.9.0",
+    "electron-chrome-web-store": "0.13.0",
+    "electron-updater": "6.6.2",
+    "pdfjs-dist": "^6.4.299"
+  },
+  "devDependencies": {
+    "@corvus/ai-engine": "workspace:*",
+    "@corvus/mcp-server": "workspace:*",
+    "@corvus/shared": "workspace:*",
+    "@corvus/sync-core": "workspace:*",
+    "@corvus/webscope": "workspace:*",
+    "@resvg/resvg-js": "2.6.2",
+    "@types/node": "22.20.5",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.9.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "6.0.0",
+    "png-to-ico": "3.0.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  },
+  "homepage": "https://corvus.parendum.com"
+}

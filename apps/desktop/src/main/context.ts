@@ -1,0 +1,50 @@
+import type { BrowserController } from "@corvus/shared";
+import type { AdblockService } from "./adblock";
+import type { AgentActivityService } from "./agent-activity-service";
+import type { AgentRunner } from "./agent-runner";
+import type { AnnotationService } from "./annotation-service";
+import type { AssistService } from "./assist-service";
+import type { AutofillService } from "./autofill-service";
+import type { CrashReporter } from "./crash-log";
+import type { DownloadManager } from "./downloads";
+import type { FlowService } from "./flow-service";
+import type { McpService } from "./mcp-service";
+import type { PageMonitor } from "./page-monitor";
+import type { ProfileRegistry } from "./profiles";
+import type { ReaderService } from "./reader-service";
+import type { ScheduledAgentRunner } from "./scheduled-agent-runner";
+import type { SearchService } from "./search-service";
+import type { SemanticSearchService } from "./semantic-search-service";
+import type { SessionRestore } from "./session-restore";
+import type { SettingsStore } from "./settings-store";
+import type { SyncService } from "./sync-service";
+import type { UpdateService } from "./update-service";
+import type { WebScopeService } from "./webscope-service";
+import type { WindowManager } from "./window-manager";
+
+/** Main-process services, wired together once in index.ts. */
+export interface AppContext {
+  settings: SettingsStore;
+  profiles: ProfileRegistry;
+  windows: WindowManager;
+  search: SearchService;
+  semanticSearch: SemanticSearchService;
+  controller: BrowserController;
+  mcp: McpService;
+  sync: SyncService;
+  updater: UpdateService;
+  downloads: DownloadManager;
+  sessionRestore: SessionRestore;
+  assist: AssistService;
+  reader: ReaderService;
+  agents: AgentActivityService;
+  agentRunner: AgentRunner;
+  adblock: AdblockService;
+  webscope: WebScopeService;
+  monitor: PageMonitor;
+  scheduledAgents: ScheduledAgentRunner;
+  flows: FlowService;
+  autofill: AutofillService;
+  annotations: AnnotationService;
+  crashReporter: CrashReporter;
+}

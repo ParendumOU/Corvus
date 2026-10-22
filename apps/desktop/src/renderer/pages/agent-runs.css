@@ -1,0 +1,159 @@
+.ar-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 4px;
+}
+.ar-main {
+  min-width: 0;
+}
+.ar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ar-title {
+  font-weight: 600;
+  max-width: 520px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.ar-row .sub {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.ar-status {
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ar-status.running {
+  background: var(--accent);
+  color: #fff;
+}
+.ar-status.ok {
+  color: var(--text-2);
+}
+.ar-status.error {
+  background: var(--danger);
+  color: #fff;
+}
+.ar-status.paused {
+  color: var(--text-2);
+}
+
+.ar-summary {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2, var(--hover));
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ar-summary-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin-bottom: 3px;
+}
+
+.ar-steps-toggle {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.ar-steps {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ar-when {
+  margin-top: 6px;
+}
+
+.ar-step {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.ar-step-dot {
+  margin-top: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border, #9993);
+  flex: none;
+}
+.ar-step.ok .ar-step-dot {
+  background: var(--accent);
+}
+.ar-step.error .ar-step-dot {
+  background: var(--danger);
+}
+.ar-step.skipped .ar-step-dot {
+  background: var(--warn, #f9ab00);
+}
+.ar-step-body {
+  min-width: 0;
+}
+.ar-step-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ar-step-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+.ar-step.msg .ar-step-name {
+  color: var(--accent);
+}
+.ar-step-args {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ar-step-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warn, #f9ab00);
+}
+.ar-step-detail {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.4;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: hidden;
+}
+
+.ar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 16px;
+  color: var(--text-2);
+  text-align: center;
+}
+.empty p {
+  max-width: 440px;
+}

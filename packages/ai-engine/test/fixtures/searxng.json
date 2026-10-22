@@ -1,0 +1,52 @@
+{
+  "query": "rust programming language",
+  "number_of_results": 0,
+  "results": [
+    {
+      "template": "default.html",
+      "title": "Rust (programming language) - Wikipedia",
+      "content": "Rust is a general-purpose <span class=\"highlight\">programming language</span> that emphasizes performance, type safety, concurrency, and memory safety.",
+      "url": "https://en.wikipedia.org/wiki/Rust_(programming_language)?utm_source=searx&utm_medium=web",
+      "engine": "google cse",
+      "score": 4.5
+    },
+    {
+      "title": "Rust Programming Language",
+      "content": "A language empowering everyone to build reliable and efficient software.",
+      "url": "https://www.rust-lang.org/",
+      "engine": "duckduckgo",
+      "score": 4
+    },
+    {
+      "title": "Rust Programming Language (duplicate)",
+      "content": "Same page, different form of the URL.",
+      "url": "http://rust-lang.org#community",
+      "engine": "bing",
+      "score": 3
+    },
+    {
+      "title": "The Rust Programming Language &amp; you",
+      "content": "by Steve Klabnik and Carol Nichols, with contributions from the Rust Community",
+      "url": "https://doc.rust-lang.org/book/?fbclid=abc123",
+      "engine": "google cse",
+      "score": 3
+    },
+    {
+      "title": "Not a web link",
+      "content": "Should be ignored",
+      "url": "magnet:?xt=urn:btih:deadbeef",
+      "engine": "torrents"
+    },
+    {
+      "title": "Getting started - Rust Programming Language",
+      "content": "Quickly set up a Rust development environment and write a small app!",
+      "url": "https://rust-lang.org/learn/get-started/",
+      "engine": "duckduckgo"
+    }
+  ],
+  "answers": [],
+  "corrections": [],
+  "infoboxes": [],
+  "suggestions": [],
+  "unresponsive_engines": [["brave", "too many requests"]]
+}

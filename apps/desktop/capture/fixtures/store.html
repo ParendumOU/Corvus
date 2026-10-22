@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raven Travel Umbrella | Raven Outfitters</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316181d'/%3E%3Cpath d='M6 18c0-6 4.5-10 10-10s10 4 10 10c-1.7-1.3-3.3-1.3-5 0-1.7-1.3-3.3-1.3-5 0-1.7-1.3-3.3-1.3-5 0-1.7-1.3-3.3-1.3-5 0z' fill='%23f4efe6'/%3E%3Cpath d='M16 18v6.5a2 2 0 0 1-4 0' fill='none' stroke='%23f4efe6' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --ink: #16181d;
+    --ink-2: #3b3f47;
+    --muted: #6d717a;
+    --line: #e4e0d8;
+    --paper: #f8f6f2;
+    --card: #ffffff;
+    --accent: #9a3d22;
+    --ok: #1f7a4d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  html { scrollbar-width: none; }
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+  button { font: inherit; color: inherit; }
+  .announce {
+    background: var(--ink);
+    color: #ece7de;
+    font-size: 12.5px;
+    letter-spacing: 0.02em;
+    text-align: center;
+    padding: 9px 16px;
+  }
+  .announce b { color: #fff; font-weight: 600; }
+  header.site {
+    background: rgba(248, 246, 242, 0.92);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar {
+    max-width: 1260px;
+    margin: 0 auto;
+    padding: 0 32px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    gap: 40px;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; color: var(--ink); }
+  .brand-name { font-family: "EB Garamond", Georgia, serif; font-size: 25px; letter-spacing: 0.01em; font-weight: 500; }
+  .brand-name span { font-style: italic; }
+  nav.main { display: flex; gap: 28px; font-size: 14.5px; font-weight: 500; color: var(--ink-2); }
+  nav.main a { color: inherit; text-decoration: none; }
+  nav.main a.on { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); padding-bottom: 4px; }
+  .tools { margin-left: auto; display: flex; align-items: center; gap: 18px; color: var(--ink-2); }
+  .search {
+    display: flex; align-items: center; gap: 8px;
+    width: 230px; height: 38px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 999px; background: #fff;
+    color: var(--muted); font-size: 13.5px;
+  }
+  .icon { width: 20px; height: 20px; display: block; }
+  .bag { position: relative; }
+  .bag i {
+    position: absolute; top: -6px; right: -8px;
+    min-width: 17px; height: 17px; border-radius: 9px;
+    background: var(--accent); color: #fff; font-style: normal;
+    font-size: 10.5px; font-weight: 700; display: grid; place-items: center;
+  }
+  .crumbs {
+    max-width: 1260px; margin: 0 auto; padding: 18px 32px 0;
+    font-size: 13px; color: var(--muted);
+  }
+  .crumbs b { color: var(--ink-2); font-weight: 500; }
+  main {
+    max-width: 1260px;
+    margin: 0 auto;
+    padding: 18px 32px 64px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+    gap: 56px;
+  }
+  .gallery { display: grid; gap: 14px; align-content: start; }
+  .hero {
+    position: relative;
+    border-radius: 22px;
+    overflow: hidden;
+    aspect-ratio: 1.12;
+    background: radial-gradient(120% 90% at 30% 15%, #f3efe8 0%, #e3ded5 55%, #d6d9de 100%);
+  }
+  .hero svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .tag {
+    position: absolute; top: 18px; left: 18px;
+    background: #fff; border-radius: 999px; padding: 6px 12px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+  .thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .thumb {
+    aspect-ratio: 1.25; border-radius: 14px; overflow: hidden;
+    background: linear-gradient(160deg, #efebe4, #dcdfe3);
+    border: 2px solid transparent;
+  }
+  .thumb.on { border-color: var(--ink); }
+  .thumb svg { width: 100%; height: 100%; display: block; }
+  .info { padding-top: 6px; }
+  .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
+  h1 {
+    font-family: "Inter Display", "Inter", sans-serif;
+    font-size: clamp(30px, 3.1vw, 42px);
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    font-weight: 650;
+    margin: 12px 0 14px;
+  }
+  .rating { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--muted); }
+  .stars { color: #c98a1b; letter-spacing: 2px; font-size: 14px; }
+  .rating b { color: var(--ink); font-weight: 600; }
+  .price { display: flex; align-items: baseline; gap: 12px; margin: 24px 0 8px; }
+  .terms { font-size: 13px; color: var(--muted); margin: 0 0 28px; }
+  .price strong { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; }
+  .price s { color: var(--muted); font-size: 17px; }
+  .save { font-size: 12px; font-weight: 700; color: var(--accent); background: #f6e4dc; border-radius: 6px; padding: 4px 8px; }
+  .desc { font-size: 15.5px; line-height: 1.6; color: var(--ink-2); margin: 0 0 18px; max-width: 470px; }
+  .stock { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; color: var(--ok); margin: 0 0 22px; }
+  .stock i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px #dcefe4; }
+  .label { font-size: 13.5px; color: var(--muted); margin-bottom: 10px; }
+  .label b { color: var(--ink); font-weight: 600; }
+  .swatches { display: flex; gap: 12px; margin-bottom: 22px; }
+  .swatch {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 2px solid var(--paper); outline: 1.5px solid var(--line);
+    background: var(--c); cursor: pointer; padding: 0;
+  }
+  .swatch.on { outline: 2px solid var(--ink); }
+  .actions { display: grid; gap: 12px; max-width: 520px; }
+  .btn {
+    height: 54px; border-radius: 14px; font-size: 16px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer;
+  }
+  .btn.buy { background: var(--ink); color: #fff; border: none; box-shadow: 0 8px 20px -10px rgba(22,24,29,.6); }
+  .btn.bag-btn { background: transparent; border: 1.5px solid #cfc9be; }
+  .perks { margin: 24px 0 0; padding: 0; list-style: none; display: grid; gap: 12px; max-width: 520px; }
+  .perks li { display: flex; gap: 12px; align-items: center; font-size: 14px; color: var(--ink-2); }
+  .perks svg { flex: none; color: var(--ink); }
+  .specs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; max-width: 520px; }
+  .specs span { font-size: 12.5px; font-weight: 500; padding: 7px 11px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--ink-2); }
+  .confirm {
+    max-width: 520px; border-radius: 18px; background: var(--card);
+    border: 1px solid var(--line); padding: 22px 24px;
+    box-shadow: 0 18px 40px -28px rgba(22, 24, 29, .45);
+    display: flex; flex-direction: column; justify-content: space-between; gap: 20px;
+  }
+  .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .confirm-actions .btn { height: 44px; font-size: 14.5px; border-radius: 12px; }
+  .confirm-head { display: flex; gap: 14px; align-items: center; }
+  .confirm-head .check { width: 40px; height: 40px; border-radius: 50%; background: #e3f2ea; color: var(--ok); display: grid; place-items: center; }
+  .confirm h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  .confirm p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+  .toast {
+    position: fixed; left: 28px; bottom: 28px; z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    max-width: 440px; padding: 14px 20px 14px 14px;
+    background: var(--ink); color: #f4efe6; border-radius: 16px;
+    box-shadow: 0 22px 44px -18px rgba(22, 24, 29, .7);
+    animation: rise .35s ease-out both;
+  }
+  .toast .check { flex: none; width: 38px; height: 38px; border-radius: 50%; background: #2c8a5c; color: #fff; display: grid; place-items: center; }
+  .toast strong { display: block; font-size: 15px; font-weight: 650; }
+  .toast div span { display: block; font-size: 13px; color: #b9b4ab; margin-top: 2px; }
+  @keyframes rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (max-width: 1100px) {
+    nav.main, .search { display: none; }
+    main { gap: 32px; }
+  }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; }
+    .thumbs { display: none; }
+    .hero { aspect-ratio: 2; }
+  }
+</style>
+</head>
+<body>
+<div class="announce">Free carbon-neutral delivery on orders over €60 &nbsp;·&nbsp; <b>100-day returns</b> &nbsp;·&nbsp; Lifetime repairs</div>
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="/">
+      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#16181d"/><path d="M6 18c0-6 4.5-10 10-10s10 4 10 10c-1.7-1.3-3.3-1.3-5 0-1.7-1.3-3.3-1.3-5 0-1.7-1.3-3.3-1.3-5 0-1.7-1.3-3.3-1.3-5 0z" fill="#f4efe6"/><path d="M16 18v6.5a2 2 0 0 1-4 0" fill="none" stroke="#f4efe6" stroke-width="2" stroke-linecap="round"/></svg>
+      <span class="brand-name">Raven <span>Outfitters</span></span>
+    </a>
+    <nav class="main" aria-label="Shop">
+      <a class="on" href="/umbrellas">Umbrellas</a>
+      <a href="/rainwear">Rainwear</a>
+      <a href="/bags">Bags</a>
+      <a href="/travel">Travel</a>
+      <a href="/journal">Journal</a>
+    </nav>
+    <div class="tools">
+      <div class="search" role="search">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        Search the shop
+      </div>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-label="Account"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.4-3.6 4.2-5.2 7.5-5.2s6.1 1.6 7.5 5.2"/></svg>
+      <span class="bag" aria-label="Bag, 1 item">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M5 8h14l-1.2 12H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+        <i>1</i>
+      </span>
+    </div>
+  </div>
+</header>
+
+<div class="crumbs">Umbrellas &nbsp;/&nbsp; Travel &nbsp;/&nbsp; <b>Raven Travel Umbrella</b></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="shaft" x1="0" x2="1">
+      <stop offset="0" stop-color="#8b9099"/><stop offset=".5" stop-color="#d9dce1"/><stop offset="1" stop-color="#6b7079"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" x2="1">
+      <stop offset="0" stop-color="#6b3f24"/><stop offset=".5" stop-color="#9a6238"/><stop offset="1" stop-color="#5c341d"/>
+    </linearGradient>
+    <symbol id="umbrella" viewBox="0 0 600 560">
+      <ellipse cx="300" cy="528" rx="150" ry="14" fill="#000" opacity=".09"/>
+      <rect x="296" y="248" width="8" height="232" rx="4" fill="url(#shaft)"/>
+      <path d="M300 470v34a26 26 0 0 1-52 0" fill="none" stroke="url(#wood)" stroke-width="16" stroke-linecap="round"/>
+      <path d="M300 64V40" stroke="#2b2f36" stroke-width="6" stroke-linecap="round"/>
+      <path d="M70 252C70 138 172 64 300 64S530 138 530 252Q491.7 232 453.3 252Q415 232 376.7 252Q338.3 232 300 252Q261.7 232 223.3 252Q185 232 146.7 252Q108.3 232 70 252Z" style="fill:var(--c1)"/>
+      <path d="M300 64Q146.7 92 146.7 252Q108.3 232 70 252C70 138 172 64 300 64Z" style="fill:var(--c2)"/>
+      <path d="M300 64Q300 150 300 252Q261.7 232 223.3 252Q223.3 96 300 64Z" style="fill:var(--c2)"/>
+      <path d="M300 64Q453.3 92 453.3 252Q415 232 376.7 252Q376.7 96 300 64Z" style="fill:var(--c2)"/>
+      <g fill="none" style="stroke:var(--rib)" stroke-width="1.4" opacity=".7">
+        <path d="M300 64Q146.7 92 146.7 252"/><path d="M300 64Q223.3 96 223.3 252"/><path d="M300 64V252"/>
+        <path d="M300 64Q376.7 96 376.7 252"/><path d="M300 64Q453.3 92 453.3 252"/>
+      </g>
+      <path d="M70 252C70 138 172 64 300 64S530 138 530 252Q491.7 232 453.3 252Q415 232 376.7 252Q338.3 232 300 252Q261.7 232 223.3 252Q185 232 146.7 252Q108.3 232 70 252Z" fill="url(#sheen)"/>
+      <path d="M232 92q68-30 136 0" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="3" stroke-linecap="round"/>
+      <g fill="#c8ccd2"><circle cx="70" cy="253" r="4"/><circle cx="146.7" cy="253" r="4"/><circle cx="223.3" cy="253" r="4"/><circle cx="300" cy="253" r="4"/><circle cx="376.7" cy="253" r="4"/><circle cx="453.3" cy="253" r="4"/><circle cx="530" cy="253" r="4"/></g>
+    </symbol>
+  </defs>
+</svg>
+
+<main>
+  <section class="gallery" aria-label="Product images">
+    <div class="hero">
+      <span class="tag">Bestseller · New colours</span>
+      <svg viewBox="0 0 600 536" preserveAspectRatio="xMidYMid meet" aria-label="Raven Travel Umbrella in Midnight black">
+        <g stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".55">
+          <path d="M70 40l-10 26M140 90l-10 26M520 60l-10 26M470 130l-10 26M560 180l-10 26M40 170l-10 26M90 300l-10 26M520 320l-10 26M560 420l-10 26M50 430l-10 26M250 20l-10 26M380 24l-10 26"/>
+        </g>
+        <use href="#umbrella" x="40" y="22" width="520" height="485" style="--c1:#1b1e25;--c2:#272b34;--rib:#4a505c"/>
+      </svg>
+    </div>
+    <div class="thumbs">
+      <div class="thumb on"><svg viewBox="0 0 600 560"><use href="#umbrella" style="--c1:#1b1e25;--c2:#272b34;--rib:#4a505c"/></svg></div>
+      <div class="thumb">
+        <svg viewBox="0 0 300 240" aria-label="Folded in its sleeve">
+          <g transform="rotate(-24 150 120)">
+            <rect x="52" y="98" width="196" height="44" rx="22" fill="#1b1e25"/>
+            <rect x="52" y="98" width="196" height="44" rx="22" fill="url(#sheen)"/>
+            <rect x="120" y="96" width="14" height="48" rx="3" fill="#9a6238"/>
+            <path d="M248 120h14" stroke="url(#wood)" stroke-width="12" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </div>
+      <div class="thumb"><svg viewBox="0 0 600 560"><use href="#umbrella" style="--c1:#5d636d;--c2:#6c727c;--rib:#8d939c"/></svg></div>
+      <div class="thumb"><svg viewBox="0 0 600 560"><use href="#umbrella" style="--c1:#2c4566;--c2:#365274;--rib:#5a7493"/></svg></div>
+    </div>
+  </section>
+
+  <section class="info">
+    <div class="eyebrow">Travel collection</div>
+    <h1>Raven Travel Umbrella</h1>
+    <div class="rating"><span class="stars">★★★★★</span><b>4.8</b> 1,214 reviews</div>
+    <div class="price"><strong>€39.00</strong><s>€49.00</s><span class="save">Save 20%</span></div>
+    <div class="terms">Tax included. Or 3 interest-free payments of €13.00.</div>
+    <p class="desc">Our lightest storm-proof umbrella. A double-vented canopy shrugs off 90 km/h gusts, then folds down to 24 cm so it lives in your bag, not your hallway.</p>
+
+    <div class="stock"><i></i>In stock, ships today from our Bergen warehouse</div>
+
+    <div id="purchase">
+      <div class="label">Colour: <b id="colour-name">Choose a colour</b></div>
+      <div class="swatches" role="group" aria-label="Colour">
+        <button class="swatch" style="--c:#1b1e25" aria-label="Midnight black" title="Midnight black" data-name="Midnight black"></button>
+        <button class="swatch" style="--c:#626872" aria-label="Storm grey" title="Storm grey" data-name="Storm grey"></button>
+        <button class="swatch" style="--c:#2c4566" aria-label="Fjord blue" title="Fjord blue" data-name="Fjord blue"></button>
+        <button class="swatch" style="--c:#4c5d45" aria-label="Moss green" title="Moss green" data-name="Moss green"></button>
+      </div>
+      <div class="actions">
+        <button class="btn buy" id="buy" type="button">Buy now</button>
+        <button class="btn bag-btn" type="button">Add to bag</button>
+      </div>
+    </div>
+
+    <ul class="perks">
+      <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.5 6.5h11v9h-11zM13.5 9.5h4l3 3v3h-7z"/><circle cx="6.5" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/></svg><span>Order in the next 3 h 20 min for delivery on <b>Tuesday</b></span></li>
+      <li><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></svg><span>100-day returns and lifetime repairs</span></li>
+    </ul>
+    <div class="specs"><span>310 g</span><span>Folds to 24 cm</span><span>Wind-tested to 90 km/h</span><span>Recycled canopy</span><span>Auto open &amp; close</span></div>
+  </section>
+</main>
+
+<script>
+  const purchase = document.getElementById("purchase");
+  const colourName = document.getElementById("colour-name");
+  let colour = "";
+  purchase.addEventListener("click", (event) => {
+    const swatch = event.target.closest(".swatch");
+    if (swatch) {
+      document.querySelectorAll(".swatch").forEach((s) => s.classList.toggle("on", s === swatch));
+      colour = swatch.dataset.name;
+      colourName.textContent = colour;
+      return;
+    }
+    if (event.target.closest("#buy")) {
+      const check = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>`;
+      const chosen = colour || "Midnight black";
+      const height = purchase.offsetHeight;
+      purchase.innerHTML = `
+        <div class="confirm" role="status" style="min-height: ${height}px">
+          <div class="confirm-head">
+            <span class="check">${check}</span>
+            <div><h2>Order placed</h2><p>Order RO-48213 · €39.00 · confirmation sent to your inbox</p></div>
+          </div>
+          <div class="confirm-actions">
+            <button class="btn buy" type="button">Track order</button>
+            <button class="btn bag-btn" type="button">View receipt</button>
+          </div>
+        </div>`;
+      const toast = document.createElement("div");
+      toast.className = "toast";
+      toast.innerHTML = `<span class="check">${check}</span><div><strong>Order RO-48213 placed</strong><span>Raven Travel Umbrella · ${chosen} · arrives Tuesday</span></div>`;
+      document.body.appendChild(toast);
+      document.title = "Order placed | Raven Outfitters";
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "corvus",
+  "private": true,
+  "version": "0.1.1",
+  "license": "MPL-2.0",
+  "description": "Corvus — an AI-native browser that is also an MCP server for AI agents.",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22",
+    "npm": "please-use-pnpm",
+    "yarn": "please-use-pnpm"
+  },
+  "scripts": {
+    "preinstall": "node -e \"if(!(process.env.npm_config_user_agent||'').startsWith('pnpm/')){console.error('Corvus uses pnpm. Run: pnpm install');process.exit(1)}\"",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.0"
+  }
+}

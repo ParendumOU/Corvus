@@ -1,0 +1,101 @@
+.settings-search {
+  position: sticky;
+  top: 72px;
+  z-index: 4;
+  margin: 0 0 4px;
+}
+.settings-search .search-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 23px;
+  box-shadow: var(--shadow);
+}
+.settings-search .search-box:focus-within {
+  border-color: var(--accent);
+}
+.settings-search .search-icon {
+  flex: none;
+  color: var(--text-2);
+}
+.settings-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.settings-search .clear-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.settings-search .clear-btn:hover {
+  color: var(--text);
+}
+.settings-search .search-kbd {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+.settings-search .no-results {
+  margin: 10px 2px 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+[data-search-hidden] {
+  display: none !important;
+}
+
+::highlight(settings-search) {
+  background: color-mix(in srgb, var(--warning) 45%, transparent);
+  color: var(--text);
+  border-radius: 2px;
+}
+
+@keyframes settings-search-flash {
+  0% {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 65%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+[data-search-flash] {
+  animation: settings-search-flash 1.3s ease-out;
+  border-radius: 10px;
+}
+
+.side-extra .nav-group + .nav-group {
+  margin-top: 10px;
+}
+.side-extra .nav-group-head {
+  padding: 4px 14px 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}

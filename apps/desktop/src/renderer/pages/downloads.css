@@ -1,0 +1,56 @@
+.download-row {
+  align-items: flex-start;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.download-icon {
+  display: inline-flex;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.download-row.blocked .download-icon,
+.download-row.blocked .sub {
+  color: var(--danger);
+}
+.download-row.cancelled .title,
+.download-row.interrupted .title {
+  text-decoration: line-through;
+  color: var(--text-2);
+}
+.download-row .sub a {
+  color: inherit;
+  text-decoration: none;
+}
+.download-row .sub a:hover {
+  text-decoration: underline;
+}
+.download-bar {
+  height: 4px;
+  max-width: 420px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.download-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+.download-row.paused .download-bar span {
+  background: var(--text-3);
+}
+.list-row .download-actions {
+  opacity: 1;
+}
+.agent-pill {
+  margin-left: 8px;
+  height: 18px;
+  padding: 0 7px;
+  font-size: 10.5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  vertical-align: middle;
+}

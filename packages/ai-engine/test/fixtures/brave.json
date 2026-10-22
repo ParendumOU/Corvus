@@ -1,0 +1,30 @@
+{
+  "type": "search",
+  "query": { "original": "receta paella valenciana", "more_results_available": true },
+  "mixed": { "type": "mixed", "main": [{ "type": "web", "index": 0, "all": false }] },
+  "web": {
+    "type": "search",
+    "results": [
+      {
+        "title": "Paella valenciana: la receta <strong>tradicional</strong>",
+        "url": "https://www.example-recetas.es/paella-valenciana?utm_campaign=brave&gclid=XYZ",
+        "is_source_local": false,
+        "description": "La <strong>paella valenciana</strong> lleva pollo, conejo, judía verde, garrofón, tomate, aceite, azafrán y arroz.",
+        "profile": { "name": "Example Recetas", "url": "https://www.example-recetas.es" },
+        "language": "es",
+        "family_friendly": true
+      },
+      {
+        "title": "Cómo hacer paella &#8211; guía paso a paso",
+        "url": "https://cocina.example.org/paella/",
+        "description": "Paso a paso para una paella con socarrat.",
+        "language": "es"
+      },
+      {
+        "title": "Paella valenciana: la receta tradicional (AMP)",
+        "url": "https://example-recetas.es/paella-valenciana/",
+        "description": "Duplicate of the first result."
+      }
+    ]
+  }
+}

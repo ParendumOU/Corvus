@@ -1,0 +1,320 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
+import type { PageSnapshot, Tab } from "@corvus/shared";
+import { AgentRunStore } from "../src/main/agent-run-store";
+import { AgentRunner } from "../src/main/agent-runner";
+import type { AppContext } from "../src/main/context";
+import type { BrowserWindowCtl } from "../src/main/window";
+
+/** A scripted provider: each turn emits the given events; captures the messages it is handed. */
+function scripted(turns: TurnEvent[][]): { provider: AgentModelProvider; seen: AgentTurnRequest[] } {
+  const seen: AgentTurnRequest[] = [];
+  let i = 0;
+  const provider: AgentModelProvider = {
+    kind: "anthropic-api",
+    model: "fake-agent",
+    async *streamTurn(req) {
+      seen.push({ ...req, messages: structuredClone(req.messages) });
+      const turn = turns[Math.min(i++, turns.length - 1)] ?? [{ type: "text", text: "done" }];
+      for (const ev of turn) yield ev;
+      yield { type: "end", stopReason: turn.some((e) => e.type === "tool_use") ? "tool_use" : "end_turn" };
+    },
+  };
+  return { provider, seen };
+}
+
+const snap: PageSnapshot = {
+  tabId: "agent1",
+  url: "https://shop.test/item",
+  title: "Item — Shop",
+  text: "A nice item costs 20 dollars.",
+  elements: [
+    { ref: "e1", role: "button", name: "Buy now" },
+    { ref: "e2", role: "link", name: "Reviews" },
+  ],
+  truncated: false,
+};
+
+function mockController() {
+  const tabs: Tab[] = [{ id: "agent1", windowId: "w1", url: snap.url, title: snap.title, pinned: false, active: true, loading: false, agentControlled: true }];
+  return {
+    calls: [] as string[],
+    async snapshot() {
+      this.calls.push("snapshot");
+      return snap;
+    },
+    async click(_id: string, ref: string) {
+      this.calls.push(`click:${ref}`);
+    },
+    async navigate(_id: string, url: string) {
+      this.calls.push(`navigate:${url}`);
+      return { ...tabs[0]!, url };
+    },
+    async type() {
+      this.calls.push("type");
+    },
+    async listTabs() {
+      return tabs;
+    },
+  };
+}
+
+function fakeContext(controller: ReturnType<typeof mockController>, askBeforeRisky: boolean, maxSteps = 15) {
+  const listeners = new Set<() => void>();
+  const agents = {
+    paused: false,
+    setPaused(p: boolean) {
+      this.paused = p;
+      for (const l of listeners) l();
+    },
+    onChange(l: () => void) {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    clientConnected: vi.fn(),
+    toolCall: vi.fn(),
+    toolResult: vi.fn(),
+  };
+  const ctx = {
+    controller,
+    agents,
+    assist: { open: vi.fn() },
+    settings: {
+      get: () => ({ agent: { maxSteps, askBeforeRisky }, ai: { provider: "anthropic-api", model: "fake", claudeCliPath: "claude" } }),
+      getSecret: () => "sk-test",
+    },
+  } as unknown as AppContext;
+  return { ctx, agents };
+}
+
+let dir: string;
+let store: AgentRunStore;
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-runner-"));
+  store = new AgentRunStore(dir);
+});
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function fakeWindow(): BrowserWindowCtl {
+  return {
+    createTab: () => ({ id: "agent1" }),
+    pushState: vi.fn(),
+    sendCommand: vi.fn(),
+    notifyInternalPages: vi.fn(),
+    profile: { agentRuns: store },
+  } as unknown as BrowserWindowCtl;
+}
+
+async function waitFor(cond: () => boolean, ms = 2000): Promise<void> {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (cond()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error("timeout waiting for condition");
+}
+
+describe("AgentRunner", () => {
+  it("runs the tool loop, wraps page content as untrusted and finishes", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false);
+    const { provider, seen } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e2" } }],
+      [{ type: "text", text: "The item costs 20 dollars." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "how much is the item?");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+
+    const run = runner.windowExtras(win).agentRun!;
+    expect(controller.calls).toEqual(["snapshot", "click:e2"]);
+    expect(run.finalText).toContain("20 dollars");
+    expect(run.steps.map((s) => s.kind)).toEqual(["page_snapshot", "click", "message"]);
+    // The snapshot result handed to the model is fenced as untrusted data.
+    const toolResult = seen[1]!.messages.at(-1)!.content[0];
+    expect(JSON.stringify(toolResult)).toContain("<untrusted_page_content");
+  });
+
+  it("asks for approval before a risky click and runs it when approved", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, true);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e1" } }],
+      [{ type: "text", text: "Bought it." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "buy the item");
+
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    expect(runner.windowExtras(win).agentRun!.approval!.reason).toContain("Buy now");
+    expect(controller.calls).toEqual(["snapshot"]);
+    runner.approve(win, "approve");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(controller.calls).toEqual(["snapshot", "click:e1"]);
+  });
+
+  it("skips a risky action without running it", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, true);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e1" } }],
+      [{ type: "text", text: "Did not buy." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "buy the item");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    runner.approve(win, "skip");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(controller.calls).toEqual(["snapshot"]);
+    expect(runner.windowExtras(win).agentRun!.steps.find((s) => s.kind === "click")!.status).toBe("skipped");
+  });
+
+  it("stops the run when the user chooses Stop at an approval", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, true);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e1" } }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "buy the item");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    runner.approve(win, "stop");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "stopped");
+    expect(controller.calls).toEqual(["snapshot"]);
+  });
+
+  it("stops at the configured step cap", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false, 3);
+    // Always asks for another snapshot: only the step cap can end it.
+    const { provider } = scripted([[{ type: "tool_use", id: "t", name: "page_snapshot", input: {} }]]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "keep reading");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(runner.windowExtras(win).agentRun!.stepCount).toBe(3);
+  });
+
+  it("halts the loop while paused and resumes after", async () => {
+    const controller = mockController();
+    const { ctx, agents } = fakeContext(controller, false, 2);
+    const { provider } = scripted([[{ type: "tool_use", id: "t", name: "page_snapshot", input: {} }]]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    agents.setPaused(true);
+    const win = fakeWindow();
+    runner.start(win, "loop");
+    // Parks at the first tool while paused: nothing runs.
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "paused");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(controller.calls).toEqual([]);
+    // Resume: the loop runs to its step cap.
+    runner.pause(win, false);
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(runner.windowExtras(win).agentRun!.stepCount).toBe(2);
+  });
+
+  it("persists a completed run to the per-profile store", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "text", text: "All good." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "check the item");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+
+    const records = store.views();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ task: "check the item", status: "done", source: "command-bar", finalText: "All good." });
+    expect(store.get(records[0]!.id)!.transcript.length).toBeGreaterThan(1);
+  });
+
+  it("resumes a saved interrupted run from its step state, continuing counts within the caps", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false, 15);
+    const runner = new AgentRunner(ctx);
+    const id = "saved-run";
+    // Seed a run that was cut off mid-loop (as if the app had restarted): 1 step done, a valid
+    // transcript ending on a user turn.
+    store.commit({
+      id,
+      task: "keep looking",
+      source: "command-bar",
+      status: "interrupted",
+      stopReason: "aborted",
+      steps: [{ id: "a", kind: "page_snapshot", summary: "", status: "ok", at: 1 }],
+      finalText: "",
+      error: null,
+      stepCount: 1,
+      maxSteps: 15,
+      inputTokens: 50,
+      outputTokens: 10,
+      provider: "anthropic-api",
+      model: "fake",
+      startedAt: 1,
+      endedAt: null,
+      transcript: [
+        { role: "user", content: [{ type: "text", text: "keep looking" }] },
+        { role: "assistant", content: [{ type: "tool_use", id: "a", name: "page_snapshot", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", toolUseId: "a", content: "page" }] },
+      ],
+    });
+
+    const resumeProvider = scripted([
+      [{ type: "tool_use", id: "t3", name: "page_snapshot", input: {} }],
+      [{ type: "text", text: "Found it." }],
+    ]);
+    runner.setTestProvider(resumeProvider.provider);
+    const win = fakeWindow();
+    const res = runner.resume(win, id);
+    expect(res.ok).toBe(true);
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done" && runner.windowExtras(win).agentRun?.finalText === "Found it.");
+
+    const view = runner.windowExtras(win).agentRun!;
+    expect(view.id).toBe(id);
+    // 1 prior step + exactly 1 resumed tool call (the prior snapshot is NOT re-run).
+    expect(view.stepCount).toBe(2);
+    expect(controller.calls).toEqual(["snapshot"]);
+    // The resumed turn was handed the saved transcript, not a fresh task seed.
+    expect(resumeProvider.seen[0]!.messages).toHaveLength(3);
+    expect(store.get(id)!.status).toBe("done");
+    expect(win.sendCommand).toHaveBeenCalledWith({ type: "open-command-palette" });
+  });
+
+  it("declines to resume a cleanly finished run", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false);
+    const { provider } = scripted([[{ type: "text", text: "Done immediately." }]]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "trivial");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    const id = runner.windowExtras(win).agentRun!.id;
+    const res = runner.resume(win, id);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBeTruthy();
+  });
+});

@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/out
+**/coverage
+**/*.log
+.git
+.pnpm-store
+.claude
+release
+data
+.env
+.env.*

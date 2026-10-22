@@ -1,0 +1,32 @@
+{
+  "name": "@corvus/sync-server",
+  "version": "0.1.1",
+  "license": "MPL-2.0",
+  "private": true,
+  "description": "Self-hostable Corvus sync server. Stores only ciphertext.",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@corvus/sync-core": "workspace:*",
+    "better-sqlite3": "13.0.3",
+    "fastify": "5.12.7",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@corvus/shared": "workspace:*",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

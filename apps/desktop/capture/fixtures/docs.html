@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart · Fieldkit Docs</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23103b2e'/%3E%3Cpath d='M9 22V10h13M9 16h9' fill='none' stroke='%2334d399' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root { --bg: #0e1013; --bg-2: #13161b; --line: #22262d; --text: #d7dbe2; --muted: #8b929e; --accent: #34d399; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  html { scrollbar-width: none; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  header { height: 60px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 28px; padding: 0 28px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; color: #fff; }
+  .logo small { color: var(--muted); font-weight: 500; }
+  .find { margin-left: 24px; width: 300px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg-2); color: var(--muted); display: flex; align-items: center; padding: 0 12px; font-size: 13.5px; justify-content: space-between; }
+  .find kbd { font-family: "JetBrains Mono", monospace; font-size: 11px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; }
+  .links { margin-left: auto; display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+  .wrap { display: grid; grid-template-columns: 260px minmax(0, 1fr) 220px; max-width: 1400px; margin: 0 auto; }
+  aside { padding: 28px 24px; font-size: 14px; border-right: 1px solid var(--line); min-height: calc(100vh - 60px); }
+  aside h4 { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 22px 0 10px; }
+  aside h4:first-child { margin-top: 0; }
+  aside a { display: block; color: #aeb4be; text-decoration: none; padding: 6px 10px; border-radius: 7px; }
+  aside a.on { background: rgba(52, 211, 153, .1); color: var(--accent); font-weight: 600; }
+  main { padding: 40px 56px 80px; max-width: 820px; }
+  .crumb { font-size: 13px; color: var(--muted); }
+  h1 { font-size: 40px; letter-spacing: -0.025em; margin: 10px 0 14px; color: #fff; font-weight: 650; }
+  .lead { font-size: 18px; line-height: 1.6; color: #b8bec8; margin: 0 0 30px; }
+  h2 { font-size: 22px; color: #fff; margin: 36px 0 12px; letter-spacing: -0.01em; }
+  p { line-height: 1.7; font-size: 15.5px; color: #c3c8d0; }
+  pre { background: #0a0c0f; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; font-family: "JetBrains Mono", monospace; font-size: 13.5px; line-height: 1.7; overflow: hidden; }
+  .c { color: #6b7380; } .k { color: #c792ea; } .s { color: #a5e3b5; } .f { color: #82aaff; } .p { color: var(--accent); }
+  code { font-family: "JetBrains Mono", monospace; font-size: 13.5px; background: #1a1e24; padding: 2px 6px; border-radius: 5px; color: #e6e9ee; }
+  .note { border: 1px solid rgba(52, 211, 153, .3); background: rgba(52, 211, 153, .06); border-radius: 12px; padding: 14px 18px; font-size: 14.5px; color: #c9f0dc; }
+  nav.toc { padding: 40px 20px; font-size: 13px; color: var(--muted); }
+  nav.toc b { display: block; color: #fff; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .1em; }
+  nav.toc span { display: block; padding: 5px 0; }
+  nav.toc span.on { color: var(--accent); }
+  @media (max-width: 1200px) { nav.toc { display: none; } .wrap { grid-template-columns: 240px minmax(0, 1fr); } }
+  @media (max-width: 900px) { aside, .find, .links { display: none; } .wrap { grid-template-columns: 1fr; } main { padding: 32px 28px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><svg width="26" height="26" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#103b2e"/><path d="M9 22V10h13M9 16h9" fill="none" stroke="#34d399" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Fieldkit <small>Docs</small></div>
+  <div class="find">Search the docs <kbd>Ctrl K</kbd></div>
+  <div class="links"><span>Guides</span><span>API</span><span>Changelog</span><span>GitHub</span></div>
+</header>
+<div class="wrap">
+  <aside>
+    <h4>Get started</h4>
+    <a class="on" href="/guides/quickstart">Quickstart</a>
+    <a href="/guides/install">Installation</a>
+    <a href="/guides/project">Project structure</a>
+    <h4>Collect</h4>
+    <a href="/guides/forms">Forms &amp; surveys</a>
+    <a href="/guides/offline">Offline sync</a>
+    <a href="/guides/media">Photos and audio</a>
+    <h4>Deploy</h4>
+    <a href="/guides/teams">Teams</a>
+    <a href="/guides/export">Exports</a>
+  </aside>
+  <main>
+    <div class="crumb">Get started / Quickstart</div>
+    <h1>Quickstart</h1>
+    <p class="lead">Fieldkit turns a single config file into an offline-first data collection app. This guide takes you from zero to a synced survey in about five minutes.</p>
+    <h2>1. Install the CLI</h2>
+    <pre><span class="c"># macOS, Linux and Windows (WSL)</span>
+<span class="p">$</span> <span class="f">curl</span> -fsSL https://get.fieldkit.dev | sh
+<span class="p">$</span> <span class="f">fieldkit</span> --version
+<span class="s">fieldkit 3.4.1</span></pre>
+    <h2>2. Create a project</h2>
+    <p>Run <code>fieldkit init</code> in an empty folder. It scaffolds a <code>fieldkit.yaml</code> with one example form you can edit right away.</p>
+    <pre><span class="k">form</span>: bird-count
+<span class="k">fields</span>:
+  - <span class="k">species</span>: { type: <span class="s">choice</span>, options: [<span class="s">raven</span>, <span class="s">crow</span>, <span class="s">magpie</span>] }
+  - <span class="k">count</span>: { type: <span class="s">number</span>, min: <span class="f">1</span> }</pre>
+    <div class="note">Tip: <code>fieldkit dev</code> starts a live preview on your phone over the local network.</div>
+  </main>
+  <nav class="toc"><b>On this page</b><span class="on">Install the CLI</span><span>Create a project</span><span>Run it on a phone</span><span>Next steps</span></nav>
+</div>
+</body>
+</html>

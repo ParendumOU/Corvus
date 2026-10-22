@@ -1,0 +1,110 @@
+.sp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sp-addendum {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+.sp-form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.sp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sp-row.off {
+  opacity: 0.55;
+}
+
+.sp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sp-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sp-title {
+  font-weight: 600;
+}
+
+.sp-label {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.sp-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sp-tag {
+  font-size: 12px;
+}
+
+.pill.warn,
+.sp-status.off {
+  background: color-mix(in srgb, var(--text-2) 18%, transparent);
+}
+
+.pill.warn {
+  background: color-mix(in srgb, #f9ab00 30%, transparent);
+}
+
+.sp-preview {
+  font-size: 13px;
+  white-space: pre-wrap;
+  max-height: 72px;
+  overflow: hidden;
+}
+
+.sp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sp-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.sp-tester {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sp-tester-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sp-tester-row .input {
+  flex: 1 1 auto;
+}
+
+.sp-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

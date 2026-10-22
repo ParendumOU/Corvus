@@ -1,0 +1,408 @@
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  AGENT_PREFIX,
+  parseCommandInput,
+  rankActions,
+  type PaletteAction,
+  type PaletteIcon,
+} from "../../shared/command-bar";
+import type { AgentRunStep, AgentRunView } from "../../shared/command-bar-ipc";
+import type { SemanticHit } from "../../shared/semantic-search-ipc";
+import type { WindowState } from "../../shared/ipc";
+import { classifyOmnibox, intentToUrl } from "../../shared/omnibox";
+import { chromeApi } from "../common/api";
+import {
+  IconActivity,
+  IconAgent,
+  IconDownload,
+  IconFolder,
+  IconGlobe,
+  IconHistory,
+  IconPause,
+  IconPlay,
+  IconPlus,
+  IconPuzzle,
+  IconSearch,
+  IconSettings,
+  IconShield,
+  IconSparkle,
+  IconStar,
+} from "../common/icons";
+import { Favicon } from "../common/ui";
+
+interface UiAction {
+  action: PaletteAction;
+  run: () => void;
+}
+
+const ICONS: Record<PaletteIcon, (p: { size?: number }) => JSX.Element> = {
+  search: IconSearch,
+  navigate: IconGlobe,
+  tab: IconGlobe,
+  history: IconHistory,
+  bookmark: (p) => <IconStar {...p} filled />,
+  newtab: IconPlus,
+  settings: IconSettings,
+  extensions: IconPuzzle,
+  downloads: IconDownload,
+  webscope: IconShield,
+  bookmarks: IconFolder,
+  assist: IconSparkle,
+  organize: IconFolder,
+  agent: IconAgent,
+};
+
+function ActionIcon({ action }: { action: PaletteAction }) {
+  if (action.kind === "tab" || (action.kind === "bookmark" && action.keywords)) {
+    return <Favicon url={action.keywords ?? ""} size={16} />;
+  }
+  const Icon = ICONS[action.icon] ?? IconGlobe;
+  return <Icon size={16} />;
+}
+
+export function CommandBar({ state, onClose, onOrganize }: { state: WindowState; onClose: () => void; onOrganize: () => void }) {
+  const api = chromeApi();
+  const [value, setValue] = useState("");
+  const [selected, setSelected] = useState(0);
+  const [suggestions, setSuggestions] = useState<UiAction[]>([]);
+  const [localHits, setLocalHits] = useState<SemanticHit[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const request = useRef(0);
+
+  const run = state.agentRun;
+  const parsed = parseCommandInput(value);
+  const showRun = run !== null && value.trim() === "";
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const staticActions = useMemo<UiAction[]>(() => {
+    const open = (url: string): (() => void) => () => void api.call("tabs.openUrl", url, "new-tab");
+    const items: UiAction[] = [
+      { action: { id: "newtab", kind: "command", title: "New tab", icon: "newtab", priority: 4 }, run: () => void api.call("tabs.create", {}) },
+      { action: { id: "settings", kind: "command", title: "Open settings", icon: "settings", priority: 2 }, run: open("corvus://settings/") },
+      { action: { id: "bookmarks", kind: "command", title: "Open bookmarks", icon: "bookmarks", priority: 1 }, run: open("corvus://bookmarks/") },
+      { action: { id: "history", kind: "command", title: "Open history", icon: "history", priority: 1 }, run: open("corvus://history/") },
+      { action: { id: "downloads", kind: "command", title: "Open downloads", icon: "downloads" }, run: open("corvus://downloads/") },
+      { action: { id: "extensions", kind: "command", title: "Open extensions", icon: "extensions" }, run: open("corvus://extensions/") },
+      { action: { id: "webscope", kind: "command", title: "Open WebScope", icon: "webscope" }, run: open("corvus://webscope/") },
+      { action: { id: "assist", kind: "command", title: "Toggle Corvus Assist", icon: "assist" }, run: () => void api.call("assist.toggle") },
+      { action: { id: "organize", kind: "command", title: "Organize tabs into groups", icon: "organize" }, run: onOrganize },
+    ];
+    for (const tab of state.tabs) {
+      if (tab.id === state.activeTabId) continue;
+      items.push({
+        action: { id: `tab:${tab.id}`, kind: "tab", title: tab.title || tab.url, subtitle: hostOf(tab.url), keywords: tab.url, icon: "tab" },
+        run: () => void api.call("tabs.activate", tab.id),
+      });
+    }
+    return items;
+  }, [api, state.tabs, state.activeTabId, onOrganize]);
+
+  // Query-dependent actions: the agent task, the web search / open URL, and ranked history/bookmarks.
+  const dynamic = useMemo<UiAction[]>(() => {
+    const q = value.trim();
+    const out: UiAction[] = [];
+    if (parsed.mode === "agent") {
+      const task = parsed.query.trim();
+      out.push({
+        action: { id: "agent", kind: "agent", title: task ? `Ask Corvus to: ${task}` : "Ask Corvus to do a task…", subtitle: "Runs an agent in a new tab", icon: "agent", priority: 100 },
+        run: () => startAgent(task),
+      });
+      return out;
+    }
+    if (q) {
+      const intent = classifyOmnibox(q);
+      if (intent.kind === "url") {
+        out.push({ action: { id: "open-url", kind: "navigate", title: `Open ${intent.url}`, icon: "navigate", priority: 50 }, run: () => commit(intent.url) });
+      } else {
+        out.push({ action: { id: "search", kind: "search", title: `Search the web for "${intent.query}"`, icon: "search", priority: 50 }, run: () => commit(intentToUrl(intent)) });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const fetchSuggestions = useCallback(
+    (text: string): void => {
+      const id = ++request.current;
+      const q = text.trim();
+      if (!q || q.startsWith(AGENT_PREFIX)) {
+        setSuggestions([]);
+        setLocalHits([]);
+        return;
+      }
+      void api.call("omnibox.suggest", q).then((list) => {
+        if (id !== request.current) return;
+        setSuggestions(
+          list
+            .filter((s) => s.kind === "history" || s.kind === "bookmark")
+            .map((s) => ({
+              action: { id: `sugg:${s.url}`, kind: s.kind, title: s.title, subtitle: s.detail, keywords: s.url, icon: s.kind === "bookmark" ? "bookmark" : "history" } as PaletteAction,
+              run: () => commit(s.url),
+            })),
+        );
+      });
+      void api.call("search.local", q).then((res) => {
+        if (id !== request.current) return;
+        setLocalHits(res.hits);
+      });
+    },
+    [api],
+  );
+
+  const ranked = useMemo(() => {
+    const pool = [...dynamic, ...staticActions, ...suggestions];
+    const byId = new Map(pool.map((u) => [u.action.id, u]));
+    const q = parsed.mode === "agent" ? "" : value.trim();
+    return rankActions(q, pool.map((u) => u.action), 10)
+      .map((a) => byId.get(a.id))
+      .filter((u): u is UiAction => u !== undefined);
+  }, [dynamic, staticActions, suggestions, value, parsed.mode]);
+
+  // "Find in my history": semantic/keyword hits over the user's own pages, shown as their own
+  // section (not re-fuzzed), deduped against whatever the fuzzy list already surfaced.
+  const localItems = useMemo<UiAction[]>(() => {
+    if (parsed.mode === "agent" || value.trim() === "") return [];
+    const seen = new Set(ranked.map((u) => u.action.keywords ?? u.action.id));
+    return localHits
+      .filter((h) => !seen.has(h.url))
+      .map((h) => ({
+        action: {
+          id: `local:${h.id}`,
+          kind: "tab",
+          title: h.title || h.url,
+          subtitle: h.snippet || hostOf(h.url),
+          keywords: h.url,
+          icon: "history",
+        } as PaletteAction,
+        run: () => commit(h.url),
+      }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localHits, ranked, parsed.mode, value]);
+
+  const rows = useMemo(() => [...ranked, ...localItems], [ranked, localItems]);
+  const firstLocalIndex = ranked.length;
+
+  useEffect(() => setSelected(0), [value]);
+  useEffect(() => {
+    listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [selected, rows.length]);
+
+  function commit(url: string): void {
+    void api.call("tabs.openUrl", url, "current");
+    onClose();
+  }
+
+  function startAgent(task: string): void {
+    if (!task) return;
+    if (!state.agentReady) {
+      void api.call("tabs.openUrl", "corvus://settings/#command-agent", "new-tab");
+      onClose();
+      return;
+    }
+    void api.call("agent.start", task);
+    setValue("");
+  }
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      setValue((v) => (v.trimStart().startsWith(AGENT_PREFIX) ? v.replace(/^\s*>\s?/, "") : `> ${v}`));
+    } else if (showRun) {
+      return;
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelected((s) => (rows.length ? (s + 1) % rows.length : 0));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelected((s) => (rows.length ? (s - 1 + rows.length) % rows.length : 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (parsed.mode === "agent") startAgent(parsed.query.trim());
+      else rows[selected]?.run();
+    }
+  };
+
+  return (
+    <div className="cmdbar" role="dialog" aria-label="Command Bar" onMouseDown={(e) => e.stopPropagation()}>
+      <div className={`cmd-field ${parsed.mode === "agent" ? "agent" : ""}`}>
+        <span className="cmd-lead">{parsed.mode === "agent" ? <IconAgent size={17} /> : <IconSearch size={16} />}</span>
+        <input
+          ref={inputRef}
+          className="cmd-input"
+          spellCheck={false}
+          value={value}
+          placeholder={parsed.mode === "agent" ? "Describe the task for Corvus to do…" : "Search tabs and actions, type a URL, or “> ” to ask Corvus"}
+          onChange={(e) => {
+            setValue(e.target.value);
+            fetchSuggestions(e.target.value);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <kbd className="cmd-hint">{parsed.mode === "agent" ? "Enter to run" : "Tab for agent"}</kbd>
+      </div>
+
+      {showRun ? (
+        <RunPanel run={run!} state={state} api={api} />
+      ) : (
+        <ul className="cmd-list" ref={listRef} role="listbox">
+          {rows.length === 0 && <li className="cmd-empty">No matches. Press Tab to ask Corvus to do it.</li>}
+          {rows.map((u, i) => (
+            <Fragment key={u.action.id}>
+              {i === firstLocalIndex && localItems.length > 0 && (
+                <li className="cmd-section" role="presentation">Find in my history</li>
+              )}
+              <li
+                role="option"
+                aria-selected={i === selected}
+                className={`cmd-row ${i === selected ? "sel" : ""} ${u.action.kind === "agent" ? "agent" : ""}`}
+                onMouseEnter={() => setSelected(i)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  u.run();
+                }}
+              >
+                <span className="cmd-icon">
+                  <ActionIcon action={u.action} />
+                </span>
+                <span className="cmd-title">{u.action.title}</span>
+                {u.action.subtitle && <span className="cmd-sub">{u.action.subtitle}</span>}
+                {u.action.kind === "agent" && <span className="cmd-tag">Agent</span>}
+              </li>
+            </Fragment>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<AgentRunView["status"], string> = {
+  running: "Working",
+  paused: "Paused",
+  "awaiting-approval": "Needs your OK",
+  done: "Done",
+  error: "Failed",
+  stopped: "Stopped",
+};
+
+function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; api: ReturnType<typeof chromeApi> }) {
+  const active = run.status === "running" || run.status === "paused" || run.status === "awaiting-approval";
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // scrollIntoView can be absent in some embedded renderers; guard it and keep the effect's
+    // return undefined (an expression body would hand React a non-function "cleanup").
+    bottomRef.current?.scrollIntoView?.({ block: "end" });
+  }, [run.steps]);
+
+  if (!state.agentReady && run.status === "error") {
+    return (
+      <div className="run-panel">
+        <div className="run-setup">
+          <p>{state.agentSetupReason ?? run.error}</p>
+          <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("tabs.openUrl", "corvus://settings/#command-agent", "new-tab"); }}>
+            Open settings
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="run-panel">
+      <div className="run-head">
+        <IconAgent size={16} />
+        <span className="run-task">{run.task}</span>
+        <span className={`run-chip ${run.status}`}>{STATUS_LABEL[run.status]}</span>
+      </div>
+      <div className="run-meta">
+        <span>{run.stepCount}/{run.maxSteps} steps</span>
+        <span>{(run.inputTokens + run.outputTokens).toLocaleString()} tokens</span>
+        <span className="run-model">{run.model}</span>
+      </div>
+
+      <div className="run-steps">
+        {run.steps.map((s) => (
+          <StepRow key={s.id} step={s} />
+        ))}
+        {run.error && <div className="run-error">{run.error}</div>}
+        <div ref={bottomRef} />
+      </div>
+
+      {run.approval && (
+        <div className="run-approval">
+          <div className="appr-text">
+            <strong>{run.approval.handoff ? "Over to you" : "Approve this action?"}</strong>
+            <span>{run.approval.reason}</span>
+            {!run.approval.handoff && run.approval.summary && <code>{run.approval.summary}</code>}
+          </div>
+          <div className="appr-actions">
+            <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "approve"); }}>
+              {run.approval.handoff ? "I've done it" : "Approve"}
+            </button>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "skip"); }}>Skip</button>
+            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "stop"); }}>Stop</button>
+          </div>
+        </div>
+      )}
+
+      <div className="run-controls">
+        {active ? (
+          <>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.pause", !state.agentsPaused); }}>
+              {state.agentsPaused ? <IconPlay size={14} /> : <IconPause size={14} />}
+              {state.agentsPaused ? "Resume" : "Pause"}
+            </button>
+            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.stop"); }}>Stop</button>
+          </>
+        ) : (
+          <>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.clear"); }}>Clear</button>
+            <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("assist.toggle", "agents"); }}>
+              <IconActivity size={14} /> View timeline
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepRow({ step }: { step: AgentRunStep }) {
+  const isMessage = step.kind === "message";
+  return (
+    <div className={`step ${step.status} ${isMessage ? "msg" : ""}`}>
+      <span className="step-dot" aria-hidden />
+      <div className="step-body">
+        <div className="step-line">
+          <span className="step-name">{isMessage ? "Corvus" : prettyTool(step.kind)}</span>
+          {step.summary && <span className="step-args">{step.summary}</span>}
+          {typeof step.resultChars === "number" && step.resultChars > 0 && <span className="step-size">{formatBytes(step.resultChars)}</span>}
+        </div>
+        {step.detail && <div className="step-detail">{step.detail}</div>}
+      </div>
+    </div>
+  );
+}
+
+function prettyTool(tool: string): string {
+  return tool.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function formatBytes(chars: number): string {
+  return chars > 1000 ? `${(chars / 1000).toFixed(1)}k` : String(chars);
+}

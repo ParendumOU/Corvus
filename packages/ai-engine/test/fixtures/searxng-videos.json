@@ -1,0 +1,174 @@
+{
+ "query": "rust ownership",
+ "results": [
+  {
+   "title": "Learn Rust: Understanding Ownership",
+   "content": "Ownership is the idea that makes Rust memory-safe without a garbage collector. This episode explains moves, the stack and the heap, and the rules the compiler enforces for you. Take it slowly, because everything later builds on it. In this episode: - The stack versus the heap - The three ownership rules - Move semantics and why a moved value ...",
+   "img_src": "",
+   "iframe_src": "https://www.youtube-nocookie.com/embed/cbFroztJCGo",
+   "audio_src": "",
+   "thumbnail": "https://tse3.mm.bing.net/th/id/OVP.Qo0AAjjNpqbHJywUoPJTOQHgFo?pid=Api",
+   "publishedDate": null,
+   "pubdate": "",
+   "length": "10:21",
+   "views": "",
+   "author": "",
+   "metadata": "Will Velida",
+   "priority": "",
+   "engines": [
+    "duckduckgo videos",
+    "youtube"
+   ],
+   "open_group": false,
+   "close_group": false,
+   "positions": [
+    1,
+    5
+   ],
+   "score": 2.4,
+   "category": "videos",
+   "template": "videos.html",
+   "url": "https://www.youtube.com/watch?v=cbFroztJCGo",
+   "engine": "duckduckgo videos",
+   "parsed_url": [
+    "https",
+    "www.youtube.com",
+    "/watch",
+    "",
+    "v=cbFroztJCGo",
+    ""
+   ]
+  },
+  {
+   "title": "Rust Ownership & Borrowing, Finally Visualized (Full Course)",
+   "content": "Rust ownership, borrowing and lifetimes — the whole memory model, visualized step by step. Stack vs heap, move semantics, clone, Copy types, shared & exclusive borrows, the borrow checker rule (aliasing XOR mutation), Drop & RAII, slices, lifetimes, Box, Rc, RefCell and fat pointers — every claim proven with real cargo run output, including ...",
+   "img_src": "",
+   "iframe_src": "https://www.youtube-nocookie.com/embed/gl8okcRDRpI",
+   "audio_src": "",
+   "thumbnail": "https://tse4.mm.bing.net/th/id/OVP.WREBbgcXC94d_I122T9n_QHgFo?pid=Api",
+   "publishedDate": null,
+   "pubdate": "",
+   "length": "15:18",
+   "views": "",
+   "author": "",
+   "metadata": "Rust It Over",
+   "priority": "",
+   "engines": [
+    "duckduckgo videos",
+    "youtube"
+   ],
+   "open_group": false,
+   "close_group": false,
+   "positions": [
+    2,
+    13
+   ],
+   "score": 1.1538461538461537,
+   "category": "videos",
+   "template": "videos.html",
+   "url": "https://www.youtube.com/watch?v=gl8okcRDRpI",
+   "engine": "duckduckgo videos",
+   "parsed_url": [
+    "https",
+    "www.youtube.com",
+    "/watch",
+    "",
+    "v=gl8okcRDRpI",
+    ""
+   ]
+  },
+  {
+   "url": "https://video.infosec.exchange/videos/watch/61233729-8eff-4e6e-b19d-d20e65247862",
+   "title": "Rust 101 - 11: Exercises for module A2",
+   "content": "Going through some exercises on Rust ownership, references, slices and error handling. Links: * Exercises: https://artificialworlds.net/presentations/rust-101/exercises/A2-advanced-intro/mod.html * Slides: https://artificialworlds.net/present...",
+   "author": "Andy Balaam",
+   "length": 6802,
+   "views": "96",
+   "template": "videos.html",
+   "publishedDate": "2024-06-09T20:42:39.219000+00:00",
+   "iframe_src": "https://video.infosec.exchange/videos/embed/cZH3DPTdB6qvWBw7aZ1tws",
+   "thumbnail": "https://video.infosec.exchange/lazy-static/thumbnails/deed1894-022a-4ab6-98be-a716bab67340.jpg",
+   "metadata": "Andy Balaam's programming lectures | andybalaam_lectures@video.infosec.exchange | coding, livecoding, programming, rust, tutorial",
+   "engine": "sepiasearch",
+   "parsed_url": [
+    "https",
+    "video.infosec.exchange",
+    "/videos/watch/61233729-8eff-4e6e-b19d-d20e65247862",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "sepiasearch"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1,
+   "category": "videos",
+   "pubdate": "2024-06-09 20:42:39+0000"
+  },
+  {
+   "template": "videos.html",
+   "url": "https://www.dailymotion.com/video/x2zumm9",
+   "title": "RUST RUST",
+   "content": "",
+   "publishedDate": "2015-07-31T08:50:10",
+   "length": "00:15",
+   "thumbnail": "https://s2.dmcdn.net/v/Ap1a11gqkWLDssg0T/x360",
+   "engine": "dailymotion",
+   "parsed_url": [
+    "https",
+    "www.dailymotion.com",
+    "/video/x2zumm9",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "dailymotion"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1,
+   "category": "videos",
+   "iframe_src": null,
+   "pubdate": "2015-07-31 08:50:10"
+  },
+  {
+   "url": "https://www.youtube.com/watch?v=VFIOSWy93H0",
+   "title": "Understanding Ownership in Rust",
+   "content": "",
+   "author": "Let's Get Rusty",
+   "length": "25:30",
+   "template": "videos.html",
+   "iframe_src": "https://www.youtube-nocookie.com/embed/VFIOSWy93H0",
+   "thumbnail": "https://i.ytimg.com/vi/VFIOSWy93H0/hqdefault.jpg",
+   "engine": "youtube",
+   "parsed_url": [
+    "https",
+    "www.youtube.com",
+    "/watch",
+    "",
+    "v=VFIOSWy93H0",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "youtube"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1,
+   "category": "videos",
+   "publishedDate": null
+  }
+ ]
+}

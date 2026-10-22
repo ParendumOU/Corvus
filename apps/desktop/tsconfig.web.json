@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "verbatimModuleSyntax": true,
+    "baseUrl": ".",
+    "paths": {
+      "@corvus/shared": ["../../packages/shared/src/index.ts"],
+      "@corvus/webscope": ["../../packages/webscope/src/types.ts"]
+    }
+  },
+  "include": ["src/renderer/**/*", "src/shared/**/*"]
+}

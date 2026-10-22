@@ -1,0 +1,45 @@
+{
+  "name": "@corvus/mcp-server",
+  "version": "0.1.1",
+  "license": "MPL-2.0",
+  "description": "Corvus MCP server: exposes the browser to AI agents over Streamable HTTP on 127.0.0.1, plus a stdio bridge.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "bin": {
+    "corvus-mcp-stdio": "dist/bin/stdio-bridge.js",
+    "corvus-mcp-dev": "dist/bin/dev.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "pnpm run build && node dist/bin/dev.js",
+    "bundle:bridge": "node scripts/bundle-bridge.mjs"
+  },
+  "dependencies": {
+    "@corvus/shared": "workspace:*",
+    "@corvus/webscope": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "esbuild": "0.24.2"
+  }
+}

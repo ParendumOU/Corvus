@@ -1,0 +1,70 @@
+appId: com.parendum.corvus
+productName: Corvus
+copyright: Copyright © Parendum
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - "!out/smoke/**"
+  - "!**/*.map"
+  - build/icon.png
+  - package.json
+asar: true
+# No native modules (storage is pure JSON), so nothing to rebuild. Keeps packaging free of
+# node-gyp and lets Windows builds run from a Linux container.
+npmRebuild: false
+buildDependenciesFromSource: false
+protocols:
+  - name: Web
+    schemes: [http, https]
+win:
+  target:
+    - nsis
+    - portable
+  icon: build/icon.ico
+  artifactName: Corvus-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  artifactName: Corvus-Setup-${version}.${ext}
+portable:
+  artifactName: Corvus-Portable-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icons
+  category: Network
+  executableName: corvus
+  maintainer: Parendum <info@parendum.com>
+  synopsis: AI-native browser that is also an MCP server
+  description: Corvus is a desktop browser whose search box is answered by an AI search engine and that AI agents can drive over MCP.
+  mimeTypes:
+    - x-scheme-handler/http
+    - x-scheme-handler/https
+    - text/html
+deb:
+  artifactName: corvus_${version}_${arch}.${ext}
+appImage:
+  artifactName: Corvus-${version}-${arch}.${ext}
+mac:
+  target: dmg
+  icon: build/icon.png
+  category: public.app-category.productivity
+  hardenedRuntime: true
+dmg:
+  artifactName: Corvus-${version}.${ext}
+# Self-update feed (electron-updater): GitHub Releases of the public ParendumOU/Corvus repo.
+# `--publish always` (scripts/publish-release.sh) uploads the installers + latest*.yml to a DRAFT
+# release v${version}; installed apps only see it once the owner publishes that draft. The
+# runtime default in src/shared/update-feed.ts (DEFAULT_UPDATE_FEED) must match owner/repo here
+# (test/update-feed.test.ts checks it). Settings > Updates can still point an install at a
+# self-hosted generic feed instead.
+publish:
+  provider: github
+  owner: ParendumOU
+  repo: Corvus
+  releaseType: draft

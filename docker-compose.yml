@@ -1,0 +1,58 @@
+# Usage:
+#   docker compose run --rm dev pnpm install
+#   docker compose run --rm dev pnpm test
+#   docker compose up -d searxng sync-server
+#   docker compose run --rm builder        # produces release/*.exe
+services:
+  dev:
+    build: { context: ., dockerfile: docker/Dockerfile.dev }
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      # Linux node_modules live in named volumes so they never clash with the Windows host.
+      - node_modules:/workspace/node_modules
+      - pnpm_store:/pnpm/store
+    env_file: [{ path: .env, required: false }]
+    environment:
+      CORVUS_SEARXNG_URL: http://searxng:8080
+      CORVUS_SYNC_URL: http://sync-server:8787
+
+  searxng:
+    image: searxng/searxng:2026.10.17-1c10abe2d
+    ports: ["${CORVUS_SEARXNG_HOST_PORT:-8898}:8080"]
+    volumes:
+      - ./docker/searxng:/etc/searxng:ro
+    restart: unless-stopped
+
+  sync-server:
+    build: { context: ., dockerfile: services/sync-server/Dockerfile }
+    ports: ["${CORVUS_SYNC_HOST_PORT:-8797}:8787"]
+    volumes:
+      - sync_data:/data
+    environment:
+      CORVUS_SYNC_DB: /data/sync.db
+    restart: unless-stopped
+
+  builder:
+    build: { context: ., dockerfile: docker/Dockerfile.builder }
+    working_dir: /project
+    entrypoint: ["bash", "scripts/release.sh"]
+    profiles: [release]
+    environment:
+      CSC_LINK: ${CSC_LINK:-}
+      CSC_KEY_PASSWORD: ${CSC_KEY_PASSWORD:-}
+      # Set only by scripts/publish-release.sh (draft GitHub release on ParendumOU/Corvus).
+      CORVUS_PUBLISH: ${CORVUS_PUBLISH:-never}
+      GH_TOKEN: ${GH_TOKEN:-}
+    volumes:
+      - .:/project
+      - builder_node_modules:/project/node_modules
+      - pnpm_store:/pnpm/store
+      - electron_cache:/root/.cache
+
+volumes:
+  node_modules:
+  pnpm_store:
+  sync_data:
+  builder_node_modules:
+  electron_cache:

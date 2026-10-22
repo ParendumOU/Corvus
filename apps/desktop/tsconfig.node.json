@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "verbatimModuleSyntax": true,
+    "noImplicitOverride": true,
+    "baseUrl": ".",
+    "paths": {
+      "@corvus/shared": ["../../packages/shared/src/index.ts"],
+      "@corvus/mcp-server/access": ["../../packages/mcp-server/src/access.ts"],
+      "@corvus/webscope": ["../../packages/webscope/src/index.ts"]
+    }
+  },
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "test/**/*", "electron.vite.config.ts", "vitest.config.ts"]
+}

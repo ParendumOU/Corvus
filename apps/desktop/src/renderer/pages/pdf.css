@@ -1,0 +1,274 @@
+.pdf-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.pdf-toolbar .pdf-title {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 28ch;
+}
+
+.pdf-toolbar .spacer {
+  flex: 1 1 auto;
+}
+
+.pdf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.pdf-btn:hover {
+  background: var(--hover);
+}
+.pdf-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pdf-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pdf-btn.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.pdf-page-input {
+  width: 46px;
+  height: 28px;
+  text-align: right;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--text);
+  padding: 0 6px;
+}
+
+.pdf-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.pdf-find input {
+  flex: 0 0 220px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--text);
+  padding: 0 8px;
+}
+.pdf-find .count {
+  color: var(--text-2);
+  font-size: 12px;
+  min-width: 70px;
+}
+
+.pdf-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pdf-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 18px 0 40px;
+  min-width: 0;
+}
+
+.pdf-page {
+  position: relative;
+  margin: 0 auto 16px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.pdf-page canvas {
+  display: block;
+}
+
+.pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  forced-color-adjust: none;
+  z-index: 2;
+}
+.pdf-text-layer span,
+.pdf-text-layer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.pdf-text-layer span.hl {
+  background: rgba(250, 204, 21, 0.45);
+  border-radius: 2px;
+}
+.pdf-text-layer span.hl-active {
+  background: rgba(250, 140, 62, 0.7);
+}
+.pdf-text-layer ::selection {
+  background: rgba(91, 91, 214, 0.35);
+}
+
+.pdf-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.pdf-state {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-2);
+}
+
+.pdf-sel-pop {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---------------------------------------------------------------- AI panel */
+
+.pdf-ai {
+  flex: 0 0 360px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+.pdf-ai-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pdf-ai-msgs {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pdf-ask {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.pdf-ask input {
+  flex: 1 1 auto;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.pdf-msg {
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--bg);
+}
+.pdf-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.pdf-msg-head .spacer {
+  flex: 1 1 auto;
+}
+.pdf-msg-body {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.pdf-msg ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.pdf-msg li {
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+.pdf-cite {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+.pdf-msg-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.pdf-muted {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.pdf-setup {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid var(--warning);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 12px;
+}

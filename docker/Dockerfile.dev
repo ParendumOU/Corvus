@@ -1,0 +1,10 @@
+# Development toolchain: Node 22 + pnpm. All installs/tests/builds run here, not on the host.
+FROM node:22-bookworm
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate \
+ && apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ git ca-certificates \
+      # Electron runtime libs so headless tests (xvfb) can start Electron
+      xvfb libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace
+ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true

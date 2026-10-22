@@ -1,0 +1,160 @@
+{
+ "query": "electric cars",
+ "results": [
+  {
+   "url": "https://www.theatlantic.com/technology/2026/10/americans-not-buying-electric-cars/689071/",
+   "title": "Everyone Is Buying Electric Cars—Except Americans",
+   "content": "For the first time since the dawn of the automobile, the majority of new cars are not powered exclusively by gasoline: So far in 2026, electric vehicles and hybrids are outselling traditional gas-powered cars.",
+   "thumbnail": "https://www.bing.com//th?id=ONUT.CIpqSelvovywz8CUKOApdg&pid=News&w=234&h=132&c=14&rs=2&qlt=90",
+   "metadata": "13 hours ago | The Atlantic",
+   "engine": "bing news",
+   "template": "default.html",
+   "parsed_url": [
+    "https",
+    "www.theatlantic.com",
+    "/technology/2026/10/americans-not-buying-electric-cars/689071/",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "bing news",
+    "duckduckgo news"
+   ],
+   "positions": [
+    1,
+    1
+   ],
+   "score": 4,
+   "category": "news",
+   "publishedDate": null,
+   "iframe_src": null
+  },
+  {
+   "url": "https://www.msn.com/en-us/autos/electric-cars/ev-alternatives-which-electric-vehicles-are-equivalent-to-the-tesla-model-y/ar-AA2etxS1",
+   "title": "EV alternatives: Which electric vehicles are equivalent to the Tesla Model Y?",
+   "content": "Some electric SUVs cost less than a Model Y, while others charge faster or feel sportier. You don't have to buy a Tesla to get a capable family EV.",
+   "thumbnail": "https://www.bing.com//th?id=ONUT.nra2pZc7mPsZaqqBlHaivQ&pid=News&w=234&h=132&c=14&rs=2&qlt=90",
+   "metadata": "1 day ago | BGR on MSN",
+   "engine": "bing news",
+   "template": "default.html",
+   "parsed_url": [
+    "https",
+    "www.msn.com",
+    "/en-us/autos/electric-cars/ev-alternatives-which-electric-vehicles-are-equivalent-to-the-tesla-model-y/ar-AA2etxS1",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "bing news",
+    "duckduckgo news"
+   ],
+   "positions": [
+    2,
+    2
+   ],
+   "score": 2,
+   "category": "news",
+   "publishedDate": null,
+   "iframe_src": null
+  },
+  {
+   "url": "https://www.nytimes.com/2026/10/15/business/tesla-roadster-2026-ev-sports-car.html",
+   "title": "Tesla Leads a Rush to Sell Electric Cars That Cost More Than $100,000",
+   "content": "Elon Musk's company and other automakers, like Jaguar and Bentley, are trying to sell very expensive electric cars to people who usually prefer gasoline-fueled luxury and performance.",
+   "thumbnail": "https://www.bing.com//th?id=ONUT.jgbfTTo2l_iPE-8ykZxQBw&pid=News&w=234&h=132&c=14&rs=2&qlt=90",
+   "metadata": "4 days ago | The New York Times",
+   "engine": "bing news",
+   "template": "default.html",
+   "parsed_url": [
+    "https",
+    "www.nytimes.com",
+    "/2026/10/15/business/tesla-roadster-2026-ev-sports-car.html",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "bing news",
+    "duckduckgo news"
+   ],
+   "positions": [
+    3,
+    3
+   ],
+   "score": 1.3333333333333333,
+   "category": "news",
+   "publishedDate": null,
+   "iframe_src": null
+  },
+  {
+   "url": "https://www.msn.com/en-us/news/other/americans-want-electric-cars-they-just-cant-find-them/ar-AA2enCEG",
+   "title": "Americans want electric cars – they just can’t find them",
+   "content": "Within three months of the U.S. and Israeli strikes on Iran on Feb. 28, 2026, the average price of gasoline for American drivers climbed from US$2.94 to $4.35 a gallon. If there was ever a moment for Americans to switch to electric vehicles,",
+   "thumbnail": "https://www.bing.com//th?id=ORMS.0bd9feaaea339270a924dcb349eaa396&pid=News&w=234&h=132&c=14&rs=2&qlt=90",
+   "metadata": "3 days ago | The Conversation on MSN",
+   "engine": "bing news",
+   "template": "default.html",
+   "parsed_url": [
+    "https",
+    "www.msn.com",
+    "/en-us/news/other/americans-want-electric-cars-they-just-cant-find-them/ar-AA2enCEG",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "bing news",
+    "duckduckgo news"
+   ],
+   "positions": [
+    5,
+    4
+   ],
+   "score": 0.9,
+   "category": "news",
+   "publishedDate": null,
+   "iframe_src": null
+  },
+  {
+   "url": "https://www.nytimes.com/2026/10/16/business/china-ev-thailand-cars.html",
+   "title": "After Welcoming China’s Electric Vehicles, This Country Is Paying the Price",
+   "content": "Thailand introduced subsidies and tax cuts to encourage electric vehicle adoption. Now it is trying to recalibrate, alarmed by the threat to its industrial landscape.",
+   "thumbnail": "https://www.bing.com//th?id=ONUT.O60DEESSI8yUDJp25ccvmw&pid=News&w=234&h=132&c=14&rs=2&qlt=90",
+   "metadata": "3 days ago | The New York Times",
+   "engine": "bing news",
+   "template": "default.html",
+   "parsed_url": [
+    "https",
+    "www.nytimes.com",
+    "/2026/10/16/business/china-ev-thailand-cars.html",
+    "",
+    "",
+    ""
+   ],
+   "img_src": "",
+   "priority": "",
+   "engines": [
+    "bing news",
+    "duckduckgo news"
+   ],
+   "positions": [
+    8,
+    13
+   ],
+   "score": 0.40384615384615385,
+   "category": "news",
+   "publishedDate": null,
+   "iframe_src": null
+  }
+ ]
+}
