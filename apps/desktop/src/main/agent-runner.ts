@@ -13,7 +13,7 @@ import {
 import type { TabId } from "@corvus/shared";
 import { summarizeArgs } from "../shared/agent-activity";
 import { isResumableStatus, recentRunMemoryNote, type AgentRunStopReason, type StoredRunStatus } from "../shared/agent-run";
-import { classifyAction } from "../shared/agent-safety";
+import { CREDENTIAL_TOOLS, classifyAction } from "../shared/agent-safety";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import type {
   AgentApprovalDecision,
@@ -25,7 +25,8 @@ import type {
 import type { AgentResumeResult } from "../shared/agent-run-ipc";
 import type { StoredAgentRun } from "./agent-run-store";
 import { TranscriptBuilder, normalizeResumeTranscript } from "./agent-transcript";
-import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, argStr, capAgentTools, providerFromSettings, runAgentTool, stepPreview, type ProviderOverride } from "./agent-tools";
+import type { CredentialApprover } from "./agent-credentials";
+import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, agentToolset, argStr, capAgentTools, providerFromSettings, runAgentTool, stepPreview, type ProviderOverride } from "./agent-tools";
 import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared/site-profiles";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
@@ -108,10 +109,12 @@ export class AgentRunner {
   private siteContext(win: BrowserWindowCtl): { system: string; tools: AgentTool[]; override: ProviderOverride | undefined } {
     const url = this.activeUrl(win);
     const profile = url ? matchSiteProfile(win.profile.siteProfiles.list(), url) : null;
-    if (!profile) return { system: AGENT_SYSTEM, tools: TOOLS, override: undefined };
+    // Credential tools only when Settings, Passwords allows agents to use opted-in logins.
+    const base = agentToolset(this.ctx.agentCredentials.enabled);
+    if (!profile) return { system: base.system, tools: base.tools, override: undefined };
     const level = capAccessLevel("full", profile.accessCap);
     const override = profile.provider || profile.model ? { provider: profile.provider, model: profile.model } : undefined;
-    return { system: applyPromptAddendum(AGENT_SYSTEM, profile), tools: capAgentTools(TOOLS, level), override };
+    return { system: applyPromptAddendum(base.system, profile), tools: capAgentTools(base.tools, level), override };
   }
 
   private setupReason(): string | null {
@@ -388,7 +391,12 @@ export class AgentRunner {
     await this.waitWhilePaused(run, signal);
     if (signal.aborted) throw new AgentStopError("aborted");
     run.wf.captured = null;
+    // A saved secret was filled into the agent tab: no workflow replay there until it navigates.
+    const locked = name === "run_workflow" && run.tabId ? this.ctx.secretFills?.check(run.tabId) : null;
+    if (locked) return { content: locked, isError: true };
     if (isWorkflowTool(name)) return this.runWorkflowTool(win, run, name, input, signal);
+
+    if (CREDENTIAL_TOOLS.has(name)) return this.executeCredential(win, run, name, input, signal);
 
     const elementName = name === "click" || name === "type" ? run.elementNames.get(argStr(input, "ref")) ?? "" : "";
     const risk = classifyAction(name, input, elementName);
@@ -398,7 +406,7 @@ export class AgentRunner {
       if (decision === "stop") throw new AgentStopError("stopped by user");
       return { content: decision === "approve" ? "The user handled it and asked you to continue." : "The user skipped this; continue without it." };
     }
-    if (risk.risky && this.ctx.settings.get().agent.askBeforeRisky) {
+    if (risk.risky && (risk.alwaysAsk === true || this.ctx.settings.get().agent.askBeforeRisky)) {
       const decision = await this.requestApproval(win, run, name, input, risk, signal);
       if (decision === "stop") throw new AgentStopError("stopped by user");
       if (decision === "skip") {
@@ -423,6 +431,37 @@ export class AgentRunner {
       return result;
     } catch (err) {
       this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - started, ok: false, resultChars: 0 });
+      throw err;
+    }
+  }
+
+  /**
+   * fill_login / fill_totp: Corvus fills an opted-in saved login or 2FA code by reference after the
+   * person approves this one use in the run panel, whatever "ask before risky actions" says. The
+   * result only says what was filled; the secret never reaches the model, the transcript or history.
+   */
+  private async executeCredential(win: BrowserWindowCtl, run: Run, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
+    const at = Date.now();
+    this.recordCall(name, input, at);
+    const approve: CredentialApprover = async (req) => {
+      const decision = await this.requestApproval(win, run, name, input, { handoff: false, reason: req.reason }, signal);
+      if (decision === "stop") throw new AgentStopError("stopped by user");
+      return decision === "approve";
+    };
+    const username = argStr(input, "username");
+    const opts = { approve, client: AGENT_CLIENT, handoffHint: "Call ask_user so the person can do this step.", ...(username ? { username } : {}) };
+    try {
+      if (!run.tabId) throw new Error("No agent tab is open yet.");
+      const ref = argStr(input, "ref");
+      const outcome =
+        name === "fill_totp"
+          ? await this.ctx.agentCredentials.fillTotp(run.tabId, ref, opts)
+          : await this.ctx.agentCredentials.fillLogin(run.tabId, ref || null, opts);
+      if (outcome.status === "declined") run.steps = run.steps.map((s) => (s.id === findRunningId(run, name) ? { ...s, status: "skipped" } : s));
+      this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - at, ok: outcome.status === "filled", resultChars: outcome.message.length });
+      return { content: outcome.message, ...(outcome.status === "error" ? { isError: true } : {}) };
+    } catch (err) {
+      this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - at, ok: false, resultChars: 0 });
       throw err;
     }
   }

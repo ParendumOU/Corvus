@@ -1,6 +1,33 @@
+import fs from "node:fs";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
+import type { Plugin } from "vite";
+import { packageRootOf } from "./scripts/license-policy.mjs";
+
+/**
+ * Records which third-party packages a build bundles into out/ (out/.licenses/<target>.json), so
+ * scripts/third-party-notices.mjs can list exactly what ships and check its licences.
+ */
+function bundledPackages(target: string): Plugin {
+  return {
+    name: "corvus-bundled-packages",
+    generateBundle(_options, bundle) {
+      const roots = new Set<string>();
+      for (const item of Object.values(bundle)) {
+        if (item.type !== "chunk") continue;
+        const ids = (item as { moduleIds?: string[] }).moduleIds ?? Object.keys(item.modules ?? {});
+        for (const id of ids) {
+          const root = packageRootOf(id);
+          if (root) roots.add(root);
+        }
+      }
+      const dir = resolve(import.meta.dirname, "out/.licenses");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(resolve(dir, `${target}.json`), JSON.stringify([...roots].sort(), null, 2));
+    },
+  };
+}
 
 const shared = {
   "@corvus/shared": resolve(import.meta.dirname, "../../packages/shared/src/index.ts"),
@@ -12,6 +39,7 @@ const pages = ["chrome", "newtab", "search", "settings", "bookmarks", "history",
 export default defineConfig({
   main: {
     resolve: { alias: shared },
+    plugins: [bundledPackages("main")],
     build: {
       outDir: "out/main",
       rolldownOptions: {
@@ -24,6 +52,7 @@ export default defineConfig({
   },
   preload: {
     resolve: { alias: shared },
+    plugins: [bundledPackages("preload")],
     build: {
       outDir: "out/preload",
       // Sandboxed preloads must be self-contained CommonJS bundles.
@@ -46,7 +75,7 @@ export default defineConfig({
     root: "src/renderer",
     base: "./",
     resolve: { alias: shared },
-    plugins: [react()],
+    plugins: [react(), bundledPackages("renderer")],
     server: { hmr: { host: "localhost" } },
     build: {
       outDir: resolve(import.meta.dirname, "out/renderer"),

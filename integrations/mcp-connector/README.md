@@ -268,11 +268,14 @@ Corvus decides what agents may do, in **Settings > AI agents (MCP)**:
   history and bookmarks. No opening, clicking or typing.
 - **Standard** (default): adds opening and navigating tabs, clicking, typing and forms.
 - **Full**: adds running JavaScript in pages, file uploads and downloads, save as PDF, cookies,
-  recorded flows and the WebScope security tools.
+  recorded flows, the WebScope security tools and filling saved logins and 2FA codes the user
+  opted in.
 
 Tabs an agent is driving show an **AI** badge, an on-screen cursor and an activity timeline, and
-you can pause agents at any time. CAPTCHAs and two-factor prompts are handed to you; they are never
-solved automatically. Text that agents read from web pages is marked as untrusted.
+you can pause agents at any time. CAPTCHAs are always handed to you and never solved
+automatically. Two-factor prompts are handed to you too, unless you let agents use the 2FA code of
+a specific saved login: then Corvus fills the code itself after you approve each use, and the
+agent never sees it. Text that agents read from web pages is marked as untrusted.
 
 ## Troubleshooting
 

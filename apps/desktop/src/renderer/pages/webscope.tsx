@@ -69,6 +69,15 @@ const ALL_VIEWS: View[] = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
 const TYPES: ContentType[] = ["document", "stylesheet", "script", "image", "font", "xhr", "fetch", "websocket", "media", "manifest", "other"];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
+/** Marks traffic that carries a secret Corvus filled: shown in full here, redacted for AI. */
+function AiHiddenBadge() {
+  return (
+    <span className="ws-ai-hidden" title="Corvus filled a saved password or 2FA code into this request. You see it in full; AI agents and MCP clients get it redacted.">
+      Hidden from AI
+    </span>
+  );
+}
+
 function headerValue(headers: HttpHeader[], name: string): string | undefined {
   const lower = name.toLowerCase();
   return headers.find((h) => h.name.toLowerCase() === lower)?.value;
@@ -255,7 +264,10 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
                 <td className="ws-col-dot"><span className={`scope-dot${r.inScope ? "" : " oos"}`} title={r.inScope ? "in scope" : "out of scope"} /></td>
                 <td><MethodBadge method={r.method} /></td>
                 <td className={r.inScope ? "" : "oos"}>{r.host}</td>
-                <td className="path">{r.path}</td>
+                <td className="path">
+                  {r.aiHidden && <AiHiddenBadge />}
+                  {r.path}
+                </td>
                 <td><StatusCell status={r.status} /></td>
                 <td className="oos">{r.type}</td>
                 <td>{fmtBytes(r.length)}</td>
@@ -297,6 +309,7 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
         <MessageViewer
           title="Request"
           msg={reqMsg}
+          meta={selected?.aiHidden ? <AiHiddenBadge /> : undefined}
           emptyHint="Select a row, or use Up and Down, to inspect it here."
           actions={
             selected ? (
@@ -863,7 +876,10 @@ function InterceptView({ state, visible }: { state: WebScopeState; visible: bool
               <button key={q.id} role="option" aria-selected={q.id === held?.id} className={`ws-queue-row ${q.id === held?.id ? "on" : ""}`} onClick={() => setSelected(q.id)}>
                 <span className={`ws-phase ${q.phase}`}>{q.phase === "response" ? "RESP" : q.request.method}</span>
                 <span className="ws-queue-host">{q.host}</span>
-                <span className="ws-queue-path">{q.path}</span>
+                <span className="ws-queue-path">
+                  {q.aiHidden && <AiHiddenBadge />}
+                  {q.path}
+                </span>
               </button>
             ))
           )}

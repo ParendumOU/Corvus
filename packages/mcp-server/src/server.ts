@@ -4,7 +4,7 @@ import type { McpServerOptions, SearchInsights, SearchResult, Tab, TabGroup } fr
 import { z } from "zod";
 import { checkAgentUrl, compactJson, truncate, UNTRUSTED_NOTE, wrapUntrusted } from "./content.js";
 import { renderSearch } from "./search-render.js";
-import { resolveAccessLevel, toolAllowed } from "./access.js";
+import { RAW_PAGE_TOOLS, resolveAccessLevel, toolAllowed } from "./access.js";
 import { TokenBucket, type RateLimitOptions } from "./security.js";
 import { registerAgentTools, type FlowProvider, type Register, type SiteMemoryProvider, type ToolExtra, type WebScopeProvider } from "./tools/index.js";
 
@@ -101,7 +101,8 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
         let result: CallToolResult;
         try {
           opts.onToolCall?.({ client, tool: name, args, at });
-          result = await run(args, extra.signal, extra);
+          const locked = RAW_PAGE_TOOLS.has(name) ? await secretFillLock(args) : null;
+          result = locked ? { isError: true, content: [{ type: "text", text: locked }] } : await run(args, extra.signal, extra);
         } catch (err) {
           result = { isError: true, content: [{ type: "text", text: `${name} failed: ${errorMessage(err)}` }] };
         }
@@ -117,6 +118,13 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
       }) as never,
     );
   };
+
+  /** The browser's refusal for raw page access on the target tab (a saved secret was just filled), or null. */
+  async function secretFillLock(args: unknown): Promise<string | null> {
+    if (!controller.secretFillLock) return null;
+    const tabId = (args as { tabId?: unknown } | null)?.tabId;
+    return controller.secretFillLock(await resolveTab(typeof tabId === "string" ? tabId : undefined));
+  }
 
   async function resolveTab(id: string | undefined): Promise<string> {
     if (id) return id;

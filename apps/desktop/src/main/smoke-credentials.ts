@@ -1,6 +1,16 @@
-import type { WebContents } from "electron";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import type http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { nativeImage, type WebContents } from "electron";
+import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
 import { originKeyOf } from "../shared/credentials";
+import { totpCode, type TotpConfig } from "../shared/totp";
 import type { AppContext } from "./context";
+import { decodeTotpQrFile, exportVaultToKdbx } from "./ipc-credentials";
+import { createKdbx, openKdbx } from "./keepass-format";
+import { AI_REDACTED_BODY } from "@corvus/webscope";
 import type { BrowserWindowCtl } from "./window";
 
 interface SmokeCtx {
@@ -9,6 +19,39 @@ interface SmokeCtx {
   check: (name: string, ok: boolean, detail?: unknown) => void;
   capture: (name: string, wc: WebContents) => Promise<void>;
 }
+
+const OTP_PAGE = `<!doctype html><html><head><title>Two-step verification</title></head><body>
+<main><h1>Enter your code</h1>
+<form method="GET" action="/after-login">
+<label for="otp">One-time code</label><input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+<button type="submit">Verify</button>
+</form></main></body></html>`;
+
+const SPLIT_OTP_PAGE = `<!doctype html><html><head><title>Verify</title></head><body>
+<main><h1>Enter the 6-digit code</h1>
+<form onsubmit="return false"><div class="boxes">
+${[1, 2, 3, 4, 5, 6].map((i) => `<input class="d" aria-label="Digit ${i}" maxlength="1" inputmode="numeric">`).join("")}
+</div><button type="submit">Verify</button></form></main></body></html>`;
+
+const POST_LOGIN_PAGE = `<!doctype html><html><head><title>Sign in (POST)</title></head><body>
+<main><h1>Sign in</h1>
+<form method="POST" action="/after-login">
+<label for="u">Username</label><input id="u" name="u" type="text" autocomplete="username">
+<label for="p">Password</label><input id="p" name="p" type="password" autocomplete="current-password">
+<button type="submit">Sign in</button>
+</form></main></body></html>`;
+
+/** Extra pages for the credentials smoke, served by the shared smoke server. */
+export function serveCredentialsSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  const pathname = (req.url ?? "/").split("?")[0];
+  const page = pathname === "/2fa" ? OTP_PAGE : pathname === "/2fa-split" ? SPLIT_OTP_PAGE : pathname === "/login-post" ? POST_LOGIN_PAGE : null;
+  if (!page) return false;
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(page);
+  return true;
+}
+
+const TOTP: TotpConfig = { secret: "JBSWY3DPEHPK3PXPJBSWY3DP", algorithm: "SHA1", digits: 6, period: 30 };
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -22,9 +65,89 @@ async function poll(fn: () => boolean, tries = 40): Promise<boolean> {
   return fn();
 }
 
+/** Codes valid around now (previous, current, next window), to tolerate a window rollover. */
+async function nearbyCodes(config: TotpConfig = TOTP): Promise<string[]> {
+  const now = Date.now();
+  const codes = await Promise.all([-30_000, 0, 30_000].map(async (offset) => (await totpCode(config, now + offset)).code));
+  return [...new Set(codes)];
+}
+
+/** True when `text` holds one of the codes as a standalone number (not inside a longer digit run). */
+function containsCode(text: string, codes: string[]): boolean {
+  return codes.some((code) => new RegExp(`(?<!\\d)${code}(?!\\d)`).test(text));
+}
+
+async function openAndWait(win: BrowserWindowCtl, url: string, needle: string) {
+  const tab = win.createTab(url);
+  const wc = tab.view.webContents;
+  await poll(() => !wc.isDestroyed() && wc.getURL().includes(needle) && !tab.loading);
+  await delay(250);
+  return { tab, wc };
+}
+
+/** Writes a PNG with a QR code for `text`, rendered the way a screenshot of a setup page would be. */
+async function writeQrPng(text: string): Promise<string> {
+  const { default: encodeQR } = await import("qr");
+  const modules = encodeQR(text, "raw");
+  const scale = 6;
+  const quiet = 4;
+  const size = (modules.length + quiet * 2) * scale;
+  const bgra = Buffer.alloc(size * size * 4, 255);
+  modules.forEach((row, y) =>
+    row.forEach((dark, x) => {
+      if (!dark) return;
+      for (let dy = 0; dy < scale; dy++) {
+        for (let dx = 0; dx < scale; dx++) {
+          const px = ((y + quiet) * scale + dy) * size + (x + quiet) * scale + dx;
+          bgra.writeUInt32LE(0xff000000, px * 4);
+        }
+      }
+    }),
+  );
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "corvus-qr-")), "setup.png");
+  fs.writeFileSync(file, nativeImage.createFromBitmap(bgra, { width: size, height: size }).toPNG());
+  return file;
+}
+
+/** Finds an element ref by accessible name in the latest snapshot handed to the model. */
+function refFor(messages: AgentTurnRequest["messages"], name: string): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    for (const block of messages[i]!.content) {
+      if (block.type === "tool_result" && block.content.includes("elements:")) {
+        const match = block.content.match(new RegExp(`(\\be\\d+)\\s+\\w+\\s+"${name}`));
+        if (match) return match[1]!;
+      }
+    }
+  }
+  return "e1";
+}
+
+/** navigate -> snapshot -> fill_totp(code field) -> snapshot -> done. Records every request. */
+function totpAgent(url: string, seen: AgentTurnRequest[]): AgentModelProvider {
+  return {
+    kind: "anthropic-api",
+    model: "claude-haiku-5-5",
+    async *streamTurn(req): AsyncGenerator<TurnEvent> {
+      seen.push(structuredClone(req));
+      const issued = req.messages.filter((m) => m.role === "assistant" && m.content.some((c) => c.type === "tool_use")).length;
+      const emit = (name: string, input: unknown): TurnEvent => ({ type: "tool_use", id: `otp${issued}`, name, input });
+      await delay(20);
+      if (issued === 0) yield emit("navigate", { url });
+      else if (issued === 1) yield emit("page_snapshot", {});
+      else if (issued === 2) yield emit("fill_totp", { ref: refFor(req.messages, "One-time code") });
+      else if (issued === 3) yield emit("page_snapshot", {});
+      else yield { type: "text", text: "Done." };
+      yield { type: "usage", inputTokens: 100, outputTokens: 10, model: "claude-haiku-5-5" };
+      yield { type: "end", stopReason: issued <= 3 ? "tool_use" : "end_turn" };
+    },
+  };
+}
+
 /**
  * Drives the password manager end to end headlessly: a seeded login is detected and filled on a login
- * page, then a changed password submitted through the form is captured and saved on the vault.
+ * page, then a changed password submitted through the form is captured and saved on the vault. Then
+ * 2FA: QR import, one-time-code autofill (single field and split boxes), and the agent tool, blocked
+ * without the per-login opt-in and allowed with it, with the code absent from the run transcript.
  */
 export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, capture }: SmokeCtx): Promise<void> {
   const base = url.replace(/\/$/, "");
@@ -64,12 +187,383 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   const saved = await poll(() => vault.get(seeded.id)?.password === "rotated-pw");
   check("autofill save updates the stored password", saved, vault.get(seeded.id)?.password);
 
-  // Management page renders and lists the login.
+  // ------------------------------------------------------------------ 2FA (TOTP)
+
+  // QR import: a setup code rendered to a PNG is decoded locally into the otpauth link.
+  const uri = `otpauth://totp/Smoke:alice?secret=${TOTP.secret}&issuer=Smoke`;
+  const qrFile = await writeQrPng(uri);
+  const imported = await decodeTotpQrFile(qrFile);
+  check("2FA QR code image decodes locally", imported?.ok === true && imported.uri === uri, imported);
+  fs.rmSync(path.dirname(qrFile), { recursive: true, force: true });
+
+  vault.update(seeded.id, { totp: TOTP });
+  check("vault stores a 2FA generator", vault.get(seeded.id)?.totp?.secret === TOTP.secret);
+
+  // One-time-code autofill on the user's click.
+  const otp = await openAndWait(win, `${base}/2fa`, "/2fa");
+  const otpOffered = await poll(() => ctx.autofill.stateFor(win).otpAvailable);
+  check("autofill detects a one-time-code field with a saved 2FA code", otpOffered, ctx.autofill.stateFor(win));
+  await ctx.autofill.fillTotp(win, seeded.id);
+  await delay(150);
+  const otpValue = String(await otp.wc.executeJavaScript(`document.getElementById("otp").value`));
+  check("autofill fills the current 2FA code", (await nearbyCodes()).includes(otpValue), { length: otpValue.length });
+  await capture("passwords-2fa", otp.wc);
+
+  const split = await openAndWait(win, `${base}/2fa-split`, "/2fa-split");
+  const splitOffered = await poll(() => ctx.autofill.stateFor(win).otpAvailable);
+  await ctx.autofill.fillTotp(win, seeded.id);
+  await delay(150);
+  const splitValue = String(await split.wc.executeJavaScript(`[...document.querySelectorAll("input.d")].map((i) => i.value).join("")`));
+  check("autofill fills split one-digit code boxes", splitOffered && (await nearbyCodes()).includes(splitValue), { offered: splitOffered, length: splitValue.length });
+
+  // Management page renders the login with its live code.
   const page = win.createTab("corvus://passwords");
-  await delay(1200);
+  await delay(1400);
   const shown = await page.view.webContents.executeJavaScript(
     `Boolean(window.corvusInternal) && document.querySelector(".list-row") && document.body.innerText.includes("alice")`,
   );
   check("corvus://passwords lists saved logins", shown === true, shown);
+  const liveCode = String(await page.view.webContents.executeJavaScript(`document.querySelector(".pw-totp-code")?.textContent ?? ""`)).replace(/\s/g, "");
+  const warned = await page.view.webContents.executeJavaScript(`document.body.innerText.includes("turns two factors into one")`);
+  check("corvus://passwords shows the live 2FA code and the warning", (await nearbyCodes()).includes(liveCode) && warned === true, { warned, length: liveCode.length });
   await capture("passwords", page.view.webContents);
+
+  const vaultTarget: AgentTarget = { label: "", totp: TOTP, secrets: [TOTP.secret], setOptIn: (on) => void vault.update(seeded.id, { agentTotp: on }) };
+  if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await agentTotpSmoke(ctx, base, vaultTarget, { url, win, check, capture });
+  await autoSignInSmoke(ctx, base, seeded.id, { url, win, check, capture });
+  await keepassSmoke(ctx, base, { url, win, check, capture });
+}
+
+/** Opt-in auto sign-in: asks first, does nothing when declined, fills and submits when confirmed. */
+async function autoSignInSmoke(ctx: AppContext, base: string, credId: string, { win, check }: SmokeCtx): Promise<void> {
+  let asked = 0;
+  let approve = false;
+  ctx.autofill.setAutoSignInApprover(async () => {
+    asked += 1;
+    return { approved: approve, stopOffering: false };
+  });
+  try {
+    // Not opted in: no prompt.
+    const plain = await openAndWait(win, `${base}/login`, "/login");
+    await delay(600);
+    const askedWithoutOptIn = asked;
+    win.closeTab(plain.tab.id);
+
+    win.profile.autoSignIn.set(credId, true);
+    const declined = await openAndWait(win, `${base}/login`, "/login");
+    await poll(() => asked > askedWithoutOptIn);
+    await delay(300);
+    const declinedState = await declined.wc.executeJavaScript(`location.pathname + "|" + document.getElementById("p").value`);
+    win.closeTab(declined.tab.id);
+
+    approve = true;
+    const confirmed = await openAndWait(win, `${base}/login`, "/login");
+    const signedIn = await poll(() => !confirmed.wc.isDestroyed() && confirmed.wc.getURL().includes("/after-login"));
+    const submitted = confirmed.wc.getURL();
+    win.closeTab(confirmed.tab.id);
+
+    // Agent-driven tabs never auto sign in.
+    const before = asked;
+    const agentTab = await ctx.controller.openTab(`${base}/login`);
+    await delay(800);
+    const agentAsked = asked - before;
+    await ctx.controller.closeTab(agentTab.id);
+
+    check(
+      "auto sign-in asks first, skips when declined, signs in when confirmed",
+      askedWithoutOptIn === 0 && declinedState === "/login|" && signedIn && submitted.includes("u=alice") && agentAsked === 0,
+      { askedWithoutOptIn, declinedState: String(declinedState).split("|")[0], signedIn, agentAsked },
+    );
+  } finally {
+    ctx.autofill.setAutoSignInApprover(null);
+    win.profile.autoSignIn.set(credId, false);
+  }
+}
+
+const KP_TOTP: TotpConfig = { secret: "KRSXG5CTMVRXEZLUKN2XAZLSKNSWG4TF", algorithm: "SHA1", digits: 6, period: 30 };
+const KP_PASSWORD = "kp-smoke-password";
+const KP_MASTER = "smoke-master-pass";
+
+/**
+ * KeePass end to end: a database generated for the smoke is added and unlocked, its login is offered
+ * and filled on the login page, its 2FA code goes through the same agent gates, agent sign-in is
+ * gated by the per-entry opt-in, the vault exports to a new .kdbx, and the database file is never
+ * modified.
+ */
+async function keepassSmoke(ctx: AppContext, base: string, { url, win, check, capture }: SmokeCtx): Promise<void> {
+  const kp = win.profile.keepass;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-kp-smoke-"));
+  const file = path.join(dir, "Smoke vault.kdbx");
+  const before = ctx.settings.get().passwords.agentAccess;
+  try {
+    fs.writeFileSync(
+      file,
+      await createKdbx([{ title: "Smoke site", username: "kp-user", password: KP_PASSWORD, url: base, totp: KP_TOTP }], KP_MASTER, {
+        memoryKiB: 4096,
+        iterations: 1,
+        totpFields: "keepassxc",
+      }),
+    );
+    const hashBefore = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+    kp.addSources([file], "file");
+    const dbId = kp.databases().find((d) => d.path === file)?.id ?? "";
+    const wrong = await kp.unlock(dbId, "nope", null, false);
+    const unlocked = await kp.unlock(dbId, KP_MASTER, null, false);
+    check("KeePass database unlocks with the master password only", !wrong.ok && unlocked.ok, { wrong, unlocked });
+
+    // Autofill offers the KeePass login next to the vault one and fills it.
+    const login = await openAndWait(win, `${base}/login`, "/login");
+    await poll(() => ctx.autofill.stateFor(win).available);
+    const suggestion = ctx.autofill.suggestions(win).find((m) => m.source === "keepass");
+    check("autofill suggests the KeePass login", suggestion?.username === "kp-user" && suggestion.sourceName === "Smoke vault" && suggestion.hasTotp, suggestion);
+    if (suggestion) await ctx.autofill.fill(win, suggestion.id);
+    await delay(150);
+    const filled = await login.wc.executeJavaScript(`document.getElementById("u").value + "/" + document.getElementById("p").value`);
+    check("autofill fills the KeePass login", filled === `kp-user/${KP_PASSWORD}`, { user: String(filled).split("/")[0] });
+
+    // The passwords page lists the database and the entry, without the password.
+    const page = win.createTab("corvus://passwords");
+    await delay(1400);
+    const pageText = String(await page.view.webContents.executeJavaScript(`document.getElementById("keepass")?.innerText ?? ""`));
+    check("corvus://passwords shows the unlocked KeePass database", pageText.includes("Smoke vault") && pageText.includes("KeePass: Smoke vault") && !pageText.includes(KP_PASSWORD), {
+      hasDb: pageText.includes("Smoke vault"),
+    });
+    await capture("passwords-keepass", page.view.webContents);
+
+    const entryId = suggestion?.id ?? "";
+    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1" && entryId) {
+      const target: AgentTarget = { label: " (KeePass)", totp: KP_TOTP, secrets: [KP_TOTP.secret, KP_PASSWORD], setOptIn: (on) => void kp.setOptIn(entryId, { totp: on }) };
+      await agentTotpSmoke(ctx, base, target, { url, win, check, capture });
+
+      // Agent sign-in by reference (MCP path): blocked without the opt-in, filled with it.
+      ctx.settings.update({ passwords: { agentAccess: true } });
+      let asked = 0;
+      ctx.agentCredentials.setTestApprover(async () => {
+        asked += 1;
+        return true;
+      });
+      const tab = await ctx.controller.openTab(`${base}/login`);
+      await delay(300);
+      const blocked = await ctx.controller.fillLogin!(tab.id, { username: "kp-user" });
+      kp.setOptIn(entryId, { signIn: true });
+      const allowed = await ctx.controller.fillLogin!(tab.id, { username: "kp-user" });
+      const found = ctx.windows.findTab(tab.id);
+      const pageValues = found ? await found.tab.view.webContents.executeJavaScript(`document.getElementById("u").value + "/" + document.getElementById("p").value`) : "";
+      const snap = JSON.stringify(await ctx.controller.snapshot(tab.id));
+      check(
+        "agent sign-in with a KeePass login: gated by the opt-in, filled by reference",
+        blocked.status === "handoff" &&
+          allowed.status === "filled" &&
+          asked === 1 &&
+          pageValues === `kp-user/${KP_PASSWORD}` &&
+          !allowed.message.includes(KP_PASSWORD) &&
+          !snap.includes(KP_PASSWORD),
+        { blocked: blocked.status, allowed: allowed.status, asked },
+      );
+
+      // Script access is locked on that tab after the fill, and comes back on a new document.
+      const evalBefore = ctx.settings.get().mcp.allowEvaluate;
+      ctx.settings.update({ mcp: { allowEvaluate: true } });
+      try {
+        const lockedOut = await ctx.controller.evaluate!(tab.id, `document.getElementById("p").value`).then(
+          (v) => ({ refused: false, leaked: v === KP_PASSWORD }),
+          (err: unknown) => ({ refused: String((err as Error).message).includes("blocked here until the page navigates"), leaked: false }),
+        );
+        const lockText = await ctx.controller.secretFillLock!(tab.id);
+        await ctx.controller.navigate(tab.id, `${base}/after-login`);
+        const afterNav = await ctx.controller.evaluate!(tab.id, "1 + 1").catch((err: unknown) => String((err as Error).message));
+        check(
+          "after an agent fill_login, evaluate on that tab is refused until it navigates",
+          lockedOut.refused && !lockedOut.leaked && Boolean(lockText) && afterNav === 2,
+          { refused: lockedOut.refused, afterNav },
+        );
+      } finally {
+        ctx.settings.update({ mcp: { allowEvaluate: evalBefore } });
+      }
+      await ctx.controller.closeTab(tab.id);
+
+      // WebScope: the login an agent submits is hidden from AI and shown in full to people.
+      const wsBefore = ctx.settings.get().webscope.enabled;
+      ctx.webscope.setEnabled(true);
+      try {
+        const wsTab = await ctx.controller.openTab(`${base}/login-post`);
+        await delay(300);
+        const wsFill = await ctx.controller.fillLogin!(wsTab.id, { username: "kp-user" });
+        const wsFound = ctx.windows.findTab(wsTab.id);
+        await wsFound?.tab.view.webContents.executeJavaScript(`document.querySelector("form").requestSubmit(); true`);
+        const engine = ctx.webscope.activeEngine();
+        const loginRow = () => engine?.queryHistory({ method: "POST" }).find((r) => r.path.startsWith("/after-login"));
+        await poll(() => Boolean(loginRow()), 60);
+        const row = loginRow();
+        const full = row ? engine!.getEntry(row.id) : undefined;
+        const ai = row ? engine!.getEntryForAi(row.id) : undefined;
+        const aiSearch = engine?.queryHistory({ search: KP_PASSWORD }, 200, { forAi: true }) ?? [];
+        const peopleSearch = engine?.queryHistory({ search: KP_PASSWORD }) ?? [];
+        check(
+          "WebScope hides an agent-submitted login from AI and shows it in full to people",
+          wsFill.status === "filled" &&
+            row?.aiHidden === true &&
+            Boolean(full?.request.body?.includes(KP_PASSWORD)) &&
+            ai?.request.body === AI_REDACTED_BODY &&
+            !JSON.stringify(ai ?? {}).includes(KP_PASSWORD) &&
+            aiSearch.length === 0 &&
+            peopleSearch.length > 0,
+          { fill: wsFill.status, captured: Boolean(row), aiHidden: row?.aiHidden, aiSearch: aiSearch.length, peopleSearch: peopleSearch.length },
+        );
+        await ctx.controller.closeTab(wsTab.id);
+
+        // The WebScope page marks the row for people.
+        const wsPage = win.createTab("corvus://webscope");
+        let badge = false;
+        for (let i = 0; i < 30 && !badge; i++) {
+          await delay(150);
+          badge = await wsPage.view.webContents.executeJavaScript(`Boolean(document.querySelector(".ws-ai-hidden"))`).catch(() => false);
+        }
+        check("WebScope shows a Hidden from AI badge on the row", badge === true, badge);
+        await capture("webscope-hidden-from-ai", wsPage.view.webContents);
+        win.closeTab(wsPage.id);
+      } finally {
+        ctx.webscope.setEnabled(wsBefore);
+      }
+
+      ctx.agentCredentials.setTestApprover(null);
+      kp.setOptIn(entryId, { signIn: false, totp: false });
+    }
+
+    // Export the built-in vault to a new .kdbx and read it back; an existing file is never overwritten.
+    const exportFile = path.join(dir, "export.kdbx");
+    const exported = await exportVaultToKdbx(win.profile, exportFile, "export-master-1");
+    const reopened = exported?.ok ? await openKdbx(new Uint8Array(fs.readFileSync(exportFile)), "export-master-1", null) : null;
+    const alice = reopened?.entries.find((e) => e.username === "alice");
+    const again = await exportVaultToKdbx(win.profile, exportFile, "export-master-1");
+    check(
+      "export writes the vault and its 2FA to a new .kdbx and refuses to overwrite",
+      Boolean(alice && alice.password === "rotated-pw" && alice.totp?.secret === TOTP.secret) && again?.ok === false,
+      { exported: exported?.ok, again: again?.ok },
+    );
+
+    // Locking removes the KeePass login from autofill; the database file was never written.
+    kp.lock(dbId);
+    const afterLock = ctx.autofill.suggestions(win).some((m) => m.source === "keepass");
+    const hashAfter = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+    check("locking hides KeePass logins and the database file is unchanged", !afterLock && hashAfter === hashBefore, { afterLock });
+  } finally {
+    ctx.agentCredentials.setTestApprover(null);
+    ctx.settings.update({ passwords: { agentAccess: before } });
+    for (const source of kp.sources()) kp.removeSource(source.id);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+interface AgentTarget {
+  /** Suffix for check names, e.g. " (KeePass)". */
+  label: string;
+  totp: TotpConfig;
+  /** Strings that must never reach the model (2FA secret, password). */
+  secrets: string[];
+  setOptIn: (on: boolean) => void;
+}
+
+/** The agent's fill_totp: handed off without the opt-in, filled with it, never in the transcript. */
+async function agentTotpSmoke(ctx: AppContext, base: string, target: AgentTarget, { win, check }: SmokeCtx): Promise<void> {
+  const before = ctx.settings.get().passwords.agentAccess;
+  const label = target.label;
+  const runView = () => ctx.agentRunner.windowExtras(win).agentRun;
+  const runAgent = async (task: string): Promise<{ seen: AgentTurnRequest[]; runId: string | undefined; approvals: number }> => {
+    const seen: AgentTurnRequest[] = [];
+    ctx.agentRunner.setTestProvider(totpAgent(`${base}/2fa`, seen));
+    ctx.agentRunner.start(win, task);
+    let approvals = 0;
+    const until = Date.now() + 20_000;
+    while (Date.now() < until) {
+      const view = runView();
+      if (view?.status === "awaiting-approval") {
+        approvals += 1;
+        ctx.agentRunner.approve(win, "approve");
+      }
+      if (view && (view.status === "done" || view.status === "error" || view.status === "stopped")) break;
+      await delay(80);
+    }
+    return { seen, runId: runView()?.id, approvals };
+  };
+  const agentTabCode = async (): Promise<string> => {
+    const tabId = runView()?.tabId;
+    const found = tabId ? ctx.windows.findTab(tabId) : undefined;
+    if (!found || found.tab.view.webContents.isDestroyed()) return "";
+    return String(await found.tab.view.webContents.executeJavaScript(`document.getElementById("otp")?.value ?? ""`).catch(() => ""));
+  };
+  const leaks = async (runId: string | undefined, seen: AgentTurnRequest[]): Promise<boolean> => {
+    const codes = await nearbyCodes(target.totp);
+    const stored = runId ? win.profile.agentRuns.get(runId) : undefined;
+    const texts = [
+      JSON.stringify(stored?.transcript ?? []),
+      JSON.stringify((stored?.steps ?? []).map((s) => [s.summary, s.detail])),
+      stored?.finalText ?? "",
+      JSON.stringify(seen.map((r) => r.messages)),
+      JSON.stringify(ctx.agents.view().calls.map((c) => c.summary)),
+    ];
+    return texts.some((t) => containsCode(t, codes) || target.secrets.some((s) => t.includes(s)));
+  };
+
+  try {
+    // 1. Global switch on, but this login is not opted in: no prompt, nothing filled, handoff.
+    ctx.settings.update({ passwords: { agentAccess: true } });
+    target.setOptIn(false);
+    const blocked = await runAgent("Finish signing in with the 2FA code");
+    const blockedStored = blocked.runId ? win.profile.agentRuns.get(blocked.runId) : undefined;
+    const blockedResult = JSON.stringify(blockedStored?.transcript ?? []);
+    const blockedField = await agentTabCode();
+    check(
+      `agent 2FA fill blocked without the per-login opt-in${label}`,
+      blocked.approvals === 0 && blockedField === "" && blockedResult.includes("not allowed AI agents to use the 2FA code") && blockedResult.includes("ask_user"),
+      { approvals: blocked.approvals, filled: blockedField !== "", status: blockedStored?.status },
+    );
+    ctx.agentRunner.clear(win);
+
+    // 2. Opted in: one approval, the code lands in the field, and nowhere in what the model sees.
+    target.setOptIn(true);
+    const allowed = await runAgent("Finish signing in with the 2FA code");
+    const allowedField = await agentTabCode();
+    const allowedStored = allowed.runId ? win.profile.agentRuns.get(allowed.runId) : undefined;
+    check(
+      `agent 2FA fill allowed with the opt-in, after one approval${label}`,
+      allowed.approvals === 1 && (await nearbyCodes(target.totp)).includes(allowedField) && JSON.stringify(allowedStored?.transcript ?? []).includes("Filled the current 2FA code"),
+      { approvals: allowed.approvals, length: allowedField.length, status: allowedStored?.status },
+    );
+    const masked = runView()?.tabId
+      ? await ctx.windows
+          .findTab(runView()!.tabId!)
+          ?.tab.view.webContents.executeJavaScript(`(() => { const el = document.getElementById("otp"); return el.hasAttribute("data-corvus-secret") && getComputedStyle(el).webkitTextSecurity === "disc"; })()`)
+          .catch(() => false)
+      : false;
+    check(`agent-filled code is marked secret and masked on screen${label}`, masked === true, masked);
+    check(`2FA code and secret absent from transcript, run history and timeline${label}`, !(await leaks(allowed.runId, allowed.seen)) && !(await leaks(blocked.runId, blocked.seen)));
+    ctx.agentRunner.clear(win);
+
+    // 3. MCP path: controller.fillTotp with the dialog answered by the test hook.
+    let asked = 0;
+    ctx.agentCredentials.setTestApprover(async () => {
+      asked += 1;
+      return true;
+    });
+    const mcpTab = await ctx.controller.openTab(`${base}/2fa`);
+    await delay(300);
+    const snap = await ctx.controller.snapshot(mcpTab.id);
+    const ref = snap.elements.find((e) => e.name === "One-time code")?.ref ?? "e1";
+    const mcp = await ctx.controller.fillTotp!(mcpTab.id, ref);
+    const after = await ctx.controller.snapshot(mcpTab.id);
+    const codes = await nearbyCodes(target.totp);
+    check(
+      `MCP fill_totp fills after approval and never returns the code${label}`,
+      mcp.status === "filled" && asked === 1 && !containsCode(mcp.message, codes) && !containsCode(JSON.stringify(after), codes),
+      { status: mcp.status, asked },
+    );
+    await ctx.controller.closeTab(mcpTab.id);
+  } finally {
+    ctx.agentCredentials.setTestApprover(null);
+    ctx.agentRunner.clear(win);
+    ctx.agentRunner.setTestProvider(undefined);
+    ctx.settings.update({ passwords: { agentAccess: before } });
+    target.setOptIn(false);
+  }
 }

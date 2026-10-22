@@ -11,6 +11,7 @@ import {
   originKeyOf,
   searchCredentials,
 } from "../shared/credentials";
+import { isValidTotpConfig, type TotpConfig } from "../shared/totp";
 import { JsonFile } from "./json-file";
 import type { SecretCipher } from "./settings-store";
 
@@ -32,7 +33,7 @@ interface StoredEntry {
   origin: string;
   createdAt: number;
   updatedAt: number;
-  /** sealSecret(vaultKey, JSON({ username, password, notes }), aad=id). */
+  /** sealSecret(vaultKey, JSON({ username, password, notes, totp, agentTotp, agentSignIn }), aad=id). */
   sealed: string;
 }
 
@@ -47,6 +48,32 @@ interface Secret {
   username: string;
   password: string;
   notes?: string;
+  totp?: TotpConfig;
+  agentTotp?: boolean;
+  agentSignIn?: boolean;
+}
+
+/** Fields a person can set on a login. `totp: null` removes the 2FA generator. */
+export interface CredentialInput {
+  origin: string;
+  username: string;
+  password: string;
+  notes?: string;
+  totp?: TotpConfig | null;
+  agentTotp?: boolean;
+  agentSignIn?: boolean;
+}
+
+export type CredentialPatch = Partial<CredentialInput>;
+
+/** The optional secret extras of a credential, dropping anything malformed or switched off. */
+function extras(c: { totp?: TotpConfig | null | undefined; agentTotp?: boolean | undefined; agentSignIn?: boolean | undefined }): Pick<Credential, "totp" | "agentTotp" | "agentSignIn"> {
+  const totp = c.totp && isValidTotpConfig(c.totp) ? { ...c.totp } : undefined;
+  return {
+    ...(totp ? { totp } : {}),
+    ...(totp && c.agentTotp === true ? { agentTotp: true } : {}),
+    ...(c.agentSignIn === true ? { agentSignIn: true } : {}),
+  };
 }
 
 const emptyFile = (): VaultFile => ({ v: 1, key: null, entries: [] });
@@ -110,6 +137,7 @@ export class CredentialVault {
             username: secret.username,
             password: secret.password,
             ...(secret.notes ? { notes: secret.notes } : {}),
+            ...extras(secret),
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt,
           });
@@ -149,7 +177,7 @@ export class CredentialVault {
 
   /** Logins the autofill dropdown may offer for a page (no passwords in the result). */
   matchesFor(url: string): CredentialMatch[] {
-    return matchCredentials(this.all(), url).map((c) => ({ id: c.id, username: c.username }));
+    return matchCredentials(this.all(), url).map((c) => ({ id: c.id, username: c.username, hasTotp: Boolean(c.totp), source: "corvus" as const }));
   }
 
   hasMatch(url: string): boolean {
@@ -160,7 +188,7 @@ export class CredentialVault {
     return this.all().find((c) => c.origin === origin && c.username === username);
   }
 
-  add(input: { origin: string; username: string; password: string; notes?: string }): Credential {
+  add(input: CredentialInput): Credential {
     const origin = originKeyOf(input.origin) || input.origin.trim();
     if (!origin) throw new Error("A valid site is required");
     const now = Date.now();
@@ -170,6 +198,7 @@ export class CredentialVault {
       username: input.username,
       password: input.password,
       ...(input.notes && input.notes.trim() ? { notes: input.notes } : {}),
+      ...extras(input),
       createdAt: now,
       updatedAt: now,
     };
@@ -179,17 +208,23 @@ export class CredentialVault {
     return cred;
   }
 
-  update(id: string, patch: { origin?: string; username?: string; password?: string; notes?: string }): Credential | undefined {
+  update(id: string, patch: CredentialPatch): Credential | undefined {
     const existing = this.cache.get(id);
     if (!existing) return undefined;
     const origin = patch.origin !== undefined ? originKeyOf(patch.origin) || patch.origin.trim() : existing.origin;
     const notes = patch.notes !== undefined ? patch.notes : existing.notes;
+    const { totp: _t, agentTotp: _a, agentSignIn: _s, ...base } = existing;
     const next: Credential = {
-      ...existing,
+      ...base,
       origin: origin || existing.origin,
       username: patch.username ?? existing.username,
       password: patch.password ?? existing.password,
       ...(notes && notes.trim() ? { notes } : {}),
+      ...extras({
+        totp: patch.totp !== undefined ? patch.totp : existing.totp,
+        agentTotp: patch.agentTotp ?? existing.agentTotp,
+        agentSignIn: patch.agentSignIn ?? existing.agentSignIn,
+      }),
       updatedAt: Date.now(),
     };
     if (!(notes && notes.trim())) delete next.notes;
@@ -237,7 +272,7 @@ export class CredentialVault {
   private write(): void {
     if (!this.persisted) return;
     const entries: StoredEntry[] = [...this.cache.values()].map((c) => {
-      const secret: Secret = { username: c.username, password: c.password, ...(c.notes ? { notes: c.notes } : {}) };
+      const secret: Secret = { username: c.username, password: c.password, ...(c.notes ? { notes: c.notes } : {}), ...extras(c) };
       return { id: c.id, origin: c.origin, createdAt: c.createdAt, updatedAt: c.updatedAt, sealed: sealSecret(this.key, JSON.stringify(secret), c.id) };
     });
     const wrapped = this.cipher.encryptString(Buffer.from(this.key).toString("base64")).toString("base64");

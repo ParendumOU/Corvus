@@ -40,6 +40,15 @@ export interface Settings {
     /** Learn compact per-site hints from successful runs (local only, never synced). On by default. */
     siteMemory: boolean;
   };
+  passwords: {
+    /**
+     * Let AI agents (the Command Bar agent and Full-access MCP clients) sign in and fill 2FA codes,
+     * only for logins the user opted in one by one, always after an approval prompt. Off by default.
+     */
+    agentAccess: boolean;
+    /** Lock unlocked KeePass databases after this many idle minutes. 0 = never. */
+    keepassAutoLockMinutes: number;
+  };
   mcp: {
     enabled: boolean;
     /** Bind interface: "127.0.0.1" (loopback only) or "0.0.0.0" (all interfaces, remote clients). */
@@ -162,6 +171,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       maxOutputTokens: 400,
     },
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true },
+    passwords: { agentAccess: false, keepassAutoLockMinutes: 15 },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [] },
     downloads: { directory: "", askWhereToSave: false },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
@@ -211,6 +221,7 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   if (!ACCESS_LEVELS.includes(merged.mcp.accessLevel)) merged.mcp.accessLevel = base.mcp.accessLevel;
   merged.ai.maxOutputTokens = Math.max(50, Math.min(4000, Math.round(merged.ai.maxOutputTokens)));
   merged.agent.maxSteps = Math.max(1, Math.min(50, Math.round(merged.agent.maxSteps)));
+  merged.passwords.keepassAutoLockMinutes = Math.max(0, Math.min(1440, Math.round(merged.passwords.keepassAutoLockMinutes) || 0));
   merged.webscope.maxBodyBytes = Math.max(64 * 1024, Math.min(50 * 1024 * 1024, Math.round(merged.webscope.maxBodyBytes)));
   merged.appearance.sidebarWidth = Math.max(180, Math.min(480, Math.round(merged.appearance.sidebarWidth)));
   merged.monitor.defaultIntervalMinutes = Math.max(5, Math.min(1440, Math.round(merged.monitor.defaultIntervalMinutes)));

@@ -64,6 +64,20 @@ describe("isValidCredential", () => {
     expect(isValidCredential({ ...cred({}), password: 5 })).toBe(false);
     expect(isValidCredential(null)).toBe(false);
   });
+
+  it("validates the optional 2FA generator and agent opt-ins", () => {
+    const totp = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+    expect(isValidCredential(cred({ totp, agentTotp: true, agentSignIn: false }))).toBe(true);
+    expect(isValidCredential({ ...cred({}), totp: { ...totp, digits: 4 } })).toBe(false);
+    expect(isValidCredential({ ...cred({}), agentTotp: "yes" })).toBe(false);
+  });
+
+  it("summaries say whether a login has 2FA and opt-ins, without the secret", () => {
+    const totp = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+    const summary = credentialSummary(cred({ totp, agentTotp: true }));
+    expect(summary).toMatchObject({ hasTotp: true, agentTotp: true, agentSignIn: false });
+    expect(JSON.stringify(summary)).not.toContain(totp.secret);
+  });
 });
 
 describe("generatePassword", () => {

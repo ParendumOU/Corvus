@@ -1,6 +1,7 @@
 import type { BrowserController } from "@corvus/shared";
 import type { AdblockService } from "./adblock";
 import type { AgentActivityService } from "./agent-activity-service";
+import type { AgentCredentialService } from "./agent-credentials";
 import type { AgentRunner } from "./agent-runner";
 import type { AnnotationService } from "./annotation-service";
 import type { AssistService } from "./assist-service";
@@ -8,6 +9,8 @@ import type { AutofillService } from "./autofill-service";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
 import type { FlowService } from "./flow-service";
+import type { KeePassService } from "./keepass-service";
+import type { SecretFillGuard } from "./secret-fill-guard";
 import type { McpService } from "./mcp-service";
 import type { PageMonitor } from "./page-monitor";
 import type { ProfileRegistry } from "./profiles";
@@ -39,12 +42,18 @@ export interface AppContext {
   reader: ReaderService;
   agents: AgentActivityService;
   agentRunner: AgentRunner;
+  /** Agent use of opted-in saved logins and 2FA codes (fill by reference, approval-gated). */
+  agentCredentials: AgentCredentialService;
   adblock: AdblockService;
   webscope: WebScopeService;
   monitor: PageMonitor;
   scheduledAgents: ScheduledAgentRunner;
   flows: FlowService;
   autofill: AutofillService;
+  /** KeePass auto-lock and kept-unlocked restore across profiles. */
+  keepass: KeePassService;
+  /** Tabs where a saved secret was filled: script access is refused until they navigate. */
+  secretFills: SecretFillGuard;
   annotations: AnnotationService;
   crashReporter: CrashReporter;
 }

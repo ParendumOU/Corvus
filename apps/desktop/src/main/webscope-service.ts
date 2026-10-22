@@ -2,7 +2,7 @@ import type { CdpClient, WebScopeEngine } from "@corvus/webscope";
 import { WebScopeEngine as Engine } from "@corvus/webscope";
 import { app, webContents as allWebContents, type Session, type WebContents } from "electron";
 import type { ProfileId } from "@corvus/shared";
-import type { InterceptConfig, InterceptEdit } from "@corvus/webscope";
+import type { CapturedRequest, InterceptConfig, InterceptEdit } from "@corvus/webscope";
 import type { WebScopeInterceptState, WebScopeState } from "../shared/webscope-ipc";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
@@ -90,8 +90,14 @@ export class WebScopeService {
     }
     const engine = this.engineFor(profile);
     const client = cdpFromDebugger(wc);
-    const detachCapture = engine.captureFrom(client);
-    const detachIntercept = engine.interceptFrom(client);
+    // Requests sent right after Corvus filled a saved password or 2FA code are hidden from AI: shown
+    // in full here, redacted for MCP clients and agents (see secret-fill-guard.ts).
+    const sensitive = (request: CapturedRequest): boolean => {
+      const found = wc.isDestroyed() ? undefined : this.ctx.windows.byTabWebContents(wc);
+      return this.ctx.secretFills.isSensitiveRequest(found?.tab.id ?? null, request);
+    };
+    const detachCapture = engine.captureFrom(client, { sensitive });
+    const detachIntercept = engine.interceptFrom(client, { sensitive });
     const cleanup = (): void => {
       detachCapture();
       detachIntercept();

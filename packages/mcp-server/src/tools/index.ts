@@ -1,4 +1,5 @@
 import { registerCookieTools } from "./cookies.js";
+import { registerCredentialTools } from "./credentials.js";
 import { registerDevtoolsTools } from "./devtools.js";
 import { registerDownloadTools } from "./download.js";
 import { registerExtractTools } from "./extract.js";
@@ -45,4 +46,5 @@ export function registerAgentTools(ctx: ToolContext): void {
   registerCookieTools(ctx);
   registerFillFieldsTools(ctx);
   registerDownloadTools(ctx);
+  registerCredentialTools(ctx);
 }

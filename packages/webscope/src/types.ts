@@ -79,7 +79,16 @@ export interface HistoryEntry {
   response?: CapturedResponse;
   /** Set when the exchange failed before a response arrived. */
   error?: string;
+  /**
+   * Hidden from AI: the request came from a tab the browser had just filled a saved password or 2FA
+   * code into, or it carries such a value. People see it in full; AI-facing reads get a redacted
+   * copy (see ai-redact.ts).
+   */
+  aiHidden?: boolean;
 }
+
+/** Decides at capture time whether a request carries a secret the browser filled. */
+export type SensitiveRequest = (request: CapturedRequest) => boolean;
 
 /** Compact row shown in the history table / returned to MCP clients. */
 export interface HistorySummary {
@@ -95,6 +104,8 @@ export interface HistorySummary {
   inScope: boolean;
   source: HistorySource;
   mimeType?: string;
+  /** Shown in full to people; redacted for AI (see HistoryEntry.aiHidden). */
+  aiHidden?: boolean;
 }
 
 export interface HistoryFilter {
@@ -184,6 +195,8 @@ export interface InterceptItem {
   request: CapturedRequest;
   response?: CapturedResponse;
   createdAt: number;
+  /** Shown in full to people; redacted for AI (see HistoryEntry.aiHidden). */
+  aiHidden?: boolean;
 }
 
 export interface InterceptConfig {

@@ -1,5 +1,5 @@
 import { isInScope, parseTarget } from "./scope.js";
-import type { CapturedRequest, CapturedResponse, CdpClient, ContentType, HistoryEntry, HttpHeader, Scope } from "./types.js";
+import type { CapturedRequest, CapturedResponse, CdpClient, ContentType, HistoryEntry, HttpHeader, Scope, SensitiveRequest } from "./types.js";
 
 const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
 
@@ -34,6 +34,8 @@ interface Pending {
   host: string;
   path: string;
   inScope: boolean;
+  /** Marked "hidden from AI" when the request was sent (see CaptureOptions.sensitive). */
+  aiHidden: boolean;
   /** Responses arrive before loadingFinished, so they are stashed here until the body is fetched. */
   pendingResponse?: CapturedResponse;
 }
@@ -47,6 +49,8 @@ export interface CaptureOptions {
   maxBodyBytes?: number;
   /** Monotonic id source so entry ids are unique across engines. */
   nextId?: () => string;
+  /** True when a request carries a secret the browser filled; the entry is then hidden from AI. */
+  sensitive?: SensitiveRequest;
 }
 
 /**
@@ -118,7 +122,17 @@ export class CaptureEngine {
       host: target.host,
       path: target.path,
       inScope: isInScope(this.opts.scope(), url),
+      aiHidden: this.isSensitive(request),
     });
+  }
+
+  private isSensitive(request: CapturedRequest): boolean {
+    try {
+      return this.opts.sensitive?.(request) === true;
+    } catch {
+      // When in doubt, hide from AI: people still see the entry in full.
+      return true;
+    }
   }
 
   private onResponse(params: Record<string, unknown>): void {
@@ -191,6 +205,7 @@ export class CaptureEngine {
       inScope: pending.inScope,
       source: "capture",
       request: pending.request,
+      ...(pending.aiHidden || this.isSensitive(pending.request) ? { aiHidden: true } : {}),
     };
   }
 

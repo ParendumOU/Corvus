@@ -128,6 +128,39 @@ export const TOOLS: AgentTool[] = [
 ];
 
 /**
+ * Credential tools: Corvus fills an opted-in saved login or 2FA code itself, after the person approves
+ * each use; the model only learns that the field was filled. Offered to the Command Bar agent only
+ * when Settings, Passwords allows it (never to scheduled runs), and handled by AgentRunner, not by
+ * runAgentTool, so no other runner can reach them.
+ */
+export const CREDENTIAL_AGENT_TOOLS: AgentTool[] = [
+  {
+    name: "fill_login",
+    description:
+      "Sign in with the person's saved login for this site. Corvus fills the username and password itself after the person approves; you never see the password. Pass the ref of the username or password field (from page_snapshot), or omit it to use the page's login form.",
+    inputSchema: { type: "object", properties: { ref: { type: "string" }, username: { type: "string", description: "Which saved login, when the site has several" } } },
+  },
+  {
+    name: "fill_totp",
+    description:
+      "Fill the current 2FA (one-time) code from the person's saved login for this site into a code field. Corvus fills it after the person approves; you never see the code.",
+    inputSchema: { type: "object", properties: { ref: { type: "string", description: "Ref of the code field from page_snapshot" }, username: { type: "string" } }, required: ["ref"] },
+  },
+];
+
+/** Added to the system prompt when the credential tools are offered. */
+export const CREDENTIAL_PROMPT = [
+  "For a sign-in form use fill_login, and for a 2FA or one-time code field use fill_totp: Corvus fills the saved",
+  "value itself after the person approves, and you never see it. Never ask for or type the password or code",
+  "yourself. If either tool says the login or code is not available, call ask_user.",
+].join("\n");
+
+/** The Command Bar agent's base tools and prompt, plus the credential tools when they are allowed. */
+export function agentToolset(credentials: boolean): { tools: AgentTool[]; system: string } {
+  return credentials ? { tools: [...TOOLS, ...CREDENTIAL_AGENT_TOOLS], system: `${AGENT_SYSTEM}\n${CREDENTIAL_PROMPT}` } : { tools: TOOLS, system: AGENT_SYSTEM };
+}
+
+/**
  * Access level each browser tool needs. Observing and navigation are "read"; the two interaction
  * tools that mutate page state (click, type) are "standard". A read-only site cap therefore removes
  * exactly click and type. ask_user is a human handoff and is always available.
@@ -145,6 +178,9 @@ export const AGENT_TOOL_ACCESS: Record<string, AccessLevel> = {
   ask_user: "read",
   click: "standard",
   type: "standard",
+  // Saved secrets: only at full, so a site profile capped at standard or read never offers them.
+  fill_login: "full",
+  fill_totp: "full",
 };
 
 const ACCESS_RANK: Record<AccessLevel, number> = { read: 0, standard: 1, full: 2 };

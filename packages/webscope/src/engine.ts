@@ -1,3 +1,4 @@
+import { entryForAi, interceptItemForAi } from "./ai-redact.js";
 import { AuditLog } from "./audit.js";
 import { CaptureEngine } from "./capture.js";
 import { buildSitemap, scanFindings, type Finding, type SitemapNode } from "./findings.js";
@@ -25,10 +26,22 @@ import type {
   ResponseComparison,
   RuleSet,
   Scope,
+  SensitiveRequest,
 } from "./types.js";
 
 export class ScopeError extends Error {}
 export class BlockedError extends Error {}
+
+/** Reads made for an AI agent or MCP client get "hidden from AI" requests redacted. */
+export interface AiReadOptions {
+  forAi?: boolean;
+}
+
+/** Per-source (per-tab) capture options. */
+export interface SourceOptions {
+  /** True when a request carries a secret the browser filled; it is then hidden from AI. */
+  sensitive?: SensitiveRequest;
+}
 
 export interface WebScopeEngineOptions {
   profileId?: string;
@@ -109,31 +122,46 @@ export class WebScopeEngine {
 
   // ---- history
 
-  queryHistory(filter: HistoryFilter = {}, limit = 200): HistorySummary[] {
-    return this.history.query(filter, limit);
+  /**
+   * History rows, newest first. `forAi` is for agents and MCP clients: requests marked hidden from AI
+   * are redacted before they are matched (so `search` cannot probe them) and summarized.
+   */
+  queryHistory(filter: HistoryFilter = {}, limit = 200, opts: AiReadOptions = {}): HistorySummary[] {
+    return this.history.query(filter, limit, opts.forAi ? entryForAi : undefined);
   }
 
   getEntry(id: string): HistoryEntry | undefined {
     return this.history.get(id);
   }
 
+  /** One entry as an AI may see it (redacted when hidden from AI). */
+  getEntryForAi(id: string): HistoryEntry | undefined {
+    const entry = this.history.get(id);
+    return entry ? entryForAi(entry) : undefined;
+  }
+
+  private entriesFor(opts: AiReadOptions): HistoryEntry[] {
+    const all = this.history.all();
+    return opts.forAi ? all.map(entryForAi) : all;
+  }
+
   /** Passive, read-only findings over captured traffic (no requests sent). */
-  findings(): Finding[] {
-    return scanFindings(this.history.all());
+  findings(opts: AiReadOptions = {}): Finding[] {
+    return scanFindings(this.entriesFor(opts));
   }
 
   /** Host -> path target tree built from captured traffic. */
-  sitemap(): SitemapNode[] {
-    return buildSitemap(this.history.all());
+  sitemap(opts: AiReadOptions = {}): SitemapNode[] {
+    return buildSitemap(this.entriesFor(opts));
   }
 
   clearHistory(): void {
     this.history.clear();
   }
 
-  exportHar(ids?: string[]): ReturnType<typeof exportHar> {
+  exportHar(ids?: string[], opts: AiReadOptions = {}): ReturnType<typeof exportHar> {
     const entries = ids ? ids.map((id) => this.history.get(id)).filter((e): e is HistoryEntry => !!e) : this.history.all();
-    return exportHar(entries);
+    return exportHar(opts.forAi ? entries.map(entryForAi) : entries);
   }
 
   importHar(json: unknown): number {
@@ -167,7 +195,7 @@ export class WebScopeEngine {
    * Start capturing from one CDP client (e.g. one browser tab), sharing this engine's history and
    * scope. Returns a detach function. Multiple sources can capture at once.
    */
-  captureFrom(client: CdpClient): () => void {
+  captureFrom(client: CdpClient, opts: SourceOptions = {}): () => void {
     const capture = new CaptureEngine({
       client,
       profileId: this.profileId,
@@ -175,6 +203,7 @@ export class WebScopeEngine {
       scope: () => this.scope,
       maxBodyBytes: this.maxBodyBytes,
       nextId: () => this.newId("cap"),
+      ...(opts.sensitive ? { sensitive: opts.sensitive } : {}),
     });
     this.captures.add(capture);
     void capture.start();
@@ -219,9 +248,10 @@ export class WebScopeEngine {
     for (const l of this.interceptListeners) l();
   }
 
-  /** Aggregate held queue across all attached tabs, oldest first. */
-  interceptQueue(): InterceptItem[] {
-    return [...this.intercepts].flatMap((i) => i.queue()).sort((a, b) => a.createdAt - b.createdAt);
+  /** Aggregate held queue across all attached tabs, oldest first (redacted for AI with `forAi`). */
+  interceptQueue(opts: AiReadOptions = {}): InterceptItem[] {
+    const items = [...this.intercepts].flatMap((i) => i.queue()).sort((a, b) => a.createdAt - b.createdAt);
+    return opts.forAi ? items.map(interceptItemForAi) : items;
   }
 
   async interceptForward(id: string, edit?: InterceptEdit): Promise<void> {
@@ -237,9 +267,10 @@ export class WebScopeEngine {
   }
 
   /** Attach interactive interception to one CDP client (one tab). Returns a detach function. */
-  interceptFrom(client: CdpClient): () => void {
+  interceptFrom(client: CdpClient, opts: SourceOptions = {}): () => void {
     const engine = new InterceptEngine({
       client,
+      ...(opts.sensitive ? { sensitive: opts.sensitive } : {}),
       scope: () => this.scope,
       config: () => this.interceptConfig,
       rules: () => this.rules,

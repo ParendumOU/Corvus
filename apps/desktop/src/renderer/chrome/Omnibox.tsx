@@ -6,7 +6,7 @@ import { isNewTabUrl } from "../../shared/internal-urls";
 import { displayUrl, searchQueryOf } from "../../shared/omnibox";
 import type { Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
-import { CorvusMark, IconBook, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconWarning, IconZoom } from "../common/icons";
+import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconWarning, IconZoom } from "../common/icons";
 import { Favicon } from "../common/ui";
 
 export interface OmniboxHandle {
@@ -101,6 +101,13 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       void api.call("autofill.fill", id);
       setAutofillOpen(false);
     };
+    const fillTotp = (id: string): void => {
+      void api.call("autofill.fillTotp", id);
+      setAutofillOpen(false);
+    };
+    const otpMatches = autofill.otpAvailable ? matches.filter((m) => m.hasTotp) : [];
+    const loginMatches = autofill.matchCount > 0 ? matches : [];
+    const sourceLabel = (m: CredentialMatch): string => (m.source === "keepass" ? `KeePass${m.sourceName ? `: ${m.sourceName}` : ""}` : "");
     const acceptSave = (): void => {
       void api.call("autofill.saveAccept");
       setAutofillOpen(false);
@@ -224,7 +231,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           {showAutofill && (
             <button
               className={`icon-btn omni-autofill ${autofill.canSave ? "save" : ""}`}
-              title={autofill.canSave ? "Save password" : "Fill password"}
+              title={autofill.canSave ? "Save password" : autofill.otpAvailable && autofill.matchCount === 0 ? "Fill 2FA code" : "Fill password"}
               aria-pressed={autofillOpen}
               onClick={openAutofill}
             >
@@ -299,15 +306,25 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               </div>
             ) : (
               <div className="af-list">
-                {matches.length === 0 ? (
+                {otpMatches.length === 0 && loginMatches.length === 0 ? (
                   <div className="af-empty">No saved logins for this site.</div>
                 ) : (
-                  matches.map((m) => (
-                    <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
-                      <IconLock size={14} />
-                      <span>{m.username || "(no username)"}</span>
-                    </button>
-                  ))
+                  <>
+                    {otpMatches.map((m) => (
+                      <button key={`otp-${m.id}`} className="af-item af-otp" onMouseDown={(e) => { e.preventDefault(); fillTotp(m.id); }}>
+                        <IconClock size={14} />
+                        <span>2FA code for {m.username || "(no username)"}</span>
+                        {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
+                      </button>
+                    ))}
+                    {loginMatches.map((m) => (
+                      <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
+                        <IconLock size={14} />
+                        <span>{m.username || "(no username)"}</span>
+                        {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
+                      </button>
+                    ))}
+                  </>
                 )}
               </div>
             )}

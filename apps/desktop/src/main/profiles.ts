@@ -2,8 +2,11 @@ import { session as electronSession, type Session } from "electron";
 import type { Profile, ProfileId } from "@corvus/shared";
 import { AdblockController } from "./adblock";
 import { AnnotationStore } from "./annotation-store";
+import { AutoSignInStore } from "./auto-sign-in-store";
 import { CredentialVault } from "./credential-store";
 import { ExtensionHost, type ExtensionWindowDelegate } from "./extensions";
+import { KeePassStore } from "./keepass-store";
+import { LoginSources, vaultProvider } from "./login-sources";
 import { PermissionManager, type PermissionHost } from "./permissions";
 import { AgentRunStore } from "./agent-run-store";
 import { ProfileManager } from "./profile-manager";
@@ -37,6 +40,12 @@ export class ProfileRuntime {
   readonly siteProfiles: SiteProfileStore;
   readonly semanticIndex: SemanticIndexStore;
   readonly credentials: CredentialVault;
+  /** KeePass databases (read-only; off until the person adds one). */
+  readonly keepass: KeePassStore;
+  /** Logins the person chose to sign in with automatically (always confirmed first). */
+  readonly autoSignIn: AutoSignInStore;
+  /** Every login source of this profile (built-in vault, KeePass) behind one matcher. */
+  readonly logins: LoginSources;
   readonly extensions: ExtensionHost;
   readonly siteSettings: SiteSettingsStore;
   readonly permissions: PermissionManager;
@@ -64,6 +73,11 @@ export class ProfileRuntime {
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
     this.credentials = new CredentialVault(dataDir, cipher);
+    this.keepass = new KeePassStore(dataDir, cipher);
+    this.autoSignIn = new AutoSignInStore(dataDir);
+    const vaultLogins = vaultProvider(this.credentials);
+    const keepassLogins = this.keepass.provider();
+    this.logins = new LoginSources(() => [vaultLogins, keepassLogins]);
     this.extensions = new ExtensionHost(profile.id, this.session, dataDir, delegate);
     this.adblock = new AdblockController(dataDir);
   }
@@ -78,6 +92,8 @@ export class ProfileRuntime {
     this.siteProfiles.flush();
     this.semanticIndex.flush();
     this.credentials.flush();
+    this.keepass.flush();
+    this.autoSignIn.flush();
     this.siteSettings.flush();
     this.adblock.flush();
   }
@@ -157,6 +173,7 @@ export class ProfileRegistry {
     await ses.clearStorageData();
     await ses.clearCache();
     runtime?.flush();
+    runtime?.keepass.dispose();
     this.runtimes.delete(id);
     this.manager.remove(id);
   }

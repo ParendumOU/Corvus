@@ -5,6 +5,7 @@ import type {
   Bookmark,
   BrowserController,
   CookieInfo,
+  CredentialFillResult,
   DownloadEntry,
   GroupColor,
   GroupId,
@@ -293,7 +294,14 @@ export class Controller implements BrowserController {
     return { mimeType: "image/png", base64: image.toPNG().toString("base64") };
   }
 
+  /** Script access is refused on a tab where Corvus filled a saved secret, until it navigates. */
+  async secretFillLock(id: TabId): Promise<string | null> {
+    return this.ctx.secretFills.check(id);
+  }
+
   async evaluate(id: TabId, expression: string): Promise<unknown> {
+    const locked = this.ctx.secretFills.check(id);
+    if (locked) throw new AgentError(locked);
     if (!this.ctx.settings.get().mcp.allowEvaluate) throw new AgentError("JavaScript evaluation is disabled in Corvus settings");
     const { window, wc } = this.readable(id);
     this.touch(window, id);
@@ -347,6 +355,27 @@ export class Controller implements BrowserController {
       await wc.session.cookies.remove(`${c.secure ? "https" : "http"}://${host}${c.path ?? "/"}`, c.name);
     }
     return { removed: matches.length };
+  }
+
+  /** MCP fill_totp: opt-in and approval gated (native dialog); never returns the code. */
+  async fillTotp(id: TabId, ref: string, opts: { username?: string } = {}): Promise<CredentialFillResult> {
+    this.locate(id);
+    return this.ctx.agentCredentials.fillTotp(id, ref, this.credentialOptions(opts.username));
+  }
+
+  /** MCP fill_login: opt-in and approval gated (native dialog); never returns the password. */
+  async fillLogin(id: TabId, opts: { ref?: string; username?: string } = {}): Promise<CredentialFillResult> {
+    this.locate(id);
+    return this.ctx.agentCredentials.fillLogin(id, opts.ref ?? null, this.credentialOptions(opts.username));
+  }
+
+  private credentialOptions(username: string | undefined) {
+    return {
+      approve: this.ctx.agentCredentials.dialogApprover(),
+      client: this.ctx.agents.currentClient,
+      handoffHint: "Call request_user_action so the user can do this step.",
+      ...(username ? { username } : {}),
+    };
   }
 
   async download(id: TabId, url: string, opts: { maxBytes?: number } = {}): Promise<DownloadEntry> {

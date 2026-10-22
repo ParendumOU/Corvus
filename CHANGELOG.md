@@ -1,5 +1,60 @@
 # Changelog
 
+## Unreleased
+
+### Before you update
+- **Update every device.** Saved logins can now carry a 2FA secret. If you edit a synced login on a
+  device still running Corvus 0.2.0, that device saves the login without its 2FA secret and sync
+  removes the secret everywhere. Update all your devices before you add 2FA secrets, and avoid
+  editing logins on 0.2.0 in the meantime.
+
+### Browser
+- **2FA codes**: add a time-based (TOTP) 2FA secret to a saved login by pasting an `otpauth://`
+  link, importing a QR code image (decoded on your device) or typing the base32 secret. The
+  secret is stored in the end-to-end encrypted vault and synced. `corvus://passwords` shows the
+  live code with a countdown and a copy button, and warns that keeping the 2FA secret next to the
+  password turns two factors into one. On a one-time-code field the key button offers the code.
+- **KeePass, read-only**: add `.kdbx` files (KDBX 3.1 and 4) or a folder of them, with an
+  optional key file. Unlock once, or keep a database unlocked with the master password wrapped by
+  your system keychain. Databases auto-lock after the idle time in Settings > Passwords and when
+  the screen locks, and are re-read when the file changes. Corvus never writes to them. Their
+  logins and 2FA codes show up in autofill and on `corvus://passwords`.
+- **Export to KeePass**: write your saved logins and their 2FA secrets to a new `.kdbx` file
+  protected by a master password you choose. Existing files are never overwritten.
+- **Auto sign-in** (opt-in per login): when the login page loads, Corvus asks once, then fills and
+  submits the form. Never in tabs an agent is driving.
+
+### For AI agents
+- **`fill_login` and `fill_totp`**: the Command Bar agent and Full-access MCP clients can sign in
+  and fill 2FA codes, but only when Settings > Passwords > "Let AI agents use logins you opt in" is
+  on and the login itself is opted in (both off by default), and only after you approve each use.
+  Corvus fills the value by reference: the password and the code never reach the model, tool
+  results, transcripts, run history or logs. Without the opt-ins, 2FA is handed to you as before.
+  CAPTCHAs are always handed to you.
+- Agent page snapshots never include the value of password fields, one-time-code fields or fields
+  Corvus filled with a secret, and fields filled for an agent are masked on screen.
+- **Script lock after a fill**: once Corvus fills a saved password or 2FA code into a tab (agent
+  sign-in, autofill or auto sign-in), agents cannot run scripts there or read raw page content
+  (`evaluate`, `get_html`, `get_text`, `extract`, `find`, `pdf`, `run_workflow`) until the tab
+  loads a new page. This applies to every agent at every access level; clicking, typing and the
+  masked page snapshot keep working.
+- **WebScope hides credential traffic from AI**: requests sent from a tab right after Corvus filled
+  a saved password or 2FA code, and requests that carry such a value, are marked "Hidden from AI".
+  You still see them in full in WebScope, with a badge. AI agents and MCP clients get them with the
+  request body and the URL query values removed, in history and search, request detail, findings,
+  the sitemap and the intercept queue.
+
+### Project
+- **Third-party notices**: the build writes `THIRD_PARTY_NOTICES.md` with the name, version,
+  licence and licence text of every third-party package in the app, ships it next to the app and
+  links it from Settings > Updates > Third-party software. The build fails on a licence outside
+  MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, MPL-2.0, 0BSD, Unlicense, Python-2.0 or
+  BlueOak-1.0.0, and on any change to the accepted copyleft package below.
+- **Licence of the binaries**: the Corvus source stays MPL-2.0. The installers and the packaged app
+  include electron-chrome-extensions, which Corvus uses under GPL-3.0, so as a combined work they
+  are distributed under GPL-3.0. The complete corresponding source is
+  https://github.com/ParendumOU/Corvus. The notices file and the README say so.
+
 ## v0.2.0
 
 The first open-source release of Corvus (MPL-2.0). Installers and automatic updates now come from

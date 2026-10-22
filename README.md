@@ -20,7 +20,8 @@ first launch.
 - Tabs, tab groups, vertical tabs, workspaces, split view and session restore
 - Bookmarks with folders, history, profiles with separate sessions, downloads, site permissions
 - Chrome extensions: load unpacked or install from the Chrome Web Store
-- Built-in ad and tracker blocker (Ghostery engine), password manager, PDF viewer
+- Built-in ad and tracker blocker (Ghostery engine), password manager with 2FA codes and
+  read-only KeePass (.kdbx) support, PDF viewer
 - Reader mode, read aloud, highlights and notes on any page, "watch this page" change alerts
 - End-to-end encrypted sync to a server you can host yourself (24-word recovery phrase)
 
@@ -41,7 +42,9 @@ first launch.
   downloads and save as PDF)
 - Tabs an agent is driving get an **AI** badge, an on-screen cursor and an activity timeline;
   you can pause agents at any time
-- CAPTCHAs and two-factor prompts are handed to you, never solved automatically
+- CAPTCHAs are always handed to you and never solved automatically. Two-factor prompts are handed
+  to you too, unless you let agents use the 2FA code of a specific saved login: then Corvus fills
+  the code itself after you approve, and the agent never sees it
 - Off by default; local only unless you turn on remote access, which always needs a bearer token
 
 ## Connect an AI agent
@@ -110,4 +113,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues privately 
 
 ## License
 
-Corvus is licensed under the [Mozilla Public License 2.0](LICENSE).
+The Corvus source code is licensed under the [Mozilla Public License 2.0](LICENSE).
+
+The installers and the packaged app are a combined work that includes
+[electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell), which Corvus
+uses under GPL-3.0, so the binaries are distributed under GPL-3.0. The complete corresponding source
+is this repository: https://github.com/ParendumOU/Corvus. Every build ships the licences of its
+third-party packages in THIRD_PARTY_NOTICES.md (Settings > Updates > Third-party software).

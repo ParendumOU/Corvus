@@ -70,6 +70,8 @@ export interface InterceptEngineOptions {
   onAction?: (action: "intercept-forward" | "intercept-drop" | "intercept-modify", detail: string) => void;
   timeoutMs?: number;
   nextId?: () => string;
+  /** True when a held request carries a secret the browser filled; it is then hidden from AI. */
+  sensitive?: (request: CapturedRequest) => boolean;
 }
 
 /**
@@ -129,6 +131,14 @@ export class InterceptEngine {
     return [...this.held.values()]
       .sort((a, b) => a.createdAt - b.createdAt)
       .map(({ timer: _timer, cdpId: _cdpId, ...item }) => item);
+  }
+
+  private isSensitive(request: CapturedRequest): boolean {
+    try {
+      return this.opts.sensitive?.(request) === true;
+    } catch {
+      return true;
+    }
   }
 
   private newId(): string {
@@ -197,6 +207,7 @@ export class InterceptEngine {
       createdAt: Date.now(),
       cdpId,
       timer: null,
+      ...(this.isSensitive(request) ? { aiHidden: true } : {}),
       ...(isResponse
         ? {
             response: {

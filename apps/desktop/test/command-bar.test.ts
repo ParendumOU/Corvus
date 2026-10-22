@@ -103,6 +103,21 @@ describe("classifyAction", () => {
     expect(classifyAction("delete_everything", {}).risky).toBe(true);
   });
 
+  it("always asks before using a saved login or 2FA code", () => {
+    for (const tool of ["fill_login", "fill_totp"]) {
+      const risk = classifyAction(tool, { ref: "e3" });
+      expect(risk.risky).toBe(true);
+      expect(risk.alwaysAsk).toBe(true);
+      expect(risk.handoff).toBe(false);
+    }
+    expect(classifyAction("click", { ref: "e1" }, "Place order").alwaysAsk).toBeUndefined();
+  });
+
+  it("still hands typing into a 2FA field to the person", () => {
+    const risk = classifyAction("type", { ref: "e1", text: "123456" }, "2FA code");
+    expect(risk.handoff).toBe(true);
+  });
+
   it("detects a challenge handoff", () => {
     expect(isChallengeHandoff("recaptcha")).toBe(true);
     expect(isChallengeHandoff(undefined)).toBe(false);

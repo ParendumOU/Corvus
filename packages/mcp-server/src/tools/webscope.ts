@@ -19,6 +19,12 @@ const MCP_MAX_RPS = 10;
 const MCP_MAX_ROWS = 100;
 const BODY_PREVIEW = 20_000;
 
+/**
+ * Every WebScope read here is for an AI client: requests the browser marked "hidden from AI" (they
+ * carry a password or 2FA code it filled) come back redacted. People see them in full in the UI.
+ */
+const AI = { forAi: true } as const;
+
 const headerSchema = z.array(z.object({ name: z.string().min(1).max(256), value: z.string().max(8192) })).max(100);
 const scopeEntrySchema = z.object({
   host: z.string().max(256),
@@ -115,7 +121,7 @@ export function registerWebscopeTools(ctx: ToolContext): void {
         onlyInScope: a.onlyInScope,
         source: a.source,
       });
-      return untrusted("webscope:history", compactJson(engine.queryHistory(filter, a.limit)));
+      return untrusted("webscope:history", compactJson(engine.queryHistory(filter, a.limit, AI)));
     },
   );
 
@@ -129,7 +135,7 @@ export function registerWebscopeTools(ctx: ToolContext): void {
     async (a) => {
       const engine = engineOrError();
       if ("error" in engine) return errorResult(engine.error);
-      const entry = engine.getEntry(a.id);
+      const entry = engine.getEntryForAi(a.id);
       if (!entry) return errorResult(`No history entry ${a.id}`);
       return untrusted(`webscope:${entry.host}${entry.path}`, previewExchange(entry));
     },
@@ -255,7 +261,7 @@ export function registerWebscopeTools(ctx: ToolContext): void {
     async () => {
       const engine = engineOrError();
       if ("error" in engine) return errorResult(engine.error);
-      return untrusted("webscope:findings", compactJson(engine.findings()));
+      return untrusted("webscope:findings", compactJson(engine.findings(AI)));
     },
   );
 
@@ -269,7 +275,7 @@ export function registerWebscopeTools(ctx: ToolContext): void {
     async () => {
       const engine = engineOrError();
       if ("error" in engine) return errorResult(engine.error);
-      return untrusted("webscope:sitemap", compactJson(engine.sitemap()));
+      return untrusted("webscope:sitemap", compactJson(engine.sitemap(AI)));
     },
   );
 
@@ -283,7 +289,7 @@ export function registerWebscopeTools(ctx: ToolContext): void {
     async () => {
       const engine = engineOrError();
       if ("error" in engine) return errorResult(engine.error);
-      return untrusted("webscope:intercept", compactJson(engine.interceptQueue()));
+      return untrusted("webscope:intercept", compactJson(engine.interceptQueue(AI)));
     },
   );
 

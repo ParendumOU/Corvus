@@ -121,4 +121,55 @@ describe("CredentialVault", () => {
     expect(vault.all()).toHaveLength(1);
     expect(fs.existsSync(path.join(dir, "credentials.json"))).toBe(false);
   });
+
+  const TOTP = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+
+  it("seals the 2FA secret and opt-ins at rest and reloads them", () => {
+    const dir = tmp();
+    const vault = new CredentialVault(dir, keychain);
+    const c = vault.add({ origin: "https://example.com", username: "alice", password: "pw", totp: TOTP, agentTotp: true, agentSignIn: true });
+    vault.flush();
+    const onDisk = fs.readFileSync(path.join(dir, "credentials.json"), "utf8");
+    expect(onDisk).not.toContain(TOTP.secret);
+    expect(onDisk).not.toContain("agentTotp");
+    const reopened = new CredentialVault(dir, keychain).get(c.id);
+    expect(reopened?.totp).toEqual(TOTP);
+    expect(reopened?.agentTotp).toBe(true);
+    expect(reopened?.agentSignIn).toBe(true);
+  });
+
+  it("opt-ins default off and the 2FA opt-in needs a 2FA secret", () => {
+    const vault = new CredentialVault(tmp(), keychain);
+    const plain = vault.add({ origin: "https://example.com", username: "a", password: "pw" });
+    expect(plain.agentTotp).toBeUndefined();
+    expect(plain.agentSignIn).toBeUndefined();
+    const noSecret = vault.add({ origin: "https://example.com", username: "b", password: "pw", agentTotp: true });
+    expect(noSecret.agentTotp).toBeUndefined();
+    expect(vault.list().every((s) => !s.agentTotp && !s.agentSignIn)).toBe(true);
+  });
+
+  it("updates, keeps and removes the 2FA generator", () => {
+    const vault = new CredentialVault(tmp(), keychain);
+    const c = vault.add({ origin: "https://example.com", username: "alice", password: "pw", totp: TOTP, agentTotp: true });
+    const renamed = vault.update(c.id, { username: "alice2" });
+    expect(renamed?.totp).toEqual(TOTP);
+    expect(renamed?.agentTotp).toBe(true);
+    const off = vault.update(c.id, { agentTotp: false });
+    expect(off?.agentTotp).toBeUndefined();
+    const removed = vault.update(c.id, { totp: null, agentTotp: true });
+    expect(removed?.totp).toBeUndefined();
+    expect(removed?.agentTotp).toBeUndefined();
+    expect(vault.matchesFor("https://example.com/")[0]).toMatchObject({ hasTotp: false, source: "corvus" });
+  });
+
+  it("accepts synced logins with a 2FA generator and drops malformed ones", () => {
+    const vault = new CredentialVault(tmp(), keychain);
+    const now = Date.now();
+    vault.applyRemote([
+      { id: "t1", cred: { id: "t1", origin: "https://sync.example", username: "u", password: "p", totp: TOTP, agentTotp: true, createdAt: now, updatedAt: now } },
+      { id: "t2", cred: { id: "t2", origin: "https://sync.example", username: "v", password: "p", totp: { ...TOTP, algorithm: "MD5" as never }, createdAt: now, updatedAt: now } },
+    ]);
+    expect(vault.all().map((c) => c.id)).toEqual(["t1"]);
+    expect(vault.get("t1")?.totp).toEqual(TOTP);
+  });
 });

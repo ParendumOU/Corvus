@@ -103,8 +103,14 @@ export function snapshotScript(maxChars: number): string {
     const tag = el.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
       const type = (el.getAttribute("type") || "").toLowerCase();
+      // Never report secrets: password fields, one-time-code fields, and anything Corvus filled with a
+      // saved password or 2FA code (marked by the autofill scripts).
+      const secret =
+        type === "password" ||
+        el.hasAttribute("data-corvus-secret") ||
+        (el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/).includes("one-time-code");
       if (type === "checkbox" || type === "radio") item.value = el.checked ? "checked" : "unchecked";
-      else if (type !== "password" && el.value) item.value = String(el.value).slice(0, 80);
+      else if (!secret && el.value) item.value = String(el.value).slice(0, 80);
     }
     elements.push(item);
   }

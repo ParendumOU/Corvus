@@ -13,6 +13,7 @@ import type { AssistChromeCommand, AssistChromeRpc, AssistWindowExtras } from ".
 import type { CommandBarChromeRpc, CommandBarWindowExtras } from "./command-bar-ipc";
 import type { FlowChromeRpc, FlowInternalEvent, FlowInternalRpc } from "./flow-ipc";
 import type { AutofillBarState, AutofillChromeRpc, CredentialsRpc } from "./credentials-ipc";
+import type { KeePassRpc } from "./keepass-ipc";
 import type { ExtensionSuggestion } from "./extension-suggestions";
 import type { BrowserChromeCommand, BrowserChromeRpc, BrowserInternalEvent, BrowserInternalRpc, BrowserWindowExtras } from "./browser-ipc";
 import type { HistoryRecord } from "./history-ops";
@@ -266,7 +267,7 @@ export interface ConnectionTestResult {
 /** A streamed search event, or the end-of-stream marker sent once the engine is done. */
 export type SearchEventMessage = { searchId: string; event: SearchEvent } | { searchId: string; done: true };
 
-export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc {
+export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, KeePassRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc {
   "search.start"(query: string, opts: { depth?: "quick" | "deep"; category?: SearchCategory }): string;
   /** data: URLs of result-site favicons (null when unavailable), fetched cookie-less by the main process. */
   "search.favicons"(domains: string[]): Record<string, string | null>;
@@ -331,6 +332,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "crash.reload"(): void;
   /** Open the local crash-log folder in the OS file manager. Returns an error string or null. */
   "crashReports.openFolder"(): string | null;
+  /** Opens the third-party licence notices shipped with the app; returns an error message or null. */
+  "app.openThirdPartyNotices"(): string | null;
   /** Absolute path of the local crash-log folder (for display in settings). */
   "crashReports.logPath"(): string;
   /** First-run wizard: whether it has already been completed. */
@@ -362,6 +365,7 @@ export type InternalEvent =
   | { type: "settings-changed" }
   | { type: "update-changed"; status: UpdateStatus }
   | { type: "credentials-changed" }
+  | { type: "keepass-changed" }
   | { type: "annotations-changed" }
   | BrowserInternalEvent
   | WatchInternalEvent

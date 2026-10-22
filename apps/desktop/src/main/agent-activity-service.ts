@@ -69,6 +69,11 @@ export class AgentActivityService {
     return this.state.paused;
   }
 
+  /** Name of the agent client that made the latest tool call (for approval prompts). */
+  get currentClient(): string {
+    return this.lastClient;
+  }
+
   view(): AgentActivityView {
     return { paused: this.state.paused, calls: this.state.calls, clients: this.state.clients, mcpRunning: this.ctx.mcp.isRunning() };
   }

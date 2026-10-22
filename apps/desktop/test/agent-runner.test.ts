@@ -6,7 +6,9 @@ import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai
 import type { PageSnapshot, Tab } from "@corvus/shared";
 import { AgentRunStore } from "../src/main/agent-run-store";
 import { AgentRunner } from "../src/main/agent-runner";
+import type { CredentialFillOptions } from "../src/main/agent-credentials";
 import type { AppContext } from "../src/main/context";
+import { SECRET_FILL_LOCK_MESSAGE, SecretFillGuard } from "../src/main/secret-fill-guard";
 import type { BrowserWindowCtl } from "../src/main/window";
 
 /** A scripted provider: each turn emits the given events; captures the messages it is handed. */
@@ -62,7 +64,27 @@ function mockController() {
   };
 }
 
-function fakeContext(controller: ReturnType<typeof mockController>, askBeforeRisky: boolean, maxSteps = 15) {
+/** Stand-in for AgentCredentialService: asks for approval like the real one, then "fills" a secret into a fake page. */
+function fakeCredentials(enabled: boolean) {
+  const page = { value: "" };
+  const fill = async (opts: CredentialFillOptions, secret: string, what: string) => {
+    const ok = await opts.approve({ use: "totp", host: "shop.test", username: "alice", reason: "Fill the current 2FA code for alice on shop.test. The agent will not see the code.", client: opts.client });
+    if (!ok) return { status: "declined" as const, message: "The person declined." };
+    page.value = secret;
+    return { status: "filled" as const, message: `Filled ${what} for alice.` };
+  };
+  return {
+    page,
+    service: {
+      enabled,
+      fillTotp: vi.fn((_tab: string, _ref: string, opts: CredentialFillOptions) => fill(opts, "424242", "the current 2FA code")),
+      fillLogin: vi.fn((_tab: string, _ref: string | null, opts: CredentialFillOptions) => fill(opts, "hunter2-secret", "the password")),
+    },
+  };
+}
+
+function fakeContext(controller: ReturnType<typeof mockController>, askBeforeRisky: boolean, maxSteps = 15, credentials = fakeCredentials(false)) {
+  const secretFills = new SecretFillGuard();
   const listeners = new Set<() => void>();
   const agents = {
     paused: false,
@@ -82,12 +104,14 @@ function fakeContext(controller: ReturnType<typeof mockController>, askBeforeRis
     controller,
     agents,
     assist: { open: vi.fn() },
+    agentCredentials: credentials.service,
+    secretFills,
     settings: {
       get: () => ({ agent: { maxSteps, askBeforeRisky }, ai: { provider: "anthropic-api", model: "fake", claudeCliPath: "claude" } }),
       getSecret: () => "sk-test",
     },
   } as unknown as AppContext;
-  return { ctx, agents };
+  return { ctx, agents, secretFills };
 }
 
 let dir: string;
@@ -316,5 +340,82 @@ describe("AgentRunner", () => {
     const res = runner.resume(win, id);
     expect(res.ok).toBe(false);
     expect(res.reason).toBeTruthy();
+  });
+
+  it("does not offer the credential tools while Settings keeps them off", async () => {
+    const { ctx } = fakeContext(mockController(), false);
+    const { provider, seen } = scripted([[{ type: "text", text: "ok" }]]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "sign in");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    const names = seen[0]!.tools.map((t) => t.name);
+    expect(names).not.toContain("fill_totp");
+    expect(names).not.toContain("fill_login");
+    expect(seen[0]!.system).not.toContain("fill_totp");
+  });
+
+  it("always asks before a 2FA fill and keeps the code out of the transcript", async () => {
+    const credentials = fakeCredentials(true);
+    // "Ask before risky actions" is off: the credential tools must still ask.
+    const { ctx } = fakeContext(mockController(), false, 15, credentials);
+    const { provider, seen } = scripted([
+      [{ type: "tool_use", id: "t1", name: "fill_totp", input: { ref: "e4" } }],
+      [{ type: "text", text: "Signed in." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "finish signing in");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    expect(seen[0]!.tools.map((t) => t.name)).toContain("fill_totp");
+    expect(runner.windowExtras(win).agentRun!.approval!.reason).toContain("2FA code for alice");
+    expect(credentials.page.value).toBe("");
+    runner.approve(win, "approve");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+
+    expect(credentials.page.value).toBe("424242");
+    expect(credentials.service.fillTotp).toHaveBeenCalledWith("agent1", "e4", expect.objectContaining({ client: "Corvus" }));
+    const stored = JSON.stringify(store.get(runner.windowExtras(win).agentRun!.id));
+    expect(stored).toContain("Filled the current 2FA code for alice.");
+    expect(stored).not.toContain("424242");
+    expect(JSON.stringify(seen.map((s) => s.messages))).not.toContain("424242");
+  });
+
+  it("a declined sign-in is skipped and nothing is filled", async () => {
+    const credentials = fakeCredentials(true);
+    const { ctx } = fakeContext(mockController(), true, 15, credentials);
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "fill_login", input: {} }],
+      [{ type: "text", text: "Asked the person instead." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "sign in");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "awaiting-approval");
+    runner.approve(win, "skip");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    expect(credentials.page.value).toBe("");
+    expect(runner.windowExtras(win).agentRun!.steps.find((s) => s.kind === "fill_login")!.status).toBe("skipped");
+    expect(credentials.service.fillLogin).toHaveBeenCalledWith("agent1", null, expect.anything());
+  });
+
+  it("refuses run_workflow on a tab where a saved secret was filled", async () => {
+    const { ctx, secretFills } = fakeContext(mockController(), false);
+    secretFills.mark("agent1");
+    const { provider, seen } = scripted([
+      [{ type: "tool_use", id: "t1", name: "run_workflow", input: { workflow: "Sign in" } }],
+      [{ type: "text", text: "Navigated away instead." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "replay the sign-in workflow");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    const result = seen[1]!.messages.at(-1)!.content[0] as { content: string; isError?: boolean };
+    expect(result.content).toBe(SECRET_FILL_LOCK_MESSAGE);
+    expect(result.isError).toBe(true);
   });
 });

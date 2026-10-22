@@ -4,7 +4,8 @@
  */
 export * from "./types.js";
 export { WebScopeEngine, ScopeError, BlockedError } from "./engine.js";
-export type { WebScopeEngineOptions } from "./engine.js";
+export type { AiReadOptions, SourceOptions, WebScopeEngineOptions } from "./engine.js";
+export { AI_REDACTED_BODY, AI_REDACTED_VALUE, entryForAi, interceptItemForAi, redactRequestForAi, redactUrlForAi } from "./ai-redact.js";
 
 export { emptyScope, isInScope, scopeRejectionReason, normalizeHost, parseTarget, scopeEntry } from "./scope.js";
 export type { ParsedTarget } from "./scope.js";

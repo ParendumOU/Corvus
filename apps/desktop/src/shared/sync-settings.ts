@@ -35,6 +35,8 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "agent.siteMemory": "What Corvus learns about sites stays on this device, and so does its switch.",
   "ai.claudeCliPath": "Path of an executable on this machine.",
   "downloads.directory": "Folder on this machine.",
+  "passwords.agentAccess": "Lets AI agents use opted-in logins and 2FA codes on this device; a per-device security decision.",
+  "passwords.keepassAutoLockMinutes": "KeePass databases are local files; their lock timeout is chosen per device.",
   "mcp.enabled": "Exposes this browser to local AI agents; a per-device security decision.",
   "mcp.host": "Bind interface (loopback vs all interfaces); a per-device security decision.",
   "mcp.port": "Port on this machine.",

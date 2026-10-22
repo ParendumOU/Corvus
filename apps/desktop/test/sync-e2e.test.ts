@@ -167,7 +167,8 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
       { url: "https://issue.example/1", title: "Issue", pinned: false, group: { title: "Bugs", color: "red" } },
     ];
     a.installed = [ext(UBLOCK, "uBlock Origin")];
-    const login = a.credentials.add({ origin: "https://corvus.example/login", username: "alice", password: "s3cret", notes: "primary" });
+    const totp = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+    const login = a.credentials.add({ origin: "https://corvus.example/login", username: "alice", password: "s3cret", notes: "primary", totp, agentTotp: true });
     const readingItem: ReadingItem = {
       id: "read-1",
       url: "https://read.example/article",
@@ -231,7 +232,7 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
 
     // credentials: the encrypted login (with its password) reaches the other device intact
     expect(b.credentialsById()).toEqual(a.credentialsById());
-    expect(b.credentials.get(login.id)).toMatchObject({ origin: "https://corvus.example", username: "alice", password: "s3cret", notes: "primary" });
+    expect(b.credentials.get(login.id)).toMatchObject({ origin: "https://corvus.example", username: "alice", password: "s3cret", notes: "primary", totp, agentTotp: true });
 
     // open tabs: each device sees the other's tabs, never its own
     expect(a.remoteTabs()).toEqual([expect.objectContaining({ device: "Desktop", tabs: b.tabs })]);

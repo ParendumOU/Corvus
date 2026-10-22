@@ -2,9 +2,14 @@
  * Safety classification for Command Bar agent actions. Pure so it can be unit-tested. A short
  * allow-list of read-only actions runs without asking; anything that submits a form, spends money,
  * logs in or otherwise commits a change is "risky" and needs the user's approval (when the
- * "ask before risky actions" setting is on). Secrets and CAPTCHAs are never automated: the loop
- * hands those back to the user instead.
+ * "ask before risky actions" setting is on). CAPTCHAs are never automated, and secrets are never
+ * typed by the agent: the loop hands those back to the user. The one exception is the credential
+ * tools (fill_login, fill_totp): Corvus fills an opted-in saved login or 2FA code itself, by
+ * reference, and they always ask, whatever the "ask before risky actions" setting says.
  */
+
+/** Tools that fill a saved secret by reference. Always approved one use at a time. */
+export const CREDENTIAL_TOOLS: ReadonlySet<string> = new Set(["fill_login", "fill_totp"]);
 
 /** Tools that only read or move around, never commit a change. */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
@@ -36,6 +41,8 @@ export interface ActionRisk {
   handoff: boolean;
   /** Short, human reason shown in the approval prompt. */
   reason: string;
+  /** Ask even when "ask before risky actions" is off (saved logins and 2FA codes). */
+  alwaysAsk?: boolean;
 }
 
 const SAFE: ActionRisk = { risky: false, handoff: false, reason: "" };
@@ -61,6 +68,10 @@ export function classifyAction(tool: string, input: unknown, elementName = ""): 
     }
     case "fill_form":
       return { risky: true, handoff: false, reason: "Fills in form fields." };
+    case "fill_login":
+      return { risky: true, handoff: false, alwaysAsk: true, reason: "Signs in with a saved login. The agent never sees the password." };
+    case "fill_totp":
+      return { risky: true, handoff: false, alwaysAsk: true, reason: "Fills a 2FA code. The agent never sees the code." };
     case "click":
       if (RISKY_NAME.test(elementName)) return { risky: true, handoff: false, reason: `Clicks "${elementName}".` };
       return SAFE;

@@ -35,7 +35,8 @@ any time.
 
 - The `corvus` MCP server (via the bundled bridge).
 - A `corvus-browser` skill that teaches Claude when and how to use the tools, the token-cheap
-  snapshot-first workflow, human handoff for CAPTCHAs/2FA (never solved automatically), and the
+  snapshot-first workflow, human handoff for CAPTCHAs (never solved automatically) and for 2FA
+  (except codes the user opted in, which Corvus fills by reference after approval), and the
   untrusted-content rules.
 - A `/corvus-status` command to check the connection.
 

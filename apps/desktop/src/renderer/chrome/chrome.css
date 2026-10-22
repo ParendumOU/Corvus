@@ -557,6 +557,11 @@ body,
 .af-item:hover {
   background: var(--hover);
 }
+.af-source {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: 12px;
+}
 .af-empty {
   padding: 8px 10px;
   color: var(--text-2);

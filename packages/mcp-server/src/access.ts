@@ -43,7 +43,18 @@ const FULL_TOOLS = new Set([
   "cookies",
   "fill_fields",
   "download",
+  // Saved logins and 2FA codes by reference (user opt-in + per-use approval in the browser).
+  "fill_login",
+  "fill_totp",
 ]);
+
+/**
+ * Tools that run script in a page or return raw page content (DOM, text, field values, a printed
+ * copy). The server refuses them, at every access level, on a tab where the browser just filled a
+ * saved password or 2FA code (`controller.secretFillLock`), until that tab navigates. The masked
+ * snapshot, screenshots and input tools stay available.
+ */
+export const RAW_PAGE_TOOLS: ReadonlySet<string> = new Set(["evaluate", "get_html", "get_text", "extract", "find", "pdf"]);
 
 export function requiredLevel(tool: string): AccessLevel {
   if (READ_TOOLS.has(tool)) return "read";

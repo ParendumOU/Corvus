@@ -31,6 +31,12 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 - [x] **Per-site AI profiles**: per-domain prompt addendum and narrowing access cap
 - [x] **MCP automation tools**: `run_flow`, cookies, `fill_fields`, `download` (Full level, gated)
 - [x] **Split view** — tile two live tabs, draggable divider, focus routing
+- [x] **2FA codes (TOTP)**: RFC 6238 codes on saved logins (otpauth link, QR image decoded locally or
+      base32 secret), live code on `corvus://passwords`, one-time-code autofill on click, and
+      `fill_totp` / `fill_login` for agents only on opted-in logins after an approval prompt
+- [x] **KeePass (read-only)**: KDBX 3.1/4 files or folders, key files, keep unlocked via the OS
+      keychain, idle auto-lock, re-read on change; autofill, 2FA and agent sign-in from KeePass;
+      export the built-in vault to a new `.kdbx`; opt-in auto sign-in that asks first
 
 ---
 
@@ -60,7 +66,8 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 **For agents (MCP)**
 - [x] Local MCP server, full browser toolset (visual + semantic control, forms, extract,
       dialogs, screenshots), three access levels (read-only / standard / full)
-- [x] Human handoff for CAPTCHA/2FA (never solved automatically)
+- [x] Human handoff for CAPTCHAs (never solved automatically) and for 2FA, except codes the user
+      opted in per login: `fill_totp` / `fill_login` fill them by reference after an approval prompt
 - [x] Claude Code plugin with zero-config discovery (`~/.corvus/mcp.json` + bundled bridge)
 - [x] WebScope workbench (scope-gated, Burp-style), also exposed to agents:
       capture, repeater, fuzzer/Intruder (pitchfork + payload rules + grep-extract + CSV),
@@ -121,7 +128,9 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 ## Guiding principles
 
 - **Local-first, E2E by default** — user data encrypted client-side; server is dumb storage.
-- **Agent actions are gated** — risky steps (forms, logins, payments, CAPTCHA/2FA) always
-  need human approval; nothing auto-solved.
+- **Agent actions are gated**: risky steps (forms, logins, payments) always need human approval.
+  CAPTCHAs are never solved: they go to the human. 2FA codes go to the human too, unless the user
+  opted that login in (global setting plus per-login switch, both off by default); then Corvus
+  fills the code itself after an approval prompt and the agent never sees it.
 - **Provider-agnostic** — Anthropic API, local Claude Code, and (M3) local models interchangeable.
 - **pnpm only**, Dockerized builds, tests + smoke green before merge.

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { CredentialSummary, PasswordOptions } from "../../shared/credentials";
 import { DEFAULT_PASSWORD_OPTIONS } from "../../shared/credentials";
 import type { RevealedCredential } from "../../shared/credentials-ipc";
+import type { KeePassDbView, KeePassEntrySummary, KeePassExportResult, KeePassState, KeePassUnlockResult } from "../../shared/keepass-ipc";
+import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { internalApi } from "../common/api";
-import { IconCopy, IconEdit, IconLock, IconPlus, IconTrash } from "../common/icons";
+import { IconAgent, IconClock, IconCopy, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
 import { Favicon, hostOf } from "../common/ui";
 import { PageShell, mount } from "./shell";
 import "./passwords.css";
@@ -14,24 +16,112 @@ interface FormState {
   username: string;
   password: string;
   notes: string;
+  /** otpauth:// link or base32 secret as typed; "" = no 2FA. */
+  totp: string;
+  /** Readable name of an imported QR code, shown instead of the raw link. */
+  totpLabel: string;
+  agentTotp: boolean;
+  agentSignIn: boolean;
 }
 
-const EMPTY_FORM: FormState = { id: null, origin: "", username: "", password: "", notes: "" };
+const EMPTY_FORM: FormState = { id: null, origin: "", username: "", password: "", notes: "", totp: "", totpLabel: "", agentTotp: false, agentSignIn: false };
+
+const TWO_FACTOR_WARNING =
+  "Keeping a 2FA secret next to the password turns two factors into one: anyone who can open this vault gets both. Use a separate authenticator for your most important accounts.";
+
+/** Live 2FA code for one login: asks the main process for the current code (never the secret). */
+function TotpCodeView({ load, copy }: { load: () => Promise<TotpCode | null>; copy: () => Promise<void> }) {
+  const [code, setCode] = useState<TotpCode | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fetchCode = (): void => {
+      void load().then((next) => {
+        if (!alive) return;
+        setCode(next);
+        if (next) timer = setTimeout(fetchCode, Math.max(250, next.expiresAt - Date.now() + 50));
+      });
+    };
+    fetchCode();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [load]);
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  if (!code) return null;
+  const left = Math.max(0, Math.ceil((code.expiresAt - now) / 1000));
+  const onCopy = (): void => {
+    void copy().then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <div className="pw-totp" title="Current 2FA code">
+      <IconClock size={13} />
+      <span className="pw-totp-code">{formatTotpCode(code.code)}</span>
+      <span className={`pw-totp-left ${left <= 5 ? "low" : ""}`} aria-label={`${left} seconds left`}>
+        <span className="pw-totp-bar" style={{ width: `${(left / code.period) * 100}%` }} />
+        {left}s
+      </span>
+      <button className="icon-btn" title={copied ? "Copied" : "Copy 2FA code"} onClick={onCopy}>
+        <IconCopy size={14} />
+      </button>
+    </div>
+  );
+}
+
+function VaultTotp({ id }: { id: string }) {
+  const api = internalApi();
+  const load = useCallback(() => api.call("credentials.totpCode", id) as Promise<TotpCode | null>, [api, id]);
+  const copy = useCallback(() => api.call("credentials.copyTotp", id) as Promise<void>, [api, id]);
+  return <TotpCodeView load={load} copy={copy} />;
+}
+
+/** "AI: sign-in" / "AI: 2FA" chips for logins an agent may use. */
+function AgentChips({ signIn, totp, globalOn }: { signIn: boolean; totp: boolean; globalOn: boolean }) {
+  if (!signIn && !totp) return null;
+  const title = globalOn ? "AI agents may use this after asking you" : "Opted in, but AI agent use is off in Settings";
+  return (
+    <span className={`pw-agent ${globalOn ? "" : "off"}`} title={title}>
+      <IconAgent size={12} />
+      {[signIn ? "sign-in" : "", totp ? "2FA" : ""].filter(Boolean).join(" + ")}
+    </span>
+  );
+}
 
 function PasswordsPage() {
   const api = internalApi();
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<CredentialSummary[]>([]);
   const [persisted, setPersisted] = useState(true);
+  const [agentAccess, setAgentAccess] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [form, setForm] = useState<FormState | null>(null);
   const [options, setOptions] = useState<PasswordOptions>(DEFAULT_PASSWORD_OPTIONS);
   const [error, setError] = useState<string | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
+  const setAutoSignIn = useCallback(
+    (id: string, on: boolean) => void api.call("credentials.setAutoSignIn", id, on).then((ids) => setAutoIds(new Set(ids))),
+    [api],
+  );
 
   const load = useCallback((q: string) => void api.call("credentials.list", q).then(setItems), [api]);
 
   useEffect(() => {
     void api.call("credentials.persisted").then(setPersisted);
+    void api.call("credentials.agentAccess").then(setAgentAccess);
+    void api.call("credentials.autoSignInIds").then((ids) => setAutoIds(new Set(ids)));
   }, [api]);
 
   useEffect(() => {
@@ -57,10 +147,21 @@ function PasswordsPage() {
   };
 
   const openEdit = async (item: CredentialSummary): Promise<void> => {
-    if (!window.confirm("Edit this login? Its password will be shown in the form.")) return;
+    if (!window.confirm("Edit this login? Its password and 2FA secret will be shown in the form.")) return;
     const cred = (await api.call("credentials.reveal", item.id)) as RevealedCredential;
     setError(null);
-    setForm({ id: item.id, origin: cred.origin, username: cred.username, password: cred.password, notes: cred.notes });
+    setQrError(null);
+    setForm({
+      id: item.id,
+      origin: cred.origin,
+      username: cred.username,
+      password: cred.password,
+      notes: cred.notes,
+      totp: cred.totp,
+      totpLabel: "",
+      agentTotp: cred.agentTotp,
+      agentSignIn: cred.agentSignIn,
+    });
   };
 
   const remove = (id: string): void => {
@@ -70,12 +171,32 @@ function PasswordsPage() {
 
   const generate = (): void => void api.call("credentials.generate", options).then((pw) => setForm((f) => (f ? { ...f, password: pw } : f)));
 
+  const importQr = async (): Promise<void> => {
+    setQrError(null);
+    const result = await api.call("credentials.importTotpQr");
+    if (!result) return;
+    if (!result.ok) {
+      setQrError(result.error);
+      return;
+    }
+    setForm((f) => (f ? { ...f, totp: result.uri, totpLabel: result.label || "QR code imported" } : f));
+  };
+
   const submit = async (): Promise<void> => {
     if (!form) return;
     setError(null);
+    const fields = {
+      origin: form.origin,
+      username: form.username,
+      password: form.password,
+      notes: form.notes,
+      totp: form.totp,
+      agentTotp: form.agentTotp && Boolean(form.totp.trim()),
+      agentSignIn: form.agentSignIn,
+    };
     try {
-      if (form.id) await api.call("credentials.update", form.id, { origin: form.origin, username: form.username, password: form.password, notes: form.notes });
-      else await api.call("credentials.add", { origin: form.origin, username: form.username, password: form.password, notes: form.notes });
+      if (form.id) await api.call("credentials.update", form.id, fields);
+      else await api.call("credentials.add", fields);
       setForm(null);
       load(query);
     } catch (err) {
@@ -85,6 +206,8 @@ function PasswordsPage() {
 
   const set = (patch: Partial<FormState>): void => setForm((f) => (f ? { ...f, ...patch } : f));
   const toggle = (key: keyof PasswordOptions): void => setOptions((o) => ({ ...o, [key]: !o[key] }));
+  const anyTotp = items.some((i) => i.hasTotp);
+  const hasTotp = Boolean(form?.totp.trim());
 
   return (
     <PageShell
@@ -95,6 +218,7 @@ function PasswordsPage() {
           <input className="input" placeholder="Search logins" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="btn primary" onClick={() => {
             setError(null);
+            setQrError(null);
             setForm(EMPTY_FORM);
           }}>
             <IconPlus size={14} /> Add
@@ -137,6 +261,48 @@ function PasswordsPage() {
               <label className="pw-opt"><input type="checkbox" checked={options.digits} onChange={() => toggle("digits")} /> 0-9</label>
               <label className="pw-opt"><input type="checkbox" checked={options.symbols} onChange={() => toggle("symbols")} /> !@#</label>
             </div>
+            <div className="pw-field">
+              <span>2FA (optional)</span>
+              {form.totpLabel ? (
+                <div className="pw-totp-imported">
+                  <IconClock size={13} /> {form.totpLabel}
+                  <button className="btn small ghost" onClick={() => set({ totp: "", totpLabel: "" })}>Remove</button>
+                </div>
+              ) : (
+                <input
+                  className="input pw-totp-input"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Paste an otpauth:// link or the base32 secret"
+                  value={form.totp}
+                  onChange={(e) => set({ totp: e.target.value })}
+                />
+              )}
+              <div className="pw-gen">
+                <button className="btn small" onClick={() => void importQr()}>Import QR code image</button>
+                {hasTotp && !form.totpLabel && <button className="btn small ghost" onClick={() => set({ totp: "" })}>Remove 2FA</button>}
+                <span>Decoded on this device; the image is not uploaded.</span>
+              </div>
+              {qrError && <div className="pw-error">{qrError}</div>}
+              {hasTotp && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
+            </div>
+            <div className="pw-field">
+              <span>AI agents</span>
+              <label className="pw-opt">
+                <input type="checkbox" checked={form.agentSignIn} onChange={(e) => set({ agentSignIn: e.target.checked })} /> Let AI agents sign in with this login
+              </label>
+              <label className="pw-opt">
+                <input type="checkbox" disabled={!hasTotp} checked={form.agentTotp && hasTotp} onChange={(e) => set({ agentTotp: e.target.checked })} /> Let AI agents use this 2FA code
+              </label>
+              <div className="pw-hint">
+                Agents never see the password or the code: Corvus fills them into the page after you approve each use.
+                {!agentAccess && (
+                  <>
+                    {" "}AI agent use is off for every login until you turn it on in <a href="corvus://settings/#passwords">Settings</a>.
+                  </>
+                )}
+              </div>
+            </div>
             <label className="pw-field">
               <span>Notes</span>
               <textarea className="input pw-notes" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
@@ -150,6 +316,12 @@ function PasswordsPage() {
         </div>
       )}
 
+      {anyTotp && !form && (
+        <div className="card">
+          <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
+        </div>
+      )}
+
       <div className="card">
         {items.length === 0 ? (
           <div className="empty">{query ? "No logins match your search." : "No saved logins yet. Sign in to a site or add one with the Add button."}</div>
@@ -159,10 +331,14 @@ function PasswordsPage() {
               <div key={item.id} className="list-row" style={{ alignItems: "center" }}>
                 <Favicon url={item.origin} />
                 <div className="grow">
-                  <div className="title">{item.username || "(no username)"}</div>
+                  <div className="title">
+                    {item.username || "(no username)"} <AgentChips signIn={item.agentSignIn} totp={item.agentTotp} globalOn={agentAccess} />
+                  </div>
                   <div className="sub">{hostOf(item.origin)}</div>
+                  <AutoSignInToggle id={item.id} on={autoIds.has(item.id)} onChange={setAutoSignIn} />
                   {revealed[item.id] && <div className="pw-reveal">{revealed[item.id]}</div>}
                 </div>
+                {item.hasTotp && <VaultTotp id={item.id} />}
                 <div className="actions">
                   <button className="btn small ghost" title="Reveal password" onClick={() => void reveal(item.id)}>
                     <IconLock size={13} /> {revealed[item.id] ? "Hide" : "Show"}
@@ -182,7 +358,321 @@ function PasswordsPage() {
           </div>
         )}
       </div>
+
+      <KeePassSection query={query} agentAccess={agentAccess} autoIds={autoIds} onAutoSignIn={setAutoSignIn} />
     </PageShell>
+  );
+}
+
+/** Per-login opt-in: when this login's form loads, Corvus asks once, then fills and submits it. */
+function AutoSignInToggle({ id, on, onChange }: { id: string; on: boolean; onChange: (id: string, on: boolean) => void }) {
+  return (
+    <label className="pw-opt pw-auto" title="Corvus asks before each automatic sign-in">
+      <input type="checkbox" checked={on} onChange={(e) => onChange(id, e.target.checked)} /> Sign in automatically on this site (asks first)
+    </label>
+  );
+}
+
+function KeePassTotp({ id }: { id: string }) {
+  const api = internalApi();
+  const load = useCallback(() => api.call("keepass.totpCode", id) as Promise<TotpCode | null>, [api, id]);
+  const copy = useCallback(() => api.call("keepass.copyTotp", id) as Promise<void>, [api, id]);
+  return <TotpCodeView load={load} copy={copy} />;
+}
+
+function baseName(file: string): string {
+  return file.split(/[\\/]/).pop() ?? file;
+}
+
+/** Inline unlock form for one database: master password, optional key file, "Keep unlocked". */
+function UnlockForm({ db, canRemember, onDone }: { db: KeePassDbView; canRemember: boolean; onDone: () => void }) {
+  const api = internalApi();
+  const [password, setPassword] = useState("");
+  const [keyFile, setKeyFile] = useState<string | null>(null);
+  const [keep, setKeep] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const unlock = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    const result = (await api.call("keepass.unlock", db.id, password, keyFile, keep)) as KeePassUnlockResult;
+    setBusy(false);
+    if (result.ok) {
+      setPassword("");
+      onDone();
+    } else {
+      setError(result.error);
+    }
+  };
+
+  return (
+    <form
+      className="kp-unlock"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void unlock();
+      }}
+    >
+      <input
+        className="input"
+        type="password"
+        autoFocus
+        autoComplete="off"
+        placeholder={`Master password for ${db.name}`}
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+      <div className="pw-gen">
+        <button type="button" className="btn small" onClick={() => void api.call("keepass.pickKeyFile").then((p) => p && setKeyFile(p))}>
+          {keyFile ? `Key file: ${baseName(keyFile)}` : "Key file (optional)"}
+        </button>
+        {keyFile && (
+          <button type="button" className="btn small ghost" onClick={() => setKeyFile(null)}>
+            No key file
+          </button>
+        )}
+        <label className="pw-opt" title={canRemember ? "" : "No system keychain is available on this device."}>
+          <input type="checkbox" disabled={!canRemember} checked={keep && canRemember} onChange={(e) => setKeep(e.target.checked)} /> Keep unlocked on this device
+        </label>
+      </div>
+      <div className="pw-hint">
+        {keep
+          ? "The master password is stored encrypted with your system keychain, never in plain text and never synced. The database unlocks when Corvus starts and does not auto-lock."
+          : "The database stays unlocked until you lock it, Corvus quits, or the idle time in Settings passes."}
+      </div>
+      {error && <div className="pw-error">{error}</div>}
+      <div className="pw-actions">
+        <button type="submit" className="btn primary small" disabled={busy}>
+          {busy ? "Unlocking..." : "Unlock"}
+        </button>
+        <button type="button" className="btn ghost small" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ExportForm({ onClose }: { onClose: () => void }) {
+  const api = internalApi();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<KeePassExportResult>(null);
+  const mismatch = confirm.length > 0 && confirm !== password;
+
+  const run = async (): Promise<void> => {
+    setBusy(true);
+    setResult((await api.call("keepass.export", password)) as KeePassExportResult);
+    setBusy(false);
+  };
+
+  return (
+    <div className="kp-export">
+      <div className="pw-hint">
+        Writes your saved logins and their 2FA secrets to a new KeePass database, protected by a master password you choose. Corvus never overwrites an existing file.
+      </div>
+      <input className="input" type="password" autoComplete="new-password" placeholder="New master password (8+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} />
+      <input className="input" type="password" autoComplete="new-password" placeholder="Repeat the master password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+      {mismatch && <div className="pw-error">The passwords do not match.</div>}
+      {result && (result.ok ? <div className="pw-hint">Exported {result.count} logins to {result.path}.</div> : <div className="pw-error">{result.error}</div>)}
+      <div className="pw-actions">
+        <button className="btn primary small" disabled={busy || password.length < 8 || password !== confirm} onClick={() => void run()}>
+          {busy ? "Exporting..." : "Choose file and export"}
+        </button>
+        <button className="btn ghost small" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<KeePassDbView["status"], string> = { locked: "Locked", unlocking: "Unlocking", unlocked: "Unlocked", missing: "File not found" };
+
+/** KeePass databases as a read-only second source of logins, plus export of the built-in vault. */
+function KeePassSection({
+  query,
+  agentAccess,
+  autoIds,
+  onAutoSignIn,
+}: {
+  query: string;
+  agentAccess: boolean;
+  autoIds: Set<string>;
+  onAutoSignIn: (id: string, on: boolean) => void;
+}) {
+  const api = internalApi();
+  const [state, setState] = useState<KeePassState | null>(null);
+  const [entries, setEntries] = useState<KeePassEntrySummary[]>([]);
+  const [unlocking, setUnlocking] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState(false);
+
+  const refresh = useCallback(() => {
+    void api.call("keepass.state").then(setState);
+    void api.call("keepass.entries", query).then(setEntries);
+  }, [api, query]);
+
+  useEffect(() => {
+    const timer = setTimeout(refresh, 120);
+    return () => clearTimeout(timer);
+  }, [refresh]);
+
+  useEffect(() => api.onEvent((e) => e.type === "keepass-changed" && refresh()), [api, refresh]);
+
+  const reveal = async (id: string): Promise<void> => {
+    if (revealed[id]) {
+      setRevealed(({ [id]: _gone, ...rest }) => rest);
+      return;
+    }
+    if (!window.confirm("Reveal this password?")) return;
+    const password = (await api.call("keepass.reveal", id)) as string;
+    setRevealed((r) => ({ ...r, [id]: password }));
+  };
+
+  const optIn = (id: string, patch: { signIn?: boolean; totp?: boolean }): void => {
+    void api.call("keepass.setAgentOptIn", id, patch).then(refresh);
+  };
+
+  const removeSource = (id: string): void => {
+    if (!window.confirm("Stop using this KeePass source? The database file itself is not touched.")) return;
+    void api.call("keepass.removeSource", id).then(setState);
+  };
+
+  const sourceOf = (db: KeePassDbView) => state?.sources.find((s) => s.id === db.sourceId);
+
+  return (
+    <div className="card" id="keepass">
+      <div className="card-head">
+        <h2>KeePass</h2>
+        <p className="muted">Use logins and 2FA codes from KeePass (.kdbx) databases. Corvus only reads them and never writes to your databases.</p>
+      </div>
+      <div className="card-body pw-form">
+        <div className="pw-gen">
+          <button className="btn small" onClick={() => void api.call("keepass.addFiles").then(setState)}>
+            <IconFile size={13} /> Add database file
+          </button>
+          <button className="btn small" onClick={() => void api.call("keepass.addFolder").then(setState)}>
+            <IconFolder size={13} /> Add folder
+          </button>
+          {state && state.databases.some((d) => d.status === "unlocked") && (
+            <button className="btn small ghost" onClick={() => void api.call("keepass.lock", null).then(setState)}>
+              <IconLock size={13} /> Lock all
+            </button>
+          )}
+          <button className="btn small ghost" onClick={() => setExporting((v) => !v)}>
+            Export saved logins to KeePass
+          </button>
+        </div>
+        {exporting && <ExportForm onClose={() => setExporting(false)} />}
+
+        {state && state.sources.length === 0 && <div className="pw-hint">No KeePass databases yet. Add a .kdbx file, or a folder that holds them.</div>}
+        {state && state.sources.filter((s) => s.kind === "folder").map((s) => (
+          <div key={s.id} className="kp-source">
+            <IconFolder size={13} /> <span className="grow">{s.path}</span>
+            <span className="pw-hint">{s.databases} {s.databases === 1 ? "database" : "databases"}</span>
+            <button className="icon-btn" title="Remove folder" onClick={() => removeSource(s.id)}>
+              <IconTrash size={14} />
+            </button>
+          </div>
+        ))}
+
+        {state && state.databases.length > 0 && (
+          <div className="list kp-dbs">
+            {state.databases.map((db) => (
+              <div key={db.id} className="kp-db">
+                <div className="list-row" style={{ alignItems: "center" }}>
+                  <IconLock size={15} />
+                  <div className="grow">
+                    <div className="title">
+                      {db.name} <span className={`kp-status ${db.status}`}>{STATUS_LABEL[db.status]}</span>
+                      {db.remembered && <span className="kp-status kept" title="Unlocks when Corvus starts">Kept unlocked</span>}
+                    </div>
+                    <div className="sub">
+                      {db.path}
+                      {db.status === "unlocked" ? ` · ${db.entryCount} entries` : ""}
+                    </div>
+                    {db.error && <div className="pw-error">{db.error}</div>}
+                  </div>
+                  <div className="actions">
+                    {db.status === "locked" && unlocking !== db.id && (
+                      <button className="btn small primary" onClick={() => setUnlocking(db.id)}>
+                        Unlock
+                      </button>
+                    )}
+                    {db.status === "unlocked" && (
+                      <button className="btn small ghost" title={db.remembered ? "Locks it and forgets the kept master password" : "Lock now"} onClick={() => void api.call("keepass.lock", db.id).then(setState)}>
+                        Lock
+                      </button>
+                    )}
+                    {sourceOf(db)?.kind === "file" && (
+                      <button className="icon-btn" title="Remove database" onClick={() => removeSource(db.sourceId)}>
+                        <IconTrash size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {unlocking === db.id && db.status !== "unlocked" && (
+                  <UnlockForm
+                    db={db}
+                    canRemember={state.canRemember}
+                    onDone={() => {
+                      setUnlocking(null);
+                      refresh();
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {entries.length > 0 && (
+          <div className="list kp-entries">
+            {entries.map((e) => (
+              <div key={e.id} className="list-row" style={{ alignItems: "center" }}>
+                {e.site ? <Favicon url={`https://${e.site}`} /> : <IconLock size={15} />}
+                <div className="grow">
+                  <div className="title">
+                    {e.title || e.site || "(untitled)"} <span className="kp-source-chip">KeePass: {e.dbName}</span>
+                    <AgentChips signIn={e.agentSignIn} totp={e.agentTotp} globalOn={agentAccess} />
+                  </div>
+                  <div className="sub">
+                    {e.username || "(no username)"}
+                    {e.site ? ` · ${e.site}` : ""}
+                    {e.group ? ` · ${e.group}` : ""}
+                  </div>
+                  {revealed[e.id] && <div className="pw-reveal">{revealed[e.id]}</div>}
+                  <AutoSignInToggle id={e.id} on={autoIds.has(e.id)} onChange={onAutoSignIn} />
+                  <div className="pw-gen kp-optins">
+                    <label className="pw-opt">
+                      <input type="checkbox" checked={e.agentSignIn} onChange={(ev) => optIn(e.id, { signIn: ev.target.checked })} /> Let AI agents sign in with this login
+                    </label>
+                    {e.hasTotp && (
+                      <label className="pw-opt">
+                        <input type="checkbox" checked={e.agentTotp} onChange={(ev) => optIn(e.id, { totp: ev.target.checked })} /> Let AI agents use this 2FA code
+                      </label>
+                    )}
+                  </div>
+                </div>
+                {e.hasTotp && <KeePassTotp id={e.id} />}
+                <div className="actions">
+                  <button className="btn small ghost" title="Reveal password" onClick={() => void reveal(e.id)}>
+                    <IconLock size={13} /> {revealed[e.id] ? "Hide" : "Show"}
+                  </button>
+                  <button className="icon-btn" title="Copy password" onClick={() => void api.call("keepass.copyPassword", e.id)}>
+                    <IconCopy size={15} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {entries.some((e) => e.hasTotp) && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
+      </div>
+    </div>
   );
 }
 

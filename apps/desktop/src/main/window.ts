@@ -603,6 +603,8 @@ export class BrowserWindowCtl {
       this.profile.adblock.resetTab(wc.id);
       this.ctx.reader.onNavigated(this, tab);
       this.ctx.autofill.onNavigated(this, tab);
+      // A new document: any secret Corvus filled into the old one is gone, so script access returns.
+      this.ctx.secretFills.clear(tab.id);
       this.applySavedZoom(tab);
       if (tab.find) tab.find = { ...tab.find, active: 0, matches: 0 };
       if (isHistoryWorthy(url)) this.profile.history.recordVisit(url, "");
@@ -617,6 +619,7 @@ export class BrowserWindowCtl {
     wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
       if (!isMainFrame) return;
       tab.url = url;
+      this.ctx.autofill.onInPageNavigation(this, tab);
       if (isHistoryWorthy(url)) this.profile.history.recordVisit(url, tab.title);
       push();
     });
@@ -818,6 +821,7 @@ export class BrowserWindowCtl {
     if (!tab.view.webContents.isDestroyed()) this.profile.adblock.forgetTab(tab.view.webContents.id);
     this.ctx.reader.forgetTab(id);
     this.ctx.autofill.forgetTab(id);
+    this.ctx.secretFills.clear(id);
     this.ctx.annotations.forgetTab(id);
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);

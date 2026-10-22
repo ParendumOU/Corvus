@@ -9,7 +9,7 @@ import {
   reviveProfile,
   type SiteProfile,
 } from "../src/shared/site-profiles";
-import { AGENT_TOOL_ACCESS, TOOLS, capAgentTools } from "../src/main/agent-tools";
+import { AGENT_TOOL_ACCESS, CREDENTIAL_AGENT_TOOLS, TOOLS, agentToolset, capAgentTools } from "../src/main/agent-tools";
 
 function profile(partial: Partial<SiteProfile>): SiteProfile {
   return {
@@ -111,7 +111,25 @@ describe("capAgentTools", () => {
     expect(capAgentTools(TOOLS, "full")).toHaveLength(TOOLS.length);
   });
   it("every tool has a declared access level", () => {
-    for (const t of TOOLS) expect(AGENT_TOOL_ACCESS[t.name]).toBeDefined();
+    for (const t of [...TOOLS, ...CREDENTIAL_AGENT_TOOLS]) expect(AGENT_TOOL_ACCESS[t.name]).toBeDefined();
+  });
+  it("credential tools need full access, so a capped site profile drops them", () => {
+    const { tools } = agentToolset(true);
+    expect(capAgentTools(tools, "full").map((t) => t.name)).toEqual(expect.arrayContaining(["fill_login", "fill_totp"]));
+    expect(capAgentTools(tools, "standard").map((t) => t.name)).not.toContain("fill_totp");
+    expect(capAgentTools(tools, "standard").map((t) => t.name)).not.toContain("fill_login");
+  });
+});
+
+describe("agentToolset", () => {
+  it("offers the credential tools only when agents may use opted-in logins", () => {
+    const off = agentToolset(false);
+    expect(off.tools).toBe(TOOLS);
+    expect(off.system).not.toContain("fill_totp");
+    const on = agentToolset(true);
+    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "fill_login", "fill_totp"]);
+    expect(on.system).toContain("fill_totp");
+    expect(on.system).toContain("ask_user");
   });
 });
 

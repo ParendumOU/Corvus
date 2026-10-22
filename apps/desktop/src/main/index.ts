@@ -10,7 +10,10 @@ import { AnnotationService } from "./annotation-service";
 import { AssistService } from "./assist-service";
 import { AutofillService } from "./autofill-service";
 import type { AppContext } from "./context";
+import { AgentCredentialService } from "./agent-credentials";
 import { Controller } from "./controller";
+import { KeePassService } from "./keepass-service";
+import { SecretFillGuard } from "./secret-fill-guard";
 import { DownloadManager } from "./downloads";
 import { ExtensionWindowBridge } from "./extension-windows";
 import { registerIpc } from "./ipc";
@@ -100,11 +103,14 @@ async function main(): Promise<void> {
   ctx.reader = new ReaderService(ctx);
   ctx.controller = new Controller(ctx);
   ctx.agentRunner = new AgentRunner(ctx);
+  ctx.agentCredentials = new AgentCredentialService(ctx);
   ctx.webscope = new WebScopeService(ctx);
   ctx.monitor = new PageMonitor(ctx);
   ctx.scheduledAgents = new ScheduledAgentRunner(ctx);
   ctx.flows = new FlowService(ctx);
   ctx.autofill = new AutofillService(ctx);
+  ctx.keepass = new KeePassService(ctx);
+  ctx.secretFills = new SecretFillGuard();
   ctx.annotations = new AnnotationService(ctx);
   ctx.mcp = new McpService(ctx);
   ctx.updater = new UpdateService(ctx);
@@ -124,6 +130,7 @@ async function main(): Promise<void> {
   profiles.onCreated((runtime) => ctx.semanticSearch.attach(runtime));
   profiles.onCreated((runtime) => ctx.scheduledAgents.attach(runtime));
   profiles.onCreated((runtime) => ctx.flows.attach(runtime));
+  profiles.onCreated((runtime) => ctx.keepass.attach(runtime));
   profiles.onCreated((runtime) =>
     runtime.agentRuns.onChange(() => {
       for (const win of ctx.windows.forProfile(runtime.profile.id)) win.notifyInternalPages({ type: "agent-runs-changed" }, ["agent-runs"]);

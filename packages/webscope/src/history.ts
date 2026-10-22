@@ -22,6 +22,7 @@ export function summarize(entry: HistoryEntry): HistorySummary {
     inScope: entry.inScope,
     source: entry.source,
     ...(entry.response?.mimeType ? { mimeType: entry.response.mimeType } : {}),
+    ...(entry.aiHidden ? { aiHidden: true } : {}),
   };
 }
 
@@ -78,12 +79,17 @@ export class HistoryBuffer {
     return this.index.get(id);
   }
 
-  /** Newest first, optionally filtered and capped. */
-  query(filter: HistoryFilter = {}, limit = 200): HistorySummary[] {
+  /**
+   * Newest first, optionally filtered and capped. `view` maps each entry before it is matched and
+   * summarized (the AI view redacts hidden requests, so a search cannot probe their bodies).
+   */
+  query(filter: HistoryFilter = {}, limit = 200, view: (entry: HistoryEntry) => HistoryEntry = (e) => e): HistorySummary[] {
     const out: HistorySummary[] = [];
     for (let i = this.entries.length - 1; i >= 0 && out.length < limit; i--) {
-      const entry = this.entries[i];
-      if (entry && matchesFilter(entry, filter)) out.push(summarize(entry));
+      const raw = this.entries[i];
+      if (!raw) continue;
+      const entry = view(raw);
+      if (matchesFilter(entry, filter)) out.push(summarize(entry));
     }
     return out;
   }

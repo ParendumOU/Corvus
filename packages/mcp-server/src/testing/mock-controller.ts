@@ -6,6 +6,7 @@ import type {
   ChallengeInfo,
   ConsoleEntry,
   CookieInfo,
+  CredentialFillResult,
   DialogInfo,
   DownloadEntry,
   ElementAction,
@@ -70,9 +71,14 @@ export interface MockBrowserControllerOptions {
   downloads?: DownloadEntry[];
   /** Cookies readable per host, keyed by the tab URL's host. */
   cookies?: Record<string, CookieInfo[]>;
+  /** Outcome of fill_totp / fill_login. Default: a handoff, as when the user has not opted in. */
+  credentialFill?: (kind: "totp" | "login", tabId: TabId, opts: { ref?: string; username?: string }) => CredentialFillResult;
 }
 
 const VIEWPORT = { width: 1280, height: 800 };
+
+/** What the mock answers for a tab locked after a credential fill (the desktop wording differs). */
+export const SECRET_FILL_LOCK_TEXT = "A saved secret was filled into this tab; scripts and raw page reads are blocked until it navigates.";
 
 // 1x1 transparent PNG.
 const PIXEL_PNG =
@@ -99,6 +105,7 @@ export class MockBrowserController implements BrowserController {
   readonly inputs: Array<{ tabId: TabId; action: AgentInput }> = [];
   private readonly downloads: DownloadEntry[];
   private readonly cookieJar: Map<string, CookieInfo[]>;
+  private readonly credentialFill: NonNullable<MockBrowserControllerOptions["credentialFill"]>;
   private readonly pages: Record<string, MockPage>;
   private readonly tabs = new Map<TabId, TabState>();
   private readonly groups = new Map<GroupId, TabGroup>();
@@ -109,6 +116,7 @@ export class MockBrowserController implements BrowserController {
   constructor(opts: MockBrowserControllerOptions = {}) {
     this.pages = { ...opts.pages };
     this.downloads = [...(opts.downloads ?? [])];
+    this.credentialFill = opts.credentialFill ?? (() => ({ status: "handoff", message: "The user has not allowed agents to use this login. Call request_user_action." }));
     this.cookieJar = new Map(Object.entries(opts.cookies ?? {}).map(([host, list]) => [host, list.map((c) => ({ ...c }))]));
     for (const b of opts.bookmarks ?? []) this.insertBookmark(b);
     opts.initialTabs?.forEach((url, i) => this.createTab(url, { background: i > 0, agent: false }));
@@ -165,6 +173,7 @@ export class MockBrowserController implements BrowserController {
   }
 
   private load(s: TabState, url: string): void {
+    this.lockedTabs.delete(s.tab.id);
     s.tab.url = url;
     s.tab.title = this.page(url).title;
     s.scrollY = 0;
@@ -593,6 +602,29 @@ export class MockBrowserController implements BrowserController {
     const next = list.filter((c) => c.name !== name);
     this.cookieJar.set(host, next);
     return { removed: list.length - next.length };
+  }
+
+  async fillTotp(id: TabId, ref: string, opts: { username?: string } = {}): Promise<CredentialFillResult> {
+    this.record("fillTotp", id, ref, opts);
+    this.state(id);
+    const result = this.credentialFill("totp", id, { ref, ...opts });
+    if (result.status === "filled") this.lockedTabs.add(id);
+    return result;
+  }
+
+  async fillLogin(id: TabId, opts: { ref?: string; username?: string } = {}): Promise<CredentialFillResult> {
+    this.record("fillLogin", id, opts);
+    this.state(id);
+    const result = this.credentialFill("login", id, opts);
+    if (result.status === "filled") this.lockedTabs.add(id);
+    return result;
+  }
+
+  /** Tabs where a saved secret was filled; cleared when the tab loads a new document, like the browser. */
+  readonly lockedTabs = new Set<TabId>();
+
+  async secretFillLock(id: TabId): Promise<string | null> {
+    return this.lockedTabs.has(id) ? SECRET_FILL_LOCK_TEXT : null;
   }
 
   async download(id: TabId, url: string, opts: { maxBytes?: number } = {}): Promise<DownloadEntry> {

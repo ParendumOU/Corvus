@@ -487,6 +487,36 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
   );
 }
 
+function PasswordsSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
+  const pw = view.settings.passwords;
+  return (
+    <Section
+      id="passwords"
+      title="Passwords"
+      description={
+        <>
+          Saved logins, 2FA codes and KeePass databases are managed on the <a href="corvus://passwords/">Passwords</a> page.
+        </>
+      }
+    >
+      <Row
+        label="Let AI agents use logins you opt in"
+        hint="The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are always handed back to you."
+      >
+        <Toggle label="Let AI agents use logins you opt in" checked={pw.agentAccess} onChange={(v) => update({ passwords: { agentAccess: v } })} />
+      </Row>
+      <Row label="Lock KeePass databases after" hint="Minutes without keyboard or mouse activity. 0 keeps them unlocked until you lock them or quit.">
+        <LazyInput
+          value={String(pw.keepassAutoLockMinutes)}
+          type="number"
+          width={120}
+          onSave={(v) => update({ passwords: { keepassAutoLockMinutes: Math.max(0, Math.min(1440, Math.round(Number(v)) || 0)) } })}
+        />
+      </Row>
+    </Section>
+  );
+}
+
 function CommandAgentSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
   const agent = view.settings.agent;
   const ai = view.settings.ai;
@@ -504,7 +534,8 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       <Row label="Max steps" hint="Most tool actions one task may take before it stops.">
         <LazyInput value={String(agent.maxSteps)} type="number" width={120} onSave={(v) => update({ agent: { maxSteps: Math.max(1, Math.min(50, Number(v) || 15)) } })} />
       </Row>
-      <Row label="Ask before risky actions" hint="Confirm before submitting forms, spending money or signing in. Passwords, payments and CAPTCHAs are always handed back to you.">
+      <Row label="Ask before risky actions" hint="Confirm before submitting forms, spending money or signing in. Payments and CAPTCHAs are always handed back to you, and so are passwords and 2FA codes unless you let agents use a login (Settings, Passwords). Using a saved login always asks first.">
+
         <Toggle label="Ask before risky actions" checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
       </Row>
       <Row
@@ -797,6 +828,7 @@ function UpdatesSection({ view, update }: { view: SettingsView; update: (p: Sett
   const u = view.settings.update;
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [noticesError, setNoticesError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -831,6 +863,15 @@ function UpdatesSection({ view, update }: { view: SettingsView; update: (p: Sett
       <Row label="Current version">
         <span className="pill off">Corvus {status?.currentVersion ?? "…"}</span>
         {status && !status.supported && <span className="muted small">{status.reason}</span>}
+      </Row>
+      <Row
+        label="Third-party software"
+        hint="Corvus includes open-source packages under their own licences. The source is MPL-2.0; this app is distributed under GPL-3.0 because it includes electron-chrome-extensions. Source: github.com/ParendumOU/Corvus."
+      >
+        <button className="btn small" onClick={() => void api.call("app.openThirdPartyNotices").then(setNoticesError)}>
+          View licences
+        </button>
+        {noticesError && <span className="muted small">{noticesError}</span>}
       </Row>
       <Row label="Release channel" hint="Beta receives pre-releases from the same feed.">
         <Segmented<UpdateChannel>
@@ -924,6 +965,7 @@ function SettingsPage() {
         ["semantic-search", "Find in my pages"],
         ["startup", "On startup"],
         ["downloads", "Downloads"],
+        ["passwords", "Passwords"],
         ["site-permissions", "Site permissions"],
         ["adblock", "Ad blocker"],
         ["monitoring", "Page monitoring"],
@@ -977,6 +1019,7 @@ function SettingsPage() {
           <SemanticSearchSection view={view} update={update} />
           <StartupSection view={view} update={update} />
           <DownloadsSection view={view} update={update} setView={setView} />
+          <PasswordsSection view={view} update={update} />
           <SitePermissionsSection />
           <AdblockSection />
           <MonitoringSection view={view} update={update} />

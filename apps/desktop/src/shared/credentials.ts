@@ -3,8 +3,9 @@
  * normalization used for autofill matching, list search and the password generator. No Node or
  * Electron imports so this runs in the main process, the renderer and tests alike.
  */
+import { isValidTotpConfig, type TotpConfig } from "./totp";
 
-/** A stored login. Synced as the `credentials` collection; password/notes are secret. */
+/** A stored login. Synced as the `credentials` collection; password/notes/totp are secret. */
 export interface Credential {
   id: string;
   /** Normalized origin (scheme://host[:port]) the login belongs to. */
@@ -12,24 +13,41 @@ export interface Credential {
   username: string;
   password: string;
   notes?: string;
+  /** Optional 2FA generator. Keeping it next to the password turns two factors into one. */
+  totp?: TotpConfig;
+  /** Opt-in: AI agents may fill this login's current 2FA code (never shown to them). Default off. */
+  agentTotp?: boolean;
+  /** Opt-in: AI agents may sign in with this login (filled by reference, never shown to them). Default off. */
+  agentSignIn?: boolean;
   createdAt: number;
   updatedAt: number;
 }
 
-/** List/search view: never carries the password or notes body. */
+/** List/search view: never carries the password, notes body or 2FA secret. */
 export interface CredentialSummary {
   id: string;
   origin: string;
   username: string;
   hasNotes: boolean;
+  hasTotp: boolean;
+  agentTotp: boolean;
+  agentSignIn: boolean;
   createdAt: number;
   updatedAt: number;
 }
 
-/** A single decrypted login the autofill dropdown offers for the current page. */
+/** Where a login comes from: the built-in vault or a KeePass database. */
+export type CredentialSource = "corvus" | "keepass";
+
+/** A single login the autofill dropdown offers for the current page (no secrets). */
 export interface CredentialMatch {
   id: string;
   username: string;
+  /** The login has a 2FA generator, so its current code can be filled. */
+  hasTotp: boolean;
+  source: CredentialSource;
+  /** KeePass database name for KeePass logins. */
+  sourceName?: string;
 }
 
 /**
@@ -59,6 +77,9 @@ export function isValidCredential(value: unknown): value is Credential {
     typeof v.username === "string" &&
     typeof v.password === "string" &&
     (v.notes === undefined || typeof v.notes === "string") &&
+    (v.totp === undefined || isValidTotpConfig(v.totp)) &&
+    (v.agentTotp === undefined || typeof v.agentTotp === "boolean") &&
+    (v.agentSignIn === undefined || typeof v.agentSignIn === "boolean") &&
     typeof v.createdAt === "number" &&
     typeof v.updatedAt === "number"
   );
@@ -70,6 +91,9 @@ export function credentialSummary(c: Credential): CredentialSummary {
     origin: c.origin,
     username: c.username,
     hasNotes: Boolean(c.notes && c.notes.trim()),
+    hasTotp: Boolean(c.totp),
+    agentTotp: c.agentTotp === true,
+    agentSignIn: c.agentSignIn === true,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   };

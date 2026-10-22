@@ -271,4 +271,27 @@ export interface AgentCapabilities {
   clearCookie?(id: TabId, name: string): Promise<{ removed: number }>;
   /** Downloads a URL into the browser's downloads folder through the normal download path, capped at maxBytes. */
   download?(id: TabId, url: string, opts?: { maxBytes?: number }): Promise<DownloadEntry>;
+  /**
+   * Fills the current 2FA code of a saved login into the field `ref`, only when the user allowed agents
+   * to use that login's code and approves this use. The browser fills it; the result never contains it.
+   */
+  fillTotp?(id: TabId, ref: string, opts?: { username?: string }): Promise<CredentialFillResult>;
+  /**
+   * Fills a saved login (username and password) around the field `ref`, or into the page's login form,
+   * under the same opt-in and approval gates. The result never contains the password.
+   */
+  fillLogin?(id: TabId, opts?: { ref?: string; username?: string }): Promise<CredentialFillResult>;
+  /**
+   * Why script access and raw page reads are refused on this tab, or null when they are allowed. A
+   * tab is locked after the browser fills a saved password or 2FA code into it, until its main frame
+   * navigates to a new document. The MCP server checks this before evaluate and raw DOM/text reads.
+   */
+  secretFillLock?(id: TabId): Promise<string | null>;
+}
+
+/** Outcome of a credential fill by reference. `message` is safe to show a model: it never holds a secret. */
+export interface CredentialFillResult {
+  /** filled: done; handoff: not allowed, hand the step to the user; declined: the user said no; error: bad ref or page. */
+  status: "filled" | "handoff" | "declined" | "error";
+  message: string;
 }
