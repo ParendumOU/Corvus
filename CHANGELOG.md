@@ -12,6 +12,18 @@
   Devices still on 0.2.0 simply ignore them, and pick them up when they update.
 
 ### Browser
+- **Reusable workflows**: save a finished agent run as a workflow (from `corvus://agent-runs`, the
+  Command Bar run panel, or when you tell the agent the task is repetitive), review it, turn typed
+  values into `{{parameters}}`, and run it again by hand or let the agent use it. Nothing is saved
+  without your review. The side panel's new Workflows view lists the workflows for the current
+  site; `corvus://flows` is now the full manager, with origin and site filters and a "Needs
+  attention" view for workflows whose steps stopped matching the page.
+- **Site memory**: after each successful agent run, Corvus keeps a few compact hints per site
+  (elements that worked, URL shapes with values removed, obstacles such as cookie banners, the
+  usual order of steps). It learns only from steps that worked, never from page text, and never
+  keeps typed values or secrets; about 2 KB per site. New tasks on that site start with the top
+  hints, so the agent needs fewer steps on sites it has seen. See, edit and forget them in the
+  panel's Learned view or on `corvus://flows`. On by default, with a switch in Settings.
 - **Workflows and site memory sync**: saved workflows (recorded or saved from agent runs) and what
   Corvus learned about sites now sync end to end across your devices, each as its own category in
   Settings > Sync (on by default, per device; turning one off keeps that device's data). Edits
@@ -34,8 +46,22 @@
   protected by a master password you choose. Existing files are never overwritten.
 - **Auto sign-in** (opt-in per login): when the login page loads, Corvus asks once, then fills and
   submits the form. Never in tabs an agent is driving.
+- **WebScope redesign**: grouped tool tabs, the scope always visible, history with filters (host,
+  method, status, type, source), sortable columns and resizable request/response panes (Pretty,
+  Raw, Headers, Hex), Repeater tabs, a clearer Fuzzer with a request preview and CSV export, and
+  findings grouped by severity with repeats merged. Fixed: the Fuzzer's extract regex is now sent,
+  and the intercept editor follows the selected item.
+- **Fixed**: site favicons disappeared from the tab strip after a restart, or stayed hidden after a
+  page's first icon failed to load.
 
 ### For AI agents
+- **Workflows for agents**: `list_workflows`, `read_workflow` and `run_workflow` in the Command
+  Bar agent. The workflows for the current site are given to the agent as data at the start of a
+  task, so it can run one instead of planning from scratch. Every step still goes through the
+  approval gate; if a step no longer matches, the agent continues on its own and reports which
+  step broke. MCP `run_flow` can now read a workflow, filter by host and pass parameters.
+- **Site memory for agents**: `read_site_memory` in the Command Bar agent, and the read-only MCP
+  tool `site_memory` (Standard level).
 - **`fill_login` and `fill_totp`**: the Command Bar agent and Full-access MCP clients can sign in
   and fill 2FA codes, but only when Settings > Passwords > "Let AI agents use logins you opt in" is
   on and the login itself is opted in (both off by default), and only after you approve each use.
