@@ -65,6 +65,17 @@ function AgentRunsPage() {
     p.then(setList).catch((e: unknown) => setError(errorMessage(e)));
   };
 
+  /** Propose the run as a workflow and open the review in corvus://flows (nothing is saved yet). */
+  const saveWorkflow = (id: string): void => {
+    setError(null);
+    api
+      .call("flow.draftFromRun", id)
+      .then(() => {
+        window.location.href = "corvus://flows/";
+      })
+      .catch((e: unknown) => setError(errorMessage(e)));
+  };
+
   const resume = (id: string): void => {
     setError(null);
     void api.call("agentRuns.resume", id).then((res) => {
@@ -113,7 +124,7 @@ function AgentRunsPage() {
         <div className="card">
           <div className="list">
             {runs.map((r) => (
-              <RunRow key={r.id} r={r} api={api} run={run} open={expanded.has(r.id)} onToggle={() => toggle(r.id)} onResume={() => resume(r.id)} />
+              <RunRow key={r.id} r={r} api={api} run={run} open={expanded.has(r.id)} onToggle={() => toggle(r.id)} onResume={() => resume(r.id)} onSaveWorkflow={() => saveWorkflow(r.id)} />
             ))}
           </div>
         </div>
@@ -129,6 +140,7 @@ function RunRow({
   open,
   onToggle,
   onResume,
+  onSaveWorkflow,
 }: {
   r: AgentRunRecord;
   api: Api;
@@ -136,8 +148,11 @@ function RunRow({
   open: boolean;
   onToggle: () => void;
   onResume: () => void;
+  onSaveWorkflow: () => void;
 }) {
   const live = r.status === "running" || r.status === "paused" || r.status === "awaiting-approval";
+  const savable = !live && r.steps.some((s) => s.action !== undefined && s.status === "ok");
+  const usedWorkflow = r.steps.some((s) => s.kind === "run_workflow");
   return (
     <div className="list-row ar-row">
       <div className="grow ar-main">
@@ -146,11 +161,13 @@ function RunRow({
             {r.task || "Untitled task"}
           </button>
           <span className={`pill ar-status ${statusClass(r.status)}`}>{STATUS_LABEL[r.status]}</span>
+          {usedWorkflow && <span className="pill ar-wf">Used a workflow</span>}
         </div>
         <div className="sub muted">
           {r.source === "scheduled" ? "Scheduled" : "Command Bar"} · {ago(r.startedAt)} · {r.stepCount}
           {r.maxSteps ? `/${r.maxSteps}` : ""} steps · {(r.inputTokens + r.outputTokens).toLocaleString()} tok
           {r.model ? ` · ${r.model}` : ""}
+          {r.siteHints?.hints ? ` · ${r.siteHints.hints} site hints` : ""}
         </div>
 
         {(r.finalText || r.error) && (
@@ -186,6 +203,11 @@ function RunRow({
               <IconReload size={14} /> Resume
             </button>
           )
+        )}
+        {savable && (
+          <button className="btn small ar-save-wf" title="Review these steps and save them as a reusable workflow" onClick={onSaveWorkflow}>
+            Save as workflow
+          </button>
         )}
         <button className="icon-btn" title="Delete" disabled={live} onClick={() => run(api.call("agentRuns.remove", r.id))}>
           <IconTrash size={15} />

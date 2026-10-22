@@ -37,6 +37,8 @@ export interface Settings {
     maxSteps: number;
     /** Ask the user to approve actions that submit forms, spend money or log in. */
     askBeforeRisky: boolean;
+    /** Learn compact per-site hints from successful runs (local only, never synced). On by default. */
+    siteMemory: boolean;
   };
   mcp: {
     enabled: boolean;
@@ -159,7 +161,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       answerLanguage: "",
       maxOutputTokens: 400,
     },
-    agent: { maxSteps: 15, askBeforeRisky: true },
+    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [] },
     downloads: { directory: "", askWhereToSave: false },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },

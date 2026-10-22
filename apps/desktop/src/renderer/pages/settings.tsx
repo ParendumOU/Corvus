@@ -507,6 +507,12 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       <Row label="Ask before risky actions" hint="Confirm before submitting forms, spending money or signing in. Passwords, payments and CAPTCHAs are always handed back to you.">
         <Toggle label="Ask before risky actions" checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
       </Row>
+      <Row
+        label="Learn from runs (site memory)"
+        hint="After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Stays on this device. See and forget them on the Workflows page."
+      >
+        <Toggle label="Learn from runs (site memory)" checked={agent.siteMemory} onChange={(v) => update({ agent: { siteMemory: v } })} />
+      </Row>
     </Section>
   );
 }

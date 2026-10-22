@@ -1,58 +1,48 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import { MAX_FLOWS, MAX_FLOW_BYTES, MAX_STEPS_PER_FLOW, clampName, emptyUsage, type FlowOrigin, type FlowStep, type SavedFlow } from "../shared/flow";
 import {
-  MAX_FLOWS,
-  MAX_FLOW_BYTES,
-  MAX_LABEL,
-  MAX_SELECTOR,
-  MAX_STEPS_PER_FLOW,
-  MAX_STEP_VALUE,
-  clampName,
-  labelForStep,
-  type FlowStep,
-  type FlowTarget,
-  type SavedFlow,
-} from "../shared/flow";
+  MAX_DESCRIPTION,
+  recordUsage,
+  reviveParams,
+  reviveSites,
+  reviveSteps,
+  reviveUsage,
+  sitesForSteps,
+  type WorkflowEdit,
+  type WorkflowOutcome,
+} from "../shared/workflow";
 import { JsonFile } from "./json-file";
 
 type Listener = () => void;
 
-function reviveTarget(raw: unknown): FlowTarget | undefined {
-  const t = raw as Partial<FlowTarget> | null;
-  if (!t || typeof t.role !== "string" || typeof t.name !== "string") return undefined;
-  return {
-    role: t.role.slice(0, 80),
-    name: t.name.slice(0, 120),
-    index: typeof t.index === "number" && Number.isFinite(t.index) && t.index >= 0 ? Math.floor(t.index) : 0,
-    tag: typeof t.tag === "string" ? t.tag.slice(0, 40) : "",
-    selector: typeof t.selector === "string" ? t.selector.slice(0, MAX_SELECTOR) : "",
-  };
-}
-
-function reviveStep(raw: unknown): FlowStep | null {
-  const s = raw as Partial<FlowStep> | null;
-  if (!s || (s.kind !== "navigate" && s.kind !== "click" && s.kind !== "type")) return null;
-  const url = typeof s.url === "string" ? s.url.slice(0, 4096) : "";
-  const target = s.kind === "navigate" ? undefined : reviveTarget(s.target);
-  if (s.kind !== "navigate" && !target) return null;
-  const step: FlowStep = {
-    kind: s.kind,
-    url,
-    label: (typeof s.label === "string" ? s.label : "").slice(0, MAX_LABEL),
-    ...(target ? { target } : {}),
-  };
-  if (s.kind === "type") {
-    step.secret = s.secret === true;
-    step.submit = s.submit === true;
-    if (!step.secret && typeof s.value === "string") step.value = s.value.slice(0, MAX_STEP_VALUE);
-  }
-  if (!step.label) step.label = labelForStep(step);
-  return step;
-}
-
 function isFlowRaw(v: unknown): v is Partial<SavedFlow> {
   const f = v as Partial<SavedFlow> | null;
   return typeof f?.id === "string" && Array.isArray(f.steps);
+}
+
+/**
+ * Revive a stored flow. Flows saved before workflows existed have no origin/sites/params/usage:
+ * they load as "recorded" flows that apply to their start page's host, with empty usage.
+ */
+function reviveFlow(f: Partial<SavedFlow>, now: number): SavedFlow {
+  const startUrl = typeof f.startUrl === "string" ? f.startUrl.slice(0, 4096) : "";
+  const steps = reviveSteps(f.steps);
+  const sites = reviveSites(f.sites);
+  return {
+    id: f.id as string,
+    name: clampName(typeof f.name === "string" ? f.name : ""),
+    startUrl,
+    steps,
+    createdAt: typeof f.createdAt === "number" ? f.createdAt : now,
+    updatedAt: typeof f.updatedAt === "number" ? f.updatedAt : now,
+    description: typeof f.description === "string" ? f.description.slice(0, MAX_DESCRIPTION) : "",
+    origin: f.origin === "agent" ? "agent" : "recorded",
+    sourceRunId: typeof f.sourceRunId === "string" ? f.sourceRunId.slice(0, 128) : null,
+    sites: sites.length > 0 ? sites : sitesForSteps(startUrl, steps),
+    params: reviveParams(f.params),
+    usage: reviveUsage(f.usage),
+  };
 }
 
 function revive(raw: unknown): SavedFlow[] {
@@ -60,20 +50,7 @@ function revive(raw: unknown): SavedFlow[] {
   const now = Date.now();
   return raw
     .filter(isFlowRaw)
-    .map((f) => {
-      const steps = (Array.isArray(f.steps) ? f.steps : [])
-        .map(reviveStep)
-        .filter((s): s is FlowStep => s !== null)
-        .slice(0, MAX_STEPS_PER_FLOW);
-      return {
-        id: f.id as string,
-        name: clampName(typeof f.name === "string" ? f.name : ""),
-        startUrl: typeof f.startUrl === "string" ? f.startUrl.slice(0, 4096) : "",
-        steps,
-        createdAt: typeof f.createdAt === "number" ? f.createdAt : now,
-        updatedAt: typeof f.updatedAt === "number" ? f.updatedAt : now,
-      };
-    })
+    .map((f) => reviveFlow(f, now))
     .slice(0, MAX_FLOWS);
 }
 
@@ -82,7 +59,15 @@ function flowBytes(flow: SavedFlow): number {
   return Buffer.byteLength(JSON.stringify(flow), "utf8");
 }
 
-/** Recorded flows for one profile. Durable; replay/recording state is held by the service. */
+export interface CreateFlowOptions {
+  origin?: FlowOrigin;
+  description?: string;
+  sourceRunId?: string | null;
+  sites?: string[];
+  params?: SavedFlow["params"];
+}
+
+/** Recorded flows and workflows for one profile. Durable; replay/recording state is held by the service. */
 export class FlowStore {
   private readonly file: JsonFile<SavedFlow[]>;
   private readonly listeners = new Set<Listener>();
@@ -113,24 +98,64 @@ export class FlowStore {
     this.emit();
   }
 
-  /** Create a flow from a recorded step list. Returns null on the per-profile cap, empty or over-size. */
-  create(name: string, startUrl: string, steps: FlowStep[]): SavedFlow | null {
+  /** Create a flow from a step list. Returns null on the per-profile cap, empty or over-size. */
+  create(name: string, startUrl: string, steps: FlowStep[], opts: CreateFlowOptions = {}): SavedFlow | null {
     const list = this.file.get();
     if (list.length >= MAX_FLOWS) return null;
     const bounded = steps.slice(0, MAX_STEPS_PER_FLOW);
     if (bounded.length === 0) return null;
     const now = Date.now();
+    const start = startUrl.slice(0, 4096);
+    const sites = reviveSites(opts.sites);
     const flow: SavedFlow = {
       id: crypto.randomUUID(),
       name: clampName(name),
-      startUrl: startUrl.slice(0, 4096),
+      startUrl: start,
       steps: bounded,
       createdAt: now,
       updatedAt: now,
+      description: (opts.description ?? "").slice(0, MAX_DESCRIPTION),
+      origin: opts.origin ?? "recorded",
+      sourceRunId: opts.sourceRunId ?? null,
+      sites: sites.length > 0 ? sites : sitesForSteps(start, bounded),
+      params: reviveParams(opts.params),
+      usage: emptyUsage(),
     };
     if (flowBytes(flow) > MAX_FLOW_BYTES) return null;
     this.commit([...list, flow]);
     return flow;
+  }
+
+  /** Save a reviewed workflow edit (from the editor) as a new flow. */
+  createFromEdit(edit: WorkflowEdit, origin: FlowOrigin, sourceRunId: string | null): SavedFlow | null {
+    return this.create(edit.name, edit.startUrl, edit.steps, { origin, description: edit.description, sourceRunId, sites: edit.sites, params: edit.params });
+  }
+
+  /** Apply an edit (rename, description, sites, reordered/removed steps, parameters). False when rejected. */
+  update(id: string, edit: WorkflowEdit): boolean {
+    const list = this.file.get();
+    const current = list.find((f) => f.id === id);
+    if (!current) return false;
+    const next: SavedFlow = {
+      ...current,
+      name: clampName(edit.name, current.name),
+      description: edit.description.slice(0, MAX_DESCRIPTION),
+      startUrl: edit.startUrl.slice(0, 4096),
+      steps: edit.steps.slice(0, MAX_STEPS_PER_FLOW),
+      sites: edit.sites.length > 0 ? reviveSites(edit.sites) : sitesForSteps(edit.startUrl, edit.steps),
+      params: reviveParams(edit.params),
+      updatedAt: Date.now(),
+    };
+    if (next.steps.length === 0 || flowBytes(next) > MAX_FLOW_BYTES) return false;
+    this.commit(list.map((f) => (f.id === id ? next : f)));
+    return true;
+  }
+
+  /** Count a run and remember how it ended (stale workflows show their last failure). */
+  recordRun(id: string, outcome: WorkflowOutcome): void {
+    const list = this.file.get();
+    if (!list.some((f) => f.id === id)) return;
+    this.commit(list.map((f) => (f.id === id ? { ...f, usage: recordUsage(f.usage, outcome) } : f)));
   }
 
   rename(id: string, name: string): void {

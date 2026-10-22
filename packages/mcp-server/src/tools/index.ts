@@ -6,6 +6,7 @@ import { registerFillFieldsTools } from "./fill-fields.js";
 import { registerFullTools } from "./full.js";
 import { registerHandoffTools } from "./handoff.js";
 import { registerRunFlowTools } from "./run-flow.js";
+import { registerSiteMemoryTools } from "./site-memory.js";
 import { registerSemanticTools } from "./semantic.js";
 import { registerSnapshotTools } from "./snapshot.js";
 import { registerTabTools } from "./tabs.js";
@@ -14,11 +15,15 @@ import { registerVisualTools } from "./visual.js";
 import { registerWebscopeTools } from "./webscope.js";
 
 export type {
+  FlowDetail,
   FlowProvider,
   FlowRunResult,
   FlowRunner,
   FlowSummary,
   Register,
+  SiteMemoryHints,
+  SiteMemoryProvider,
+  SiteMemoryReader,
   ToolContext,
   ToolExtra,
   WebScopeProvider,
@@ -36,6 +41,7 @@ export function registerAgentTools(ctx: ToolContext): void {
   registerWebscopeTools(ctx);
   registerSnapshotTools(ctx);
   registerRunFlowTools(ctx);
+  registerSiteMemoryTools(ctx);
   registerCookieTools(ctx);
   registerFillFieldsTools(ctx);
   registerDownloadTools(ctx);

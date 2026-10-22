@@ -34,10 +34,24 @@ import {
   type FlowReplayView,
   type FlowStepStatus,
   type FlowView,
+  type WorkflowDraftView,
 } from "../shared/flow-ipc";
+import {
+  cleanTask,
+  materializeFlow,
+  nameFromTask,
+  normalizeEdit,
+  parameterizeStep,
+  runToFlow,
+  sitesForSteps,
+  suggestParams,
+  type WorkflowEdit,
+  type WorkflowOutcome,
+} from "../shared/workflow";
 import { NEW_TAB_URL, isInternalUrl } from "../shared/internal-urls";
 import type { AppContext } from "./context";
 import { FlowStore } from "./flow-store";
+import { SiteMemoryService } from "./site-memory-service";
 import type { ProfileRuntime } from "./profiles";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -115,14 +129,26 @@ interface Replay {
   resumeWaiters: Array<() => void>;
   approval: { view: FlowApprovalView; resolve: (d: FlowApprovalDecision) => void } | null;
   deadline: NodeJS.Timeout;
+  /** First step whose target could not be found or whose action failed (marks the flow stale). */
+  brokenStep: number | null;
+  runtime: ProfileRuntime;
+  /** Who started it: the person (manager / panel) or an agent (MCP run_flow). */
+  by: "user" | "agent";
 }
 
 export class FlowService {
   private readonly stores = new Map<string, FlowStore>();
   private readonly recordings = new Map<string, Recording>();
   private readonly replays = new Map<string, Replay>();
+  /** Pending "save as workflow" drafts, one per profile, never persisted until the user confirms. */
+  private readonly drafts = new Map<string, WorkflowDraftView>();
 
-  constructor(private readonly ctx: AppContext) {}
+  /** What Corvus learned about sites (site memory), per profile; changes refresh the same views. */
+  readonly memory: SiteMemoryService;
+
+  constructor(private readonly ctx: AppContext) {
+    this.memory = new SiteMemoryService(ctx, (profileId) => this.pushTo(profileId));
+  }
 
   attach(runtime: ProfileRuntime): void {
     this.storeFor(runtime);
@@ -350,13 +376,83 @@ export class FlowService {
     return this.list(runtime);
   }
 
+  /** Save an edited workflow from the manager or the side panel (validated again here). */
+  update(runtime: ProfileRuntime, id: string, raw: unknown): FlowView[] {
+    const current = this.storeFor(runtime).get(id);
+    if (!current) throw new Error("No such workflow.");
+    const edit = normalizeEdit(raw, current.name);
+    if (!edit) throw new Error("A workflow needs a start page and at least one step.");
+    if (!this.storeFor(runtime).update(id, edit)) throw new Error("Could not save the workflow: it is too large.");
+    return this.list(runtime);
+  }
+
+  /** Count a run of a workflow made by an agent (run_workflow / MCP). */
+  recordRun(runtime: ProfileRuntime, id: string, outcome: WorkflowOutcome): void {
+    this.storeFor(runtime).recordRun(id, outcome);
+  }
+
+  // ------------------------------------------------------------------ drafts
+
+  draftView(profileId: string): WorkflowDraftView | null {
+    return this.drafts.get(profileId) ?? null;
+  }
+
+  /**
+   * Propose a finished agent run as a workflow. Only a DRAFT: the user reviews it (name, steps,
+   * parameters) and confirms with saveDraft. Typed values are suggested as parameters up front.
+   */
+  draftFromRun(runtime: ProfileRuntime, runId: string): WorkflowDraftView {
+    const run = runtime.agentRuns.get(runId);
+    if (!run) throw new Error("That run is no longer in the history.");
+    if (run.status === "running" || run.status === "paused" || run.status === "awaiting-approval") throw new Error("Wait for the run to finish first.");
+    const converted = runToFlow(run.steps);
+    if (!converted) throw new Error("This run has no replayable steps (only reads, or it ran before workflows existed).");
+    let edit: WorkflowEdit = {
+      name: nameFromTask(run.task),
+      description: (cleanTask(run.task) || run.task).slice(0, 400),
+      startUrl: converted.startUrl,
+      sites: sitesForSteps(converted.startUrl, converted.steps),
+      steps: converted.steps,
+      params: [],
+    };
+    for (const s of suggestParams(edit.steps)) edit = parameterizeStep(edit, s.stepIndex, s.name);
+    const acted = run.steps.filter((s) => s.kind !== "message").length;
+    const kept = converted.steps.length + (run.steps.some((s) => s.action?.kind === "navigate" && s.status === "ok") ? 1 : 0);
+    const draft: WorkflowDraftView = { runId, task: run.task, edit, dropped: Math.max(0, acted - kept), createdAt: Date.now() };
+    this.drafts.set(runtime.profile.id, draft);
+    this.pushTo(runtime.profile.id);
+    return draft;
+  }
+
+  /** The user confirmed the (possibly edited) draft: save it as an agent-origin workflow. */
+  saveDraft(runtime: ProfileRuntime, raw: unknown): FlowView[] {
+    const draft = this.drafts.get(runtime.profile.id);
+    if (!draft) throw new Error("There is no workflow waiting to be saved.");
+    const edit = normalizeEdit(raw, draft.edit.name);
+    if (!edit) throw new Error("A workflow needs a start page and at least one step.");
+    const flow = this.storeFor(runtime).createFromEdit(edit, "agent", draft.runId);
+    if (!flow) throw new Error("Could not save the workflow: it is too large, or you have reached the limit.");
+    this.drafts.delete(runtime.profile.id);
+    this.pushTo(runtime.profile.id);
+    return this.list(runtime);
+  }
+
+  discardDraft(runtime: ProfileRuntime): null {
+    this.drafts.delete(runtime.profile.id);
+    this.pushTo(runtime.profile.id);
+    return null;
+  }
+
   // ------------------------------------------------------------------ replay
 
-  replay(runtime: ProfileRuntime, id: string): FlowView[] {
+  replay(runtime: ProfileRuntime, id: string, params?: Record<string, string>, by: "user" | "agent" = "user"): FlowView[] {
     const profileId = runtime.profile.id;
     if (this.replays.has(profileId)) return this.list(runtime);
-    const flow = this.storeFor(runtime).get(id);
-    if (!flow) throw new Error("No such flow.");
+    const saved = this.storeFor(runtime).get(id);
+    if (!saved) throw new Error("No such flow.");
+    const filled = materializeFlow(saved, params);
+    if (filled.missing.length > 0) throw new Error(`Fill in: ${filled.missing.join(", ")}.`);
+    const flow: SavedFlow = { ...saved, startUrl: filled.startUrl, steps: filled.steps };
     const win = this.windowFor(profileId);
     const r: Replay = {
       flowId: id,
@@ -373,6 +469,9 @@ export class FlowService {
       resumeWaiters: [],
       approval: null,
       deadline: setTimeout(() => r.abort.abort(), REPLAY_DEADLINE_MS),
+      brokenStep: null,
+      runtime,
+      by,
     };
     this.replays.set(profileId, r);
     void this.drive(r);
@@ -445,7 +544,21 @@ export class FlowService {
       if (r.status !== "error") r.status = r.abort.signal.aborted ? "stopped" : "done";
       r.approval = null;
       this.replays.delete(r.profileId);
+      this.recordReplay(r);
       this.push(r);
+    }
+  }
+
+  /** Count the replay in the workflow's usage; a step that broke marks it failed (stale). */
+  private recordReplay(r: Replay): void {
+    const outcome: WorkflowOutcome =
+      r.status === "error" || r.brokenStep !== null
+        ? { status: "failed", by: r.by, error: r.error ?? "A step could not find its target.", brokenStep: r.brokenStep ?? r.cursor }
+        : { status: r.status === "stopped" ? "stopped" : "ok", by: r.by };
+    try {
+      this.storeFor(r.runtime).recordRun(r.flowId, outcome);
+    } catch {
+      // Usage is bookkeeping; never let it break the replay teardown.
     }
   }
 
@@ -472,6 +585,7 @@ export class FlowService {
         await this.perform(r, step);
         return "ok";
       } catch (err) {
+        if (r.brokenStep === null) r.brokenStep = r.cursor;
         const decision = await this.requestApproval(r, { kind: "error", title: step.label, reason: errorText(err) });
         if (decision === "stop") throw new ReplayStop();
         if (decision === "skip") return "skipped";
@@ -571,6 +685,8 @@ export class FlowService {
   private pushTo(profileId: string): void {
     for (const win of this.ctx.windows.forProfile(profileId)) {
       win.notifyInternalPages({ type: "flows-changed" }, ["flows"]);
+      // The Workflows view of the side panel lists the same flows.
+      this.ctx.assist?.refresh(win);
     }
   }
 
@@ -589,6 +705,7 @@ export class FlowService {
 
   flush(): void {
     for (const store of this.stores.values()) store.flush();
+    this.memory.flush();
   }
 }
 

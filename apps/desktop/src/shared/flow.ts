@@ -39,6 +39,38 @@ export interface FlowStep {
   secret?: boolean;
 }
 
+/** Where a saved flow came from: the user's own recording, or the successful steps of an agent run. */
+export type FlowOrigin = "recorded" | "agent";
+
+/**
+ * A named value a workflow step uses as `{{name}}` (in a type step's value or a navigate URL).
+ * Asked for at run time (prefilled with `default`), or filled by the agent from its task. Secret
+ * fields are never parameters: they stay `secret: true` steps with no value, handed to the user.
+ */
+export interface FlowParam {
+  name: string;
+  /** Human label shown in the run form. */
+  label: string;
+  /** Prefilled value; "" means the value must be given at run time. */
+  default: string;
+}
+
+export type FlowRunStatus = "ok" | "failed" | "stopped";
+
+/** How a workflow has fared, so stale ones (targets that stopped matching) are visible. */
+export interface FlowUsage {
+  runs: number;
+  ok: number;
+  failed: number;
+  lastRunAt: number | null;
+  lastStatus: FlowRunStatus | null;
+  lastError: string | null;
+  /** 0-based index of the step that broke on the last failed run. */
+  lastBrokenStep: number | null;
+  /** Who ran it last: a person (replay) or an agent (run_workflow / MCP). */
+  lastRunBy: "user" | "agent" | null;
+}
+
 export interface SavedFlow {
   id: string;
   name: string;
@@ -47,6 +79,19 @@ export interface SavedFlow {
   steps: FlowStep[];
   createdAt: number;
   updatedAt: number;
+  /** What the workflow does, shown to people and (fenced, as data) to the agent. */
+  description: string;
+  origin: FlowOrigin;
+  /** The agent run it was saved from, when origin is "agent". */
+  sourceRunId: string | null;
+  /** Hosts it applies to (lowercase, no "www."); subdomains match too. */
+  sites: string[];
+  params: FlowParam[];
+  usage: FlowUsage;
+}
+
+export function emptyUsage(): FlowUsage {
+  return { runs: 0, ok: 0, failed: 0, lastRunAt: null, lastStatus: null, lastError: null, lastBrokenStep: null, lastRunBy: null };
 }
 
 export const MAX_FLOWS = 50;
@@ -81,10 +126,12 @@ export interface SnapElement {
  * computation drifted; `index` picks among repeats and is clamped so a shrunk list still resolves.
  */
 export function resolveTargetRef(elements: readonly SnapElement[], target: FlowTarget): string | null {
-  const exact = elements.filter((e) => e.role === target.role && e.name === target.name);
+  // Stored names are clamped to 120 chars, so compare the live names the same way.
+  const nameOf = (e: SnapElement): string => e.name.slice(0, 120);
+  const exact = elements.filter((e) => e.role === target.role && nameOf(e) === target.name);
   if (exact.length > 0) return exact[clampIndex(target.index, exact.length)]!.ref;
   if (target.name) {
-    const byName = elements.filter((e) => e.name === target.name);
+    const byName = elements.filter((e) => nameOf(e) === target.name);
     if (byName.length > 0) return byName[clampIndex(target.index, byName.length)]!.ref;
   }
   return null;

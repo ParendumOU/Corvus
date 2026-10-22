@@ -157,3 +157,8 @@
 .empty p {
   max-width: 440px;
 }
+
+.pill.ar-wf {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

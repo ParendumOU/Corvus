@@ -7,6 +7,7 @@
  * tested and safe for both tsconfig projects.
  */
 import type { AgentRunStatus, AgentRunStep } from "./command-bar-ipc";
+import type { RunSiteHints } from "./site-memory";
 
 export type AgentRunSource = "command-bar" | "scheduled";
 
@@ -37,6 +38,8 @@ export interface AgentRunRecord {
   endedAt: number | null;
   /** A continuation point survives, so the run can be resumed within the step/token caps. */
   resumable: boolean;
+  /** Whether learned hints / saved workflows were in the prompt (to compare runs with and without). */
+  siteHints?: RunSiteHints;
 }
 
 /** Cap stored runs per profile; the oldest are pruned. */

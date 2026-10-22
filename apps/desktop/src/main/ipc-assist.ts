@@ -1,6 +1,8 @@
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import { ASSIST_RPC, OVERLAY_DISMISS, type AssistChromeRpc, type AssistRpc, type AssistView } from "../shared/assist-ipc";
+import type { FlowApprovalDecision } from "../shared/flow-ipc";
 import type { AppContext } from "./context";
+import { hintKind, paramValues } from "./ipc-flow";
 import type { BrowserWindowCtl } from "./window";
 
 class IpcError extends Error {}
@@ -9,7 +11,11 @@ type Handlers<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (w: BrowserWindowCtl, ...args: A) => R | Promise<Awaited<R>> : never;
 };
 
-const view = (value: unknown): AssistView => (value === "agents" ? "agents" : "assist");
+const view = (value: unknown): AssistView => (value === "agents" || value === "workflows" ? value : "assist");
+const flowDecision = (value: unknown): FlowApprovalDecision => {
+  if (value === "approve" || value === "skip" || value === "stop") return value;
+  throw new IpcError("Invalid decision");
+};
 const text = (value: unknown, name: string, max: number): string => {
   if (typeof value !== "string" || value.length > max) throw new IpcError(`Invalid ${name}`);
   return value;
@@ -51,6 +57,20 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
     "agents.pause": (_w, paused) => ctx.agents.setPaused(paused === true),
     "agents.revoke": (_w, client) => ctx.agents.revoke(text(client, "client", 200)),
     "agents.clear": () => ctx.agents.clear(),
+    "workflows.run": (w, id, params) => void ctx.flows.replay(w.profile, text(id, "id", 128), paramValues(params)),
+    "workflows.update": (w, id, edit) => void ctx.flows.update(w.profile, text(id, "id", 128), edit),
+    "workflows.remove": (w, id) => void ctx.flows.remove(w.profile, text(id, "id", 128)),
+    "workflows.saveDraft": (w, edit) => void ctx.flows.saveDraft(w.profile, edit),
+    "workflows.discardDraft": (w) => void ctx.flows.discardDraft(w.profile),
+    "workflows.approve": (w, id, d) => void ctx.flows.approve(w.profile, text(id, "id", 128), flowDecision(d)),
+    "workflows.stop": (w, id) => void ctx.flows.stopReplay(w.profile, text(id, "id", 128)),
+    "workflows.openManager": (w) => w.openSingleton("corvus://flows/"),
+    "memory.removeHint": (w, host, kind, key) => ctx.flows.memory.removeHint(w.profile, text(host, "host", 300), hintKind(kind), text(key, "key", 400)),
+    "memory.forget": (w, host) => ctx.flows.memory.forget(w.profile, text(host, "host", 300)),
+    "memory.setEnabled": (w, on) => {
+      ctx.flows.memory.setEnabled(on === true);
+      ctx.assist.refresh(w);
+    },
   };
 }
 

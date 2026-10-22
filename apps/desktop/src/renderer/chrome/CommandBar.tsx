@@ -295,6 +295,10 @@ const STATUS_LABEL: Record<AgentRunView["status"], string> = {
 function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; api: ReturnType<typeof chromeApi> }) {
   const active = run.status === "running" || run.status === "paused" || run.status === "awaiting-approval";
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Workflows: a finished run with successful click/type/navigate steps can be saved (after review).
+  const savable = !active && run.steps.some((s) => s.action !== undefined && s.status === "ok");
+  const [offerDismissed, setOfferDismissed] = useState(false);
+  const saveWorkflow = (): void => void api.call("workflow.saveFromRun");
   useEffect(() => {
     // scrollIntoView can be absent in some embedded renderers; guard it and keep the effect's
     // return undefined (an expression body would hand React a non-function "cleanup").
@@ -324,6 +328,8 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
       <div className="run-meta">
         <span>{run.stepCount}/{run.maxSteps} steps</span>
         <span>{(run.inputTokens + run.outputTokens).toLocaleString()} tokens</span>
+        {run.siteHints && run.siteHints.workflows > 0 && <span title="Saved workflows for this site were offered to the agent">{run.siteHints.workflows} workflow{run.siteHints.workflows === 1 ? "" : "s"}</span>}
+        {run.siteHints && run.siteHints.hints > 0 && <span title="Learned hints about this site were given to the agent">{run.siteHints.hints} site hints</span>}
         <span className="run-model">{run.model}</span>
       </div>
 
@@ -352,6 +358,19 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
         </div>
       )}
 
+      {savable && run.offerWorkflow && run.status === "done" && !offerDismissed && (
+        <div className="run-approval run-offer">
+          <div className="appr-text">
+            <strong>Save these steps as a workflow?</strong>
+            <span>You said this task is repetitive. Review the steps, pick what to fill in each time, and run it again in one go.</span>
+          </div>
+          <div className="appr-actions">
+            <button className="btn" onMouseDown={(e) => { e.preventDefault(); saveWorkflow(); }}>Review and save</button>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); setOfferDismissed(true); }}>Not now</button>
+          </div>
+        </div>
+      )}
+
       <div className="run-controls">
         {active ? (
           <>
@@ -364,6 +383,11 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
         ) : (
           <>
             <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.clear"); }}>Clear</button>
+            {savable && (
+              <button className="btn ghost run-save-wf" onMouseDown={(e) => { e.preventDefault(); saveWorkflow(); }}>
+                Save as workflow
+              </button>
+            )}
             <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("assist.toggle", "agents"); }}>
               <IconActivity size={14} /> View timeline
             </button>

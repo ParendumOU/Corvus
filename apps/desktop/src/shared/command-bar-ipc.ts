@@ -4,6 +4,8 @@
  * WindowState in ./ipc.ts so that file's diff stays small.
  */
 import type { TabId } from "@corvus/shared";
+import type { CapturedAction } from "./workflow";
+import type { RunSiteHints } from "./site-memory";
 
 export type AgentRunStatus = "running" | "paused" | "awaiting-approval" | "done" | "error" | "stopped";
 
@@ -21,6 +23,11 @@ export interface AgentRunStep {
   /** Size of the tool result handed to the model, in characters. */
   resultChars?: number;
   at: number;
+  /**
+   * What a successful click/type/navigate did, in the recorder's (role, name, index) form, so the
+   * run can be saved as a workflow. Absent on reads, failures and older runs.
+   */
+  action?: CapturedAction;
 }
 
 export interface AgentApprovalRequest {
@@ -49,6 +56,10 @@ export interface AgentRunView {
   tabId: TabId | null;
   approval: AgentApprovalRequest | null;
   startedAt: number;
+  /** The task asked to keep these steps ("this is repetitive"): offer to save a workflow at the end. */
+  offerWorkflow?: boolean;
+  /** Saved workflows / learned site hints the prompt carried for the start site. */
+  siteHints?: RunSiteHints;
 }
 
 export interface CommandBarWindowExtras {

@@ -66,7 +66,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
           }
         },
       },
-      { label: "Recorded flows", click: () => win.openSingleton("corvus://flows/") },
+      { label: "Workflows", click: () => win.openSingleton("corvus://flows/") },
       { label: "Agent activity", click: () => ctx.assist.open(win, "agents") },
       { label: "WebScope (security workbench)", click: () => win.openSingleton("corvus://webscope/") },
       { type: "separator" },

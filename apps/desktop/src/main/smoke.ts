@@ -14,6 +14,8 @@ import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
 import { runFlowsSmoke } from "./smoke-flows";
+import { runWorkflowsSmoke } from "./smoke-workflows";
+import { runSiteMemorySmoke } from "./smoke-site-memory";
 import { runCredentialsSmoke } from "./smoke-credentials";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runPdfSmoke } from "./smoke-pdf";
@@ -201,6 +203,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runScheduledAgentSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentRunsSmoke(ctx, { win, check, capture });
     await runFlowsSmoke(ctx, { win, check, capture });
+    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runWorkflowsSmoke(ctx, { win, check, capture });
+    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runSiteMemorySmoke(ctx, { win, check, capture });
     await runWebscopeSmoke(ctx, { url, win, check, capture });
 
     await runExtensionSmoke(ctx, { check, capture, log });

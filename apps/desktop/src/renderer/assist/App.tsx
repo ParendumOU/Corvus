@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AgentActivityView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView } from "../../shared/assist-ipc";
+import type { AgentActivityView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
+import type { FlowView } from "../../shared/flow-ipc";
+import { editOf } from "../../shared/workflow";
+import { OriginBadge, UsageLine, WorkflowEditor, WorkflowRunForm, WorkflowStepList } from "../common/workflows";
+import { LearnedSite, StatsLine } from "../common/site-memory";
 import { prettyClientName } from "../../shared/agent-activity";
-import { Favicon, hostOf } from "../common/ui";
+import { Favicon, Toggle, hostOf } from "../common/ui";
 import {
   AssistMark,
   GlyphBroom,
@@ -64,13 +68,16 @@ export function App() {
             Agents
             {state.agents.paused ? <span className="seg-dot paused" /> : state.agents.calls.some((c) => c.durationMs === null) ? <span className="seg-dot live" /> : null}
           </button>
+          <button role="tab" aria-selected={state.view === "workflows"} className={state.view === "workflows" ? "on" : ""} onClick={() => void api().call("panel.setView", "workflows")}>
+            Workflows
+          </button>
         </div>
         <span className="grow" />
         <button className="icon-btn" title="Close (Ctrl+Shift+A)" onClick={() => void api().call("panel.close")}>
           <GlyphClose size={16} />
         </button>
       </header>
-      {state.view === "assist" ? <AssistPane state={state} /> : <AgentsPane agents={state.agents} />}
+      {state.view === "assist" ? <AssistPane state={state} /> : state.view === "workflows" ? <WorkflowsPane view={state.workflows} /> : <AgentsPane agents={state.agents} />}
     </div>
   );
 }
@@ -520,5 +527,219 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
         )}
       </section>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ workflows
+
+function errorText(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+}
+
+function WorkflowsPane({ view }: { view: WorkflowsPaneView | null }) {
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"saved" | "learned">("saved");
+  const call = (p: Promise<unknown>): void => {
+    setError(null);
+    p.catch((e: unknown) => setError(errorText(e)));
+  };
+  if (!view) return <div className="empty">Loading workflows...</div>;
+  const draft = view.draft;
+
+  return (
+    <div className="wf-pane">
+      {error && <div className="wf-error">{error}</div>}
+      {draft && (
+        <section className="wf-card draft">
+          <h3>Save as workflow</h3>
+          <WorkflowEditor
+            key={draft.createdAt}
+            initial={draft.edit}
+            intro={`Review the steps Corvus took for "${draft.task.slice(0, 120)}". Nothing is saved until you click Save.${draft.dropped > 0 ? ` ${draft.dropped} step${draft.dropped === 1 ? " was" : "s were"} left out (page reads, failed or skipped steps).` : ""}`}
+            saveLabel="Save workflow"
+            cancelLabel="Discard"
+            onSave={(edit) => call(api().call("workflows.saveDraft", edit))}
+            onCancel={() => call(api().call("workflows.discardDraft"))}
+          />
+        </section>
+      )}
+
+      <div className="wf-subtabs seg" role="tablist" aria-label="Workflows or learned hints">
+        <button role="tab" aria-selected={tab === "saved"} className={tab === "saved" ? "on" : ""} onClick={() => setTab("saved")}>
+          Saved{view.items.length ? ` (${view.items.length})` : ""}
+        </button>
+        <button role="tab" aria-selected={tab === "learned"} className={tab === "learned" ? "on" : ""} onClick={() => setTab("learned")}>
+          Learned
+        </button>
+      </div>
+
+      {tab === "learned" ? (
+        <LearnedPane view={view} call={call} />
+      ) : (
+      <>
+      <div className="wf-pane-head">
+        <div>
+          <h3>{view.host ? `Workflows for ${view.host}` : "Workflows"}</h3>
+          <p className="muted small">
+            {view.host ? `${view.items.length} saved for this site` : "Open a web page to see the workflows saved for it."}
+          </p>
+        </div>
+        <button className="btn small ghost" onClick={() => call(api().call("workflows.openManager"))}>
+          All workflows ({view.total})
+        </button>
+      </div>
+
+      {view.host && view.items.length === 0 && !draft && (
+        <div className="wf-empty">
+          <p>No workflows for this site yet.</p>
+          <p className="muted small">
+            Ask Corvus to do a task here (Ctrl/Cmd+K, then Tab) and add "save this as a workflow", or use Save as workflow after any run. You can also record your own steps from the full list.
+          </p>
+        </div>
+      )}
+
+      {view.items.map((f) => (
+        <WorkflowCard key={f.id} f={f} call={call} />
+      ))}
+      </>
+      )}
+    </div>
+  );
+}
+
+function LearnedPane({ view, call }: { view: WorkflowsPaneView; call: (p: Promise<unknown>) => void }) {
+  const mem = view.memory;
+  return (
+    <div className="mem-pane">
+      <div className="wf-pane-head">
+        <div>
+          <h3>{view.host ? `Learned about ${view.host}` : "Learned about sites"}</h3>
+          <p className="muted small">Small hints from successful runs, so the agent needs fewer steps here. Local only.</p>
+        </div>
+        <div className="mem-switch">
+          <span>{mem.enabled ? "Learning" : "Off"}</span>
+          <Toggle label="Learn from runs (site memory)" checked={mem.enabled} onChange={(v) => call(api().call("memory.setEnabled", v))} />
+        </div>
+      </div>
+      {!mem.enabled && <div className="wf-empty"><p>Learning is off. Nothing new is learned or sent to the agent; what is below is kept until you forget it.</p></div>}
+      {mem.entry ? (
+        <section className="wf-card">
+          <LearnedSite
+            entry={mem.entry}
+            compact
+            onRemove={(kind, key) => call(api().call("memory.removeHint", mem.entry!.host, kind, key))}
+            onForget={() => call(api().call("memory.forget", mem.entry!.host))}
+          />
+        </section>
+      ) : (
+        view.host && (
+          <div className="wf-empty">
+            <p>Nothing learned about this site yet.</p>
+            <p className="muted small">After a successful agent run here, Corvus keeps which buttons and fields worked, URL shapes and obstacles. Never what you typed.</p>
+          </div>
+        )
+      )}
+      <StatsLine stats={mem.stats} />
+      <div className="wf-actions">
+        <button className="btn small ghost" onClick={() => call(api().call("workflows.openManager"))}>
+          All learned sites ({mem.totalHosts})
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) => void }) {
+  const [mode, setMode] = useState<"view" | "run" | "edit">("view");
+  const replay = f.replay;
+  const active = replay != null && (replay.status === "running" || replay.status === "paused" || replay.status === "awaiting-approval");
+
+  if (mode === "edit") {
+    return (
+      <section className="wf-card">
+        <WorkflowEditor
+          initial={editOf(f)}
+          saveLabel="Save changes"
+          cancelLabel="Cancel"
+          onSave={(edit) => {
+            call(api().call("workflows.update", f.id, edit));
+            setMode("view");
+          }}
+          onCancel={() => setMode("view")}
+        />
+      </section>
+    );
+  }
+
+  return (
+    <section className={`wf-card ${active ? "live" : ""}`}>
+      <div className="wf-card-head">
+        <strong className="wf-card-name">{f.name}</strong>
+        <OriginBadge origin={f.origin} />
+      </div>
+      {f.description && <p className="wf-card-desc">{f.description}</p>}
+      <div className="wf-card-meta">
+        <span>
+          {f.steps.length} step{f.steps.length === 1 ? "" : "s"}
+          {f.params.length > 0 ? ` · ${f.params.map((p) => `{{${p.name}}}`).join(" ")}` : ""}
+        </span>
+        <UsageLine usage={f.usage} />
+      </div>
+      <WorkflowStepList steps={f.steps} replay={replay} limit={active ? undefined : 4} />
+
+      {replay?.approval && (
+        <div className="wf-approval">
+          <strong>{replay.approval.kind === "error" ? "Step needs attention" : replay.approval.kind === "handoff" ? "Over to you" : "Approve this step?"}</strong>
+          <span>{replay.approval.reason}</span>
+          <div className="wf-actions">
+            <button className="btn small primary" onClick={() => call(api().call("workflows.approve", f.id, "approve"))}>
+              {replay.approval.kind === "error" ? "Retry" : replay.approval.kind === "handoff" ? "I've done it" : "Approve"}
+            </button>
+            <button className="btn small" onClick={() => call(api().call("workflows.approve", f.id, "skip"))}>
+              Skip
+            </button>
+            <button className="btn small ghost" onClick={() => call(api().call("workflows.approve", f.id, "stop"))}>
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === "run" && !active && (
+        <WorkflowRunForm
+          params={f.params}
+          compact
+          onRun={(values) => {
+            call(api().call("workflows.run", f.id, values));
+            setMode("view");
+          }}
+        />
+      )}
+
+      <div className="wf-actions">
+        {active ? (
+          <button className="btn small danger" onClick={() => call(api().call("workflows.stop", f.id))}>
+            Stop
+          </button>
+        ) : mode === "run" ? (
+          <button className="btn small ghost" onClick={() => setMode("view")}>
+            Cancel
+          </button>
+        ) : (
+          <>
+            <button className="btn small primary" onClick={() => (f.params.length > 0 ? setMode("run") : call(api().call("workflows.run", f.id, {})))}>
+              <GlyphPlay size={13} /> Run
+            </button>
+            <button className="btn small" onClick={() => setMode("edit")}>
+              Edit
+            </button>
+            <button className="btn small ghost danger" onClick={() => call(api().call("workflows.remove", f.id))}>
+              Delete
+            </button>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

@@ -29,6 +29,8 @@ import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, argStr, capAgen
 import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared/site-profiles";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
+import { stepToToolCall } from "../shared/flow";
+import { captureAction, isWorkflowTool, learnFromRun, noteToolResult, runWorkflowAgentTool, workflowRunContext, type WorkflowRunState } from "./workflow-agent";
 
 /** Name shown in the shared agent-activity timeline and in each page overlay caption. */
 const AGENT_CLIENT = "Corvus";
@@ -61,6 +63,8 @@ interface Run {
   /** Running transcript, persisted so an interrupted run can be resumed. */
   transcript: TranscriptBuilder;
   stopReason: AgentRunStopReason;
+  /** Saved workflows: start site, the "save as workflow" offer, the action being captured. */
+  wf: WorkflowRunState;
 }
 
 /**
@@ -138,6 +142,8 @@ export class AgentRunner {
       tabId: run.tabId,
       approval: run.approval?.request ?? null,
       startedAt: run.startedAt,
+      ...(run.wf.offer ? { offerWorkflow: true } : {}),
+      ...(run.wf.hints ? { siteHints: run.wf.hints } : {}),
     };
   }
 
@@ -159,13 +165,15 @@ export class AgentRunner {
 
     const note = recentRunMemoryNote(win.profile.agentRuns.views());
     const seededTask = note ? `${note}\n\nTask: ${trimmed}` : trimmed;
+    const wf = workflowRunContext(this.ctx, win.profile, this.activeUrl(win), site, trimmed);
     const run: Run = {
       ...this.blankRun(trimmed, seededTask),
       maxSteps: this.ctx.settings.get().agent.maxSteps,
       provider: provider.kind,
       model: provider.model,
-      system: site.system,
-      tools: site.tools,
+      system: wf.system,
+      tools: wf.tools,
+      wf: wf.state,
     };
     this.runs.set(win, run);
     win.pushState();
@@ -197,6 +205,7 @@ export class AgentRunner {
       tools: TOOLS,
       transcript: new TranscriptBuilder(seededTask),
       stopReason: null,
+      wf: { siteUrl: null, offer: false, captured: null, trail: [], hints: null },
     };
   }
 
@@ -256,6 +265,7 @@ export class AgentRunner {
     const existing = this.runs.get(win);
     if (existing && !isFinished(existing.status)) existing.abort.abort();
 
+    const wf = workflowRunContext(this.ctx, win.profile, this.activeUrl(win), site, stored.task);
     const run: Run = {
       ...this.blankRun(stored.task, stored.task),
       id: stored.id,
@@ -266,8 +276,9 @@ export class AgentRunner {
       maxSteps: Math.max(stored.stepCount + 1, this.ctx.settings.get().agent.maxSteps),
       provider: provider.kind,
       model: provider.model,
-      system: site.system,
-      tools: site.tools,
+      system: wf.system,
+      tools: wf.tools,
+      wf: wf.state,
       transcript: new TranscriptBuilder(messages),
     };
     this.runs.set(win, run);
@@ -311,6 +322,7 @@ export class AgentRunner {
       run.approval = null;
       this.push(win, run);
       this.persist(win, run, true);
+      learnFromRun(this.ctx, win.profile, run.wf, run.status === "done" && run.stopReason === "done");
     }
   }
 
@@ -335,9 +347,16 @@ export class AgentRunner {
       }
       case "tool_result": {
         run.stepCount += 1;
+        const action = noteToolResult(run.wf, run, step.name, step.result.isError === true);
         run.steps = run.steps.map((s) =>
           s.id === step.id
-            ? { ...s, status: step.result.isError ? "error" : s.status === "skipped" ? "skipped" : "ok", detail: stepPreview(step.name, step.result.content), resultChars: step.result.content.length }
+            ? {
+                ...s,
+                status: step.result.isError ? "error" : s.status === "skipped" ? "skipped" : "ok",
+                detail: stepPreview(step.name, step.result.content),
+                resultChars: step.result.content.length,
+                ...(action && s.status !== "skipped" ? { action } : {}),
+              }
             : s,
         );
         break;
@@ -368,6 +387,8 @@ export class AgentRunner {
   private async execute(win: BrowserWindowCtl, run: Run, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
     await this.waitWhilePaused(run, signal);
     if (signal.aborted) throw new AgentStopError("aborted");
+    run.wf.captured = null;
+    if (isWorkflowTool(name)) return this.runWorkflowTool(win, run, name, input, signal);
 
     const elementName = name === "click" || name === "type" ? run.elementNames.get(argStr(input, "ref")) ?? "" : "";
     const risk = classifyAction(name, input, elementName);
@@ -396,6 +417,7 @@ export class AgentRunner {
     this.recordCall(name, input, at);
     const started = Date.now();
     try {
+      run.wf.captured = captureAction(run, name, input);
       const result = await runAgentTool(this.ctx, run, name, input, signal);
       this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - started, ok: !result.isError, resultChars: result.content.length });
       return result;
@@ -403,6 +425,41 @@ export class AgentRunner {
       this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - started, ok: false, resultChars: 0 });
       throw err;
     }
+  }
+
+  /** list_workflows / read_workflow / run_workflow, with this run's approval gate and step log. */
+  private runWorkflowTool(win: BrowserWindowCtl, run: Run, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
+    const changed = (): void => {
+      this.push(win, run);
+      this.persist(win, run, true);
+    };
+    return runWorkflowAgentTool(
+      {
+        ctx: this.ctx,
+        runtime: win.profile,
+        tabId: () => run.tabId,
+        siteUrl: run.wf.siteUrl,
+        parentStepId: findRunningId(run, name) ?? null,
+        gate: (step, risk) => {
+          if (!risk.handoff && !this.ctx.settings.get().agent.askBeforeRisky) return Promise.resolve("approve");
+          const call = stepToToolCall(step);
+          return this.requestApproval(win, run, call.tool, call.input, risk, signal);
+        },
+        waitWhilePaused: () => this.waitWhilePaused(run, signal),
+        trail: run.wf.trail,
+        addStep: (step) => {
+          run.steps = [...run.steps, step];
+          changed();
+        },
+        updateStep: (id, patch) => {
+          run.steps = run.steps.map((s) => (s.id === id ? { ...s, ...patch } : s));
+          changed();
+        },
+      },
+      name,
+      input,
+      signal,
+    );
   }
 
   private recordCall(name: string, input: unknown, at: number): void {
@@ -488,6 +545,7 @@ function toStored(run: Run): StoredAgentRun {
     startedAt: run.startedAt,
     endedAt: isFinished(status) ? Date.now() : null,
     transcript: run.transcript.snapshot(),
+    ...(run.wf.hints ? { siteHints: run.wf.hints } : {}),
   };
 }
 

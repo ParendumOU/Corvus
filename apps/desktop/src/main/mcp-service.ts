@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { dialog } from "electron";
 import type { AccessLevel, McpClientInfo, McpServerHandle } from "@corvus/shared";
-import type { FlowRunner, StartMcpServerOptions } from "@corvus/mcp-server";
+import type { FlowRunner, FlowSummary, SiteMemoryReader, StartMcpServerOptions } from "@corvus/mcp-server";
+import { memoryHints } from "../shared/site-memory";
+import type { SavedFlow } from "../shared/flow";
+import { findFlow, flowSites, normalizeSite, workflowsForHost } from "../shared/workflow";
 import type { McpActivity, McpStatus } from "../shared/ipc";
 import { mcpAddCommand, resolveMcpAccessLevel } from "../shared/settings";
 import type { AppContext } from "./context";
@@ -84,6 +87,7 @@ export class McpService {
       accessLevel,
       webscope: () => this.ctx.webscope.activeEngine(),
       flows: () => this.flowRunner(),
+      siteMemory: () => this.siteMemoryReader(),
       onClientConnect: (info) => this.approve(info),
       onToolCall: (event) => {
         this.record(event.client, event.tool, event.at);
@@ -151,15 +155,61 @@ export class McpService {
     const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
     if (!window) return null;
     const runtime = window.profile;
+    const summary = (f: SavedFlow): FlowSummary => ({
+      id: f.id,
+      name: f.name,
+      startUrl: f.startUrl,
+      steps: f.steps.length,
+      description: f.description,
+      sites: flowSites(f),
+      params: f.params.map((p) => p.name),
+      origin: f.origin,
+      lastStatus: f.usage.lastStatus,
+    });
+    const find = (nameOrId: string): SavedFlow => {
+      const flow = findFlow(this.ctx.flows.list(runtime), nameOrId);
+      if (!flow) throw new Error(`No saved flow matches "${nameOrId}".`);
+      return flow;
+    };
     return {
-      list: () => this.ctx.flows.list(runtime).map((f) => ({ id: f.id, name: f.name, startUrl: f.startUrl, steps: f.steps.length })),
-      run: (nameOrId) => {
-        const match = nameOrId.toLowerCase();
-        const flow = this.ctx.flows.list(runtime).find((f) => f.id === nameOrId || f.name.toLowerCase() === match);
-        if (!flow) throw new Error(`No saved flow matches "${nameOrId}".`);
-        const view = this.ctx.flows.replay(runtime, flow.id).find((f) => f.id === flow.id);
+      list: (host) => {
+        const all = this.ctx.flows.list(runtime);
+        return (host ? workflowsForHost(all, host) : all).map(summary);
+      },
+      read: (nameOrId) => {
+        const f = find(nameOrId);
+        return {
+          ...summary(f),
+          paramDetails: f.params,
+          stepList: f.steps.map((s) => ({
+            kind: s.kind,
+            label: s.label,
+            ...(s.kind === "navigate" ? { url: s.url } : {}),
+            ...(s.target ? { target: { role: s.target.role, name: s.target.name, index: s.target.index } } : {}),
+            ...(s.kind === "type" && !s.secret ? { value: s.value ?? "", submit: s.submit === true } : {}),
+            ...(s.secret ? { secret: true } : {}),
+          })),
+        };
+      },
+      run: (nameOrId, params) => {
+        const flow = find(nameOrId);
+        const view = this.ctx.flows.replay(runtime, flow.id, params, "agent").find((f) => f.id === flow.id);
         if (!view?.replay) throw new Error("Another recorded flow is already replaying; stop it before starting a new one.");
         return { id: flow.id, name: flow.name, steps: flow.steps.length, status: view.replay.status };
+      },
+    };
+  }
+
+  /** Read-only view of what the focused profile learned about a host (the compact prompt hints). */
+  private siteMemoryReader(): SiteMemoryReader | null {
+    const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
+    if (!window) return null;
+    const runtime = window.profile;
+    return {
+      hints: (host) => {
+        if (!this.ctx.flows.memory.enabled()) return "disabled";
+        const entry = this.ctx.flows.memory.entry(runtime, normalizeSite(host));
+        return entry ? { ...memoryHints(entry, Date.now()).payload } : null;
       },
     };
   }

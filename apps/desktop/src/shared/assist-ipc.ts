@@ -6,6 +6,9 @@
 import type { TabId } from "@corvus/shared";
 import type { AgentCall, AgentClient } from "./agent-activity";
 import type { GroupProposal, OrganizerProposal } from "./tab-organizer";
+import type { FlowApprovalDecision, FlowView, SiteMemoryPaneView, WorkflowDraftView } from "./flow-ipc";
+import type { MemoryHintKind } from "./site-memory";
+import type { WorkflowEdit } from "./workflow";
 
 export const ASSIST_RPC = "corvus:assist-rpc";
 export const ASSIST_EVENT = "corvus:assist-event";
@@ -66,7 +69,22 @@ export interface AgentActivityView {
   mcpRunning: boolean;
 }
 
-export type AssistView = "assist" | "agents";
+export type AssistView = "assist" | "agents" | "workflows";
+
+/** The Workflows view: saved workflows that apply to the active tab's site, plus a pending draft. */
+export interface WorkflowsPaneView {
+  /** Host of the active tab ("" when it is not a web page). */
+  host: string;
+  url: string;
+  /** Workflows whose sites match the host, most recently useful first. */
+  items: FlowView[];
+  /** All saved flows in the profile (for the "open the full list" link). */
+  total: number;
+  /** A run proposed as a workflow, waiting for review. */
+  draft: WorkflowDraftView | null;
+  /** The Learned tab: what Corvus learned about this site. */
+  memory: SiteMemoryPaneView;
+}
 
 export interface AssistPanelState {
   /** A provider is configured (API key or Claude Code CLI). */
@@ -79,6 +97,8 @@ export interface AssistPanelState {
   view: AssistView;
   tab: AssistTabView | null;
   agents: AgentActivityView;
+  /** Present while the Workflows view is shown. */
+  workflows: WorkflowsPaneView | null;
   /** Bumped when the input should take focus (shortcut, context menu). */
   focusToken: number;
 }
@@ -102,6 +122,18 @@ export interface AssistRpc {
   "agents.pause"(paused: boolean): void;
   "agents.revoke"(client: string): void;
   "agents.clear"(): void;
+  /** Replay a workflow in a new tab with values for its parameters (throws when some are missing). */
+  "workflows.run"(id: string, params: Record<string, string>): void;
+  "workflows.update"(id: string, edit: WorkflowEdit): void;
+  "workflows.remove"(id: string): void;
+  "workflows.saveDraft"(edit: WorkflowEdit): void;
+  "workflows.discardDraft"(): void;
+  "workflows.approve"(id: string, decision: FlowApprovalDecision): void;
+  "workflows.stop"(id: string): void;
+  "workflows.openManager"(): void;
+  "memory.removeHint"(host: string, kind: MemoryHintKind, key: string): void;
+  "memory.forget"(host: string): void;
+  "memory.setEnabled"(on: boolean): void;
 }
 
 export interface AssistBridge {

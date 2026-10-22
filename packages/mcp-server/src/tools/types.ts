@@ -15,6 +15,20 @@ export interface FlowSummary {
   name: string;
   startUrl: string;
   steps: number;
+  /** Optional workflow metadata (desktop fills these; older providers may not). */
+  description?: string;
+  /** Hosts the workflow applies to (subdomains match too). */
+  sites?: string[];
+  /** Names of its {{parameters}}. */
+  params?: string[];
+  origin?: "recorded" | "agent";
+  lastStatus?: string | null;
+}
+
+/** One saved flow with its steps, for clients that want to follow or adapt it. */
+export interface FlowDetail extends FlowSummary {
+  paramDetails: Array<{ name: string; label: string; default: string }>;
+  stepList: Array<{ kind: string; label: string; url?: string; target?: { role: string; name: string; index: number }; value?: string; submit?: boolean; secret?: boolean }>;
 }
 
 export interface FlowRunResult {
@@ -27,10 +41,24 @@ export interface FlowRunResult {
 
 /** Lists and replays the active profile's saved recorded flows. Replay keeps its own human-approval gate. */
 export interface FlowRunner {
-  list(): FlowSummary[] | Promise<FlowSummary[]>;
-  /** Starts replaying the flow matched by id or name; throws when none matches. */
-  run(nameOrId: string): FlowRunResult | Promise<FlowRunResult>;
+  /** Saved flows, optionally only those that apply to `host`. */
+  list(host?: string): FlowSummary[] | Promise<FlowSummary[]>;
+  /** One flow with its steps (matched by id or name); throws when none matches. Optional for older providers. */
+  read?(nameOrId: string): FlowDetail | Promise<FlowDetail>;
+  /** Starts replaying the flow matched by id or name with values for its parameters; throws when none matches or a value is missing. */
+  run(nameOrId: string, params?: Record<string, string>): FlowRunResult | Promise<FlowRunResult>;
 }
+
+/** Compact hints Corvus learned about one host (no typed values, no secrets). */
+export type SiteMemoryHints = { host: string } & Record<string, unknown>;
+
+/** Reads what Corvus learned about sites. "disabled" when the user turned site memory off. */
+export interface SiteMemoryReader {
+  hints(host: string): SiteMemoryHints | null | "disabled" | Promise<SiteMemoryHints | null | "disabled">;
+}
+
+/** Resolves the site-memory reader for the active profile, or null when unavailable. */
+export type SiteMemoryProvider = () => SiteMemoryReader | null;
 
 /** Resolves the recorded-flows runner for the active profile, or null when flows are unavailable. */
 export type FlowProvider = () => FlowRunner | null;
@@ -56,6 +84,8 @@ export interface ToolContext {
   webscope?: WebScopeProvider;
   /** Present when the app wired in recorded flows; run_flow gates on this and the full access level. */
   flows?: FlowProvider;
+  /** Present when the app wired in site memory; site_memory gates on this (standard level). */
+  siteMemory?: SiteMemoryProvider;
 }
 
 export const tabId = z.string().min(1).max(200);

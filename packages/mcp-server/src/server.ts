@@ -6,7 +6,7 @@ import { checkAgentUrl, compactJson, truncate, UNTRUSTED_NOTE, wrapUntrusted } f
 import { renderSearch } from "./search-render.js";
 import { resolveAccessLevel, toolAllowed } from "./access.js";
 import { TokenBucket, type RateLimitOptions } from "./security.js";
-import { registerAgentTools, type FlowProvider, type Register, type ToolExtra, type WebScopeProvider } from "./tools/index.js";
+import { registerAgentTools, type FlowProvider, type Register, type SiteMemoryProvider, type ToolExtra, type WebScopeProvider } from "./tools/index.js";
 
 export const SERVER_NAME = "corvus";
 export const SERVER_VERSION = "0.1.0";
@@ -22,6 +22,8 @@ export interface CreateMcpServerOptions
   webscope?: WebScopeProvider;
   /** Resolves the recorded-flows runner; when set, run_flow is exposed at full level. */
   flows?: FlowProvider;
+  /** Resolves the site-memory reader; when set, site_memory is exposed (standard level, read-only). */
+  siteMemory?: SiteMemoryProvider;
 }
 
 const GROUP_COLORS = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"] as const;
@@ -326,6 +328,7 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
     level,
     ...(opts.webscope ? { webscope: opts.webscope } : {}),
     ...(opts.flows ? { flows: opts.flows } : {}),
+    ...(opts.siteMemory ? { siteMemory: opts.siteMemory } : {}),
   });
 
   return mcp;

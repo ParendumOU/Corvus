@@ -206,6 +206,9 @@ export function agentSetupReason(ctx: AppContext): string | null {
 export interface ToolRunState {
   tabId: TabId | null;
   elementNames: Map<string, string>;
+  /** Workflow capture: elements (ref, role, name) and URL of the latest snapshot. */
+  lastElements?: Array<{ ref: string; role: string; name: string }>;
+  lastUrl?: string;
 }
 
 function num(input: unknown, key: string, dflt: number): number {
@@ -228,6 +231,8 @@ export async function runAgentTool(
     case "page_snapshot": {
       const snap = await c.snapshot(tabId!, { maxChars: Math.min(Math.max(num(input, "maxChars", SNAPSHOT_CHARS), 200), 12000) });
       state.elementNames = new Map(snap.elements.map((e) => [e.ref, e.name]));
+      state.lastElements = snap.elements.map((e) => ({ ref: e.ref, role: e.role, name: e.name }));
+      state.lastUrl = snap.url;
       const challenge = snap.challenge ? `\nchallenge: a ${snap.challenge.kind} verification is on the page. Call ask_user; do not try to solve it.` : "";
       return { content: wrapUntrusted(snap.url, renderSnapshot(snap, SNAPSHOT_CHARS)) + challenge };
     }

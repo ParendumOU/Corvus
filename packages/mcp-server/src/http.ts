@@ -7,7 +7,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpClientInfo, McpServerHandle, McpServerOptions } from "@corvus/shared";
 import { bearerMatches, isAllowedHost, isAllowedOrigin, type RateLimitOptions } from "./security.js";
 import { createMcpServer } from "./server.js";
-import type { FlowProvider, WebScopeProvider } from "./tools/index.js";
+import type { FlowProvider, SiteMemoryProvider, WebScopeProvider } from "./tools/index.js";
 
 export interface StartMcpServerOptions extends McpServerOptions {
   /** Per-session tool call budget. `false` disables limiting. */
@@ -16,6 +16,8 @@ export interface StartMcpServerOptions extends McpServerOptions {
   webscope?: WebScopeProvider;
   /** Resolves the recorded-flows runner; enables run_flow (full access level). */
   flows?: FlowProvider;
+  /** Resolves the site-memory reader; enables site_memory (standard level, read-only). */
+  siteMemory?: SiteMemoryProvider;
   /** Maximum POST body size in bytes. Default 1 MiB. */
   maxBodyBytes?: number;
   /** Maximum concurrent MCP sessions. Default 32. */
@@ -173,6 +175,7 @@ export async function startMcpServer(opts: StartMcpServerOptions): Promise<McpSe
       ...(opts.rateLimit !== undefined ? { rateLimit: opts.rateLimit } : {}),
       ...(opts.webscope ? { webscope: opts.webscope } : {}),
       ...(opts.flows ? { flows: opts.flows } : {}),
+      ...(opts.siteMemory ? { siteMemory: opts.siteMemory } : {}),
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,

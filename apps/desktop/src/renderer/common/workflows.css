@@ -1,0 +1,252 @@
+/* Workflow UI shared by the side panel and corvus://flows. Theme tokens come from theme.css. */
+
+.wf-steps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wf-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.wf-step + .wf-step {
+  border-top: 1px solid var(--border-soft);
+}
+
+.wf-step.more {
+  color: var(--text-3);
+  padding-left: 32px;
+}
+
+.wf-step-mark {
+  flex: 0 0 16px;
+  text-align: center;
+  color: var(--text-2);
+}
+
+.wf-step-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wf-step-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wf-steps:not(.editable) .wf-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-step.cursor {
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent);
+}
+.wf-step.st-ok .wf-step-mark {
+  color: var(--success);
+}
+.wf-step.st-error .wf-step-mark {
+  color: var(--danger);
+}
+.wf-step.st-skipped {
+  opacity: 0.55;
+}
+
+.wf-step-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wf-step-ctrl {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.wf-step-ctrl .icon-btn.small {
+  width: 24px;
+  height: 24px;
+}
+
+.wf-tag {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wf-tag.warn {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+.wf-tag.st-ok {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+}
+.wf-tag.st-error {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+.wf-tag.st-skipped,
+.wf-tag.st-running {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.wf-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.wf-badge.agent {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.wf-usage {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.wf-usage.stale {
+  color: var(--warning);
+}
+
+.wf-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.wf-intro {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+
+.wf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.wf-field .input {
+  width: 100%;
+  color: var(--text);
+}
+
+.wf-section-head {
+  margin: 14px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+}
+
+.wf-start {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-start code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.wf-inline {
+  flex: 1 1 140px;
+  min-width: 0;
+  height: 26px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.wf-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+.wf-link:hover {
+  text-decoration: underline;
+}
+
+.wf-params {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.wf-param {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wf-brace {
+  font-family: var(--mono);
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.wf-param-name {
+  width: 120px;
+  height: 28px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.wf-param-default {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  margin-left: 6px;
+  font-size: 12px;
+}
+
+.wf-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.wf-run-form {
+  margin-top: 10px;
+}
+
+.wf-run-form.compact .wf-field {
+  margin-bottom: 6px;
+}

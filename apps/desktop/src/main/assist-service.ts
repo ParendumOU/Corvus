@@ -14,6 +14,7 @@ import {
 import type { TabId } from "@corvus/shared";
 import { commandForInput } from "../shared/shortcuts";
 import { matchSiteProfile, type SiteProfile } from "../shared/site-profiles";
+import { hostKey, workflowsForUrl } from "../shared/workflow";
 import {
   ASSIST_MAX_WIDTH,
   ASSIST_MIN_WIDTH,
@@ -310,7 +311,24 @@ export class AssistService {
       view: panel.current,
       tab: this.tabView(win),
       agents: this.ctx.agents.view(),
+      workflows: panel.current === "workflows" ? this.workflowsView(win) : null,
       focusToken: panel.focusToken,
+    };
+  }
+
+  /** Workflows for the active tab's site (the side panel's Workflows view). */
+  private workflowsView(win: BrowserWindowCtl): AssistPanelState["workflows"] {
+    const tab = win.activeTab();
+    let url = "";
+    if (tab) url = tab.view.webContents.isDestroyed() ? tab.url : tab.view.webContents.getURL() || tab.url;
+    const all = this.ctx.flows.list(win.profile);
+    return {
+      host: hostKey(url),
+      url,
+      items: hostKey(url) ? workflowsForUrl(all, url) : [],
+      total: all.length,
+      draft: this.ctx.flows.draftView(win.profile.profile.id),
+      memory: this.ctx.flows.memory.paneView(win.profile, hostKey(url)),
     };
   }
 

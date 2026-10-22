@@ -32,6 +32,7 @@ export const OPT_IN_SYNCED_SETTINGS = ["ai.searxngUrl", "ai.localBaseUrl"] as co
 
 /** Every other setting, with the reason it stays on this device. */
 export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
+  "agent.siteMemory": "What Corvus learns about sites stays on this device, and so does its switch.",
   "ai.claudeCliPath": "Path of an executable on this machine.",
   "downloads.directory": "Folder on this machine.",
   "mcp.enabled": "Exposes this browser to local AI agents; a per-device security decision.",

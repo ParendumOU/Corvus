@@ -10,6 +10,8 @@ import {
   isResumableStatus,
   statusOnLoad,
 } from "../shared/agent-run";
+import { reviveStep as reviveFlowStep } from "../shared/workflow";
+import type { RunSiteHints } from "../shared/site-memory";
 import { boundTranscript } from "./agent-transcript";
 import { JsonFile } from "./json-file";
 
@@ -34,6 +36,7 @@ export interface StoredAgentRun {
   startedAt: number;
   endedAt: number | null;
   transcript: AgentMessage[];
+  siteHints?: RunSiteHints;
 }
 
 const STATUSES: readonly StoredRunStatus[] = ["running", "paused", "awaiting-approval", "done", "error", "stopped", "interrupted"];
@@ -57,9 +60,17 @@ function reviveSteps(raw: unknown): AgentRunStep[] {
       status: r.status === "running" || r.status === "error" || r.status === "skipped" ? r.status : "ok",
       ...(typeof r.resultChars === "number" ? { resultChars: r.resultChars } : {}),
       at: num(r.at, 0),
+      ...reviveAction(r.action),
     });
   }
   return out;
+}
+
+/** A captured workflow action survives a reload only if it is still a valid flow step. */
+function reviveAction(raw: unknown): Pick<AgentRunStep, "action"> {
+  if (!raw) return {};
+  const step = reviveFlowStep({ ...(raw as object), label: "" });
+  return step ? { action: step } : {};
 }
 
 function reviveTranscript(raw: unknown): AgentMessage[] {
@@ -96,7 +107,14 @@ function reviveRun(raw: unknown): StoredAgentRun | null {
     startedAt: num(r.startedAt, Date.now()),
     endedAt: typeof r.endedAt === "number" ? r.endedAt : null,
     transcript: reviveTranscript(r.transcript),
+    ...reviveSiteHints(r.siteHints),
   };
+}
+
+function reviveSiteHints(raw: unknown): Pick<StoredAgentRun, "siteHints"> {
+  const h = raw as Partial<RunSiteHints> | null;
+  if (!h || typeof h !== "object" || typeof h.host !== "string") return {};
+  return { siteHints: { host: h.host.slice(0, 253), hints: num(h.hints, 0), workflows: num(h.workflows, 0) } };
 }
 
 function revive(raw: unknown): StoredAgentRun[] {
@@ -123,6 +141,7 @@ export function toRecordView(run: StoredAgentRun): AgentRunRecord {
     startedAt: run.startedAt,
     endedAt: run.endedAt,
     resumable: run.transcript.length > 0 && isResumableStatus(run.status, run.stopReason),
+    ...(run.siteHints ? { siteHints: run.siteHints } : {}),
   };
 }
 
