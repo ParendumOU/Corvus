@@ -120,9 +120,42 @@ export async function feedSource(url: string, everyMinutes: number, fetcher?: Fe
 
 const today = (): string => new Date().toISOString().slice(0, 10);
 
+/**
+ * NASA's Image of the Day feed. The APOD API is no source any more: since APOD moved to
+ * science.nasa.gov it answers errors for today and the NASA logo for earlier days.
+ */
+const NASA_FEED = "https://www.nasa.gov/feeds/iotd-feed/";
+
+/** The newest picture of NASA's Image of the Day feed, at a wallpaper size. */
+export function nasaImageOfTheDay(xml: string): WallpaperView | null {
+  for (const block of xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? []) {
+    const enclosure = /<enclosure\b[^>]*>/i.exec(block)?.[0] ?? "";
+    const src = /\burl=["']([^"']+)["']/i.exec(enclosure)?.[1];
+    if (!src || !/\btype=["']image\//i.test(enclosure)) continue;
+    let url: URL;
+    try {
+      url = new URL(decodeText(src));
+    } catch {
+      continue;
+    }
+    if (url.protocol !== "https:") continue;
+    // nasa.gov serves resized copies; the originals run to several megabytes.
+    if (/(^|\.)nasa\.gov$/.test(url.hostname)) url.searchParams.set("w", "2560");
+    const link = decodeText(tag(block, "link") ?? "");
+    return { url: url.href, credit: decodeText(tag(block, "title") ?? "") || "NASA Image of the Day", link: /^https:\/\//.test(link) ? link : "https://www.nasa.gov/image-of-the-day/" };
+  }
+  return null;
+}
+
+// A source that fails is asked again after a while, not on every New Tab page.
+const failedWallpapers = new Map<string, number>();
+const RETRY_FAILED_MS = 15 * 60_000;
+
 export async function wallpaper(source: WallpaperSource, fetcher?: Fetcher): Promise<WallpaperView | null> {
+  const key = `wp:${source}:${today()}`;
+  if (Date.now() - (failedWallpapers.get(key) ?? 0) < RETRY_FAILED_MS) return null;
   try {
-    return await cached(`wp:${source}:${today()}`, 6 * 3600_000, async (): Promise<WallpaperView> => {
+    return await cached(key, 6 * 3600_000, async (): Promise<WallpaperView> => {
       if (source === "bing") {
         const json = (await fetchJson("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US", fetcher)) as {
           images?: Array<{ url: string; copyright?: string; copyrightlink?: string }>;
@@ -141,21 +174,14 @@ export async function wallpaper(source: WallpaperSource, fetcher?: Fetcher): Pro
         return { url: img.image.source, credit: [img.description?.text, img.artist?.text].filter(Boolean).join(" · ") || "Wikimedia Commons", link: img.file_page ?? "https://commons.wikimedia.org/" };
       }
       if (source === "nasa") {
-        const json = (await fetchJson("https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY&thumbs=true", fetcher)) as {
-          media_type?: string;
-          url?: string;
-          hdurl?: string;
-          thumbnail_url?: string;
-          title?: string;
-          copyright?: string;
-        };
-        const url = json.media_type === "image" ? (json.hdurl ?? json.url) : json.thumbnail_url;
-        if (!url) throw new Error("No image");
-        return { url, credit: [json.title, json.copyright?.trim()].filter(Boolean).join(" · ") || "NASA APOD", link: "https://apod.nasa.gov/apod/astropix.html" };
+        const image = nasaImageOfTheDay((await fetchPublicText(NASA_FEED, fetcher)).text);
+        if (!image) throw new Error("No image");
+        return image;
       }
       return { url: `https://picsum.photos/seed/${today()}/2560/1440`, credit: "Lorem Picsum (Unsplash photographers)", link: "https://picsum.photos/" };
     });
   } catch {
+    failedWallpapers.set(key, Date.now());
     return null;
   }
 }
@@ -180,4 +206,5 @@ export async function fetchSource(url: string, everyMinutes: number, fetcher?: F
 /** For tests: forget cached responses. */
 export function clearNewTabCache(): void {
   cache.clear();
+  failedWallpapers.clear();
 }

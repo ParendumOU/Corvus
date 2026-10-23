@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseFeed } from "../src/main/newtab-data";
+import { nasaImageOfTheDay, parseFeed } from "../src/main/newtab-data";
 import { titleCount } from "../src/main/newtab-page-source";
 import { NewTabService } from "../src/main/newtab-service";
 import { widgetDocument } from "../src/main/newtab-widget-doc";
@@ -26,6 +26,22 @@ describe("feeds", () => {
     const xml = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Blog</title>
       <entry><title>Hello</title><link rel="alternate" href="https://blog.example/hello"/><updated>2026-10-20T08:00:00Z</updated></entry></feed>`;
     expect(parseFeed(xml, "https://blog.example/atom")).toEqual([{ title: "Hello", url: "https://blog.example/hello", source: "Blog", at: Date.parse("2026-10-20T08:00:00Z") }]);
+  });
+});
+
+describe("wallpapers", () => {
+  it("takes NASA's newest image of the day at a wallpaper size", () => {
+    const xml = `<rss><channel><title>NASA Image of the Day</title>
+      <item><title>Launch video</title><link>https://www.nasa.gov/video/</link><enclosure url="https://www.nasa.gov/a.mp4" type="video/mp4" /></item>
+      <item><title>Spiral&#039;s Edge</title><link>https://www.nasa.gov/image-detail/ngc1827/</link>
+        <enclosure url="https://www.nasa.gov/wp-content/uploads/2026/10/ngc1827.jpg" length="7154055" type="image/jpeg" /></item>
+      <item><title>Older</title><enclosure url="https://www.nasa.gov/old.jpg" type="image/jpeg" /></item></channel></rss>`;
+    expect(nasaImageOfTheDay(xml)).toEqual({
+      url: "https://www.nasa.gov/wp-content/uploads/2026/10/ngc1827.jpg?w=2560",
+      credit: "Spiral's Edge",
+      link: "https://www.nasa.gov/image-detail/ngc1827/",
+    });
+    expect(nasaImageOfTheDay("<rss><channel></channel></rss>")).toBeNull();
   });
 });
 

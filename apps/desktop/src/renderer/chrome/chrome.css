@@ -628,13 +628,63 @@ body,
 .bar-spacer {
   flex: 1;
 }
+/* A page dragged over the bar (the address bar's site chip, or a link): where it will land. */
+.bookmarks-bar.dropping {
+  background: color-mix(in srgb, var(--accent) 7%, var(--toolbar));
+}
+.bar-item.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.bar-drop-end {
+  flex: none;
+  width: 2px;
+  height: 18px;
+  margin: 0 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.omni-chip[draggable="true"] {
+  cursor: grab;
+}
+.page-drag-ghost {
+  position: fixed;
+  top: -100px;
+  left: 0;
+  max-width: 260px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow-lg);
+}
 
 /* ---------------------------------------------------------------- overlays */
 
+/* Catches the click outside an open popover. Below the toolbar while omnibox suggestions are open
+   (clicks in the omnibox keep editing); over the toolbar and tab strip for every other popover, so
+   a click anywhere outside closes it. no-drag: on Windows the tab strip's drag region would
+   otherwise take the click before the page sees it. */
+.overlay-backdrop,
+.ext-menu-backdrop,
+.omni-panel-backdrop {
+  -webkit-app-region: no-drag;
+}
 .overlay-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1;
+}
+.overlay-backdrop.modal {
+  z-index: 3;
+}
+.omni-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
 }
 
 .group-editor {

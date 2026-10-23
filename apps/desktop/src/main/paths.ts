@@ -9,6 +9,7 @@ export const paths = {
   assistPreload: path.join(here, "../preload/assist.cjs"),
   extensionWorkerPreload: path.join(here, "../preload/extension-sw.cjs"),
   extensionApiPreload: path.join(here, "../preload/extension-api.cjs"),
+  adblockScriptletsPreload: path.join(here, "../preload/adblock-scriptlets.cjs"),
   rendererDir: path.join(here, "../renderer"),
   icon: path.join(here, "../../build/icon.png"),
 };

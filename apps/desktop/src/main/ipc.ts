@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { app, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
-import { OTHER_FOLDER_ID } from "../shared/bookmark-tree";
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { countBookmarks, isImportedFolder, parseBookmarkFile, type ImportedNode } from "../shared/bookmark-import";
 import type { BookmarkImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
@@ -135,6 +135,18 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "omnibox.suggest": (w, input) =>
       buildSuggestions(str(input, "input", 2048), w.profile.history.all(), w.profile.bookmarks.list(), Date.now()),
     "bookmarks.toggleActive": (w) => w.toggleBookmark(),
+    "bookmarks.addToBar": (w, url, title, index) => {
+      const target = str(url, "url", 8192);
+      if (!/^(https?|file):/i.test(target)) return false;
+      w.profile.bookmarks.create({
+        parentId: BAR_FOLDER_ID,
+        kind: "bookmark",
+        title: str(title ?? "", "title", 500).trim() || target,
+        url: target,
+        index: Math.max(0, Math.floor(num(index, "index"))),
+      });
+      return true;
+    },
     "profiles.openWindow": (w, id) => {
       const profileId = str(id, "profile");
       const existing = ctx.windows.forProfile(profileId)[0];

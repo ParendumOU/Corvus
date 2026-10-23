@@ -6,6 +6,43 @@
 
 export type AdblockListSource = "bundled" | "cache" | "network";
 
+/** Sync IPC a starting web frame uses to fetch its scriptlets (they must run before the page's scripts). */
+export const ADBLOCK_SCRIPTLETS_CHANNEL = "corvus:adblock-scriptlets";
+
+/**
+ * Scheme of the harmless stand-ins ($redirect resources: noop scripts, empty images, player stubs)
+ * the blocker serves instead of a blocked script. Chromium refuses a redirect to a data: URL
+ * (ERR_UNSAFE_REDIRECT), which turns the stand-in into a failed request that breaks players and
+ * gives the blocker away.
+ */
+export const ADBLOCK_RESOURCE_SCHEME = "corvus-resource";
+
+/** The content type and bytes of a data: URL (base64 or plain), or null when it is not one. */
+export function decodeDataUrl(url: string): { type: string; bytes: Uint8Array } | null {
+  const comma = url.indexOf(",");
+  if (!url.startsWith("data:") || comma === -1) return null;
+  const meta = url.slice(5, comma);
+  const data = url.slice(comma + 1);
+  const base64 = /;base64$/i.test(meta);
+  const type = meta.replace(/;base64$/i, "") || "text/plain";
+  if (!base64) return { type, bytes: new TextEncoder().encode(data) };
+  const raw = atob(data);
+  return { type, bytes: Uint8Array.from(raw, (c) => c.charCodeAt(0)) };
+}
+
+/**
+ * One program for a page's scriptlets, the way uBlock Origin runs them. Each scriptlet arrives with
+ * its helpers inlined as top-level declarations: run side by side in one global scope they clash
+ * ("Identifier 'JSONPath' has already been declared"). Here each runs in its own function, a failing
+ * one does not stop the rest, and all share one private `scriptletGlobals`, so every scriptlet works
+ * with the page's original built-ins even after an earlier one wrapped them.
+ */
+export function bundleScriptlets(scripts: readonly string[]): string {
+  if (scripts.length === 0) return "";
+  const parts = scripts.map((s) => `try { (function (scriptletGlobals) {\n${s}\n})(scriptletGlobals); } catch (e) {}`);
+  return `(function () {\nvar scriptletGlobals = {};\n${parts.join("\n")}\n})();`;
+}
+
 /** Per-profile blocker preferences (stored in the profile data dir, never synced). */
 export interface AdblockSettings {
   enabled: boolean;

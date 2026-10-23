@@ -1,4 +1,15 @@
-import { Component, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import type { GroupColor } from "@corvus/shared";
 import { GROUP_COLOR_HEX, type WindowState } from "../../shared/ipc";
 import { isNewTabUrl } from "../../shared/internal-urls";
@@ -10,7 +21,7 @@ import { Favicon } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
 import { FindBar } from "./FindBar";
-import { Omnibox, type OmniboxHandle } from "./Omnibox";
+import { Omnibox, PAGE_DRAG_MIME, type OmniboxHandle } from "./Omnibox";
 import { Organizer } from "./Organizer";
 import {
   AdblockButton,
@@ -29,8 +40,8 @@ import { TabStrip } from "./TabStrip";
 
 interface GroupEditorState {
   groupId: string;
-  left: number;
-  top: number;
+  /** Where to show it; without one it goes under the group's chip. */
+  anchor?: Anchor;
 }
 
 type PopoverState = { kind: "site" | "zoom" | "downloads" | "adblock" | "workspaces"; anchor: Anchor } | null;
@@ -89,9 +100,8 @@ export function App() {
       } else if (command.type === "open-workspaces") {
         setPopover({ kind: "workspaces", anchor: workspacesAnchor() });
       } else if (command.type === "edit-group") {
-        const chip = document.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(command.groupId)}"]`);
-        const rect = chip?.getBoundingClientRect();
-        setEditor({ groupId: command.groupId, left: rect?.left ?? 80, top: (rect?.bottom ?? 36) + 6 });
+        // The chip of a group created just now is not on screen yet: the editor finds it once it is.
+        setEditor({ groupId: command.groupId });
       }
     });
     return () => {
@@ -121,7 +131,8 @@ export function App() {
 
   const prompt = state?.permissionPrompt ?? null;
   const [extMenuOpen, setExtMenuOpen] = useState(false);
-  const overlayOpen = omniOpen || editor !== null || popover !== null || prompt !== null || extMenuOpen || organizer || palette;
+  const modalOpen = editor !== null || popover !== null || prompt !== null || organizer || palette;
+  const overlayOpen = modalOpen || omniOpen || extMenuOpen;
   useEffect(() => {
     void api.call("ui.setOverlay", overlayOpen);
   }, [api, overlayOpen]);
@@ -142,7 +153,7 @@ export function App() {
     <TabStrip
       state={state}
       orientation={vertical ? "vertical" : "horizontal"}
-      onEditGroup={(groupId, rect) => setEditor({ groupId, left: rect.left, top: rect.bottom + 6 })}
+      onEditGroup={(groupId, rect) => setEditor({ groupId, anchor: below(rect) })}
       onOrganize={() => setOrganizer(true)}
     />
   );
@@ -272,7 +283,7 @@ export function App() {
       {vertical && !state.sidebarCollapsed && <SidebarResize width={state.sidebarWidth} />}
       {overlayOpen && (
         <div
-          className="overlay-backdrop"
+          className={`overlay-backdrop ${modalOpen ? "modal" : ""}`}
           onMouseDown={() => {
             setEditor(null);
             setPopover(null);
@@ -337,16 +348,59 @@ class DebugBoundary extends Component<{ children: ReactNode }, { err: boolean }>
   }
 }
 
+/** Bookmarks bar position a drop at `clientX` lands on: before the first item whose middle is right of it. */
+function barDropIndex(bar: HTMLElement, clientX: number, count: number): number {
+  const hit = [...bar.querySelectorAll<HTMLElement>("[data-bar-index]")].find((el) => {
+    const r = el.getBoundingClientRect();
+    return clientX < r.left + r.width / 2;
+  });
+  return hit ? Number(hit.dataset.barIndex) : count;
+}
+
+/** The page a drop carries: the site chip's `{ url, title }`, else the first link of a uri-list. */
+function droppedPage(data: DataTransfer): { url: string; title: string } | null {
+  try {
+    const page = JSON.parse(data.getData(PAGE_DRAG_MIME) || "null") as { url?: unknown; title?: unknown } | null;
+    if (page && typeof page.url === "string") return { url: page.url, title: typeof page.title === "string" ? page.title : "" };
+  } catch {
+    // Not ours: read it as a link.
+  }
+  const url = data.getData("text/uri-list").split(/\r?\n/).find((line) => line.trim() && !line.startsWith("#"));
+  return url ? { url: url.trim(), title: "" } : null;
+}
+
 function BookmarksBar({ state }: { state: WindowState }) {
   const api = chromeApi();
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const count = state.bookmarksBar.length;
+  const carriesPage = (e: DragEvent<HTMLElement>): boolean => e.dataTransfer.types.includes(PAGE_DRAG_MIME) || e.dataTransfer.types.includes("text/uri-list");
   return (
-    <div className="bookmarks-bar">
-      {state.bookmarksBar.length === 0 && <span className="bar-empty">Bookmark pages with the star in the address bar to see them here.</span>}
-      {state.bookmarksBar.map((b) =>
+    <div
+      className={`bookmarks-bar ${dropAt !== null ? "dropping" : ""}`}
+      onDragOver={(e) => {
+        if (!carriesPage(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setDropAt(barDropIndex(e.currentTarget, e.clientX, count));
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+      }}
+      onDrop={(e) => {
+        if (!carriesPage(e)) return;
+        e.preventDefault();
+        setDropAt(null);
+        const page = droppedPage(e.dataTransfer);
+        if (page) void api.call("bookmarks.addToBar", page.url, page.title, barDropIndex(e.currentTarget, e.clientX, count));
+      }}
+    >
+      {count === 0 && <span className="bar-empty">{dropAt !== null ? "Drop to bookmark this page" : "Bookmark pages with the star in the address bar, or drag the lock here."}</span>}
+      {state.bookmarksBar.map((b, i) =>
         b.kind === "folder" ? (
           <button
             key={b.id}
-            className="bar-item"
+            data-bar-index={i}
+            className={`bar-item ${dropAt === i ? "drop-before" : ""}`}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               void api.call("ui.bookmarkFolderMenu", b.id, r.left, r.bottom + 2);
@@ -362,7 +416,8 @@ function BookmarksBar({ state }: { state: WindowState }) {
         ) : (
           <button
             key={b.id}
-            className="bar-item"
+            data-bar-index={i}
+            className={`bar-item ${dropAt === i ? "drop-before" : ""}`}
             title={`${b.title}\n${b.url ?? ""}`}
             onClick={(e) => b.url && void api.call("tabs.openUrl", b.url, e.ctrlKey || e.metaKey ? "background-tab" : "current")}
             onAuxClick={(e) => e.button === 1 && b.url && void api.call("tabs.openUrl", b.url, "background-tab")}
@@ -376,6 +431,7 @@ function BookmarksBar({ state }: { state: WindowState }) {
           </button>
         ),
       )}
+      {dropAt !== null && dropAt === count && count > 0 && <span className="bar-drop-end" />}
       <span className="bar-spacer" />
       <button className="bar-item" onClick={() => void api.call("tabs.openUrl", "corvus://bookmarks/", "new-tab")}>
         <IconFolder size={14} />
@@ -391,7 +447,14 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
   const [title, setTitle] = useState(group?.title ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(editor.anchor ?? null);
   const workspaceId = group?.workspaceId;
+
+  useLayoutEffect(() => {
+    if (anchor || !group) return;
+    const rect = document.querySelector(`[data-group-id="${CSS.escape(group.id)}"]`)?.getBoundingClientRect();
+    setAnchor({ left: rect?.left ?? 80, top: (rect?.bottom ?? 36) + 6 });
+  }, [anchor, group]);
   useEffect(() => {
     if (!workspaceId) {
       setWorkspaceName(null);
@@ -415,10 +478,11 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
   };
   const setColor = (color: GroupColor): void => void api.call("groups.update", group.id, { color });
   const saveCount = state.tabs.filter((t) => t.groupId === group.id && isWorkspaceTabUrl(t.url)).length;
-  const left = Math.min(editor.left, window.innerWidth - 270);
+  // Placed before the first paint (layout effect above), so it never shows at the fallback spot.
+  const left = Math.min(anchor?.left ?? 80, window.innerWidth - 270);
 
   return (
-    <div className="group-editor" style={{ left, top: editor.top }} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="group-editor" style={{ left, top: anchor?.top ?? 42 }} onMouseDown={(e) => e.stopPropagation()}>
       <input
         ref={inputRef}
         className="input"

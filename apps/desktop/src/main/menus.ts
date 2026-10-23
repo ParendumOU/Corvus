@@ -143,7 +143,7 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       { type: "separator" },
       { label: "Add tab to new group", enabled: !pinned, click: () => {
           const group = win.createGroup([tabId]);
-          if (group) win.sendCommand({ type: "edit-group", groupId: group.id });
+          if (group) win.editGroup(group.id);
         } },
       ...(groups.length > 0 && !pinned
         ? [
@@ -196,7 +196,7 @@ export function showGroupMenu(win: BrowserWindowCtl, groupId: GroupId, x: number
   popup(
     win,
     [
-      { label: "Edit group…", click: () => win.sendCommand({ type: "edit-group", groupId }) },
+      { label: "Edit group…", click: () => win.editGroup(groupId) },
       { label: group.collapsed ? "Expand group" : "Collapse group", click: () => win.updateGroup(groupId, { collapsed: !group.collapsed }) },
       { label: "New tab in group", click: () => win.newTabInGroup(groupId) },
       { type: "separator" },

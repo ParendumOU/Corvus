@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { net, protocol, type Session } from "electron";
+import { ADBLOCK_RESOURCE_SCHEME } from "../shared/adblock";
 import { INTERNAL_PAGES, INTERNAL_SCHEME } from "../shared/internal-urls";
 import { paths, rendererDevUrl } from "./paths";
 
@@ -14,6 +15,9 @@ export function registerInternalScheme(): void {
     // Extension action icons in the toolbar. electron-chrome-extensions registers this on import,
     // but only one registerSchemesAsPrivileged call takes effect, so it has to be listed here too.
     { scheme: "crx", privileges: { standard: true, secure: true, bypassCSP: true } },
+    // The ad blocker's stand-ins for blocked scripts (see AdblockService): a page loads them in place
+    // of the original, under that page's CSP, so they bypass it like the original was allowed.
+    { scheme: ADBLOCK_RESOURCE_SCHEME, privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, corsEnabled: true } },
   ]);
 }
 

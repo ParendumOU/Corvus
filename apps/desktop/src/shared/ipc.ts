@@ -121,6 +121,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "groups.newTab"(groupId: GroupId): void;
   "omnibox.suggest"(input: string): Suggestion[];
   "bookmarks.toggleActive"(): boolean;
+  /** A page dropped on the bookmarks bar (the address bar's site chip, or a link), at `index`. */
+  "bookmarks.addToBar"(url: string, title: string, index: number): boolean;
   "profiles.openWindow"(profileId: string): void;
   "extensions.toolbar"(): ToolbarExtension[];
   "extensions.setPinned"(id: string, pinned: boolean): void;

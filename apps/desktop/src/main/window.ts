@@ -3,7 +3,7 @@ import type { GroupColor, GroupId, Tab, TabGroup, TabId } from "@corvus/shared";
 import { hostFromUrl } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
-import { pickFavicon } from "../shared/favicon";
+import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
@@ -682,9 +682,11 @@ export class BrowserWindowCtl {
       this.applyPageBase(tab, url);
       // The recovery page is loaded over a crashed tab; keep the tab's real URL and crashed flag.
       if (internalPageOf(url) === "crash") return;
+      const previous = tab.url;
       tab.url = url;
       tab.crashed = false;
-      tab.faviconUrl = undefined;
+      // Until the new page reports its icon: the site's current one, else the last one history knows.
+      if (!keepsFavicon(previous, url)) tab.faviconUrl = this.profile.history.faviconsFor([url]).get(url);
       this.profile.adblock.resetTab(wc.id);
       this.ctx.reader.onNavigated(this, tab);
       this.ctx.autofill.onNavigated(this, tab);
@@ -1135,6 +1137,20 @@ export class BrowserWindowCtl {
     this.strip = createGroup(this.strip, ids, group);
     this.pushState();
     return group;
+  }
+
+  /**
+   * Opens the name and color editor of a group in the chrome UI. The state goes out first: a group
+   * just created is otherwise not in the UI yet when the editor looks for it.
+   */
+  editGroup(groupId: GroupId): void {
+    if (this.stateTimer) {
+      clearTimeout(this.stateTimer);
+      this.stateTimer = null;
+    }
+    this.flushState();
+    this.focusWebContents(this.chrome.webContents);
+    this.sendCommand({ type: "edit-group", groupId });
   }
 
   addToGroup(tabIds: TabId[], groupId: GroupId): void {

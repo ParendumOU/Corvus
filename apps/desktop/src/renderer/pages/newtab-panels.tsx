@@ -95,7 +95,7 @@ export function AddWidgetPanel({
 
 // ------------------------------------------------------------------------------- background
 
-const WALLPAPER_LABEL: Record<WallpaperSource, string> = { bing: "Bing", wikimedia: "Wikimedia Commons", nasa: "NASA APOD", picsum: "Lorem Picsum" };
+const WALLPAPER_LABEL: Record<WallpaperSource, string> = { bing: "Bing", wikimedia: "Wikimedia Commons", nasa: "NASA", picsum: "Lorem Picsum" };
 
 export function BackgroundPanel({ background, onChange, onClose }: { background: Background; onChange: (b: Background) => void; onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);

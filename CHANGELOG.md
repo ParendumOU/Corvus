@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.1
+
+### Browser
+- **YouTube without ads**: the ad blocker now uses the lists uBlock Origin uses (its own filters
+  and quick fixes, EasyList, EasyPrivacy and more), and runs their page scripts before the page's
+  own, so YouTube videos start without video ads and the side ads are gone. Stand-ins for blocked
+  scripts load as intended instead of failing, so video players keep working.
+- **Bookmark by dragging the lock**: drag the site icon at the left of the address bar onto the
+  bookmarks bar to bookmark the page with the tab's title, right where you drop it. Links dragged
+  from a page onto the bar are bookmarked too.
+- **Name a new group right away**: "Add tab to new group" opens the group's name editor at once.
+- A click anywhere outside an open popover (also on the toolbar or the tabs) closes it, and the
+  password panel of the address bar no longer opens behind the page.
+- Tabs keep their site's icon while you browse within the site, and fall back to the site's
+  `/favicon.ico` when the page's icon fails to load.
+- The NASA background now comes from NASA's Image of the Day (the APOD service stopped working).
+
 ## v0.4.0
 
 ### Browser

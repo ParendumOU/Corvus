@@ -830,13 +830,17 @@ function AdblockSection() {
 
   const lists = view?.lists;
   const sourceLabel =
-    lists?.source === "network" ? "EasyList + EasyPrivacy" : lists?.source === "cache" ? t("EasyList + EasyPrivacy (cached)") : t("Built-in list (offline)");
+    lists?.source === "network"
+      ? "uBlock Origin + EasyList + EasyPrivacy"
+      : lists?.source === "cache"
+        ? t("uBlock Origin + EasyList + EasyPrivacy (cached)")
+        : t("Built-in list (offline)");
 
   return (
     <Section
       id="adblock"
       title={t("Ad & tracker blocker")}
-      description={t("Blocks ads and trackers with EasyList and EasyPrivacy, including cosmetic (page element) filters. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced.")}
+      description={t("Blocks ads and trackers with the lists uBlock Origin uses (its own filters, EasyList and EasyPrivacy): requests, page elements, and the scripts that keep sites like YouTube free of video ads. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced.")}
     >
       <Row label={t("Block ads and trackers")} hint={t("Applies to every site except those you allow below.")}>
         <Toggle label={t("Block ads and trackers")} checked={view?.enabled ?? true} onChange={(v) => run(api.call("adblock.setEnabled", v))} />

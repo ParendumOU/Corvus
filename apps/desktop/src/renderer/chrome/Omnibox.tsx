@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import type { CredentialMatch } from "../../shared/credentials";
 import type { AutofillBarState } from "../../shared/credentials-ipc";
 import type { TabView } from "../../shared/ipc";
@@ -20,8 +20,26 @@ function editValue(url: string): string {
   return searchQueryOf(url) ?? url;
 }
 
-function SecurityChip({ url, onOpen }: { url: string; onOpen: (rect: DOMRect) => void }) {
+/** Drag data of a page (the site chip dragged out of the address bar): `{ url, title }` as JSON. */
+export const PAGE_DRAG_MIME = "application/x-corvus-page";
+
+/** Dragging the site chip carries the page, like Chrome: drop it on the bookmarks bar to save it. */
+function dragPage(e: DragEvent<HTMLElement>, url: string, title: string): void {
+  e.dataTransfer.setData(PAGE_DRAG_MIME, JSON.stringify({ url, title }));
+  e.dataTransfer.setData("text/uri-list", url);
+  e.dataTransfer.setData("text/plain", url);
+  e.dataTransfer.effectAllowed = "copyLink";
+  const ghost = document.createElement("div");
+  ghost.className = "page-drag-ghost";
+  ghost.textContent = title || url;
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 14, 14);
+  setTimeout(() => ghost.remove(), 0);
+}
+
+function SecurityChip({ url, title, onOpen }: { url: string; title: string; onOpen: (rect: DOMRect) => void }) {
   const open = (e: MouseEvent<HTMLButtonElement>): void => onOpen(e.currentTarget.getBoundingClientRect());
+  const drag = { draggable: true, onDragStart: (e: DragEvent<HTMLElement>) => dragPage(e, url, title) };
   if (url.startsWith("corvus:")) {
     return (
       <span className="omni-chip internal" title="Corvus page">
@@ -31,14 +49,14 @@ function SecurityChip({ url, onOpen }: { url: string; onOpen: (rect: DOMRect) =>
   }
   if (url.startsWith("https:")) {
     return (
-      <button className="omni-chip clickable site-chip" title="View site information" onClick={open}>
+      <button className="omni-chip clickable site-chip" title="View site information" onClick={open} {...drag}>
         <IconLock size={13} />
       </button>
     );
   }
   if (url.startsWith("http:")) {
     return (
-      <button className="omni-chip clickable warn site-chip" title="Connection is not secure. View site information" onClick={open}>
+      <button className="omni-chip clickable warn site-chip" title="Connection is not secure. View site information" onClick={open} {...drag}>
         <IconWarning size={13} />
         <span>Not secure</span>
       </button>
@@ -46,7 +64,7 @@ function SecurityChip({ url, onOpen }: { url: string; onOpen: (rect: DOMRect) =>
   }
   if (url.startsWith("file:")) {
     return (
-      <button className="omni-chip clickable site-chip" title="View site information" onClick={open}>
+      <button className="omni-chip clickable site-chip" title="View site information" onClick={open} {...drag}>
         <IconGlobe size={13} />
       </button>
     );
@@ -133,7 +151,8 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab?.id]);
 
-    useEffect(() => onOpenChange(open), [open, onOpenChange]);
+    // The autofill panel also hangs below the toolbar, over the page: it needs the overlay too.
+    useEffect(() => onOpenChange(open || autofillOpen), [open, autofillOpen, onOpenChange]);
 
     const reset = (): void => {
       request.current++;
@@ -150,6 +169,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       },
       close() {
         reset();
+        setAutofillOpen(false);
         inputRef.current?.blur();
       },
     }));
@@ -206,7 +226,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               <IconSearch size={14} />
             </span>
           ) : (
-            <SecurityChip url={url} onOpen={onSiteInfo} />
+            <SecurityChip url={url} title={tab?.title ?? ""} onOpen={onSiteInfo} />
           )}
           <input
             ref={inputRef}
@@ -301,6 +321,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             ))}
           </ul>
         )}
+        {autofillOpen && <div className="omni-panel-backdrop" onMouseDown={() => setAutofillOpen(false)} />}
         {autofillOpen && (
           <div className="omni-autofill-panel">
             {autofill.canSave ? (

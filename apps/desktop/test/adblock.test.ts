@@ -1,7 +1,10 @@
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   BlockedCounts,
   addAllowed,
+  bundleScriptlets,
+  decodeDataUrl,
   hostFromUrl,
   isBlockablePageUrl,
   isHostAllowed,
@@ -15,6 +18,49 @@ import {
 } from "../src/shared/adblock";
 
 const on: AdblockSettings = { enabled: true, allowed: [] };
+
+describe("bundleScriptlets", () => {
+  // The shape of a Ghostery scriptlet: helpers inlined as top-level declarations, uBO's shared globals.
+  const scriptlet = (name: string) => `if (typeof scriptletGlobals === 'undefined') { var scriptletGlobals = {}; };
+    class JSONPath {}
+    function safeSelf() { if (safeSelf.safe) return safeSelf.safe; return { parse: JSON.parse }; }
+    if (scriptletGlobals.safeSelf) { safeSelf.safe = scriptletGlobals.safeSelf; } else { scriptletGlobals.safeSelf = safeSelf(); }
+    ran.push([${JSON.stringify(name)}, safeSelf().parse === originalParse]);
+    JSON.parse = new Proxy(JSON.parse, { apply: (t, self, args) => Reflect.apply(t, self, args) });`;
+
+  it("runs every scriptlet once, without clashing declarations, on the page's original built-ins", () => {
+    const sandbox = { ran: [] as Array<[string, boolean]>, JSON: { parse: JSON.parse }, originalParse: undefined as unknown };
+    sandbox.originalParse = sandbox.JSON.parse;
+    runInNewContext(bundleScriptlets([scriptlet("a"), scriptlet("b"), "throw new Error('broken')", scriptlet("c")]), sandbox);
+    expect(sandbox.ran).toEqual([
+      ["a", true],
+      ["b", true],
+      ["c", true],
+    ]);
+    expect("scriptletGlobals" in sandbox).toBe(false);
+  });
+
+  it("is empty when there is nothing to run", () => {
+    expect(bundleScriptlets([])).toBe("");
+  });
+});
+
+describe("decodeDataUrl (stand-ins served instead of data: redirects)", () => {
+  it("decodes base64 and plain bodies with their content type", () => {
+    const gif = decodeDataUrl("data:image/gif;base64,R0lGODlhAQABAA==");
+    expect(gif?.type).toBe("image/gif");
+    expect(Array.from(gif?.bytes ?? []).slice(0, 6)).toEqual([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+    const js = decodeDataUrl("data:application/javascript;base64,KGZ1bmN0aW9uKCl7fSkoKTs=");
+    expect(new TextDecoder().decode(js?.bytes)).toBe("(function(){})();");
+    const text = decodeDataUrl("data:text/plain;charset=utf-8,ok, fine");
+    expect(text).toEqual({ type: "text/plain;charset=utf-8", bytes: new TextEncoder().encode("ok, fine") });
+  });
+
+  it("refuses anything else", () => {
+    expect(decodeDataUrl("https://example.com/noop.js")).toBeNull();
+    expect(decodeDataUrl("data:no-comma")).toBeNull();
+  });
+});
 
 describe("normalizeHost", () => {
   it("lower-cases, strips www and trailing dot", () => {

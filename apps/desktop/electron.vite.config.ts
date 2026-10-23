@@ -66,6 +66,7 @@ export default defineConfig({
           assist: resolve(import.meta.dirname, "src/preload/assist.ts"),
           "extension-sw": resolve(import.meta.dirname, "src/preload/extension-sw.ts"),
           "extension-api": resolve(import.meta.dirname, "src/preload/extension-api.ts"),
+          "adblock-scriptlets": resolve(import.meta.dirname, "src/preload/adblock-scriptlets.ts"),
         },
         output: { format: "cjs", entryFileNames: "[name].cjs" },
       },

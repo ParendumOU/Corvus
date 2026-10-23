@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SAVED_FAVICON_URL, faviconSrcToShow, isFaviconUrl, pickFavicon } from "../src/shared/favicon";
+import { MAX_SAVED_FAVICON_URL, faviconSrcToShow, isFaviconUrl, keepsFavicon, pickFavicon } from "../src/shared/favicon";
 import { faviconsFromHistory, type HistoryRecord } from "../src/shared/history-ops";
 import { buildSnapshot, reviveSession, serializeWindow, type LiveWindow } from "../src/shared/session-state";
 
@@ -25,13 +25,29 @@ describe("favicon selection", () => {
 
 describe("<Favicon> source", () => {
   it("shows the icon until that icon fails", () => {
-    expect(faviconSrcToShow("https://a.test/f.ico", null)).toBe("https://a.test/f.ico");
-    expect(faviconSrcToShow("https://a.test/f.ico", "https://a.test/f.ico")).toBeUndefined();
-    expect(faviconSrcToShow(undefined, null)).toBeUndefined();
+    expect(faviconSrcToShow("https://a.test/f.ico", [])).toBe("https://a.test/f.ico");
+    expect(faviconSrcToShow("https://a.test/f.ico", ["https://a.test/f.ico"])).toBeUndefined();
+    expect(faviconSrcToShow(undefined, [])).toBeUndefined();
   });
 
   it("shows a new icon after an earlier one failed (regression: one failure hid every later icon)", () => {
-    expect(faviconSrcToShow("https://a.test/good.png", "https://a.test/missing.png")).toBe("https://a.test/good.png");
+    expect(faviconSrcToShow("https://a.test/good.png", ["https://a.test/missing.png"])).toBe("https://a.test/good.png");
+  });
+
+  it("falls back to the site's /favicon.ico when the page's icon fails", () => {
+    const page = "https://www.YouTube.com/watch?v=1";
+    expect(faviconSrcToShow("https://cdn.test/yt.png", ["https://cdn.test/yt.png"], page)).toBe("https://www.youtube.com/favicon.ico");
+    expect(faviconSrcToShow("https://cdn.test/yt.png", ["https://cdn.test/yt.png", "https://www.youtube.com/favicon.ico"], page)).toBeUndefined();
+    expect(faviconSrcToShow(undefined, [], page)).toBeUndefined();
+  });
+});
+
+describe("favicon across navigations", () => {
+  it("keeps the icon within one site until the new page reports its own", () => {
+    expect(keepsFavicon("https://www.youtube.com/", "https://www.youtube.com/watch?v=1")).toBe(true);
+    expect(keepsFavicon("https://www.youtube.com/", "https://accounts.google.com/")).toBe(false);
+    expect(keepsFavicon("http://a.test/", "https://a.test/")).toBe(false);
+    expect(keepsFavicon("corvus://newtab/", "corvus://settings/")).toBe(false);
   });
 });
 

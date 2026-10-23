@@ -191,14 +191,14 @@ export const ES: Record<string, string> = {
 
   // ------------------------------------------------------------------ ad blocker
   "Ad & tracker blocker": "Bloqueador de anuncios y rastreadores",
-  "Blocks ads and trackers with EasyList and EasyPrivacy, including cosmetic (page element) filters. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced.":
-    "Bloquea anuncios y rastreadores con EasyList y EasyPrivacy, incluidos los filtros cosméticos (elementos de la página). Nunca bloquea en las páginas corvus:// ni en direcciones locales, y los ajustes son por perfil y nunca se sincronizan.",
+  "Blocks ads and trackers with the lists uBlock Origin uses (its own filters, EasyList and EasyPrivacy): requests, page elements, and the scripts that keep sites like YouTube free of video ads. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced.":
+    "Bloquea anuncios y rastreadores con las listas que usa uBlock Origin (sus propios filtros, EasyList y EasyPrivacy): peticiones, elementos de la página y los scripts que quitan los anuncios de vídeo en sitios como YouTube. Nunca bloquea en las páginas corvus:// ni en direcciones locales, y los ajustes son por perfil y nunca se sincronizan.",
   "Block ads and trackers": "Bloquear anuncios y rastreadores",
   "Applies to every site except those you allow below.": "Se aplica a todos los sitios salvo los que permitas abajo.",
   "Filter lists": "Listas de filtros",
   "{count} rules": "{count} reglas",
   "Using the bundled list until the first update succeeds.": "Usa la lista incluida hasta que funcione la primera actualización.",
-  "EasyList + EasyPrivacy (cached)": "EasyList + EasyPrivacy (en caché)",
+  "uBlock Origin + EasyList + EasyPrivacy (cached)": "uBlock Origin + EasyList + EasyPrivacy (en caché)",
   "Built-in list (offline)": "Lista incluida (sin conexión)",
   "updated {time}": "actualizada {time}",
   "never updated": "nunca actualizada",
