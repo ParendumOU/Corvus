@@ -23,13 +23,14 @@ import { PageMonitor } from "./page-monitor";
 import { ProfileManager } from "./profile-manager";
 import { ProfileRegistry } from "./profiles";
 import { ReaderService } from "./reader-service";
-import { handleInternalProtocol, registerInternalScheme } from "./protocol";
+import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage } from "./protocol";
 import { ScheduledAgentRunner } from "./scheduled-agent-runner";
 import { FlowService } from "./flow-service";
 import { SearchService } from "./search-service";
 import { SemanticSearchService } from "./semantic-search-service";
 import { SessionRestore } from "./session-restore";
 import { restorePlan } from "../shared/session-state";
+import { resolveUiLanguage } from "../shared/settings";
 import { SettingsStore } from "./settings-store";
 import type { BrowserWindowCtl } from "./window";
 import { runSmokeTest } from "./smoke";
@@ -92,6 +93,7 @@ async function main(): Promise<void> {
   const crashReporter = new CrashReporter(userData, () => settings.get().crashReports.saveLogs);
   installCrashHandlers(crashReporter);
   nativeTheme.themeSource = settings.get().appearance.theme;
+  setInternalPageLanguage(() => resolveUiLanguage(settings.get().appearance.language, app.getLocale()));
   const profiles = new ProfileRegistry(new ProfileManager(path.join(userData, "Profiles")), safeStorage);
 
   const ctx = { settings, profiles } as AppContext;
@@ -164,6 +166,7 @@ async function main(): Promise<void> {
   });
 
   app.on("second-instance", (_event, argv) => {
+    ctx.mcp.enableFromArgv(argv);
     const urls = urlsFromArgv(argv);
     const win = ctx.windows.focused();
     if (!win) {
@@ -202,6 +205,8 @@ async function main(): Promise<void> {
   }
   ctx.sessionRestore.start();
   ctx.webscope.apply();
+  ctx.mcp.recordAppLocation();
+  ctx.mcp.enableFromArgv(process.argv);
   void ctx.mcp.apply();
   ctx.sync.start();
   ctx.monitor.start();

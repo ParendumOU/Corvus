@@ -2,26 +2,27 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import "../common/theme.css";
 import "./pages.css";
+import { t } from "../common/i18n";
 import { CorvusMark, IconAgent, IconBook, IconClock, IconDownload, IconEdit, IconFolder, IconGlobe, IconHistory, IconLock, IconPointer, IconPuzzle, IconSearch, IconSettings } from "../common/icons";
 
 export function mount(node: ReactNode): void {
   createRoot(document.getElementById("root") as HTMLElement).render(node);
 }
 
-const NAV = [
-  { id: "find", label: "Find in my pages", href: "corvus://find/", icon: <IconSearch size={16} /> },
-  { id: "history", label: "History", href: "corvus://history/", icon: <IconHistory size={16} /> },
-  { id: "bookmarks", label: "Bookmarks", href: "corvus://bookmarks/", icon: <IconFolder size={16} /> },
-  { id: "reading", label: "Reading list", href: "corvus://reading/", icon: <IconBook size={16} /> },
-  { id: "annotations", label: "Annotations", href: "corvus://annotations/", icon: <IconEdit size={16} /> },
-  { id: "schedules", label: "Scheduled agents", href: "corvus://schedules/", icon: <IconClock size={16} /> },
-  { id: "agent-runs", label: "Agent runs", href: "corvus://agent-runs/", icon: <IconAgent size={16} /> },
-  { id: "site-profiles", label: "Site AI profiles", href: "corvus://site-profiles/", icon: <IconGlobe size={16} /> },
-  { id: "flows", label: "Workflows", href: "corvus://flows/", icon: <IconPointer size={16} /> },
-  { id: "passwords", label: "Passwords", href: "corvus://passwords/", icon: <IconLock size={16} /> },
-  { id: "downloads", label: "Downloads", href: "corvus://downloads/", icon: <IconDownload size={16} /> },
-  { id: "extensions", label: "Extensions", href: "corvus://extensions/", icon: <IconPuzzle size={16} /> },
-  { id: "settings", label: "Settings", href: "corvus://settings/", icon: <IconSettings size={16} /> },
+const nav = () => [
+  { id: "find", label: t("Find in my pages"), href: "corvus://find/", icon: <IconSearch size={16} /> },
+  { id: "history", label: t("History"), href: "corvus://history/", icon: <IconHistory size={16} /> },
+  { id: "bookmarks", label: t("Bookmarks"), href: "corvus://bookmarks/", icon: <IconFolder size={16} /> },
+  { id: "reading", label: t("Reading list"), href: "corvus://reading/", icon: <IconBook size={16} /> },
+  { id: "annotations", label: t("Annotations"), href: "corvus://annotations/", icon: <IconEdit size={16} /> },
+  { id: "schedules", label: t("Scheduled agents"), href: "corvus://schedules/", icon: <IconClock size={16} /> },
+  { id: "agent-runs", label: t("Agent runs"), href: "corvus://agent-runs/", icon: <IconAgent size={16} /> },
+  { id: "site-profiles", label: t("Site AI profiles"), href: "corvus://site-profiles/", icon: <IconGlobe size={16} /> },
+  { id: "flows", label: t("Workflows"), href: "corvus://flows/", icon: <IconPointer size={16} /> },
+  { id: "passwords", label: t("Passwords"), href: "corvus://passwords/", icon: <IconLock size={16} /> },
+  { id: "downloads", label: t("Downloads"), href: "corvus://downloads/", icon: <IconDownload size={16} /> },
+  { id: "extensions", label: t("Extensions"), href: "corvus://extensions/", icon: <IconPuzzle size={16} /> },
+  { id: "settings", label: t("Settings"), href: "corvus://settings/", icon: <IconSettings size={16} /> },
 ];
 
 export function PageShell({
@@ -44,12 +45,12 @@ export function PageShell({
           <CorvusMark size={26} />
           <span>Corvus</span>
         </a>
-        <h1>{title}</h1>
+        <h1>{t(title)}</h1>
         <div className="page-toolbar">{toolbar}</div>
       </header>
       <div className="page-body">
         <nav className="side-nav">
-          {NAV.map((item) => (
+          {nav().map((item) => (
             <a key={item.id} href={item.href} className={item.id === active ? "active" : ""}>
               {item.icon}
               <span>{item.label}</span>

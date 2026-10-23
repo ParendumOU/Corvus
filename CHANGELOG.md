@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.3.3
+
+### For AI agents
+- **Agents start Corvus when they need it**: the Claude Code plugin and the MCP connector use
+  Corvus if it is running, and otherwise start it in a normal, visible window with its MCP server
+  on (`--enable-mcp`, which also turns the server on in a Corvus that is already open). The first
+  connection still asks you to approve the client. Corvus records where it runs from in
+  `~/.corvus/app.json`, so the portable build and AppImage are found too; `CORVUS_BIN` overrides
+  it and `CORVUS_MCP_NO_LAUNCH=1` turns starting off.
+- **MCP connections survive a browser restart**: after Corvus restarted or dropped the session,
+  every call failed with "Session not found" until the client reconnected by hand. The connector
+  now finds Corvus again, opens a new session and retries the call.
+- **Claude Code CLI provider on Windows**: a `.cmd` wrapper (npm's `claude.cmd`, or an account
+  switcher such as `ccm`) set as the CLI path failed with "Claude Code CLI not found". Corvus now
+  looks the command up on PATH like a terminal and runs batch wrappers through cmd.exe.
+
+### Browser
+- **Home button**: a house next to reload (Alt+Home, Ctrl+click or middle-click for a new tab)
+  goes to Corvus's New Tab page with Corvus search, or to Google, Bing, DuckDuckGo, Yahoo, Ecosia,
+  Brave Search, Startpage or an address of your own (Settings > Appearance > Home page).
+- **Settings in English or Spanish**: Settings > Appearance > Language (System, English,
+  Español) switches the settings page and the menu of Corvus pages at once; System follows the
+  operating system language. Other Corvus pages stay in English for now.
+- **Signing in to Google works**: Google refused the sign-in ("This browser or app may not be
+  secure"). Corvus now tells Google's sign-in page that it is an Electron browser, which gets the
+  sign-in flow for embedded browsers; every other site still sees a regular Chrome user agent.
+- **No more security-key prompts out of nowhere**: on Windows, sites that try a passkey (Google
+  does at every sign-in) opened the system "use your security key" dialog. Passkeys and security
+  keys are now off by default; turn them on in Settings > Passwords > Passkeys and security keys.
+- **Search results are easier to read**: a cleaner layout with an AI relevance ring per result,
+  high-contrast titles, the AI summary set apart from the page snippet, snippets cut at three
+  lines, cited sources as cards under the answer, and no empty rating column when the AI answer
+  is off or fails.
+- **Settings side menu**: its links no longer squeeze together in short windows, its scrollbar
+  only shows on hover, and jumping to a section lands it below the search box instead of under it.
+
 ## v0.3.2
 
 ### For AI agents

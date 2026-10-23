@@ -134,11 +134,6 @@ var require_content_type = __commonJS({
   }
 });
 
-// src/bin/stdio-bridge.ts
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 // ../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.1_zod@4.6.7/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/mediaType.js
 var import_content_type = __toESM(require_content_type(), 1);
 function mediaTypeEssence(header) {
@@ -3647,7 +3642,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve2) {
+function isRecursive(inst, stack, resolve) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -3657,7 +3652,7 @@ function isRecursive(inst, stack, resolve2) {
   let result = NONE;
   const check = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve2);
+      const answer = isRecursive(child, stack, resolve);
       if (answer > result)
         result = answer;
     }
@@ -3668,7 +3663,7 @@ function isRecursive(inst, stack, resolve2) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve2) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -3732,7 +3727,7 @@ function isRecursive(inst, stack, resolve2) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve2 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -6983,6 +6978,7 @@ var JSONRPCErrorResponseSchema = object({
     data: unknown().optional()
   })
 }).strict();
+var isJSONRPCErrorResponse = (value) => JSONRPCErrorResponseSchema.safeParse(value).success;
 var JSONRPCMessageSchema = union([
   JSONRPCRequestSchema,
   JSONRPCNotificationSchema,
@@ -9962,12 +9958,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve2) => {
+    return new Promise((resolve) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve2();
+        resolve();
       } else {
-        this._stdout.once("drain", resolve2);
+        this._stdout.once("drain", resolve);
       }
     });
   }
@@ -9975,21 +9971,57 @@ var StdioServerTransport = class {
 
 // src/bridge.ts
 var LOOPBACK = /* @__PURE__ */ new Set(["127.0.0.1", "localhost", "[::1]"]);
-async function startStdioBridge(opts) {
-  const url2 = new URL(opts.url);
+var REINIT_TIMEOUT_MS = 12e4;
+function endpoint(target) {
+  const url2 = new URL(target.url);
   if (url2.protocol !== "http:" || !LOOPBACK.has(url2.hostname)) {
     throw new Error("CORVUS_MCP_URL must be an http://127.0.0.1 (loopback) URL");
   }
-  if (!opts.token) throw new Error("CORVUS_MCP_TOKEN is required");
+  if (!target.token) throw new Error("CORVUS_MCP_TOKEN is required");
+  return url2;
+}
+function isLost(err) {
+  if (err instanceof StreamableHTTPError) return err.code === 404;
+  return err instanceof TypeError;
+}
+function reasonOf(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+async function startStdioBridge(opts) {
+  endpoint(opts);
   const log = opts.log ?? ((m) => process.stderr.write(`[corvus-mcp-stdio] ${m}
 `));
   const stdio = new StdioServerTransport(opts.stdin, opts.stdout);
-  const http = new StreamableHTTPClientTransport(url2, {
-    requestInit: { headers: { Authorization: `Bearer ${opts.token}` } }
-  });
   const initIds = /* @__PURE__ */ new Set();
+  let initRequest;
+  const ownRequests = /* @__PURE__ */ new Map();
+  let reinits = 0;
+  const useVersion = (transport, msg) => {
+    const version2 = msg.result.protocolVersion;
+    if (typeof version2 === "string") transport.setProtocolVersion(version2);
+  };
+  const connect = (target) => {
+    const transport = new StreamableHTTPClientTransport(endpoint(target), {
+      requestInit: { headers: { Authorization: `Bearer ${target.token}` } }
+    });
+    transport.onmessage = (msg) => {
+      if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) {
+        const own2 = msg.id === void 0 ? void 0 : ownRequests.get(msg.id);
+        if (own2 && msg.id !== void 0) {
+          ownRequests.delete(msg.id);
+          own2(msg);
+          return;
+        }
+      }
+      if (isJSONRPCResultResponse(msg) && initIds.delete(msg.id)) useVersion(transport, msg);
+      void stdio.send(msg);
+    };
+    transport.onerror = (err) => log(`upstream error: ${err.message}`);
+    return transport;
+  };
+  let http = connect(opts);
   let resolveClosed;
-  const closed = new Promise((resolve2) => resolveClosed = resolve2);
+  const closed = new Promise((resolve) => resolveClosed = resolve);
   let closing = false;
   async function close() {
     if (closing) return closed;
@@ -9997,13 +10029,39 @@ async function startStdioBridge(opts) {
     await Promise.allSettled([http.close(), stdio.close()]);
     resolveClosed();
   }
-  let queue = Promise.resolve();
-  stdio.onmessage = (msg) => {
-    if (isInitializeRequest(msg) && isJSONRPCRequest(msg)) initIds.add(msg.id);
-    queue = queue.then(() => forward(msg));
-  };
-  const forward = (msg) => http.send(msg).catch((err) => {
-    const reason = err instanceof Error ? err.message : String(err);
+  async function ask(transport, request) {
+    let timer;
+    const answer = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("Corvus did not answer in time")), REINIT_TIMEOUT_MS);
+      ownRequests.set(request.id, resolve);
+    });
+    try {
+      await transport.send(request);
+      return await answer;
+    } finally {
+      clearTimeout(timer);
+      ownRequests.delete(request.id);
+    }
+  }
+  async function reopen(replay) {
+    const target = await opts.reconnect();
+    const old = http;
+    old.onmessage = void 0;
+    old.onerror = void 0;
+    void old.close().catch(() => void 0);
+    http = connect(target);
+    await http.start();
+    if (!replay || !initRequest) return;
+    reinits += 1;
+    const answer = await ask(http, { ...initRequest, id: `corvus-bridge-reinit-${reinits}` });
+    if (isJSONRPCErrorResponse(answer)) throw new Error(`Corvus refused the new session: ${answer.error.message}`);
+    if (isJSONRPCResultResponse(answer)) useVersion(http, answer);
+    await http.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    await stdio.send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+    log("reconnected to Corvus");
+  }
+  const fail = (msg, err) => {
+    const reason = reasonOf(err);
     log(`upstream error: ${reason}`);
     if (isJSONRPCRequest(msg)) {
       void stdio.send({
@@ -10012,15 +10070,32 @@ async function startStdioBridge(opts) {
         error: { code: -32e3, message: `Corvus browser unreachable or refused the request: ${reason}` }
       });
     }
-  });
-  http.onmessage = (msg) => {
-    if (isJSONRPCResultResponse(msg) && initIds.delete(msg.id)) {
-      const version2 = msg.result.protocolVersion;
-      if (typeof version2 === "string") http.setProtocolVersion(version2);
-    }
-    void stdio.send(msg);
   };
-  http.onerror = (err) => log(`upstream error: ${err.message}`);
+  const forward = async (msg) => {
+    try {
+      await http.send(msg);
+      return;
+    } catch (err) {
+      if (!opts.reconnect || closing || !isLost(err)) return fail(msg, err);
+      log(`lost Corvus (${reasonOf(err)}), reconnecting`);
+    }
+    try {
+      const replay = !isInitializeRequest(msg);
+      await reopen(replay);
+      if (replay && isInitializedNotification(msg)) return;
+      await http.send(msg);
+    } catch (err) {
+      fail(msg, err);
+    }
+  };
+  let queue = Promise.resolve();
+  stdio.onmessage = (msg) => {
+    if (isInitializeRequest(msg) && isJSONRPCRequest(msg)) {
+      initIds.add(msg.id);
+      initRequest = msg;
+    }
+    queue = queue.then(() => forward(msg));
+  };
   stdio.onerror = (err) => log(`stdio error: ${err.message}`);
   stdio.onclose = () => void close();
   (opts.stdin ?? process.stdin).once("end", () => void close());
@@ -10029,42 +10104,104 @@ async function startStdioBridge(opts) {
   return { close, closed };
 }
 
-// src/bin/stdio-bridge.ts
-var discoveryPath = join(process.env.CORVUS_HOME || join(homedir(), ".corvus"), "mcp.json");
-async function readDiscovery() {
+// src/launch.ts
+import { spawn } from "node:child_process";
+import { access, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+var ENABLE_MCP_SWITCH = "--enable-mcp";
+var WAIT_MS = 6e4;
+var POLL_MS = 500;
+function corvusHome(env = process.env) {
+  return env.CORVUS_HOME || join(homedir(), ".corvus");
+}
+function alive(pid) {
   try {
-    const raw = await readFile(discoveryPath, "utf8");
-    const data = JSON.parse(raw);
-    if (data.url && data.token) return data;
-    return null;
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+async function readJson(file) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
   } catch {
     return null;
   }
 }
-async function resolve() {
-  const envUrl = process.env.CORVUS_MCP_URL;
-  const envToken = process.env.CORVUS_MCP_TOKEN;
-  if (envUrl && envToken) return { url: envUrl, token: envToken };
-  const deadline = Date.now() + 6e4;
-  let warned = false;
-  for (; ; ) {
-    const found = await readDiscovery();
-    if (found?.url && found.token) return { url: found.url, token: found.token };
-    if (!warned) {
-      process.stderr.write(`corvus-mcp-stdio: waiting for Corvus (no ${discoveryPath}; is the MCP server enabled in Corvus > Settings > AI agents?)
-`);
-      warned = true;
-    }
-    if (Date.now() > deadline) {
-      process.stderr.write("corvus-mcp-stdio: gave up after 60s. Set CORVUS_MCP_URL and CORVUS_MCP_TOKEN, or start Corvus with its MCP server enabled.\n");
-      process.exit(2);
-    }
-    await new Promise((r) => setTimeout(r, 1e3));
+async function readDiscovery(home) {
+  const data = await readJson(join(home, "mcp.json"));
+  if (typeof data?.url !== "string" || typeof data.token !== "string" || !data.url || !data.token) return null;
+  if (typeof data.pid === "number" && !alive(data.pid)) return null;
+  return { url: data.url, token: data.token };
+}
+async function exists(file) {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
   }
 }
+async function corvusExecutable(home, env = process.env, platform = process.platform) {
+  const recorded = await readJson(join(home, "app.json"));
+  const candidates = [env.CORVUS_BIN, typeof recorded?.exe === "string" ? recorded.exe : void 0];
+  if (platform === "win32") {
+    if (env.LOCALAPPDATA) candidates.push(join(env.LOCALAPPDATA, "Programs", "Corvus", "Corvus.exe"));
+    if (env.ProgramFiles) candidates.push(join(env.ProgramFiles, "Corvus", "Corvus.exe"));
+  } else if (platform === "darwin") {
+    candidates.push("/Applications/Corvus.app/Contents/MacOS/Corvus", join(homedir(), "Applications", "Corvus.app", "Contents", "MacOS", "Corvus"));
+  } else {
+    candidates.push("/opt/Corvus/corvus", "/usr/bin/corvus");
+  }
+  for (const file of candidates) if (file && await exists(file)) return file;
+  return null;
+}
+function startCorvus(exe, log) {
+  const child = spawn(exe, [ENABLE_MCP_SWITCH], { detached: true, stdio: "ignore" });
+  child.once("error", (err) => log(`could not start Corvus (${exe}): ${err.message}`));
+  child.unref();
+}
+async function waitForCorvus(opts = {}) {
+  const home = opts.home ?? corvusHome();
+  const log = opts.log ?? ((m) => process.stderr.write(`[corvus-mcp-stdio] ${m}
+`));
+  const found = await readDiscovery(home);
+  if (found) return found;
+  if (opts.launch) {
+    const exe = await (opts.findExecutable ?? corvusExecutable)(home);
+    if (exe) {
+      log(`starting Corvus: ${exe}`);
+      (opts.start ?? startCorvus)(exe, log);
+    } else {
+      log("Corvus is not running and was not found. Start it, or set CORVUS_BIN to its executable.");
+    }
+  } else {
+    log(`waiting for Corvus (no ${join(home, "mcp.json")}; is the MCP server enabled in Corvus > Settings > AI agents?)`);
+  }
+  const deadline = Date.now() + (opts.timeoutMs ?? WAIT_MS);
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    const target = await readDiscovery(home);
+    if (target) return target;
+  }
+  throw new Error(
+    "Corvus did not start its MCP server in time. Open Corvus and turn on Settings > AI agents > Enable MCP server, or set CORVUS_MCP_URL and CORVUS_MCP_TOKEN."
+  );
+}
+
+// src/bin/stdio-bridge.ts
+var launch = process.env.CORVUS_MCP_NO_LAUNCH !== "1";
+function fromEnv() {
+  const url2 = process.env.CORVUS_MCP_URL;
+  const token = process.env.CORVUS_MCP_TOKEN;
+  return url2 && token ? { url: url2, token } : null;
+}
 try {
-  const { url: url2, token } = await resolve();
-  const bridge = await startStdioBridge({ url: url2, token });
+  const env = fromEnv();
+  const find = async () => env ?? await waitForCorvus({ launch });
+  const bridge = await startStdioBridge({ ...await find(), reconnect: find });
   await bridge.closed;
   process.exit(0);
 } catch (err) {

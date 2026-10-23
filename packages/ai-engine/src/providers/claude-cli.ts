@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
+import { spawnCli } from "./cli-spawn.js";
 import type { AnswerProvider, AnswerRequest, ProviderEvent } from "./types.js";
 
 export interface ClaudeCliProviderOptions {
   model: string;
-  /** Path to the Claude Code binary. Default "claude". On Windows point it at claude.exe, not a .cmd shim. */
+  /** Claude Code binary or a wrapper around it (name on PATH or a path; .cmd works on Windows). Default "claude". */
   cliPath?: string;
   /** Hard limit for one answer, in ms. Default 60000. */
   timeoutMs?: number;
@@ -155,7 +155,7 @@ export function createClaudeCliProvider(opts: ClaudeCliProviderOptions): AnswerP
     kind: "claude-code-cli",
     model: opts.model,
     async *answer(req: AnswerRequest): AsyncIterable<ProviderEvent> {
-      const child = spawn(cliPath, buildClaudeCliArgs(opts.model, req.prompt.system), {
+      const child = spawnCli(cliPath, buildClaudeCliArgs(opts.model, req.prompt.system), {
         // A neutral cwd keeps project CLAUDE.md files out of the context.
         cwd: tmpdir(),
         env: {
@@ -164,8 +164,6 @@ export function createClaudeCliProvider(opts: ClaudeCliProviderOptions): AnswerP
           // second "continue" request that re-reads the whole prompt. Headroom avoids that.
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(req.maxOutputTokens + CLI_THINKING_HEADROOM),
         },
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
       });
       const kill = () => {
         if (child.exitCode === null) child.kill();

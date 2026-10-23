@@ -122,6 +122,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "tabs.back": (w, id) => w.goBack(str(id, "tab")),
     "tabs.forward": (w, id) => w.goForward(str(id, "tab")),
     "tabs.reload": (w, id) => w.reload(str(id, "tab")),
+    "tabs.home": (w, id, inNewTab) => w.home(str(id, "tab"), inNewTab === true),
     "tabs.stop": (w, id) => w.stop(str(id, "tab")),
     "tabs.reopenClosed": (w) => w.reopenClosed(),
     "groups.create": (w, ids) => w.createGroup(strArray(ids, "tabs"))?.id ?? null,

@@ -42,6 +42,18 @@ const CSP = [
   "base-uri 'none'",
 ].join("; ");
 
+let pageLanguage = (): string => "en";
+
+/** Where internal pages get their language from; it is written into each page's <html lang>. */
+export function setInternalPageLanguage(language: () => string): void {
+  pageLanguage = language;
+}
+
+/** Pages read their language synchronously from <html lang>, so they render translated at once. */
+function withLanguage(html: string): string {
+  return html.replace(/<html lang="[^"]*">/, `<html lang="${pageLanguage()}">`);
+}
+
 async function handle(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const page = url.hostname;
@@ -56,6 +68,10 @@ async function handle(request: Request): Promise<Response> {
     const upstream = await net.fetch(`${rendererDevUrl.replace(/\/$/, "")}${pathname}${isDocument ? "" : url.search}`);
     const headers = new Headers(upstream.headers);
     headers.set("X-Frame-Options", "DENY");
+    if (isDocument) {
+      headers.delete("content-length");
+      return new Response(withLanguage(await upstream.text()), { status: upstream.status, headers });
+    }
     return new Response(upstream.body, { status: upstream.status, headers });
   }
 
@@ -63,7 +79,8 @@ async function handle(request: Request): Promise<Response> {
   const filePath = path.normalize(path.join(root, pathname));
   if (!filePath.startsWith(root + path.sep)) return new Response("Forbidden", { status: 403 });
   try {
-    const body = await fs.readFile(filePath);
+    const raw = await fs.readFile(filePath);
+    const body = isDocument ? withLanguage(raw.toString("utf8")) : raw;
     const headers: Record<string, string> = {
       "Content-Type": MIME[path.extname(filePath)] ?? "application/octet-stream",
       "X-Content-Type-Options": "nosniff",

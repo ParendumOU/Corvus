@@ -5,6 +5,21 @@ export type { AccessLevel } from "@corvus/shared";
 export type ThemeSource = "system" | "light" | "dark";
 export type StartupMode = "restore" | "newtab";
 export type TabLayout = "horizontal" | "vertical";
+/** Language of Corvus's own pages; "system" follows the operating system. */
+export type UiLanguageSetting = "system" | "en" | "es";
+export type UiLanguage = "en" | "es";
+/** Where the toolbar's home button goes. */
+export type HomePage = "corvus" | "google" | "bing" | "duckduckgo" | "yahoo" | "ecosia" | "brave" | "startpage" | "custom";
+
+export const HOME_PAGES: Record<Exclude<HomePage, "corvus" | "custom">, string> = {
+  google: "https://www.google.com/",
+  bing: "https://www.bing.com/",
+  duckduckgo: "https://duckduckgo.com/",
+  yahoo: "https://www.yahoo.com/",
+  ecosia: "https://www.ecosia.org/",
+  brave: "https://search.brave.com/",
+  startpage: "https://www.startpage.com/",
+};
 export type UpdateChannel = "stable" | "beta";
 
 export interface Settings {
@@ -17,6 +32,13 @@ export interface Settings {
     sidebarWidth: number;
     /** Vertical sidebar collapsed to icons only. */
     sidebarCollapsed: boolean;
+    /** Language of Corvus's own pages (settings and the page menu so far). */
+    language: UiLanguageSetting;
+    /** Home button next to reload, and where it goes ("corvus" = the New Tab page with Corvus search). */
+    showHomeButton: boolean;
+    homePage: HomePage;
+    /** Address for homePage "custom" (http or https). */
+    homeUrl: string;
   };
   ai: {
     provider: AIProviderKind;
@@ -48,6 +70,11 @@ export interface Settings {
     agentAccess: boolean;
     /** Lock unlocked KeePass databases after this many idle minutes. 0 = never. */
     keepassAutoLockMinutes: number;
+    /**
+     * Let sites use passkeys and security keys (Windows Hello, Touch ID, USB keys). Off by default:
+     * on Windows each request opens the system security-key dialog. Applies to tabs opened afterwards.
+     */
+    passkeys: boolean;
   };
   mcp: {
     enabled: boolean;
@@ -158,7 +185,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
   const retriever: RetrieverKind =
     env.CORVUS_RETRIEVER === "brave" || env.CORVUS_RETRIEVER === "duckduckgo" ? env.CORVUS_RETRIEVER : "searxng";
   return {
-    appearance: { theme: "system", showBookmarksBar: true, tabLayout: "horizontal", sidebarWidth: 240, sidebarCollapsed: false },
+    appearance: { theme: "system", showBookmarksBar: true, tabLayout: "horizontal", sidebarWidth: 240, sidebarCollapsed: false, language: "system", showHomeButton: true, homePage: "corvus", homeUrl: "" },
     ai: {
       provider,
       model: env.CORVUS_AI_MODEL || DEFAULT_MODEL,
@@ -171,7 +198,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       maxOutputTokens: 400,
     },
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true },
-    passwords: { agentAccess: false, keepassAutoLockMinutes: 15 },
+    passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [] },
     downloads: { directory: "", askWhereToSave: false },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
@@ -230,6 +257,8 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   merged.scheduledAgents.maxTokens = Math.max(2000, Math.min(500000, Math.round(merged.scheduledAgents.maxTokens)));
   if (!["horizontal", "vertical"].includes(merged.appearance.tabLayout)) merged.appearance.tabLayout = base.appearance.tabLayout;
   if (!["system", "light", "dark"].includes(merged.appearance.theme)) merged.appearance.theme = base.appearance.theme;
+  if (!["system", "en", "es"].includes(merged.appearance.language)) merged.appearance.language = base.appearance.language;
+  if (!["corvus", "custom", ...Object.keys(HOME_PAGES)].includes(merged.appearance.homePage)) merged.appearance.homePage = base.appearance.homePage;
   if (!["anthropic-api", "claude-code-cli", "local"].includes(merged.ai.provider)) merged.ai.provider = base.ai.provider;
   if (!["ollama", "openai"].includes(merged.ai.localApi)) merged.ai.localApi = base.ai.localApi;
   if (!["searxng", "brave", "duckduckgo"].includes(merged.ai.retriever)) merged.ai.retriever = base.ai.retriever;
@@ -254,4 +283,24 @@ export function resolveMcpAccessLevel(mcp: { accessLevel: AccessLevel; allowEval
 
 export function mcpAddCommand(port: number, token: string, host = "127.0.0.1"): string {
   return `claude mcp add --transport http corvus http://${host}:${port}/mcp --header "Authorization: Bearer ${token}"`;
+}
+
+/** The language Corvus pages use: the chosen one, or Spanish for a Spanish system locale ("es-ES"). */
+export function resolveUiLanguage(setting: UiLanguageSetting, locale: string): UiLanguage {
+  if (setting === "en" || setting === "es") return setting;
+  return /^es\b/i.test(locale) ? "es" : "en";
+}
+
+/** Address the home button opens; a custom address that is not http(s) falls back to the New Tab page. */
+export function homePageUrl(appearance: Pick<Settings["appearance"], "homePage" | "homeUrl">): string {
+  if (appearance.homePage === "corvus") return "corvus://newtab/";
+  if (appearance.homePage === "custom") {
+    try {
+      const url = new URL(appearance.homeUrl.trim());
+      return url.protocol === "http:" || url.protocol === "https:" ? url.href : "corvus://newtab/";
+    } catch {
+      return "corvus://newtab/";
+    }
+  }
+  return HOME_PAGES[appearance.homePage];
 }

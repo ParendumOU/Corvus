@@ -13,6 +13,7 @@ export type BrowserCommand =
   | { type: "stop" }
   | { type: "back" }
   | { type: "forward" }
+  | { type: "home" }
   | { type: "bookmark-page" }
   | { type: "open-history" }
   | { type: "open-bookmarks" }
@@ -48,6 +49,7 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
   if (key === "BrowserBack") return { type: "back" };
   if (key === "BrowserForward") return { type: "forward" };
 
+  if (input.alt && !mod && !input.shift && key === "Home") return { type: "home" };
   if (input.alt && !mod && !mac) {
     if (key === "ArrowLeft") return { type: "back" };
     if (key === "ArrowRight") return { type: "forward" };

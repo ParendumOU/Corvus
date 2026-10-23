@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../common/i18n";
 import { IconClose, IconSearch } from "../common/icons";
 import { matchSection, normalizeQuery, findRanges, type SectionIndexEntry } from "./settings-search-lib";
 import "./settings-search.css";
@@ -232,9 +233,9 @@ export function SettingsSearch() {
           ref={inputRef}
           type="text"
           value={query}
-          placeholder="Search settings…"
+          placeholder={t("Search settings…")}
           spellCheck={false}
-          aria-label="Search settings"
+          aria-label={t("Search settings")}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -248,14 +249,14 @@ export function SettingsSearch() {
           }}
         />
         {query ? (
-          <button className="clear-btn" title="Clear (Esc)" aria-label="Clear search" onClick={clear}>
+          <button className="clear-btn" title={t("Clear (Esc)")} aria-label={t("Clear search")} onClick={clear}>
             <IconClose size={14} />
           </button>
         ) : (
           <span className="search-kbd">/</span>
         )}
       </div>
-      {count === 0 && <div className="no-results">No settings match “{query.trim()}”.</div>}
+      {count === 0 && <div className="no-results">{t("No settings match “{query}”.", { query: query.trim() })}</div>}
     </div>
   );
 }

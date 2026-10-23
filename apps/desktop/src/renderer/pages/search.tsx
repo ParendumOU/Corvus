@@ -4,7 +4,7 @@ import type { EngineInfo } from "../../shared/ipc";
 import { classifyOmnibox, intentToUrl, searchUrl } from "../../shared/omnibox";
 import { displayOrder, initialSearchView, parseCategory, reduceSearchView, type SearchViewState, type SortMode } from "../../shared/search-view";
 import { errorMessage, internalApi } from "../common/api";
-import { CorvusMark, IconSearch } from "../common/icons";
+import { CorvusMark, IconSearch, IconWarning } from "../common/icons";
 import {
   AnswerBlock,
   EntityPanel,
@@ -266,12 +266,15 @@ function SearchPage() {
 
             {state.errors.map((e, i) => (
               <div key={i} className={`search-error ${e.recoverable ? "soft" : ""}`} role="alert">
-                <strong>{e.recoverable ? "The AI answer stopped early." : "Search failed."}</strong> {e.message}
-                {!e.recoverable && engine && !engine.available && (
-                  <div className="muted small">
-                    Configure the search engine in <a href="corvus://settings/">Settings</a>.
-                  </div>
-                )}
+                <IconWarning size={16} />
+                <div>
+                  <strong>{e.recoverable ? "The AI answer stopped early." : "Search failed."}</strong> {e.message}
+                  {!e.recoverable && engine && !engine.available && (
+                    <div className="muted small">
+                      Configure the search engine in <a href="corvus://settings/">Settings</a>.
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
 

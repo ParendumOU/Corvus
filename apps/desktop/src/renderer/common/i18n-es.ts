@@ -1,0 +1,500 @@
+/**
+ * Spanish (Spain) strings for Corvus pages, keyed by their English text (see i18n.ts).
+ * test/i18n.test.ts fails when a t("…") on a translated page has no entry here.
+ */
+export const ES: Record<string, string> = {
+  // ------------------------------------------------------------------ page menu and titles
+  Settings: "Ajustes",
+  "Find in my pages": "Buscar en mis páginas",
+  History: "Historial",
+  Bookmarks: "Marcadores",
+  "Reading list": "Lista de lectura",
+  Annotations: "Anotaciones",
+  "Scheduled agents": "Agentes programados",
+  "Agent runs": "Ejecuciones de agentes",
+  "Site AI profiles": "Perfiles de IA por sitio",
+  Workflows: "Flujos de trabajo",
+  Passwords: "Contraseñas",
+  Downloads: "Descargas",
+  Extensions: "Extensiones",
+  "Watched pages": "Páginas vigiladas",
+  Devices: "Dispositivos",
+  "Appearance & reading": "Apariencia y lectura",
+  Browsing: "Navegación",
+  "AI & agents": "IA y agentes",
+  System: "Sistema",
+  "Ad blocker": "Bloqueador de anuncios",
+  "Page monitoring": "Vigilancia de páginas",
+  "Command Bar": "Barra de comandos",
+  "AI agents": "Agentes de IA",
+  "Remote access": "Acceso remoto",
+  "Security workbench": "Banco de seguridad",
+  "Crash logs": "Registros de fallos",
+  "First-run setup": "Configuración inicial",
+  "An AI-native browser that is also an MCP server.": "Un navegador con IA integrada que también es un servidor MCP.",
+
+  // ------------------------------------------------------------------ search box
+  "Search settings…": "Buscar en los ajustes…",
+  "Search settings": "Buscar en los ajustes",
+  "Clear (Esc)": "Borrar (Esc)",
+  "Clear search": "Borrar búsqueda",
+  "No settings match “{query}”.": "Ningún ajuste coincide con «{query}».",
+
+  // ------------------------------------------------------------------ common
+  Copied: "Copiado",
+  Copy: "Copiar",
+  Save: "Guardar",
+  Clear: "Borrar",
+  Open: "Abrir",
+  Remove: "Quitar",
+  Revoke: "Revocar",
+  Reset: "Restablecer",
+  Hide: "Ocultar",
+  Show: "Mostrar",
+  Cancel: "Cancelar",
+  Delete: "Eliminar",
+  "Delete…": "Eliminar…",
+  Create: "Crear",
+  Refresh: "Actualizar",
+  Install: "Instalar",
+  "Installing…": "Instalando…",
+  Dismiss: "Descartar",
+  Status: "Estado",
+  Error: "Error",
+  On: "Activado",
+  Off: "Desactivado",
+  None: "Ninguno",
+  "None yet": "Ninguno todavía",
+  Ready: "Listo",
+  Unavailable: "No disponible",
+  "Starting…": "Iniciando…",
+  Allowed: "Permitido",
+  Blocked: "Bloqueado",
+  Server: "Servidor",
+  Model: "Modelo",
+  Provider: "Proveedor",
+  Port: "Puerto",
+  Connection: "Conexión",
+  Download: "Descargar",
+  Downloading: "Descargando",
+  "•••••••••••• (saved)": "•••••••••••• (guardada)",
+
+  // ------------------------------------------------------------------ appearance
+  Appearance: "Apariencia",
+  Theme: "Tema",
+  Light: "Claro",
+  Dark: "Oscuro",
+  Language: "Idioma",
+  "Language of Corvus's settings and page menu. System follows your operating system.":
+    "Idioma de los ajustes de Corvus y del menú de sus páginas. Sistema sigue el idioma de tu sistema operativo.",
+  "Show bookmarks bar": "Mostrar la barra de marcadores",
+  "Home button": "Botón de inicio",
+  "Shows a home button next to reload. Alt+Home works too; Ctrl+click or middle-click opens it in a new tab.":
+    "Muestra un botón de inicio junto a recargar. También funciona Alt+Inicio; con Ctrl+clic o clic central se abre en una pestaña nueva.",
+  "Home page": "Página de inicio",
+  "Where the home button takes you. Corvus opens the New Tab page with Corvus search.":
+    "Adónde te lleva el botón de inicio. Corvus abre la página de nueva pestaña con la búsqueda de Corvus.",
+  "Corvus (New Tab page)": "Corvus (página de nueva pestaña)",
+  "Another address…": "Otra dirección…",
+  "Home page address": "Dirección de la página de inicio",
+  "An http or https address.": "Una dirección http o https.",
+  Tabs: "Pestañas",
+  "Classic top strip, or a resizable, collapsible sidebar on the left.":
+    "La tira clásica arriba, o una barra lateral a la izquierda que puedes redimensionar y plegar.",
+  Top: "Arriba",
+  Sidebar: "Barra lateral",
+  "Sidebar width": "Ancho de la barra lateral",
+  "Pixels (180–480). Drag the sidebar edge to resize too.": "Píxeles (180–480). También puedes arrastrar el borde de la barra.",
+
+  // ------------------------------------------------------------------ reader and PDF
+  "Reader mode": "Modo lectura",
+  "Defaults for the clean reading view (open it with the book icon in the address bar).":
+    "Valores por defecto de la vista de lectura limpia (se abre con el icono del libro en la barra de direcciones).",
+  "Font size": "Tamaño de letra",
+  "Line width": "Ancho de línea",
+  "Characters per line (36–90).": "Caracteres por línea (36–90).",
+  Sepia: "Sepia",
+  Typeface: "Tipo de letra",
+  Serif: "Con serifa",
+  Sans: "Sin serifa",
+  "Translate articles to": "Traducir los artículos a",
+  "Default target for the reader's Translate tool; blank uses your answer language.":
+    "Idioma de destino de la herramienta Traducir del lector; si lo dejas vacío, usa el idioma de las respuestas.",
+  "e.g. Spanish": "p. ej. inglés",
+  "PDF viewer": "Visor de PDF",
+  "Read PDFs inside Corvus with the reading AI tools (Key points, TL;DR, Simplify, Translate, read-aloud) and page citations.":
+    "Lee los PDF dentro de Corvus con las herramientas de lectura con IA (Puntos clave, Resumen, Simplificar, Traducir, lectura en voz alta) y citas con número de página.",
+  "Open PDFs in Corvus": "Abrir los PDF en Corvus",
+  "When off, PDFs download instead of opening in the in-app viewer.": "Si está desactivado, los PDF se descargan en lugar de abrirse en el visor integrado.",
+  "Use the in-app PDF viewer": "Usar el visor de PDF integrado",
+
+  // ------------------------------------------------------------------ find in my pages
+  "Search your own history, bookmarks and saved articles by meaning — from the Command Bar or corvus://find. Keyword search always works offline; embeddings are optional and never required.":
+    "Busca por significado en tu historial, tus marcadores y tus artículos guardados, desde la barra de comandos o corvus://find. La búsqueda por palabras clave siempre funciona sin conexión; los embeddings son opcionales y nunca obligatorios.",
+  "Index my pages": "Indexar mis páginas",
+  "Keep a local, per-device text index of pages you visit, bookmark and save. Nothing leaves your machine.":
+    "Guarda en este dispositivo un índice de texto de las páginas que visitas, marcas y guardas. Nada sale de tu equipo.",
+  "Keep a local search index": "Mantener un índice de búsqueda local",
+  "Semantic ranking": "Ordenación semántica",
+  "Re-rank results with embeddings from your local model endpoint (configured under AI search). Falls back to keyword ranking when offline or unset.":
+    "Reordena los resultados con embeddings de tu modelo local (configurado en Búsqueda con IA). Si no hay conexión o no está configurado, vuelve a la ordenación por palabras clave.",
+  "Use embeddings to improve ranking": "Usar embeddings para mejorar el orden",
+  "Embedding model": "Modelo de embeddings",
+  "Model on your local endpoint, e.g. nomic-embed-text (Ollama) or an embeddings model served by LM Studio.":
+    "Modelo de tu servidor local, p. ej. nomic-embed-text (Ollama) o un modelo de embeddings servido por LM Studio.",
+
+  // ------------------------------------------------------------------ startup and downloads
+  "On startup": "Al iniciar",
+  "When Corvus starts": "Cuando se inicia Corvus",
+  "Windows, tabs and tab groups are saved continuously, so they also come back after a crash.":
+    "Las ventanas, pestañas y grupos de pestañas se guardan continuamente, así que también vuelven tras un cierre inesperado.",
+  "Continue where you left off": "Seguir donde lo dejaste",
+  "Open the New Tab page": "Abrir la página de nueva pestaña",
+  "Programs requested by AI-agent tabs are always held back until you keep them.":
+    "Los programas que piden las pestañas de agentes de IA siempre quedan retenidos hasta que decides conservarlos.",
+  Location: "Ubicación",
+  "Change…": "Cambiar…",
+  "Use default": "Usar la predeterminada",
+  "Ask where to save each file before downloading": "Preguntar dónde guardar cada archivo antes de descargarlo",
+  "Ask where to save each file": "Preguntar dónde guardar cada archivo",
+
+  // ------------------------------------------------------------------ passwords
+  "Saved logins, 2FA codes and KeePass databases are managed on the":
+    "Los inicios de sesión guardados, los códigos 2FA y las bases de datos de KeePass se gestionan en la página",
+  "page.": ".",
+  "Let AI agents use logins you opt in": "Dejar que los agentes de IA usen los inicios de sesión que elijas",
+  "The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are always handed back to you.":
+    "El agente de la barra de comandos y los clientes MCP con acceso completo pueden iniciar sesión y rellenar códigos 2FA, pero solo en los inicios de sesión que elijas uno a uno y solo después de que apruebes cada uso. Nunca ven la contraseña ni el código. Desactivado por defecto; los CAPTCHA siempre te los devuelve a ti.",
+  "Lock KeePass databases after": "Bloquear las bases de datos de KeePass tras",
+  "Minutes without keyboard or mouse activity. 0 keeps them unlocked until you lock them or quit.":
+    "Minutos sin actividad de teclado o ratón. Con 0 siguen desbloqueadas hasta que las bloquees o cierres Corvus.",
+  "Passkeys and security keys": "Llaves de acceso y llaves de seguridad",
+  "Let sites ask for a passkey, Windows Hello or a USB security key. Off by default: sites then offer your password and 2FA code instead of opening the system security-key dialog. Applies to tabs opened afterwards.":
+    "Permite que los sitios pidan una llave de acceso, Windows Hello o una llave de seguridad USB. Desactivado por defecto: así los sitios te ofrecen la contraseña y el código 2FA en lugar de abrir el diálogo de llave de seguridad del sistema. Se aplica a las pestañas que abras después.",
+
+  // ------------------------------------------------------------------ site permissions
+  "Site permissions": "Permisos de sitios",
+  "Decisions you asked Corvus to remember, per site, for this profile. Sites without an entry ask again. Non-secure (http) sites get no permissions; AI-agent tabs never get camera, microphone, location or screen capture.":
+    "Decisiones que pediste a Corvus que recordara, por sitio, para este perfil. Los sitios sin entrada vuelven a preguntar. Los sitios no seguros (http) no reciben permisos; las pestañas de agentes de IA nunca obtienen cámara, micrófono, ubicación ni captura de pantalla.",
+  "No site has remembered permissions yet.": "Todavía ningún sitio tiene permisos recordados.",
+  Camera: "Cámara",
+  Microphone: "Micrófono",
+  Notifications: "Notificaciones",
+  Clipboard: "Portapapeles",
+  "MIDI devices": "Dispositivos MIDI",
+  "MIDI device control": "Control de dispositivos MIDI",
+  "Mouse pointer": "Puntero del ratón",
+  "Device use": "Uso del dispositivo",
+  "Screen capture": "Captura de pantalla",
+  "Full screen": "Pantalla completa",
+  "Clipboard write": "Escritura en el portapapeles",
+
+  // ------------------------------------------------------------------ ad blocker
+  "Ad & tracker blocker": "Bloqueador de anuncios y rastreadores",
+  "Blocks ads and trackers with EasyList and EasyPrivacy, including cosmetic (page element) filters. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced.":
+    "Bloquea anuncios y rastreadores con EasyList y EasyPrivacy, incluidos los filtros cosméticos (elementos de la página). Nunca bloquea en las páginas corvus:// ni en direcciones locales, y los ajustes son por perfil y nunca se sincronizan.",
+  "Block ads and trackers": "Bloquear anuncios y rastreadores",
+  "Applies to every site except those you allow below.": "Se aplica a todos los sitios salvo los que permitas abajo.",
+  "Filter lists": "Listas de filtros",
+  "{count} rules": "{count} reglas",
+  "Using the bundled list until the first update succeeds.": "Usa la lista incluida hasta que funcione la primera actualización.",
+  "EasyList + EasyPrivacy (cached)": "EasyList + EasyPrivacy (en caché)",
+  "Built-in list (offline)": "Lista incluida (sin conexión)",
+  "updated {time}": "actualizada {time}",
+  "never updated": "nunca actualizada",
+  "Updating…": "Actualizando…",
+  "Update now": "Actualizar ahora",
+  "Allowed sites": "Sitios permitidos",
+  "Sites where blocking is paused (chosen from the shield in the address bar).":
+    "Sitios donde el bloqueo está en pausa (elegidos desde el escudo de la barra de direcciones).",
+
+  // ------------------------------------------------------------------ page monitoring
+  "Page-change monitoring": "Vigilancia de cambios en páginas",
+  "“Watch this page” re-fetches pages you choose in the background, detects meaningful changes to their main text and writes a short AI summary of what changed. Read-only, public http(s) pages only. Watches are per profile and stay on this device.":
+    "«Vigilar esta página» vuelve a cargar en segundo plano las páginas que elijas, detecta cambios importantes en su texto principal y escribe un breve resumen con IA de lo que ha cambiado. Solo lectura y solo páginas http(s) públicas. Las vigilancias son por perfil y se quedan en este dispositivo.",
+  "Enable monitoring": "Activar la vigilancia",
+  "Turning this off stops all background checks.": "Si lo desactivas, se detienen todas las comprobaciones en segundo plano.",
+  "Default check interval": "Intervalo de comprobación por defecto",
+  "Used for newly watched pages; each page can be changed individually.": "Se usa para las páginas que empieces a vigilar; cada página se puede cambiar por separado.",
+  "Every 5 minutes": "Cada 5 minutos",
+  "Every 15 minutes": "Cada 15 minutos",
+  "Every 30 minutes": "Cada 30 minutos",
+  Hourly: "Cada hora",
+  "Every 3 hours": "Cada 3 horas",
+  "Every 6 hours": "Cada 6 horas",
+  "Every 12 hours": "Cada 12 horas",
+  Daily: "Cada día",
+  "Maximum watched pages": "Máximo de páginas vigiladas",
+  "Per profile (1–200).": "Por perfil (1–200).",
+  "See everything you are watching and the latest changes.": "Mira todo lo que vigilas y los últimos cambios.",
+  "Open watched pages": "Abrir páginas vigiladas",
+
+  // ------------------------------------------------------------------ AI search
+  "AI search": "Búsqueda con IA",
+  "Searches run against a retriever first (no AI, zero tokens). One small-model call then writes a cited answer.":
+    "Las búsquedas pasan primero por un buscador (sin IA, cero tokens). Después, una sola llamada a un modelo pequeño escribe una respuesta con citas.",
+  "Engine status": "Estado del motor",
+  "AI provider": "Proveedor de IA",
+  "Anthropic API with your own key.": "API de Anthropic con tu propia clave.",
+  "Uses your local Claude Code login. Personal use only — distributed builds must use an API key.":
+    "Usa tu sesión local de Claude Code. Solo para uso personal: las versiones distribuidas deben usar una clave de API.",
+  "A model running on this machine (Ollama or an OpenAI-compatible server). Offline, no API key, nothing leaves the device.":
+    "Un modelo que se ejecuta en este equipo (Ollama o un servidor compatible con OpenAI). Sin conexión, sin clave de API, nada sale del dispositivo.",
+  "Claude Code CLI (local)": "CLI de Claude Code (local)",
+  "Local model (offline)": "Modelo local (sin conexión)",
+  "Local model": "Modelo local",
+  "Anthropic API key": "Clave de API de Anthropic",
+  "Encrypted with your operating system keychain.": "Cifrada con el llavero de tu sistema operativo.",
+  "No OS keychain available: the key is kept in memory until Corvus quits.":
+    "No hay llavero del sistema: la clave se guarda en memoria hasta que cierres Corvus.",
+  "Claude CLI path": "Ruta del CLI de Claude",
+  "Executable used for `claude -p`.": "Ejecutable que se usa para `claude -p`.",
+  "Local API": "API local",
+  "Ollama speaks its own API; llama.cpp, LM Studio and vLLM speak the OpenAI-compatible one.":
+    "Ollama usa su propia API; llama.cpp, LM Studio y vLLM usan la compatible con OpenAI.",
+  "OpenAI-compatible": "Compatible con OpenAI",
+  "Base URL": "URL base",
+  "Ollama server, e.g. http://localhost:11434.": "Servidor de Ollama, p. ej. http://localhost:11434.",
+  "Server root, e.g. http://localhost:1234/v1 (LM Studio).": "Raíz del servidor, p. ej. http://localhost:1234/v1 (LM Studio).",
+  "The model name the server exposes, e.g. llama3.1 or qwen2.5.": "El nombre del modelo que expone el servidor, p. ej. llama3.1 o qwen2.5.",
+  "A small, fast model keeps answers cheap.": "Un modelo pequeño y rápido hace que las respuestas salgan baratas.",
+  "No API key is needed — everything stays on this device.": "No hace falta clave de API: todo se queda en este dispositivo.",
+  "Testing…": "Probando…",
+  "Test connection": "Probar la conexión",
+  "Answer length": "Longitud de la respuesta",
+  "Maximum output tokens per answer.": "Máximo de tokens de salida por respuesta.",
+  "Answer language": "Idioma de las respuestas",
+  "Automatic (query language, then UI language)": "Automático (idioma de la búsqueda y, si no, el de la interfaz)",
+  English: "Inglés",
+  Spanish: "Español",
+  French: "Francés",
+  German: "Alemán",
+  Italian: "Italiano",
+  Portuguese: "Portugués",
+  Dutch: "Neerlandés",
+  Catalan: "Catalán",
+  Polish: "Polaco",
+  Swedish: "Sueco",
+  Russian: "Ruso",
+  Ukrainian: "Ucraniano",
+  Turkish: "Turco",
+  Arabic: "Árabe",
+  Hindi: "Hindi",
+  Japanese: "Japonés",
+  Korean: "Coreano",
+  Chinese: "Chino",
+  "Search backend": "Motor de búsqueda",
+  "SearXNG (self-hosted)": "SearXNG (autoalojado)",
+  "SearXNG URL": "URL de SearXNG",
+  "Run it with `docker compose up -d searxng`.": "Arráncalo con `docker compose up -d searxng`.",
+  "Brave Search API key": "Clave de API de Brave Search",
+
+  // ------------------------------------------------------------------ command bar agent
+  "Command Bar agent": "Agente de la barra de comandos",
+  "Press Ctrl+K (⌘K on macOS) to open the Command Bar. Start the line with “> ” to ask Corvus to run a task — it drives a dedicated tab with the same tools AI agents use, and you watch each step.":
+    "Pulsa Ctrl+K (⌘K en macOS) para abrir la barra de comandos. Empieza la línea con «> » para pedirle a Corvus que haga una tarea: maneja una pestaña propia con las mismas herramientas que usan los agentes de IA y tú ves cada paso.",
+  "Agent runs use your AI search provider and model.": "Las ejecuciones del agente usan el proveedor y el modelo de la búsqueda con IA.",
+  "Max steps": "Máximo de pasos",
+  "Most tool actions one task may take before it stops.": "Número máximo de acciones que puede hacer una tarea antes de detenerse.",
+  "Ask before risky actions": "Preguntar antes de acciones arriesgadas",
+  "When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and CAPTCHAs and card or password fields are always handed back to you.":
+    "Si está activado, Corvus pregunta antes de que el agente envíe un formulario, inicie sesión o dé otro paso arriesgado. Si está desactivado, el agente trabaja solo, pero todo lo que gasta dinero, los inicios de sesión guardados y los códigos 2FA te siguen preguntando cada vez, y los CAPTCHA y los campos de tarjeta o contraseña siempre te los devuelve a ti.",
+  "Learn from runs (site memory)": "Aprender de las ejecuciones (memoria de sitios)",
+  "After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Learning is per device; what is learned syncs end to end when Site memory sync is on. See and forget them on the Workflows page.":
+    "Tras una ejecución correcta, Corvus guarda unas pocas pistas por sitio (qué botones y campos funcionaron, la forma de las URL, los avisos de cookies) para que las tareas siguientes allí necesiten menos pasos. Nunca valores escritos ni contraseñas. El aprendizaje es por dispositivo; lo aprendido se sincroniza cifrado de extremo a extremo si la sincronización de la memoria de sitios está activada. Puedes verlas y olvidarlas en la página Flujos de trabajo.",
+
+  // ------------------------------------------------------------------ scheduled agents
+  "Run AI agent tasks on a schedule (cron or interval) in a background tab, with a notification summary. Risky actions (sign-in, payments, submitting forms) always pause for your approval and are never performed unattended. Schedules are per profile and stay on this device.":
+    "Ejecuta tareas de agentes de IA de forma programada (cron o intervalo) en una pestaña en segundo plano, con un resumen en una notificación. Las acciones arriesgadas (iniciar sesión, pagos, enviar formularios) siempre se detienen a esperar tu aprobación y nunca se hacen sin supervisión. Las programaciones son por perfil y se quedan en este dispositivo.",
+  "Enable scheduled agents": "Activar los agentes programados",
+  "Turning this off stops all scheduled runs.": "Si lo desactivas, se detienen todas las ejecuciones programadas.",
+  "Max steps per run": "Máximo de pasos por ejecución",
+  "Hard cap on tool actions any scheduled run may take (1–50).": "Límite estricto de acciones que puede hacer una ejecución programada (1–50).",
+  "Token budget per run": "Presupuesto de tokens por ejecución",
+  "Total input + output tokens before a run stops.": "Tokens de entrada y salida en total antes de que se detenga una ejecución.",
+  "Add, edit, pause and watch your scheduled tasks.": "Añade, edita, pausa y sigue tus tareas programadas.",
+  "Open scheduled agents": "Abrir los agentes programados",
+
+  // ------------------------------------------------------------------ MCP agents
+  "AI agents (MCP)": "Agentes de IA (MCP)",
+  "Let Claude Code, Claude Desktop or any MCP client drive this browser over a local-only server (127.0.0.1) protected by a bearer token.":
+    "Deja que Claude Code, Claude Desktop o cualquier cliente MCP maneje este navegador a través de un servidor solo local (127.0.0.1) protegido con un token de acceso.",
+  "Enable MCP server": "Activar el servidor MCP",
+  "New clients must be approved the first time they connect.": "Los clientes nuevos se tienen que aprobar la primera vez que se conectan.",
+  "Running on port {port}": "En marcha en el puerto {port}",
+  "Access level approved agents run at": "Nivel de acceso con el que trabajan los agentes aprobados",
+  "{level} access": "Acceso: {level}",
+  "Read-only": "Solo lectura",
+  Standard: "Estándar",
+  Full: "Completo",
+  "Agents can look: read page text, list tabs and take screenshots. They cannot act on anything.":
+    "Los agentes pueden mirar: leer el texto de las páginas, listar pestañas y hacer capturas. No pueden actuar sobre nada.",
+  "Agents can navigate, click, type and fill in forms — enough to use most sites. The recommended default.":
+    "Los agentes pueden navegar, hacer clic, escribir y rellenar formularios: suficiente para usar la mayoría de sitios. Es la opción recomendada.",
+  "Everything in Standard, plus running JavaScript in pages, uploading files, reading downloads and saving PDFs.":
+    "Todo lo de Estándar, y además ejecutar JavaScript en las páginas, subir archivos, leer descargas y guardar PDF.",
+  "What agents can do": "Qué pueden hacer los agentes",
+  "Applies to every approved MCP client. Tools above the level are not offered at all.":
+    "Se aplica a todos los clientes MCP aprobados. Las herramientas por encima del nivel ni siquiera se ofrecen.",
+  "Agent access level": "Nivel de acceso de los agentes",
+  "Full access lets agents run arbitrary scripts and reach files on this machine. Only choose it for agents you fully trust.":
+    "El acceso completo deja a los agentes ejecutar cualquier script y llegar a archivos de este equipo. Elígelo solo para agentes de total confianza.",
+  "0 picks a random free port once and keeps it.": "Con 0 se elige una vez un puerto libre al azar y se mantiene.",
+  "Access token": "Token de acceso",
+  "Regenerate the token? Connected agents will need the new command.": "¿Generar un token nuevo? Los agentes conectados necesitarán el comando nuevo.",
+  Regenerate: "Regenerar",
+  "Connect Claude Code": "Conectar Claude Code",
+  "Run this once in a terminal.": "Ejecútalo una vez en una terminal.",
+  "Enable the server once to get a port and the `claude mcp add` command.":
+    "Activa el servidor una vez para obtener un puerto y el comando `claude mcp add`.",
+  "Approved clients": "Clientes aprobados",
+  "Clients that connect without asking.": "Clientes que se conectan sin preguntar.",
+  "AI agents: remote access": "Agentes de IA: acceso remoto",
+  "By default the MCP server listens on 127.0.0.1 and only local clients can reach it. Turn this on to also accept connections from other devices on your network. The bearer token is still required.":
+    "Por defecto el servidor MCP escucha en 127.0.0.1 y solo pueden llegar los clientes locales. Actívalo para aceptar también conexiones de otros dispositivos de tu red. El token de acceso sigue siendo obligatorio.",
+  "Allow remote clients": "Permitir clientes remotos",
+  "Binds the server to 0.0.0.0 (all interfaces) instead of loopback only.": "Pone el servidor en 0.0.0.0 (todas las interfaces) en lugar de solo en loopback.",
+  "All interfaces": "Todas las interfaces",
+  "Loopback only": "Solo loopback",
+  "Expose this browser to the local network?\n\nAny device that can reach this machine and has the access token will be able to drive the browser. Keep the token secret and rotate it if leaked.":
+    "¿Exponer este navegador a la red local?\n\nCualquier dispositivo que llegue a este equipo y tenga el token de acceso podrá manejar el navegador. Mantén el token en secreto y cámbialo si se filtra.",
+  "This browser is reachable from your local network. Anyone who can connect to this machine and holds the access token can open tabs, read pages, click and type. Only enable this on trusted networks, and rotate the token if it may have leaked.":
+    "Este navegador es accesible desde tu red local. Cualquiera que pueda conectarse a este equipo y tenga el token de acceso puede abrir pestañas, leer páginas, hacer clic y escribir. Actívalo solo en redes de confianza y cambia el token si puede haberse filtrado.",
+  "The MCP server is off. Enable it under “AI agents (MCP)” for remote access to take effect.":
+    "El servidor MCP está desactivado. Actívalo en «Agentes de IA (MCP)» para que el acceso remoto funcione.",
+  "Connect a remote client": "Conectar un cliente remoto",
+  "Use this machine's network address.": "Usa la dirección de red de este equipo.",
+  "No network address detected; use this machine's LAN IP.": "No se ha detectado una dirección de red; usa la IP de este equipo en la red local.",
+
+  // ------------------------------------------------------------------ WebScope
+  "Security workbench (WebScope)": "Banco de seguridad (WebScope)",
+  "A Burp-style workbench over your own browser traffic: capture, replay, fuzz and transform in-scope requests. For authorized testing only. Off by default.":
+    "Un banco de trabajo al estilo de Burp sobre el tráfico de tu propio navegador: captura, repite, fuzzea y transforma las peticiones dentro del alcance. Solo para pruebas autorizadas. Desactivado por defecto.",
+  "Enable WebScope": "Activar WebScope",
+  "Captures this profile's HTTP traffic for inspection. Everything stays scoped to the allowlist.":
+    "Captura el tráfico HTTP de este perfil para inspeccionarlo. Todo se limita a la lista de permitidos.",
+  "Capture, Repeater, Fuzzer, Rules, Scope, Decoder and Comparer.": "Captura, Repetidor, Fuzzer, Reglas, Alcance, Decodificador y Comparador.",
+  "Open WebScope": "Abrir WebScope",
+
+  // ------------------------------------------------------------------ profiles
+  Profiles: "Perfiles",
+  "Each profile has its own cookies, history, bookmarks, extensions and sync.":
+    "Cada perfil tiene sus propias cookies, historial, marcadores, extensiones y sincronización.",
+  "This window": "Esta ventana",
+  Synced: "Sincronizado",
+  "Open window": "Abrir ventana",
+  "Add profile": "Añadir perfil",
+  "Profile name": "Nombre del perfil",
+
+  // ------------------------------------------------------------------ sync
+  Sync: "Sincronización",
+  "End-to-end encrypted: the server only stores ciphertext. Each profile has its own sync chain.":
+    "Cifrada de extremo a extremo: el servidor solo guarda texto cifrado. Cada perfil tiene su propia cadena de sincronización.",
+  "Sync is not available in this build.": "La sincronización no está disponible en esta versión.",
+  "Sync server": "Servidor de sincronización",
+  "Self-host it with `docker compose up -d sync-server`.": "Alójalo tú mismo con `docker compose up -d sync-server`.",
+  "Device name": "Nombre del dispositivo",
+  "Shown to your other devices.": "Lo ven tus otros dispositivos.",
+  "Start a new sync chain": "Empezar una cadena de sincronización nueva",
+  "Creates a 24-word recovery phrase. Anyone with it can read your synced data.":
+    "Crea una frase de recuperación de 24 palabras. Quien la tenga puede leer tus datos sincronizados.",
+  "Generate phrase": "Generar frase",
+  "I wrote this phrase down somewhere safe": "He apuntado esta frase en un lugar seguro",
+  "Copy phrase": "Copiar frase",
+  "Turn on sync": "Activar la sincronización",
+  "Join an existing chain": "Unirse a una cadena existente",
+  "Enter the recovery phrase from another device. This profile takes the name and data of the synced profile.":
+    "Escribe la frase de recuperación de otro dispositivo. Este perfil toma el nombre y los datos del perfil sincronizado.",
+  "24 words separated by spaces": "24 palabras separadas por espacios",
+  "Joining…": "Uniéndose…",
+  "Join and sync": "Unirse y sincronizar",
+  "Every device signed in to this sync chain.": "Todos los dispositivos conectados a esta cadena de sincronización.",
+  "This device": "Este dispositivo",
+  "last seen {when}": "visto por última vez {when}",
+  "Remove “{name}” from this sync chain? It stops syncing and its open tabs disappear from your other devices.":
+    "¿Quitar «{name}» de esta cadena de sincronización? Deja de sincronizarse y sus pestañas abiertas desaparecen de tus otros dispositivos.",
+  "Extensions from your other devices": "Extensiones de tus otros dispositivos",
+  "Installed elsewhere but not here. Nothing is installed without your click.": "Instaladas en otro sitio pero no aquí. No se instala nada sin que hagas clic.",
+  "On {devices}": "En {devices}",
+  "Recovery phrase": "Frase de recuperación",
+  "Needed to add a device. Anyone who sees it can read all your synced data.":
+    "Hace falta para añadir un dispositivo. Quien la vea puede leer todos tus datos sincronizados.",
+  "Show the recovery phrase? Make sure nobody can see your screen.": "¿Mostrar la frase de recuperación? Asegúrate de que nadie ve tu pantalla.",
+  "Show recovery phrase": "Mostrar la frase de recuperación",
+  "Delete sync chain": "Eliminar la cadena de sincronización",
+  "Deletes all synced data from the server and signs out every device. Local data on each device is kept.":
+    "Borra del servidor todos los datos sincronizados y desconecta todos los dispositivos. Los datos locales de cada dispositivo se conservan.",
+  Type: "Escribe",
+  "to confirm.": "para confirmar.",
+  "Deleting…": "Eliminando…",
+  "Delete chain and all synced data": "Eliminar la cadena y todos los datos sincronizados",
+  "Last synced {when}": "Última sincronización: {when}",
+  "Not synced yet": "Todavía sin sincronizar",
+  "Syncing…": "Sincronizando…",
+  "Sync now": "Sincronizar ahora",
+  "Turn off sync on this device? This device leaves the chain. Synced data stays on the server and your other devices.":
+    "¿Desactivar la sincronización en este dispositivo? Este dispositivo sale de la cadena. Los datos sincronizados se quedan en el servidor y en tus otros dispositivos.",
+  "Turn off": "Desactivar",
+  "Auto-sync": "Sincronización automática",
+  "Also syncs about 10 seconds after a change on this device.": "También sincroniza unos 10 segundos después de un cambio en este dispositivo.",
+  "Every minute": "Cada minuto",
+  "Every {m} minutes": "Cada {m} minutos",
+  "What syncs": "Qué se sincroniza",
+  "Bookmarks, history, open tabs, the list of Web Store extensions, your reading list, watched pages, saved workspaces and annotations, this profile's name and color, appearance and AI search preferences, plus the categories below. Never API keys, the MCP token or MCP settings.":
+    "Marcadores, historial, pestañas abiertas, la lista de extensiones de la Web Store, tu lista de lectura, las páginas vigiladas, los espacios de trabajo y las anotaciones guardados, el nombre y el color de este perfil, las preferencias de apariencia y de búsqueda con IA, y las categorías de abajo. Nunca las claves de API, el token MCP ni los ajustes MCP.",
+  "Saved workflows, recorded or saved from agent runs, with their run counts. Secrets are never part of a workflow. Off: this device keeps its workflows but stops syncing them.":
+    "Los flujos de trabajo guardados, grabados o guardados desde ejecuciones de agentes, con su número de ejecuciones. Los secretos nunca forman parte de un flujo. Desactivado: este dispositivo conserva sus flujos pero deja de sincronizarlos.",
+  "Sync workflows": "Sincronizar los flujos de trabajo",
+  "Site memory": "Memoria de sitios",
+  "What Corvus learned about sites from successful agent runs, and what you told it to forget. Never typed values, passwords or codes. Whether this device learns stays its own switch. Off: this device keeps what it learned but stops syncing it.":
+    "Lo que Corvus aprendió de los sitios en ejecuciones correctas de agentes, y lo que le pediste que olvidara. Nunca valores escritos, contraseñas ni códigos. Si este dispositivo aprende o no sigue siendo un interruptor propio. Desactivado: este dispositivo conserva lo aprendido pero deja de sincronizarlo.",
+  "Sync site memory": "Sincronizar la memoria de sitios",
+  "Also sync the SearXNG URL": "Sincronizar también la URL de SearXNG",
+  "Off by default because service URLs often point to this machine (localhost).":
+    "Desactivado por defecto porque las URL de servicios suelen apuntar a este equipo (localhost).",
+  "Manage devices": "Gestionar dispositivos",
+  "Rename this device or revoke another on a dedicated page.": "Cambia el nombre de este dispositivo o revoca otro en una página propia.",
+  "Open device manager": "Abrir el gestor de dispositivos",
+  "Sync chain": "Cadena de sincronización",
+
+  // ------------------------------------------------------------------ updates
+  Updates: "Actualizaciones",
+  "Corvus updates itself from its GitHub Releases, or from a self-hosted feed you set below. Updates apply to this install and are never synced.":
+    "Corvus se actualiza solo desde sus versiones en GitHub, o desde un servidor propio que indiques abajo. Las actualizaciones se aplican a esta instalación y nunca se sincronizan.",
+  "Current version": "Versión actual",
+  "Third-party software": "Software de terceros",
+  "Corvus includes open-source packages under their own licences. The source is MPL-2.0; this app is distributed under GPL-3.0 because it includes electron-chrome-extensions. Source: github.com/ParendumOU/Corvus.":
+    "Corvus incluye paquetes de código abierto con sus propias licencias. El código fuente es MPL-2.0; esta aplicación se distribuye bajo GPL-3.0 porque incluye electron-chrome-extensions. Código: github.com/ParendumOU/Corvus.",
+  "View licences": "Ver las licencias",
+  "Release channel": "Canal de versiones",
+  "Beta receives pre-releases from the same feed.": "Beta recibe las versiones preliminares del mismo servidor.",
+  Stable: "Estable",
+  Beta: "Beta",
+  "Check on startup": "Comprobar al iniciar",
+  "Look for updates each time Corvus starts.": "Busca actualizaciones cada vez que se inicia Corvus.",
+  "Update feed URL": "URL del servidor de actualizaciones",
+  "Base URL of a self-hosted “generic” feed. Blank uses GitHub Releases.": "URL base de un servidor «generic» propio. Si lo dejas vacío, usa GitHub Releases.",
+  "Check now, then download and restart to install.": "Comprueba ahora y luego descarga y reinicia para instalar.",
+  "Checking…": "Comprobando…",
+  "Check for updates": "Buscar actualizaciones",
+  "Restart to update": "Reiniciar para actualizar",
+  "Version {version}": "Versión {version}",
+  "You’re on the latest version.": "Tienes la última versión.",
+  "Version {version} is ready. Restart Corvus to finish updating.": "La versión {version} está lista. Reinicia Corvus para terminar de actualizar.",
+
+  // ------------------------------------------------------------------ crash logs and setup
+  "Crash & error logs": "Registros de fallos y errores",
+  "If Corvus or a page crashes, save a local diagnostic log you can use to report the problem. Logs stay on this device in a rotating file under your user data folder and are never uploaded. Off by default.":
+    "Si Corvus o una página fallan, guarda un registro de diagnóstico local que puedes usar para informar del problema. Los registros se quedan en este dispositivo, en un archivo rotativo dentro de tu carpeta de datos de usuario, y nunca se suben. Desactivado por defecto.",
+  "Save crash logs locally": "Guardar los registros de fallos en local",
+  "Records main-process errors and tab crashes to a local file. Nothing is sent anywhere.":
+    "Guarda en un archivo local los errores del proceso principal y los fallos de pestañas. No se envía nada a ningún sitio.",
+  "Log folder": "Carpeta de registros",
+  "Open log folder": "Abrir la carpeta de registros",
+  "Re-run the welcome wizard to reconfigure your AI provider, sync, imports and preferences. It normally appears only once, on first launch.":
+    "Vuelve a lanzar el asistente de bienvenida para reconfigurar el proveedor de IA, la sincronización, las importaciones y las preferencias. Normalmente solo aparece una vez, la primera vez que abres Corvus.",
+  "Welcome wizard": "Asistente de bienvenida",
+  "Opens the step-by-step setup in a new page. Nothing changes until you pick it there.":
+    "Abre la configuración paso a paso en una página nueva. No cambia nada hasta que lo elijas allí.",
+  "Run setup again": "Volver a configurar",
+};

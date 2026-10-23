@@ -32,6 +32,3 @@
 .startup-mode button {
   white-space: nowrap;
 }
-.card[id] {
-  scroll-margin-top: 80px;
-}

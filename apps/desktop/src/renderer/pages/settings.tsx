@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { Profile } from "@corvus/shared";
 import type { AdblockView } from "../../shared/adblock";
 import type { ConnectionTestResult, EngineInfo, McpActivity, McpStatus, UpdateStatus } from "../../shared/ipc";
-import type { AccessLevel, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UpdateChannel } from "../../shared/settings";
-import { resolveMcpAccessLevel } from "../../shared/settings";
+import type { AccessLevel, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
+import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
 import { errorMessage, internalApi } from "../common/api";
+import { setUiLanguage, t } from "../common/i18n";
 import { IconCopy, IconTrash } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
 import { SyncSection } from "./settings-sync";
@@ -12,26 +13,26 @@ import { DownloadsSection, SitePermissionsSection, StartupSection } from "./sett
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 
-const LANGUAGES = [
-  ["", "Automatic (query language, then UI language)"],
-  ["en", "English"],
-  ["es", "Spanish"],
-  ["fr", "French"],
-  ["de", "German"],
-  ["it", "Italian"],
-  ["pt", "Portuguese"],
-  ["nl", "Dutch"],
-  ["ca", "Catalan"],
-  ["pl", "Polish"],
-  ["sv", "Swedish"],
-  ["ru", "Russian"],
-  ["uk", "Ukrainian"],
-  ["tr", "Turkish"],
-  ["ar", "Arabic"],
-  ["hi", "Hindi"],
-  ["ja", "Japanese"],
-  ["ko", "Korean"],
-  ["zh", "Chinese"],
+const languages = () => [
+  ["", t("Automatic (query language, then UI language)")],
+  ["en", t("English")],
+  ["es", t("Spanish")],
+  ["fr", t("French")],
+  ["de", t("German")],
+  ["it", t("Italian")],
+  ["pt", t("Portuguese")],
+  ["nl", t("Dutch")],
+  ["ca", t("Catalan")],
+  ["pl", t("Polish")],
+  ["sv", t("Swedish")],
+  ["ru", t("Russian")],
+  ["uk", t("Ukrainian")],
+  ["tr", t("Turkish")],
+  ["ar", t("Arabic")],
+  ["hi", t("Hindi")],
+  ["ja", t("Japanese")],
+  ["ko", t("Korean")],
+  ["zh", t("Chinese")],
 ] as const;
 
 function useAsync<T>(load: () => Promise<T>): [T | null, () => void, (v: T) => void] {
@@ -49,7 +50,7 @@ function Feedback({ error, ok }: { error: string | null; ok?: string | null }) {
   return null;
 }
 
-function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -64,7 +65,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
       }}
     >
       <IconCopy size={13} />
-      {copied ? "Copied" : label}
+      {copied ? t("Copied") : (label ?? t("Copy"))}
     </button>
   );
 }
@@ -100,7 +101,7 @@ function SecretField({ name, isSet, onSaved, placeholder }: { name: SecretKey; i
         className="input"
         type="password"
         value={draft}
-        placeholder={isSet ? "•••••••••••• (saved)" : placeholder}
+        placeholder={isSet ? t("•••••••••••• (saved)") : placeholder}
         autoComplete="off"
         onChange={(e) => setDraft(e.target.value)}
       />
@@ -114,11 +115,11 @@ function SecretField({ name, isSet, onSaved, placeholder }: { name: SecretKey; i
           });
         }}
       >
-        Save
+        {t("Save")}
       </button>
       {isSet && (
         <button className="btn small ghost danger" onClick={() => void api.call("settings.setSecret", name, "").then(onSaved)}>
-          Clear
+          {t("Clear")}
         </button>
       )}
     </>
@@ -137,22 +138,23 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
   );
 }
 
-const ACCESS_LEVELS: Array<{ level: AccessLevel; label: string; blurb: string }> = [
-  { level: "read", label: "Read-only", blurb: "Agents can look: read page text, list tabs and take screenshots. They cannot act on anything." },
-  { level: "standard", label: "Standard", blurb: "Agents can navigate, click, type and fill in forms — enough to use most sites. The recommended default." },
-  { level: "full", label: "Full", blurb: "Everything in Standard, plus running JavaScript in pages, uploading files, reading downloads and saving PDFs." },
+const accessLevels = (): Array<{ level: AccessLevel; label: string; blurb: string }> => [
+  { level: "read", label: t("Read-only"), blurb: t("Agents can look: read page text, list tabs and take screenshots. They cannot act on anything.") },
+  { level: "standard", label: t("Standard"), blurb: t("Agents can navigate, click, type and fill in forms — enough to use most sites. The recommended default.") },
+  { level: "full", label: t("Full"), blurb: t("Everything in Standard, plus running JavaScript in pages, uploading files, reading downloads and saving PDFs.") },
 ];
 
 function AccessLevelControl({ value, onChange }: { value: AccessLevel; onChange: (v: AccessLevel) => void }) {
-  const active = ACCESS_LEVELS.find((o) => o.level === value) ?? ACCESS_LEVELS[1]!;
+  const levels = accessLevels();
+  const active = levels.find((o) => o.level === value) ?? levels[1]!;
   return (
     <div className="access-level">
       <div className="access-head">
-        <div>What agents can do</div>
-        <div className="muted small">Applies to every approved MCP client. Tools above the level are not offered at all.</div>
+        <div>{t("What agents can do")}</div>
+        <div className="muted small">{t("Applies to every approved MCP client. Tools above the level are not offered at all.")}</div>
       </div>
-      <div className="access-seg" role="radiogroup" aria-label="Agent access level">
-        {ACCESS_LEVELS.map((o) => (
+      <div className="access-seg" role="radiogroup" aria-label={t("Agent access level")}>
+        {levels.map((o) => (
           <button
             key={o.level}
             role="radio"
@@ -167,7 +169,7 @@ function AccessLevelControl({ value, onChange }: { value: AccessLevel; onChange:
       <p className={`access-desc ${value === "full" ? "full" : ""}`}>{active.blurb}</p>
       {value === "full" && (
         <div className="notice warn access-caution">
-          Full access lets agents run arbitrary scripts and reach files on this machine. Only choose it for agents you fully trust.
+          {t("Full access lets agents run arbitrary scripts and reach files on this machine. Only choose it for agents you fully trust.")}
         </div>
       )}
     </div>
@@ -179,33 +181,65 @@ function AccessLevelControl({ value, onChange }: { value: AccessLevel; onChange:
 function AppearanceSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
   const a = view.settings.appearance;
   return (
-    <Section id="appearance" title="Appearance">
-      <Row label="Theme">
+    <Section id="appearance" title={t("Appearance")}>
+      <Row label={t("Theme")}>
         <Segmented<ThemeSource>
           value={a.theme}
           options={[
-            ["system", "System"],
-            ["light", "Light"],
-            ["dark", "Dark"],
+            ["system", t("System")],
+            ["light", t("Light")],
+            ["dark", t("Dark")],
           ]}
           onChange={(theme) => update({ appearance: { theme } })}
         />
       </Row>
-      <Row label="Show bookmarks bar" hint="Ctrl+Shift+B">
-        <Toggle label="Show bookmarks bar" checked={a.showBookmarksBar} onChange={(v) => update({ appearance: { showBookmarksBar: v } })} />
+      <Row label={t("Language")} hint={t("Language of Corvus's settings and page menu. System follows your operating system.")}>
+        <Segmented<UiLanguageSetting>
+          value={a.language}
+          options={[
+            ["system", t("System")],
+            ["en", "English"],
+            ["es", "Español"],
+          ]}
+          onChange={(language) => update({ appearance: { language } })}
+        />
       </Row>
-      <Row label="Tabs" hint="Classic top strip, or a resizable, collapsible sidebar on the left.">
+      <Row label={t("Home button")} hint={t("Shows a home button next to reload. Alt+Home works too; Ctrl+click or middle-click opens it in a new tab.")}>
+        <Toggle label={t("Home button")} checked={a.showHomeButton} onChange={(v) => update({ appearance: { showHomeButton: v } })} />
+      </Row>
+      <Row label={t("Home page")} hint={t("Where the home button takes you. Corvus opens the New Tab page with Corvus search.")}>
+        <select className="input" value={a.homePage} onChange={(e) => update({ appearance: { homePage: e.target.value as HomePage } })}>
+          <option value="corvus">{t("Corvus (New Tab page)")}</option>
+          <option value="google">Google</option>
+          <option value="bing">Bing</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="yahoo">Yahoo</option>
+          <option value="ecosia">Ecosia</option>
+          <option value="brave">Brave Search</option>
+          <option value="startpage">Startpage</option>
+          <option value="custom">{t("Another address…")}</option>
+        </select>
+      </Row>
+      {a.homePage === "custom" && (
+        <Row label={t("Home page address")} hint={t("An http or https address.")}>
+          <LazyInput value={a.homeUrl} width={320} placeholder="https://" onSave={(v) => update({ appearance: { homeUrl: v.trim() } })} />
+        </Row>
+      )}
+      <Row label={t("Show bookmarks bar")} hint="Ctrl+Shift+B">
+        <Toggle label={t("Show bookmarks bar")} checked={a.showBookmarksBar} onChange={(v) => update({ appearance: { showBookmarksBar: v } })} />
+      </Row>
+      <Row label={t("Tabs")} hint={t("Classic top strip, or a resizable, collapsible sidebar on the left.")}>
         <Segmented<TabLayout>
           value={a.tabLayout}
           options={[
-            ["horizontal", "Top"],
-            ["vertical", "Sidebar"],
+            ["horizontal", t("Top")],
+            ["vertical", t("Sidebar")],
           ]}
           onChange={(tabLayout) => update({ appearance: { tabLayout } })}
         />
       </Row>
       {a.tabLayout === "vertical" && (
-        <Row label="Sidebar width" hint="Pixels (180–480). Drag the sidebar edge to resize too.">
+        <Row label={t("Sidebar width")} hint={t("Pixels (180–480). Drag the sidebar edge to resize too.")}>
           <LazyInput value={String(a.sidebarWidth)} type="number" width={120} onSave={(v) => update({ appearance: { sidebarWidth: Number(v) || 240 } })} />
         </Row>
       )}
@@ -213,15 +247,15 @@ function AppearanceSection({ view, update }: { view: SettingsView; update: (p: S
   );
 }
 
-const WATCH_INTERVALS: Array<[number, string]> = [
-  [5, "Every 5 minutes"],
-  [15, "Every 15 minutes"],
-  [30, "Every 30 minutes"],
-  [60, "Hourly"],
-  [180, "Every 3 hours"],
-  [360, "Every 6 hours"],
-  [720, "Every 12 hours"],
-  [1440, "Daily"],
+const watchIntervals = (): Array<[number, string]> => [
+  [5, t("Every 5 minutes")],
+  [15, t("Every 15 minutes")],
+  [30, t("Every 30 minutes")],
+  [60, t("Hourly")],
+  [180, t("Every 3 hours")],
+  [360, t("Every 6 hours")],
+  [720, t("Every 12 hours")],
+  [1440, t("Daily")],
 ];
 
 function MonitoringSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
@@ -229,31 +263,31 @@ function MonitoringSection({ view, update }: { view: SettingsView; update: (p: S
   return (
     <Section
       id="monitoring"
-      title="Page-change monitoring"
-      description="“Watch this page” re-fetches pages you choose in the background, detects meaningful changes to their main text and writes a short AI summary of what changed. Read-only, public http(s) pages only. Watches are per profile and stay on this device."
+      title={t("Page-change monitoring")}
+      description={t("“Watch this page” re-fetches pages you choose in the background, detects meaningful changes to their main text and writes a short AI summary of what changed. Read-only, public http(s) pages only. Watches are per profile and stay on this device.")}
     >
-      <Row label="Enable monitoring" hint="Turning this off stops all background checks.">
-        <Toggle label="Enable monitoring" checked={m.enabled} onChange={(v) => update({ monitor: { enabled: v } })} />
+      <Row label={t("Enable monitoring")} hint={t("Turning this off stops all background checks.")}>
+        <Toggle label={t("Enable monitoring")} checked={m.enabled} onChange={(v) => update({ monitor: { enabled: v } })} />
       </Row>
-      <Row label="Default check interval" hint="Used for newly watched pages; each page can be changed individually.">
+      <Row label={t("Default check interval")} hint={t("Used for newly watched pages; each page can be changed individually.")}>
         <select
           className="input"
           value={m.defaultIntervalMinutes}
           onChange={(e) => update({ monitor: { defaultIntervalMinutes: Number(e.target.value) } })}
         >
-          {WATCH_INTERVALS.map(([mins, label]) => (
+          {watchIntervals().map(([mins, label]) => (
             <option key={mins} value={mins}>
               {label}
             </option>
           ))}
         </select>
       </Row>
-      <Row label="Maximum watched pages" hint="Per profile (1–200).">
+      <Row label={t("Maximum watched pages")} hint={t("Per profile (1–200).")}>
         <LazyInput value={String(m.maxWatches)} type="number" width={120} onSave={(v) => update({ monitor: { maxWatches: Number(v) || 50 } })} />
       </Row>
-      <Row label="Open" hint="See everything you are watching and the latest changes.">
+      <Row label={t("Open")} hint={t("See everything you are watching and the latest changes.")}>
         <a className="btn small" href="corvus://watches/">
-          Open watched pages
+          {t("Open watched pages")}
         </a>
       </Row>
     </Section>
@@ -265,21 +299,21 @@ function ScheduledAgentsSection({ view, update }: { view: SettingsView; update: 
   return (
     <Section
       id="scheduled-agents"
-      title="Scheduled agents"
-      description="Run AI agent tasks on a schedule (cron or interval) in a background tab, with a notification summary. Risky actions (sign-in, payments, submitting forms) always pause for your approval and are never performed unattended. Schedules are per profile and stay on this device."
+      title={t("Scheduled agents")}
+      description={t("Run AI agent tasks on a schedule (cron or interval) in a background tab, with a notification summary. Risky actions (sign-in, payments, submitting forms) always pause for your approval and are never performed unattended. Schedules are per profile and stay on this device.")}
     >
-      <Row label="Enable scheduled agents" hint="Turning this off stops all scheduled runs.">
-        <Toggle label="Enable scheduled agents" checked={sa.enabled} onChange={(v) => update({ scheduledAgents: { enabled: v } })} />
+      <Row label={t("Enable scheduled agents")} hint={t("Turning this off stops all scheduled runs.")}>
+        <Toggle label={t("Enable scheduled agents")} checked={sa.enabled} onChange={(v) => update({ scheduledAgents: { enabled: v } })} />
       </Row>
-      <Row label="Max steps per run" hint="Hard cap on tool actions any scheduled run may take (1–50).">
+      <Row label={t("Max steps per run")} hint={t("Hard cap on tool actions any scheduled run may take (1–50).")}>
         <LazyInput value={String(sa.maxSteps)} type="number" width={120} onSave={(v) => update({ scheduledAgents: { maxSteps: Math.max(1, Math.min(50, Number(v) || 12)) } })} />
       </Row>
-      <Row label="Token budget per run" hint="Total input + output tokens before a run stops.">
+      <Row label={t("Token budget per run")} hint={t("Total input + output tokens before a run stops.")}>
         <LazyInput value={String(sa.maxTokens)} type="number" width={120} onSave={(v) => update({ scheduledAgents: { maxTokens: Math.max(2000, Math.min(500000, Number(v) || 60000)) } })} />
       </Row>
-      <Row label="Open" hint="Add, edit, pause and watch your scheduled tasks.">
+      <Row label={t("Open")} hint={t("Add, edit, pause and watch your scheduled tasks.")}>
         <a className="btn small" href="corvus://schedules/">
-          Open scheduled agents
+          {t("Open scheduled agents")}
         </a>
       </Row>
     </Section>
@@ -289,36 +323,36 @@ function ScheduledAgentsSection({ view, update }: { view: SettingsView; update: 
 function ReaderSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
   const r = view.settings.reader;
   return (
-    <Section id="reader" title="Reader mode" description="Defaults for the clean reading view (open it with the book icon in the address bar).">
-      <Row label="Font size" hint="15–28 px">
+    <Section id="reader" title={t("Reader mode")} description={t("Defaults for the clean reading view (open it with the book icon in the address bar).")}>
+      <Row label={t("Font size")} hint="15–28 px">
         <LazyInput value={String(r.fontSize)} type="number" width={100} onSave={(v) => update({ reader: { fontSize: Number(v) || 19 } })} />
       </Row>
-      <Row label="Line width" hint="Characters per line (36–90).">
+      <Row label={t("Line width")} hint={t("Characters per line (36–90).")}>
         <LazyInput value={String(r.lineWidth)} type="number" width={100} onSave={(v) => update({ reader: { lineWidth: Number(v) || 64 } })} />
       </Row>
-      <Row label="Theme">
+      <Row label={t("Theme")}>
         <Segmented<"light" | "sepia" | "dark">
           value={r.theme}
           options={[
-            ["light", "Light"],
-            ["sepia", "Sepia"],
-            ["dark", "Dark"],
+            ["light", t("Light")],
+            ["sepia", t("Sepia")],
+            ["dark", t("Dark")],
           ]}
           onChange={(theme) => update({ reader: { theme } })}
         />
       </Row>
-      <Row label="Typeface">
+      <Row label={t("Typeface")}>
         <Segmented<"serif" | "sans">
           value={r.font}
           options={[
-            ["serif", "Serif"],
-            ["sans", "Sans"],
+            ["serif", t("Serif")],
+            ["sans", t("Sans")],
           ]}
           onChange={(font) => update({ reader: { font } })}
         />
       </Row>
-      <Row label="Translate articles to" hint="Default target for the reader's Translate tool; blank uses your answer language.">
-        <LazyInput value={r.translateLanguage} placeholder="e.g. Spanish" onSave={(v) => update({ reader: { translateLanguage: v.trim() } })} />
+      <Row label={t("Translate articles to")} hint={t("Default target for the reader's Translate tool; blank uses your answer language.")}>
+        <LazyInput value={r.translateLanguage} placeholder={t("e.g. Spanish")} onSave={(v) => update({ reader: { translateLanguage: v.trim() } })} />
       </Row>
     </Section>
   );
@@ -327,9 +361,9 @@ function ReaderSection({ view, update }: { view: SettingsView; update: (p: Setti
 function PdfSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
   const pdf = view.settings.pdf;
   return (
-    <Section id="pdf" title="PDF viewer" description="Read PDFs inside Corvus with the reading AI tools (Key points, TL;DR, Simplify, Translate, read-aloud) and page citations.">
-      <Row label="Open PDFs in Corvus" hint="When off, PDFs download instead of opening in the in-app viewer.">
-        <Toggle label="Use the in-app PDF viewer" checked={pdf.openInViewer} onChange={(v) => update({ pdf: { openInViewer: v } })} />
+    <Section id="pdf" title={t("PDF viewer")} description={t("Read PDFs inside Corvus with the reading AI tools (Key points, TL;DR, Simplify, Translate, read-aloud) and page citations.")}>
+      <Row label={t("Open PDFs in Corvus")} hint={t("When off, PDFs download instead of opening in the in-app viewer.")}>
+        <Toggle label={t("Use the in-app PDF viewer")} checked={pdf.openInViewer} onChange={(v) => update({ pdf: { openInViewer: v } })} />
       </Row>
     </Section>
   );
@@ -340,27 +374,27 @@ function SemanticSearchSection({ view, update }: { view: SettingsView; update: (
   return (
     <Section
       id="semantic-search"
-      title="Find in my pages"
-      description="Search your own history, bookmarks and saved articles by meaning — from the Command Bar or corvus://find. Keyword search always works offline; embeddings are optional and never required."
+      title={t("Find in my pages")}
+      description={t("Search your own history, bookmarks and saved articles by meaning — from the Command Bar or corvus://find. Keyword search always works offline; embeddings are optional and never required.")}
     >
-      <Row label="Index my pages" hint="Keep a local, per-device text index of pages you visit, bookmark and save. Nothing leaves your machine.">
-        <Toggle label="Keep a local search index" checked={s.indexPages} onChange={(v) => update({ semanticSearch: { indexPages: v } })} />
+      <Row label={t("Index my pages")} hint={t("Keep a local, per-device text index of pages you visit, bookmark and save. Nothing leaves your machine.")}>
+        <Toggle label={t("Keep a local search index")} checked={s.indexPages} onChange={(v) => update({ semanticSearch: { indexPages: v } })} />
       </Row>
-      <Row label="Semantic ranking" hint="Re-rank results with embeddings from your local model endpoint (configured under AI search). Falls back to keyword ranking when offline or unset.">
-        <Toggle label="Use embeddings to improve ranking" checked={s.useEmbeddings} onChange={(v) => update({ semanticSearch: { useEmbeddings: v } })} />
+      <Row label={t("Semantic ranking")} hint={t("Re-rank results with embeddings from your local model endpoint (configured under AI search). Falls back to keyword ranking when offline or unset.")}>
+        <Toggle label={t("Use embeddings to improve ranking")} checked={s.useEmbeddings} onChange={(v) => update({ semanticSearch: { useEmbeddings: v } })} />
       </Row>
-      <Row label="Embedding model" hint="Model on your local endpoint, e.g. nomic-embed-text (Ollama) or an embeddings model served by LM Studio.">
+      <Row label={t("Embedding model")} hint={t("Model on your local endpoint, e.g. nomic-embed-text (Ollama) or an embeddings model served by LM Studio.")}>
         <LazyInput value={s.embeddingModel} placeholder="nomic-embed-text" onSave={(v) => update({ semanticSearch: { embeddingModel: v.trim() } })} />
       </Row>
     </Section>
   );
 }
 
-const PROVIDER_HINT: Record<string, string> = {
-  "anthropic-api": "Anthropic API with your own key.",
-  "claude-code-cli": "Uses your local Claude Code login. Personal use only — distributed builds must use an API key.",
-  local: "A model running on this machine (Ollama or an OpenAI-compatible server). Offline, no API key, nothing leaves the device.",
-};
+const providerHint = (): Record<string, string> => ({
+  "anthropic-api": t("Anthropic API with your own key."),
+  "claude-code-cli": t("Uses your local Claude Code login. Personal use only — distributed builds must use an API key."),
+  local: t("A model running on this machine (Ollama or an OpenAI-compatible server). Offline, no API key, nothing leaves the device."),
+});
 
 /** Probes the configured local server and reports reachability, model presence and tool support. */
 function TestConnectionButton({ deps }: { deps: unknown[] }) {
@@ -376,7 +410,7 @@ function TestConnectionButton({ deps }: { deps: unknown[] }) {
   return (
     <div className="stack">
       <button className="btn small" disabled={state.busy} onClick={run}>
-        {state.busy ? "Testing…" : "Test connection"}
+        {state.busy ? t("Testing…") : t("Test connection")}
       </button>
       {state.result && <span className={`pill ${state.result.ok ? "ok" : "bad"}`}>{state.result.detail}</span>}
     </div>
@@ -392,16 +426,18 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
   return (
     <Section
       id="ai"
-      title="AI search"
-      description="Searches run against a retriever first (no AI, zero tokens). One small-model call then writes a cited answer."
+      title={t("AI search")}
+      description={t("Searches run against a retriever first (no AI, zero tokens). One small-model call then writes a cited answer.")}
     >
-      <Row label="Engine status">
+      <Row label={t("Engine status")}>
         {engine ? (
           engine.available ? (
-            <span className="pill ok">Ready · {engine.model}</span>
+            <span className="pill ok">
+              {t("Ready")} · {engine.model}
+            </span>
           ) : (
             <span className="pill bad" title={engine.reason ?? ""}>
-              Unavailable
+              {t("Unavailable")}
             </span>
           )
         ) : (
@@ -409,40 +445,40 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
         )}
       </Row>
       {engine && !engine.available && engine.reason && <div className="notice warn">{engine.reason}</div>}
-      <Row label="AI provider" hint={PROVIDER_HINT[ai.provider] ?? ""}>
+      <Row label={t("AI provider")} hint={providerHint()[ai.provider] ?? ""}>
         <select className="input" value={ai.provider} onChange={(e) => update({ ai: { provider: e.target.value as typeof ai.provider } })}>
           <option value="anthropic-api">Anthropic API</option>
-          <option value="claude-code-cli">Claude Code CLI (local)</option>
-          <option value="local">Local model (offline)</option>
+          <option value="claude-code-cli">{t("Claude Code CLI (local)")}</option>
+          <option value="local">{t("Local model (offline)")}</option>
         </select>
       </Row>
       {ai.provider === "anthropic-api" && (
         <Row
-          label="Anthropic API key"
-          hint={view.secretsPersisted ? "Encrypted with your operating system keychain." : "No OS keychain available: the key is kept in memory until Corvus quits."}
+          label={t("Anthropic API key")}
+          hint={view.secretsPersisted ? t("Encrypted with your operating system keychain.") : t("No OS keychain available: the key is kept in memory until Corvus quits.")}
         >
           <SecretField name="anthropicApiKey" isSet={view.secrets.anthropicApiKey} onSaved={setView} placeholder="sk-ant-…" />
         </Row>
       )}
       {ai.provider === "claude-code-cli" && (
-        <Row label="Claude CLI path" hint="Executable used for `claude -p`.">
+        <Row label={t("Claude CLI path")} hint={t("Executable used for `claude -p`.")}>
           <LazyInput value={ai.claudeCliPath} placeholder="claude" onSave={(v) => update({ ai: { claudeCliPath: v } })} />
         </Row>
       )}
       {ai.provider === "local" && (
         <>
-          <Row label="Local API" hint="Ollama speaks its own API; llama.cpp, LM Studio and vLLM speak the OpenAI-compatible one.">
+          <Row label={t("Local API")} hint={t("Ollama speaks its own API; llama.cpp, LM Studio and vLLM speak the OpenAI-compatible one.")}>
             <select className="input" value={ai.localApi} onChange={(e) => update({ ai: { localApi: e.target.value === "openai" ? "openai" : "ollama" } })}>
               <option value="ollama">Ollama</option>
-              <option value="openai">OpenAI-compatible</option>
+              <option value="openai">{t("OpenAI-compatible")}</option>
             </select>
           </Row>
-          <Row label="Base URL" hint={ai.localApi === "ollama" ? "Ollama server, e.g. http://localhost:11434." : "Server root, e.g. http://localhost:1234/v1 (LM Studio)."}>
+          <Row label={t("Base URL")} hint={ai.localApi === "ollama" ? t("Ollama server, e.g. http://localhost:11434.") : t("Server root, e.g. http://localhost:1234/v1 (LM Studio).")}>
             <LazyInput value={ai.localBaseUrl} placeholder="http://localhost:11434" onSave={(v) => update({ ai: { localBaseUrl: v.trim() } })} />
           </Row>
         </>
       )}
-      <Row label="Model" hint={ai.provider === "local" ? "The model name the server exposes, e.g. llama3.1 or qwen2.5." : "A small, fast model keeps answers cheap."}>
+      <Row label={t("Model")} hint={ai.provider === "local" ? t("The model name the server exposes, e.g. llama3.1 or qwen2.5.") : t("A small, fast model keeps answers cheap.")}>
         <LazyInput
           value={ai.model}
           placeholder={ai.provider === "local" ? "llama3.1" : "claude-haiku-5-5"}
@@ -450,36 +486,36 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
         />
       </Row>
       {ai.provider === "local" && (
-        <Row label="Connection" hint="No API key is needed — everything stays on this device.">
+        <Row label={t("Connection")} hint={t("No API key is needed — everything stays on this device.")}>
           <TestConnectionButton deps={[ai.provider, ai.localApi, ai.localBaseUrl, ai.model]} />
         </Row>
       )}
-      <Row label="Answer length" hint="Maximum output tokens per answer.">
+      <Row label={t("Answer length")} hint={t("Maximum output tokens per answer.")}>
         <LazyInput value={String(ai.maxOutputTokens)} type="number" width={120} onSave={(v) => update({ ai: { maxOutputTokens: Number(v) || 400 } })} />
       </Row>
-      <Row label="Answer language">
+      <Row label={t("Answer language")}>
         <select className="input" value={ai.answerLanguage} onChange={(e) => update({ ai: { answerLanguage: e.target.value } })}>
-          {LANGUAGES.map(([code, name]) => (
+          {languages().map(([code, name]) => (
             <option key={code} value={code}>
               {name}
             </option>
           ))}
         </select>
       </Row>
-      <Row label="Search backend">
+      <Row label={t("Search backend")}>
         <select className="input" value={ai.retriever} onChange={(e) => update({ ai: { retriever: e.target.value as typeof ai.retriever } })}>
-          <option value="searxng">SearXNG (self-hosted)</option>
+          <option value="searxng">{t("SearXNG (self-hosted)")}</option>
           <option value="brave">Brave Search API</option>
           <option value="duckduckgo">DuckDuckGo</option>
         </select>
       </Row>
       {ai.retriever === "searxng" && (
-        <Row label="SearXNG URL" hint="Run it with `docker compose up -d searxng`.">
+        <Row label={t("SearXNG URL")} hint={t("Run it with `docker compose up -d searxng`.")}>
           <LazyInput value={ai.searxngUrl} placeholder="http://localhost:8898" onSave={(v) => update({ ai: { searxngUrl: v.trim() } })} />
         </Row>
       )}
       {ai.retriever === "brave" && (
-        <Row label="Brave Search API key">
+        <Row label={t("Brave Search API key")}>
           <SecretField name="braveApiKey" isSet={view.secrets.braveApiKey} onSaved={setView} placeholder="BSA…" />
         </Row>
       )}
@@ -492,26 +528,33 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
   return (
     <Section
       id="passwords"
-      title="Passwords"
+      title={t("Passwords")}
       description={
         <>
-          Saved logins, 2FA codes and KeePass databases are managed on the <a href="corvus://passwords/">Passwords</a> page.
+          {t("Saved logins, 2FA codes and KeePass databases are managed on the")} <a href="corvus://passwords/">{t("Passwords")}</a>
+          {t("page.")}
         </>
       }
     >
       <Row
-        label="Let AI agents use logins you opt in"
-        hint="The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are always handed back to you."
+        label={t("Let AI agents use logins you opt in")}
+        hint={t("The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are always handed back to you.")}
       >
-        <Toggle label="Let AI agents use logins you opt in" checked={pw.agentAccess} onChange={(v) => update({ passwords: { agentAccess: v } })} />
+        <Toggle label={t("Let AI agents use logins you opt in")} checked={pw.agentAccess} onChange={(v) => update({ passwords: { agentAccess: v } })} />
       </Row>
-      <Row label="Lock KeePass databases after" hint="Minutes without keyboard or mouse activity. 0 keeps them unlocked until you lock them or quit.">
+      <Row label={t("Lock KeePass databases after")} hint={t("Minutes without keyboard or mouse activity. 0 keeps them unlocked until you lock them or quit.")}>
         <LazyInput
           value={String(pw.keepassAutoLockMinutes)}
           type="number"
           width={120}
           onSave={(v) => update({ passwords: { keepassAutoLockMinutes: Math.max(0, Math.min(1440, Math.round(Number(v)) || 0)) } })}
         />
+      </Row>
+      <Row
+        label={t("Passkeys and security keys")}
+        hint={t("Let sites ask for a passkey, Windows Hello or a USB security key. Off by default: sites then offer your password and 2FA code instead of opening the system security-key dialog. Applies to tabs opened afterwards.")}
+      >
+        <Toggle label={t("Passkeys and security keys")} checked={pw.passkeys} onChange={(v) => update({ passwords: { passkeys: v } })} />
       </Row>
     </Section>
   );
@@ -523,28 +566,28 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
   return (
     <Section
       id="command-agent"
-      title="Command Bar agent"
-      description="Press Ctrl+K (⌘K on macOS) to open the Command Bar. Start the line with “> ” to ask Corvus to run a task — it drives a dedicated tab with the same tools AI agents use, and you watch each step."
+      title={t("Command Bar agent")}
+      description={t("Press Ctrl+K (⌘K on macOS) to open the Command Bar. Start the line with “> ” to ask Corvus to run a task — it drives a dedicated tab with the same tools AI agents use, and you watch each step.")}
     >
-      <Row label="Provider" hint="Agent runs use your AI search provider and model.">
+      <Row label={t("Provider")} hint={t("Agent runs use your AI search provider and model.")}>
         <span className="pill off">
-          {ai.provider === "claude-code-cli" ? "Claude Code CLI" : ai.provider === "local" ? "Local model" : "Anthropic API"} · {ai.model}
+          {ai.provider === "claude-code-cli" ? "Claude Code CLI" : ai.provider === "local" ? t("Local model") : "Anthropic API"} · {ai.model}
         </span>
       </Row>
-      <Row label="Max steps" hint="Most tool actions one task may take before it stops.">
+      <Row label={t("Max steps")} hint={t("Most tool actions one task may take before it stops.")}>
         <LazyInput value={String(agent.maxSteps)} type="number" width={120} onSave={(v) => update({ agent: { maxSteps: Math.max(1, Math.min(50, Number(v) || 15)) } })} />
       </Row>
       <Row
-        label="Ask before risky actions"
-        hint="When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and CAPTCHAs and card or password fields are always handed back to you."
+        label={t("Ask before risky actions")}
+        hint={t("When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and CAPTCHAs and card or password fields are always handed back to you.")}
       >
-        <Toggle label="Ask before risky actions" checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
+        <Toggle label={t("Ask before risky actions")} checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
       </Row>
       <Row
-        label="Learn from runs (site memory)"
-        hint="After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Learning is per device; what is learned syncs end to end when Site memory sync is on. See and forget them on the Workflows page."
+        label={t("Learn from runs (site memory)")}
+        hint={t("After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Learning is per device; what is learned syncs end to end when Site memory sync is on. See and forget them on the Workflows page.")}
       >
-        <Toggle label="Learn from runs (site memory)" checked={agent.siteMemory} onChange={(v) => update({ agent: { siteMemory: v } })} />
+        <Toggle label={t("Learn from runs (site memory)")} checked={agent.siteMemory} onChange={(v) => update({ agent: { siteMemory: v } })} />
       </Row>
     </Section>
   );
@@ -574,47 +617,47 @@ function AgentsSection({ view, update }: { view: SettingsView; update: (p: Setti
   return (
     <Section
       id="agents"
-      title="AI agents (MCP)"
-      description="Let Claude Code, Claude Desktop or any MCP client drive this browser over a local-only server (127.0.0.1) protected by a bearer token."
+      title={t("AI agents (MCP)")}
+      description={t("Let Claude Code, Claude Desktop or any MCP client drive this browser over a local-only server (127.0.0.1) protected by a bearer token.")}
     >
-      <Row label="Enable MCP server" hint="New clients must be approved the first time they connect.">
+      <Row label={t("Enable MCP server")} hint={t("New clients must be approved the first time they connect.")}>
         {status && (
           <span className={`pill ${status.running ? "ok" : status.enabled && !status.available ? "bad" : "off"}`}>
-            {status.running ? `Running on port ${status.port}` : status.enabled ? (status.available ? "Starting…" : "Unavailable") : "Off"}
+            {status.running ? t("Running on port {port}", { port: status.port ?? "" }) : status.enabled ? (status.available ? t("Starting…") : t("Unavailable")) : t("Off")}
           </span>
         )}
         {status && (
-          <span className={`pill ${status.accessLevel === "full" ? "bad" : "off"}`} title="Access level approved agents run at">
-            {ACCESS_LEVELS.find((o) => o.level === status.accessLevel)?.label ?? status.accessLevel} access
+          <span className={`pill ${status.accessLevel === "full" ? "bad" : "off"}`} title={t("Access level approved agents run at")}>
+            {t("{level} access", { level: accessLevels().find((o) => o.level === status.accessLevel)?.label ?? status.accessLevel })}
           </span>
         )}
-        <Toggle label="Enable MCP server" checked={mcp.enabled} onChange={(v) => update({ mcp: { enabled: v } })} />
+        <Toggle label={t("Enable MCP server")} checked={mcp.enabled} onChange={(v) => update({ mcp: { enabled: v } })} />
       </Row>
       {status?.error && <div className="notice warn">{status.error}</div>}
-      <Row label="Port" hint="0 picks a random free port once and keeps it.">
+      <Row label={t("Port")} hint={t("0 picks a random free port once and keeps it.")}>
         <LazyInput value={String(mcp.port)} type="number" width={120} onSave={(v) => update({ mcp: { port: Math.max(0, Math.min(65535, Number(v) || 0)) } })} />
       </Row>
-      <Row label="Access token">
+      <Row label={t("Access token")}>
         <code className="mono">{status ? (showToken ? status.token : `${status.token.slice(0, 4)}…${status.token.slice(-4)}`) : "…"}</code>
         <button className="btn small ghost" onClick={() => setShowToken((s) => !s)}>
-          {showToken ? "Hide" : "Show"}
+          {showToken ? t("Hide") : t("Show")}
         </button>
         {status && <CopyButton text={status.token} />}
         <button
           className="btn small"
           onClick={() => {
-            if (confirm("Regenerate the token? Connected agents will need the new command.")) void api.call("mcp.regenerateToken").then(setStatus);
+            if (confirm(t("Regenerate the token? Connected agents will need the new command."))) void api.call("mcp.regenerateToken").then(setStatus);
           }}
         >
-          Regenerate
+          {t("Regenerate")}
         </button>
       </Row>
       {status?.command ? (
         <>
           <div className="row" style={{ borderBottom: "none" }}>
             <div className="row-label">
-              <div>Connect Claude Code</div>
-              <div className="muted small">Run this once in a terminal.</div>
+              <div>{t("Connect Claude Code")}</div>
+              <div className="muted small">{t("Run this once in a terminal.")}</div>
             </div>
           </div>
           <div className="code-box">
@@ -623,19 +666,19 @@ function AgentsSection({ view, update }: { view: SettingsView; update: (p: Setti
           </div>
         </>
       ) : (
-        <div className="notice">Enable the server once to get a port and the `claude mcp add` command.</div>
+        <div className="notice">{t("Enable the server once to get a port and the `claude mcp add` command.")}</div>
       )}
       <AccessLevelControl value={resolveMcpAccessLevel(mcp)} onChange={(level) => update({ mcp: { accessLevel: level, allowEvaluate: level === "full" } })} />
 
-      <Row label="Approved clients" hint="Clients that connect without asking.">
-        {mcp.approvedClients.length === 0 && <span className="muted">None yet</span>}
+      <Row label={t("Approved clients")} hint={t("Clients that connect without asking.")}>
+        {mcp.approvedClients.length === 0 && <span className="muted">{t("None yet")}</span>}
         {mcp.approvedClients.map((name) => (
           <span key={name} className="pill">
             {name}
             <button
               className="btn small ghost"
               style={{ height: 18, padding: "0 4px" }}
-              title="Revoke"
+              title={t("Revoke")}
               onClick={() => update({ mcp: { approvedClients: mcp.approvedClients.filter((n) => n !== name) } })}
             >
               ×
@@ -677,7 +720,7 @@ function McpRemoteSection({ view, update }: { view: SettingsView; update: (p: Se
   }, [api, view]);
 
   const toggleRemote = (on: boolean): void => {
-    if (on && !confirm("Expose this browser to the local network?\n\nAny device that can reach this machine and has the access token will be able to drive the browser. Keep the token secret and rotate it if leaked.")) {
+    if (on && !confirm(t("Expose this browser to the local network?\n\nAny device that can reach this machine and has the access token will be able to drive the browser. Keep the token secret and rotate it if leaked."))) {
       return;
     }
     update({ mcp: { host: on ? "0.0.0.0" : "127.0.0.1" } });
@@ -686,22 +729,23 @@ function McpRemoteSection({ view, update }: { view: SettingsView; update: (p: Se
   return (
     <Section
       id="agents-remote"
-      title="AI agents: remote access"
-      description="By default the MCP server listens on 127.0.0.1 and only local clients can reach it. Turn this on to also accept connections from other devices on your network. The bearer token is still required."
+      title={t("AI agents: remote access")}
+      description={t("By default the MCP server listens on 127.0.0.1 and only local clients can reach it. Turn this on to also accept connections from other devices on your network. The bearer token is still required.")}
     >
-      <Row label="Allow remote clients" hint="Binds the server to 0.0.0.0 (all interfaces) instead of loopback only.">
-        {status && <span className={`pill ${remote ? "bad" : "off"}`}>{remote ? "All interfaces" : "Loopback only"}</span>}
-        <Toggle label="Allow remote clients" checked={remote} onChange={toggleRemote} />
+      <Row label={t("Allow remote clients")} hint={t("Binds the server to 0.0.0.0 (all interfaces) instead of loopback only.")}>
+        {status && <span className={`pill ${remote ? "bad" : "off"}`}>{remote ? t("All interfaces") : t("Loopback only")}</span>}
+        <Toggle label={t("Allow remote clients")} checked={remote} onChange={toggleRemote} />
       </Row>
       {remote && (
         <div className="notice warn">
-          This browser is reachable from your local network. Anyone who can connect to this machine and holds the access token can
-          open tabs, read pages, click and type. Only enable this on trusted networks, and rotate the token if it may have leaked.
+          {t(
+            "This browser is reachable from your local network. Anyone who can connect to this machine and holds the access token can open tabs, read pages, click and type. Only enable this on trusted networks, and rotate the token if it may have leaked.",
+          )}
         </div>
       )}
-      {remote && !mcp.enabled && <div className="notice">The MCP server is off. Enable it under “AI agents (MCP)” for remote access to take effect.</div>}
+      {remote && !mcp.enabled && <div className="notice">{t("The MCP server is off. Enable it under “AI agents (MCP)” for remote access to take effect.")}</div>}
       {remote && status?.running && (
-        <Row label="Connect a remote client" hint={status.lanAddress ? "Use this machine's network address." : "No network address detected; use this machine's LAN IP."}>
+        <Row label={t("Connect a remote client")} hint={status.lanAddress ? t("Use this machine's network address.") : t("No network address detected; use this machine's LAN IP.")}>
           <code className="mono">{status.url}</code>
           {status.url && <CopyButton text={status.url} />}
           {status.command && <CopyButton text={status.command} />}
@@ -730,37 +774,37 @@ function AdblockSection() {
 
   const lists = view?.lists;
   const sourceLabel =
-    lists?.source === "network" ? "EasyList + EasyPrivacy" : lists?.source === "cache" ? "EasyList + EasyPrivacy (cached)" : "Built-in list (offline)";
+    lists?.source === "network" ? "EasyList + EasyPrivacy" : lists?.source === "cache" ? t("EasyList + EasyPrivacy (cached)") : t("Built-in list (offline)");
 
   return (
     <Section
       id="adblock"
-      title="Ad &amp; tracker blocker"
-      description="Blocks ads and trackers with EasyList and EasyPrivacy, including cosmetic (page element) filters. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced."
+      title={t("Ad & tracker blocker")}
+      description={t("Blocks ads and trackers with EasyList and EasyPrivacy, including cosmetic (page element) filters. Blocking never applies to corvus:// pages or local addresses, and settings are per profile and never synced.")}
     >
-      <Row label="Block ads and trackers" hint="Applies to every site except those you allow below.">
-        <Toggle label="Block ads and trackers" checked={view?.enabled ?? true} onChange={(v) => run(api.call("adblock.setEnabled", v))} />
+      <Row label={t("Block ads and trackers")} hint={t("Applies to every site except those you allow below.")}>
+        <Toggle label={t("Block ads and trackers")} checked={view?.enabled ?? true} onChange={(v) => run(api.call("adblock.setEnabled", v))} />
       </Row>
-      <Row label="Filter lists" hint={lists?.updatedAt ? `${lists.filterCount.toLocaleString()} rules` : "Using the bundled list until the first update succeeds."}>
+      <Row label={t("Filter lists")} hint={lists?.updatedAt ? t("{count} rules", { count: lists.filterCount.toLocaleString() }) : t("Using the bundled list until the first update succeeds.")}>
         <span className="muted small">
           {sourceLabel}
-          {lists?.updatedAt ? ` · updated ${formatTime(lists.updatedAt)}` : " · never updated"}
+          {lists?.updatedAt ? ` · ${t("updated {time}", { time: formatTime(lists.updatedAt) })}` : ` · ${t("never updated")}`}
         </span>
         <button className="btn small" disabled={lists?.updating} onClick={() => run(api.call("adblock.update"))}>
-          {lists?.updating ? "Updating…" : "Update now"}
+          {lists?.updating ? t("Updating…") : t("Update now")}
         </button>
       </Row>
-      <Row label="Allowed sites" hint="Sites where blocking is paused (chosen from the shield in the address bar).">
-        {view && view.allowedSites.length === 0 && <span className="muted">None</span>}
+      <Row label={t("Allowed sites")} hint={t("Sites where blocking is paused (chosen from the shield in the address bar).")}>
+        {view && view.allowedSites.length === 0 && <span className="muted">{t("None")}</span>}
       </Row>
       {view && view.allowedSites.length > 0 && (
         <div className="list" style={{ borderTop: "1px solid var(--border-soft)" }}>
           {view.allowedSites.map((host) => (
             <div key={host} className="list-row">
               <span className="grow">{host}</span>
-              <button className="btn small ghost danger" title="Remove" onClick={() => run(api.call("adblock.removeAllowed", host))}>
+              <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("adblock.removeAllowed", host))}>
                 <IconTrash size={13} />
-                Remove
+                {t("Remove")}
               </button>
             </div>
           ))}
@@ -785,7 +829,7 @@ function ProfilesSection() {
   };
 
   return (
-    <Section id="profiles" title="Profiles" description="Each profile has its own cookies, history, bookmarks, extensions and sync.">
+    <Section id="profiles" title={t("Profiles")} description={t("Each profile has its own cookies, history, bookmarks, extensions and sync.")}>
       {data?.profiles.map((p) => (
         <Row
           key={p.id}
@@ -795,21 +839,21 @@ function ProfilesSection() {
                 {p.name.charAt(0).toUpperCase()}
               </span>
               <LazyInput value={p.name} width={220} onSave={(v) => run(api.call("profiles.rename", p.id, v))} />
-              {p.id === data.current && <span className="pill">This window</span>}
-              {p.syncChainId && <span className="pill ok">Synced</span>}
+              {p.id === data.current && <span className="pill">{t("This window")}</span>}
+              {p.syncChainId && <span className="pill ok">{t("Synced")}</span>}
             </span>
           }
         >
           <button className="btn small" onClick={() => run(api.call("profiles.openWindow", p.id))}>
-            Open window
+            {t("Open window")}
           </button>
           <button className="btn small ghost danger" disabled={data.profiles.length <= 1} onClick={() => run(api.call("profiles.remove", p.id))}>
-            Delete
+            {t("Delete")}
           </button>
         </Row>
       ))}
-      <Row label="Add profile">
-        <input className="input" placeholder="Profile name" value={name} onChange={(e) => setName(e.target.value)} />
+      <Row label={t("Add profile")}>
+        <input className="input" placeholder={t("Profile name")} value={name} onChange={(e) => setName(e.target.value)} />
         <button
           className="btn small primary"
           disabled={!name.trim()}
@@ -817,7 +861,7 @@ function ProfilesSection() {
             run(api.call("profiles.create", name).then(() => setName("")));
           }}
         >
-          Create
+          {t("Create")}
         </button>
       </Row>
       <Feedback error={error} />
@@ -859,36 +903,36 @@ function UpdatesSection({ view, update }: { view: SettingsView; update: (p: Sett
   return (
     <Section
       id="updates"
-      title="Updates"
-      description="Corvus updates itself from its GitHub Releases, or from a self-hosted feed you set below. Updates apply to this install and are never synced."
+      title={t("Updates")}
+      description={t("Corvus updates itself from its GitHub Releases, or from a self-hosted feed you set below. Updates apply to this install and are never synced.")}
     >
-      <Row label="Current version">
+      <Row label={t("Current version")}>
         <span className="pill off">Corvus {status?.currentVersion ?? "…"}</span>
         {status && !status.supported && <span className="muted small">{status.reason}</span>}
       </Row>
       <Row
-        label="Third-party software"
-        hint="Corvus includes open-source packages under their own licences. The source is MPL-2.0; this app is distributed under GPL-3.0 because it includes electron-chrome-extensions. Source: github.com/ParendumOU/Corvus."
+        label={t("Third-party software")}
+        hint={t("Corvus includes open-source packages under their own licences. The source is MPL-2.0; this app is distributed under GPL-3.0 because it includes electron-chrome-extensions. Source: github.com/ParendumOU/Corvus.")}
       >
         <button className="btn small" onClick={() => void api.call("app.openThirdPartyNotices").then(setNoticesError)}>
-          View licences
+          {t("View licences")}
         </button>
         {noticesError && <span className="muted small">{noticesError}</span>}
       </Row>
-      <Row label="Release channel" hint="Beta receives pre-releases from the same feed.">
+      <Row label={t("Release channel")} hint={t("Beta receives pre-releases from the same feed.")}>
         <Segmented<UpdateChannel>
           value={u.channel}
           options={[
-            ["stable", "Stable"],
-            ["beta", "Beta"],
+            ["stable", t("Stable")],
+            ["beta", t("Beta")],
           ]}
           onChange={(channel) => update({ update: { channel } })}
         />
       </Row>
-      <Row label="Check on startup" hint="Look for updates each time Corvus starts.">
-        <Toggle label="Check on startup" checked={u.autoCheck} onChange={(v) => update({ update: { autoCheck: v } })} />
+      <Row label={t("Check on startup")} hint={t("Look for updates each time Corvus starts.")}>
+        <Toggle label={t("Check on startup")} checked={u.autoCheck} onChange={(v) => update({ update: { autoCheck: v } })} />
       </Row>
-      <Row label="Update feed URL" hint="Base URL of a self-hosted “generic” feed. Blank uses GitHub Releases.">
+      <Row label={t("Update feed URL")} hint={t("Base URL of a self-hosted “generic” feed. Blank uses GitHub Releases.")}>
         <LazyInput
           value={u.feedUrl}
           width={320}
@@ -896,30 +940,31 @@ function UpdatesSection({ view, update }: { view: SettingsView; update: (p: Sett
           onSave={(v) => update({ update: { feedUrl: v.trim() } })}
         />
       </Row>
-      <Row label="Updates" hint="Check now, then download and restart to install.">
+      <Row label={t("Updates")} hint={t("Check now, then download and restart to install.")}>
         <button className="btn small" disabled={checking || !status?.supported} onClick={check}>
-          {checking ? "Checking…" : "Check for updates"}
+          {checking ? t("Checking…") : t("Check for updates")}
         </button>
         {phase === "available" && (
           <button className="btn small primary" onClick={download}>
-            Download{status?.newVersion ? ` ${status.newVersion}` : ""}
+            {t("Download")}
+            {status?.newVersion ? ` ${status.newVersion}` : ""}
           </button>
         )}
         {phase === "downloaded" && (
           <button className="btn small primary" onClick={install}>
-            Restart to update
+            {t("Restart to update")}
           </button>
         )}
       </Row>
       {phase === "downloading" && (
-        <Row label="Downloading" hint={status?.newVersion ? `Version ${status.newVersion}` : undefined}>
+        <Row label={t("Downloading")} hint={status?.newVersion ? t("Version {version}", { version: status.newVersion }) : undefined}>
           <progress max={100} value={status?.percent ?? 0} style={{ width: 200 }} />
           <span className="muted small">{status?.percent ?? 0}%</span>
         </Row>
       )}
-      {phase === "not-available" && <div className="notice">You’re on the latest version.</div>}
+      {phase === "not-available" && <div className="notice">{t("You’re on the latest version.")}</div>}
       {phase === "downloaded" && (
-        <div className="notice">Version {status?.newVersion} is ready. Restart Corvus to finish updating.</div>
+        <div className="notice">{t("Version {version} is ready. Restart Corvus to finish updating.", { version: status?.newVersion ?? "" })}</div>
       )}
       {status?.error && <div className="notice warn">{status.error}</div>}
       {status?.releaseNotes && (phase === "available" || phase === "downloaded") && (
@@ -935,6 +980,12 @@ function SettingsPage() {
   const loadView = useCallback(() => internalApi().call("settings.get"), []);
   const [view, , setView] = useAsync<SettingsView>(loadView);
   const [error, setError] = useState<string | null>(null);
+  // Before anything renders, so the whole page follows a language change at once.
+  if (view) setUiLanguage(resolveUiLanguage(view.settings.appearance.language, navigator.language));
+
+  useEffect(() => {
+    document.title = t("Settings");
+  });
 
   useEffect(() => {
     const hash = location.hash.slice(1);
@@ -954,51 +1005,51 @@ function SettingsPage() {
 
   const navGroups: Array<[string, Array<[string, string]>]> = [
     [
-      "Appearance & reading",
+      t("Appearance & reading"),
       [
-        ["appearance", "Appearance"],
-        ["reader", "Reader mode"],
-        ["pdf", "PDF viewer"],
+        ["appearance", t("Appearance")],
+        ["reader", t("Reader mode")],
+        ["pdf", t("PDF viewer")],
       ],
     ],
     [
-      "Browsing",
+      t("Browsing"),
       [
-        ["semantic-search", "Find in my pages"],
-        ["startup", "On startup"],
-        ["downloads", "Downloads"],
-        ["passwords", "Passwords"],
-        ["site-permissions", "Site permissions"],
-        ["adblock", "Ad blocker"],
-        ["monitoring", "Page monitoring"],
+        ["semantic-search", t("Find in my pages")],
+        ["startup", t("On startup")],
+        ["downloads", t("Downloads")],
+        ["passwords", t("Passwords")],
+        ["site-permissions", t("Site permissions")],
+        ["adblock", t("Ad blocker")],
+        ["monitoring", t("Page monitoring")],
       ],
     ],
     [
-      "AI & agents",
+      t("AI & agents"),
       [
-        ["ai", "AI search"],
-        ["command-agent", "Command Bar"],
-        ["scheduled-agents", "Scheduled agents"],
-        ["agents", "AI agents"],
-        ["agents-remote", "Remote access"],
-        ["webscope", "Security workbench"],
+        ["ai", t("AI search")],
+        ["command-agent", t("Command Bar")],
+        ["scheduled-agents", t("Scheduled agents")],
+        ["agents", t("AI agents")],
+        ["agents-remote", t("Remote access")],
+        ["webscope", t("Security workbench")],
       ],
     ],
     [
-      "System",
+      t("System"),
       [
-        ["profiles", "Profiles"],
-        ["sync", "Sync"],
-        ["updates", "Updates"],
-        ["crash-logs", "Crash logs"],
-        ["onboarding", "First-run setup"],
+        ["profiles", t("Profiles")],
+        ["sync", t("Sync")],
+        ["updates", t("Updates")],
+        ["crash-logs", t("Crash logs")],
+        ["onboarding", t("First-run setup")],
       ],
     ],
   ];
 
   return (
     <PageShell
-      title="Settings"
+      title={t("Settings")}
       active="settings"
       sidebar={navGroups.map(([group, items]) => (
         <div key={group} className="nav-group">
@@ -1037,7 +1088,7 @@ function SettingsPage() {
           <CrashLogsSection view={view} update={update} />
           <OnboardingSection />
           <p className="muted small" style={{ textAlign: "center" }}>
-            Corvus 0.1.0 · An AI-native browser that is also an MCP server.
+            {t("An AI-native browser that is also an MCP server.")}
           </p>
         </>
       )}
@@ -1050,14 +1101,16 @@ function WebScopeSection({ view, update }: { view: SettingsView; update: (p: Set
   return (
     <Section
       id="webscope"
-      title="Security workbench (WebScope)"
-      description="A Burp-style workbench over your own browser traffic: capture, replay, fuzz and transform in-scope requests. For authorized testing only. Off by default."
+      title={t("Security workbench (WebScope)")}
+      description={t("A Burp-style workbench over your own browser traffic: capture, replay, fuzz and transform in-scope requests. For authorized testing only. Off by default.")}
     >
-      <Row label="Enable WebScope" hint="Captures this profile's HTTP traffic for inspection. Everything stays scoped to the allowlist.">
-        <Toggle label="Enable WebScope" checked={ws.enabled} onChange={(v) => update({ webscope: { enabled: v } })} />
+      <Row label={t("Enable WebScope")} hint={t("Captures this profile's HTTP traffic for inspection. Everything stays scoped to the allowlist.")}>
+        <Toggle label={t("Enable WebScope")} checked={ws.enabled} onChange={(v) => update({ webscope: { enabled: v } })} />
       </Row>
-      <Row label="Open" hint="Capture, Repeater, Fuzzer, Rules, Scope, Decoder and Comparer.">
-        <a className="btn small" href="corvus://webscope/">Open WebScope</a>
+      <Row label={t("Open")} hint={t("Capture, Repeater, Fuzzer, Rules, Scope, Decoder and Comparer.")}>
+        <a className="btn small" href="corvus://webscope/">
+          {t("Open WebScope")}
+        </a>
       </Row>
     </Section>
   );
@@ -1079,19 +1132,19 @@ function CrashLogsSection({ view, update }: { view: SettingsView; update: (p: Se
   return (
     <Section
       id="crash-logs"
-      title="Crash &amp; error logs"
-      description="If Corvus or a page crashes, save a local diagnostic log you can use to report the problem. Logs stay on this device in a rotating file under your user data folder and are never uploaded. Off by default."
+      title={t("Crash & error logs")}
+      description={t("If Corvus or a page crashes, save a local diagnostic log you can use to report the problem. Logs stay on this device in a rotating file under your user data folder and are never uploaded. Off by default.")}
     >
-      <Row label="Save crash logs locally" hint="Records main-process errors and tab crashes to a local file. Nothing is sent anywhere.">
+      <Row label={t("Save crash logs locally")} hint={t("Records main-process errors and tab crashes to a local file. Nothing is sent anywhere.")}>
         <Toggle
-          label="Save crash logs locally"
+          label={t("Save crash logs locally")}
           checked={view.settings.crashReports.saveLogs}
           onChange={(v) => update({ crashReports: { saveLogs: v } })}
         />
       </Row>
-      <Row label="Log folder" hint={logPath || undefined}>
+      <Row label={t("Log folder")} hint={logPath || undefined}>
         <button className="btn small" onClick={openFolder}>
-          Open log folder
+          {t("Open log folder")}
         </button>
       </Row>
       {error && <div className="notice error">{error}</div>}
@@ -1103,12 +1156,12 @@ function OnboardingSection() {
   return (
     <Section
       id="onboarding"
-      title="First-run setup"
-      description="Re-run the welcome wizard to reconfigure your AI provider, sync, imports and preferences. It normally appears only once, on first launch."
+      title={t("First-run setup")}
+      description={t("Re-run the welcome wizard to reconfigure your AI provider, sync, imports and preferences. It normally appears only once, on first launch.")}
     >
-      <Row label="Welcome wizard" hint="Opens the step-by-step setup in a new page. Nothing changes until you pick it there.">
+      <Row label={t("Welcome wizard")} hint={t("Opens the step-by-step setup in a new page. Nothing changes until you pick it there.")}>
         <a className="btn small" href="corvus://welcome/">
-          Run setup again
+          {t("Run setup again")}
         </a>
       </Row>
     </Section>

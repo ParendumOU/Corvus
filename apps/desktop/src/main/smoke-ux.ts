@@ -129,9 +129,89 @@ export async function runUxSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<vo
   await runPageBaseSmoke(ctx, h);
   await runWorkspaceSmoke(ctx, h);
   await runSettingsNavSmoke(h);
+  await runSettingsLanguageSmoke(ctx, h);
+  await runHomeButtonSmoke(ctx, h);
 }
 
-/** In a short window the settings side nav scrolls on its own, so its last links stay reachable. */
+/** The home button sits next to reload and opens the home page chosen in Settings. */
+async function runHomeButtonSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> {
+  const { win, check } = h;
+  const before = ctx.settings.get().appearance;
+  const tab = win.createTab(`${h.url}ux-plain`, { activate: true });
+  const wc = tab.view.webContents;
+  const chrome = win.chrome.webContents;
+  try {
+    if (wc.isLoading()) await waitForLoad(wc);
+    const shown = await waitForJs(chrome, "document.querySelector('button[title^=\"Home\"]')");
+    check("home button: shown next to reload by default", shown);
+
+    ctx.settings.update({ appearance: { homePage: "custom", homeUrl: `${h.url}ux-plain?home=1` } });
+    await chrome.executeJavaScript("document.querySelector('button[title^=\"Home\"]')?.click()");
+    const custom = await waitFor(() => wc.getURL().includes("home=1"));
+    ctx.settings.update({ appearance: { homePage: "corvus" } });
+    win.home(tab.id);
+    const corvus = await waitFor(() => wc.getURL().startsWith("corvus://newtab"));
+    check("home button: opens the chosen home page, Corvus by default", Boolean(custom) && Boolean(corvus), wc.getURL());
+
+    ctx.settings.update({ appearance: { showHomeButton: false } });
+    const hidden = await waitForJs(chrome, "!document.querySelector('button[title^=\"Home\"]')");
+    check("home button: can be hidden", hidden);
+  } finally {
+    ctx.settings.update({ appearance: { showHomeButton: before.showHomeButton, homePage: before.homePage, homeUrl: before.homeUrl } });
+    win.closeTab(tab.id);
+    await sleep(200);
+  }
+}
+
+/** Settings and the page menu switch to Spanish live, and load already in Spanish afterwards. */
+async function runSettingsLanguageSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> {
+  const { win, check, capture } = h;
+  const before = ctx.settings.get().appearance.language;
+  const tab = win.createTab("corvus://settings/");
+  const wc = tab.view.webContents;
+  const texts = `({
+    lang: document.documentElement.lang,
+    heading: document.querySelector('.page-header h1')?.textContent ?? '',
+    section: document.querySelector('#appearance h2')?.textContent ?? '',
+    menu: document.querySelector('.side-nav > a[href="corvus://history/"]')?.textContent ?? '',
+    group: document.querySelector('.nav-group-head')?.textContent ?? '',
+    title: document.title,
+  })`;
+  try {
+    ctx.settings.update({ appearance: { language: "en" } });
+    if (wc.isLoading()) await waitForLoad(wc);
+    await waitForJs(wc, "document.querySelector('#appearance h2')");
+    const english = await wc.executeJavaScript(texts);
+    check("settings language: English by default here", english.heading === "Settings" && english.section === "Appearance" && english.lang === "en", english);
+
+    // Switch from the page itself, as the person would.
+    await wc.executeJavaScript(`[...document.querySelectorAll('#appearance .segmented button')].find((b) => b.textContent === 'Español')?.click()`);
+    const live = await waitForJs(wc, "document.querySelector('#appearance h2')?.textContent === 'Apariencia'");
+    const spanish = await wc.executeJavaScript(texts);
+    check(
+      "settings language: switching to Español translates the page and its menu at once",
+      live && spanish.heading === "Ajustes" && spanish.menu === "Historial" && spanish.group === "Apariencia y lectura" && spanish.lang === "es",
+      spanish,
+    );
+    await capture("ux-settings-spanish", wc);
+
+    wc.reload();
+    await waitForLoad(wc);
+    const firstPaint = await wc.executeJavaScript("document.documentElement.lang");
+    await waitForJs(wc, "document.querySelector('#appearance h2')");
+    const reloaded = await wc.executeJavaScript(texts);
+    check("settings language: the page loads in Spanish from the start", firstPaint === "es" && reloaded.section === "Apariencia" && reloaded.title === "Ajustes", { firstPaint, ...reloaded });
+  } finally {
+    ctx.settings.update({ appearance: { language: before } });
+    win.closeTab(tab.id);
+    await sleep(200);
+  }
+}
+
+/**
+ * In a short window the settings side nav scrolls on its own, so its last links stay reachable, without
+ * squeezing its rows; jumping to a section lands it below the sticky search band.
+ */
 async function runSettingsNavSmoke(h: UxSmokeHelpers): Promise<void> {
   const { win, check, capture } = h;
   const [w = 1280, hgt = 840] = win.win.getContentSize();
@@ -150,6 +230,9 @@ async function runSettingsNavSmoke(h: UxSmokeHelpers): Promise<void> {
         const navBottom = nav.getBoundingClientRect().bottom;
         const innerHeight = window.innerHeight;
         const overflows = nav.scrollHeight > nav.clientHeight;
+        const heights = (selector) => [...nav.querySelectorAll(selector)].map((a) => Math.round(a.getBoundingClientRect().height));
+        const pageLinkHeights = heights(':scope > a');
+        const sectionLinkHeights = heights('.side-extra a');
         nav.scrollTop = nav.scrollHeight;
         const links = nav.querySelectorAll('a');
         const last = links[links.length - 1];
@@ -157,13 +240,15 @@ async function runSettingsNavSmoke(h: UxSmokeHelpers): Promise<void> {
         const navBottomScrolled = nav.getBoundingClientRect().bottom;
         const search = document.querySelector('.settings-search');
         const searchBg = search ? getComputedStyle(search).backgroundColor : null;
-        return { overflowY, navBottom, innerHeight, overflows, lastText: last?.textContent ?? null, lastBottom, navBottomScrolled, searchBg };
+        return { overflowY, navBottom, innerHeight, overflows, pageLinkHeights, sectionLinkHeights, lastText: last?.textContent ?? null, lastBottom, navBottomScrolled, searchBg };
       })()`,
     )) as {
       overflowY: string;
       navBottom: number;
       innerHeight: number;
       overflows: boolean;
+      pageLinkHeights: number[];
+      sectionLinkHeights: number[];
       lastText: string | null;
       lastBottom: number | null;
       navBottomScrolled: number;
@@ -176,9 +261,28 @@ async function runSettingsNavSmoke(h: UxSmokeHelpers): Promise<void> {
       nav !== null && nav.lastBottom !== null && nav.lastBottom <= nav.navBottomScrolled,
       nav,
     );
+    check("settings nav: page links keep their height while the nav scrolls", !!nav && nav.pageLinkHeights.length > 0 && nav.pageLinkHeights.every((px) => px === 36), nav?.pageLinkHeights);
+    check("settings nav: section links keep their height", !!nav && nav.sectionLinkHeights.length > 0 && nav.sectionLinkHeights.every((px) => px === 30), nav?.sectionLinkHeights);
     check("settings search: sticky band is opaque", !!nav?.searchBg && nav.searchBg !== "rgba(0, 0, 0, 0)" && nav.searchBg !== "transparent", nav?.searchBg);
     await sleep(150);
     await capture("ux-settings-nav-scrolled", wc);
+
+    await wc.executeJavaScript(`document.querySelector('.side-extra a[data-nav-id="agents"]')?.click()`);
+    await sleep(400);
+    const jump = (await wc.executeJavaScript(
+      `(() => {
+        const card = document.getElementById('agents');
+        const band = document.querySelector('.settings-search');
+        if (!card || !band) return null;
+        return { cardTop: Math.round(card.getBoundingClientRect().top), bandBottom: Math.round(band.getBoundingClientRect().bottom), hash: location.hash };
+      })()`,
+    )) as { cardTop: number; bandBottom: number; hash: string } | null;
+    check(
+      "settings nav: a section jump lands just below the search band",
+      !!jump && jump.hash === "#agents" && jump.cardTop >= jump.bandBottom && jump.cardTop - jump.bandBottom <= 24,
+      jump,
+    );
+    await capture("ux-settings-nav-jump", wc);
   } finally {
     win.win.setContentSize(w, hgt);
     win.closeTab(tab.id);

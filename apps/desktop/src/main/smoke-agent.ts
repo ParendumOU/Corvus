@@ -1,5 +1,9 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import os from "node:os";
+import path from "node:path";
 import { nativeTheme, type WebContents } from "electron";
 import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
 import type { AppContext } from "./context";
@@ -165,6 +169,7 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
     // 4. An MCP client clicking "Buy now" gets the native spend dialog (answered by the test hook), then
     //    reads a page's console and network log and is offered no tool this build lacks.
     await mcpSpendSmoke(ctx, url, check);
+    await mcpBridgeSmoke(ctx, check);
   } finally {
     ctx.settings.update({ agent: { askBeforeRisky: askBefore } });
     nativeTheme.themeSource = themeBefore;
@@ -283,6 +288,93 @@ async function mcpSpendSmoke(ctx: AppContext, shopUrl: string, check: Helpers["c
     await session?.close();
     ctx.spendApprovals.setTestApprover(null);
     ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, allowEvaluate: before.allowEvaluate, approvedClients: before.approvedClients } });
+    await ctx.mcp.apply();
+  }
+}
+
+/**
+ * The stdio bridge agents use: --enable-mcp turns the server on, the bridge finds it through the
+ * discovery file, and when the server restarts (sessions gone) it opens a new session by itself.
+ */
+async function mcpBridgeSmoke(ctx: AppContext, check: Helpers["check"]): Promise<void> {
+  const clientName = "corvus-smoke-bridge";
+  const before = ctx.settings.get().mcp;
+  const bin = path.resolve(process.cwd(), "../../packages/mcp-server/dist/bin/stdio-bridge.js");
+  const home = process.env.CORVUS_HOME || path.join(os.homedir(), ".corvus");
+  let child: ReturnType<typeof spawn> | null = null;
+  try {
+    ctx.settings.update({ mcp: { enabled: false, accessLevel: "standard", approvedClients: [...before.approvedClients.filter((c) => c !== clientName), clientName] } });
+    await ctx.mcp.apply();
+    ctx.mcp.enableFromArgv(["corvus", "--ignored"]);
+    await ctx.mcp.apply();
+    check("MCP bridge: other switches leave the server off", !ctx.mcp.isRunning());
+    ctx.mcp.enableFromArgv(["corvus", "--enable-mcp"]);
+    await ctx.mcp.apply();
+    const discovery = JSON.parse(fs.readFileSync(path.join(home, "mcp.json"), "utf8")) as { url?: string; pid?: number };
+    check("MCP bridge: --enable-mcp starts the server and writes discovery", ctx.mcp.isRunning() && ctx.settings.get().mcp.enabled && discovery.pid === process.pid, {
+      running: ctx.mcp.isRunning(),
+      url: discovery.url,
+    });
+
+    // Electron runs the built bridge as plain Node; CORVUS_MCP_NO_LAUNCH keeps it from starting Corvus.
+    child = spawn(process.execPath, [bin], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", CORVUS_HOME: home, CORVUS_MCP_NO_LAUNCH: "1" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const lines: unknown[] = [];
+    const waiters: Array<() => void> = [];
+    let buffer = "";
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      buffer += chunk;
+      let i: number;
+      while ((i = buffer.indexOf("\n")) >= 0) {
+        lines.push(JSON.parse(buffer.slice(0, i)));
+        buffer = buffer.slice(i + 1);
+        waiters.splice(0).forEach((w) => w());
+      }
+    });
+    let stderr = "";
+    child.stderr?.on("data", (d: Buffer) => (stderr += d.toString()));
+    const send = (m: unknown) => child?.stdin?.write(`${JSON.stringify(m)}\n`);
+    const reply = async (id: number): Promise<{ result?: { content?: Array<{ text?: string }> }; error?: { message: string } }> => {
+      const deadline = Date.now() + 15_000;
+      for (;;) {
+        const found = lines.find((l) => (l as { id?: number }).id === id);
+        if (found) return found as { result?: { content?: Array<{ text?: string }> }; error?: { message: string } };
+        if (Date.now() > deadline) throw new Error(`no answer to ${id}; stderr: ${stderr.slice(-400)}`);
+        await new Promise<void>((resolve) => {
+          waiters.push(resolve);
+          setTimeout(resolve, 250);
+        });
+      }
+    };
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: clientName, version: "1" } } });
+    const init = await reply(1);
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tabs_list", arguments: {} } });
+    const first = await reply(2);
+    check("MCP bridge: connects through the discovery file", !init.error && !first.error && Boolean(first.result?.content?.[0]?.text), { init: init.error, first: first.error ?? first.result?.content?.[0]?.text?.slice(0, 80) });
+
+    // A restart of the server drops every session, as a browser restart does.
+    ctx.settings.update({ mcp: { enabled: false } });
+    await ctx.mcp.apply();
+    ctx.settings.update({ mcp: { enabled: true } });
+    await ctx.mcp.apply();
+    send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "tabs_list", arguments: {} } });
+    const after = await reply(3);
+    const relisted = lines.some((l) => (l as { method?: string }).method === "notifications/tools/list_changed");
+    check("MCP bridge: reconnects by itself after the server restarts", !after.error && Boolean(after.result?.content?.[0]?.text) && relisted, {
+      error: after.error,
+      relisted,
+      stderr: stderr.slice(-300),
+    });
+  } catch (err) {
+    check("MCP bridge smoke", false, errorDetail(err));
+  } finally {
+    child?.stdin?.end();
+    child?.kill();
+    ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, approvedClients: before.approvedClients } });
     await ctx.mcp.apply();
   }
 }

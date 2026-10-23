@@ -1,0 +1,83 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import { ES } from "../src/renderer/common/i18n-es";
+import { setUiLanguage, t } from "../src/renderer/common/i18n";
+import { PERMISSION_LABELS } from "../src/shared/permissions";
+import { resolveUiLanguage } from "../src/shared/settings";
+
+const PAGES = fileURLToPath(new URL("../src/renderer/pages", import.meta.url));
+/** Pages whose own text is translated so far (the rest only get the shared menu and title). */
+const TRANSLATED = readdirSync(PAGES).filter((f) => /^settings.*\.tsx$/.test(f) || f === "shell.tsx");
+const source = (file: string): string => readFileSync(join(PAGES, file), "utf8");
+
+/** The runtime value of a double-quoted JS string literal's body. */
+const unquote = (body: string): string => JSON.parse(`"${body}"`) as string;
+
+function tLiterals(src: string): string[] {
+  return [...src.matchAll(/\bt\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!));
+}
+
+describe("UI language", () => {
+  afterEach(() => setUiLanguage("en"));
+
+  it("follows the setting, or a Spanish system locale", () => {
+    expect(resolveUiLanguage("system", "es-ES")).toBe("es");
+    expect(resolveUiLanguage("system", "es")).toBe("es");
+    expect(resolveUiLanguage("system", "en-US")).toBe("en");
+    expect(resolveUiLanguage("system", "estonian")).toBe("en");
+    expect(resolveUiLanguage("en", "es-ES")).toBe("en");
+    expect(resolveUiLanguage("es", "de-DE")).toBe("es");
+  });
+
+  it("translates, fills placeholders and falls back to English", () => {
+    expect(t("Theme")).toBe("Theme");
+    setUiLanguage("es");
+    expect(t("Theme")).toBe("Tema");
+    expect(t("Running on port {port}", { port: 57150 })).toBe("En marcha en el puerto 57150");
+    expect(t("Not a known string")).toBe("Not a known string");
+  });
+
+  it("has a Spanish string for every translated text on the settings pages and the page menu", () => {
+    const missing = TRANSLATED.flatMap((file) => tLiterals(source(file)).filter((text) => !(text in ES)).map((text) => `${file}: ${text}`));
+    expect(missing).toEqual([]);
+  });
+
+  it("has Spanish page titles and permission names", () => {
+    const titles = readdirSync(PAGES)
+      .filter((f) => f.endsWith(".tsx"))
+      .flatMap((f) => [...source(f).matchAll(/<PageShell[^>]*?title="([^"]+)"/gs)].map((m) => m[1]!));
+    const permissions = Object.values(PERMISSION_LABELS).map((p) => p.title);
+    expect([...titles, ...permissions].filter((text) => !(text in ES))).toEqual([]);
+  });
+
+  it("leaves no English text outside t() on the translated pages", () => {
+    const KEEP = new Set(["Ctrl+Shift+B"]);
+    const leftovers: string[] = [];
+    for (const file of TRANSLATED) {
+      const lines = source(file).split("\n");
+      lines.forEach((line, i) => {
+        const where = `${file}:${i + 1}: ${line.trim()}`;
+        for (const m of line.matchAll(/\b(?:label|hint|title|description|placeholder|aria-label)="([^"]*)"/g)) {
+          if (/^[A-Z][a-z]/.test(m[1]!) && !KEEP.has(m[1]!)) leftovers.push(where);
+        }
+        if (/<[a-z][^>]*>\s*[A-Z][a-z]+ [a-z][^<{]*</.test(line)) leftovers.push(where);
+        const text = line.trim();
+        const previous = lines.slice(0, i).reverse().find((l) => l.trim()) ?? "";
+        if (/^[A-Z][a-z]+(?: [A-Za-z’',.…()-]+)+$/.test(text) && previous.trim().endsWith(">")) leftovers.push(where);
+      });
+    }
+    expect(leftovers).toEqual([]);
+  });
+
+  it("has no Spanish strings left behind by removed texts", () => {
+    const used = new Set(TRANSLATED.flatMap((file) => tLiterals(source(file))));
+    const titles = readdirSync(PAGES)
+      .filter((f) => f.endsWith(".tsx"))
+      .flatMap((f) => [...source(f).matchAll(/<PageShell[^>]*?title="([^"]+)"/gs)].map((m) => m[1]!));
+    for (const title of titles) used.add(title);
+    for (const p of Object.values(PERMISSION_LABELS)) used.add(p.title);
+    expect(Object.keys(ES).filter((key) => !used.has(key))).toEqual([]);
+  });
+});

@@ -56,6 +56,7 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   activeBookmarked: boolean;
   bookmarksBar: Bookmark[];
   showBookmarksBar: boolean;
+  showHomeButton: boolean;
   dark: boolean;
   mcpRunning: boolean;
   adblock: AdblockBarState;
@@ -107,6 +108,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "tabs.back"(tabId: TabId): void;
   "tabs.forward"(tabId: TabId): void;
   "tabs.reload"(tabId: TabId): void;
+  /** Opens the home page in the tab, or in a new tab. */
+  "tabs.home"(tabId: TabId, inNewTab: boolean): void;
   "tabs.stop"(tabId: TabId): void;
   "tabs.reopenClosed"(): void;
   "groups.create"(tabIds: TabId[]): GroupId | null;

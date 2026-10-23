@@ -1,60 +1,28 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { startStdioBridge } from "../bridge.js";
+import { startStdioBridge, type BridgeTarget } from "../bridge.js";
+import { waitForCorvus } from "../launch.js";
 
 /**
  * Connection details. Priority:
  *   1. CORVUS_MCP_URL + CORVUS_MCP_TOKEN environment variables.
  *   2. The discovery file Corvus writes while its MCP server runs: ~/.corvus/mcp.json
  *      (or $CORVUS_HOME/mcp.json). This lets the Claude Code plugin connect with no manual setup.
- * When the file is missing (Corvus not running) the bridge waits and retries, so the plugin can be
- * installed before Corvus is launched.
+ * When no server is found, the bridge starts Corvus (visible, MCP server on) or turns on the running
+ * one's server, and waits for it; CORVUS_MCP_NO_LAUNCH=1 only waits. When Corvus restarts or drops
+ * the session, the bridge finds it again (starting it if needed) and opens a new session.
  */
-const discoveryPath = join(process.env.CORVUS_HOME || join(homedir(), ".corvus"), "mcp.json");
+const launch = process.env.CORVUS_MCP_NO_LAUNCH !== "1";
 
-interface Discovery {
-  url?: string;
-  token?: string;
-}
-
-async function readDiscovery(): Promise<Discovery | null> {
-  try {
-    const raw = await readFile(discoveryPath, "utf8");
-    const data = JSON.parse(raw) as Discovery;
-    if (data.url && data.token) return data;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function resolve(): Promise<{ url: string; token: string }> {
-  const envUrl = process.env.CORVUS_MCP_URL;
-  const envToken = process.env.CORVUS_MCP_TOKEN;
-  if (envUrl && envToken) return { url: envUrl, token: envToken };
-
-  const deadline = Date.now() + 60_000;
-  let warned = false;
-  for (;;) {
-    const found = await readDiscovery();
-    if (found?.url && found.token) return { url: found.url, token: found.token };
-    if (!warned) {
-      process.stderr.write(`corvus-mcp-stdio: waiting for Corvus (no ${discoveryPath}; is the MCP server enabled in Corvus > Settings > AI agents?)\n`);
-      warned = true;
-    }
-    if (Date.now() > deadline) {
-      process.stderr.write("corvus-mcp-stdio: gave up after 60s. Set CORVUS_MCP_URL and CORVUS_MCP_TOKEN, or start Corvus with its MCP server enabled.\n");
-      process.exit(2);
-    }
-    await new Promise((r) => setTimeout(r, 1000));
-  }
+function fromEnv(): BridgeTarget | null {
+  const url = process.env.CORVUS_MCP_URL;
+  const token = process.env.CORVUS_MCP_TOKEN;
+  return url && token ? { url, token } : null;
 }
 
 try {
-  const { url, token } = await resolve();
-  const bridge = await startStdioBridge({ url, token });
+  const env = fromEnv();
+  const find = async (): Promise<BridgeTarget> => env ?? (await waitForCorvus({ launch }));
+  const bridge = await startStdioBridge({ ...(await find()), reconnect: find });
   await bridge.closed;
   process.exit(0);
 } catch (err) {

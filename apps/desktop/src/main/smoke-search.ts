@@ -215,6 +215,13 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
         await waitFor(wc, "[...document.images].every((i) => i.complete)", 3000);
         await new Promise((r) => setTimeout(r, 450));
         await capture(`search-${name}-${theme}`, wc);
+        if (category === "general") {
+          // The rated result list sits below the answer.
+          await wc.executeJavaScript("document.querySelector('.results')?.scrollIntoView({ block: 'start' }); window.scrollBy(0, -130)");
+          await new Promise((r) => setTimeout(r, 250));
+          await capture(`search-results-${theme}`, wc);
+          await wc.executeJavaScript("window.scrollTo(0, 0)");
+        }
       }
     }
 

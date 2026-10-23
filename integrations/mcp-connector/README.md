@@ -10,9 +10,10 @@ at [ParendumOU/Corvus](https://github.com/ParendumOU/Corvus).
 
 ## Before you start
 
-1. Install Corvus from https://corvus.parendum.com and start it.
-2. In Corvus, open **Settings > AI agents (MCP)** and turn on **Enable MCP server**. This is what
-   lets AI agents drive the browser. It is off by default.
+1. Install Corvus from https://corvus.parendum.com.
+2. The connector uses Corvus if it is running, and otherwise starts it (a normal, visible window)
+   with its MCP server on. You can also turn the server on yourself in **Settings > AI agents
+   (MCP) > Enable MCP server**, and off again there.
 3. The first time a client connects, Corvus asks you to approve it. Approved clients are listed
    under **Approved clients**, where you can revoke them.
 4. For the `npx` and `pnpm dlx` setups below you need [Node.js](https://nodejs.org) 20 or newer
@@ -20,7 +21,8 @@ at [ParendumOU/Corvus](https://github.com/ParendumOU/Corvus).
 
 You do not need to copy a token for local use. While its MCP server runs, Corvus writes the local
 address and token to `~/.corvus/mcp.json` (readable only by you), and the connector reads it. If
-Corvus is not running yet, the connector waits for up to a minute.
+Corvus restarts or drops the session, the connector finds it again and opens a new session by
+itself.
 
 ## The command
 
@@ -200,6 +202,8 @@ Optional environment variables:
 |---|---|
 | `CORVUS_MCP_URL` and `CORVUS_MCP_TOKEN` | Skip discovery and use this address and token. The address must be a loopback `http://127.0.0.1:<port>/mcp` URL. |
 | `CORVUS_HOME` | Read `mcp.json` from this folder instead of `~/.corvus`. |
+| `CORVUS_BIN` | Corvus executable to start when it is not running. By default the connector uses the one Corvus last ran from (`~/.corvus/app.json`), then the default install folder. |
+| `CORVUS_MCP_NO_LAUNCH=1` | Never start Corvus; wait for it instead. |
 
 ## Remote access (Streamable HTTP)
 
@@ -282,8 +286,10 @@ from web pages is marked as untrusted.
 
 ## Troubleshooting
 
-- **"waiting for Corvus"**, then **"gave up after 60s"**: Corvus is not running, or **Enable MCP
-  server** is off.
+- **"Corvus is not running and was not found"**: start Corvus once (it then records where it is
+  installed), or set `CORVUS_BIN`.
+- **"Corvus did not start its MCP server in time"**: Corvus took too long to start, or is waiting
+  for you to approve the client.
 - **401 Unauthorized**: the token changed (for example after **Regenerate**). Local setups pick up
   the new token by themselves; update it in remote setups.
 - **403 "Client ... was not approved"**: approve the client in Corvus when it asks, or check

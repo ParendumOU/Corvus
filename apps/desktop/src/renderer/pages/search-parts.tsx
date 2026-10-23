@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import type { Confidence, EntityCard, KeyPoint, ResultRating, ResultTag, SearchResult } from "@corvus/shared";
 import { IconPlay, IconSearch, IconSparkle, IconWarning } from "../common/icons";
 import { LetterIcon } from "../common/ui";
@@ -26,11 +26,15 @@ const TAG_LABEL: Record<ResultTag, string> = {
 };
 const TAG_TONE: Partial<Record<ResultTag, string>> = { official: "good", docs: "good", academic: "good", outdated: "warn", paywall: "warn" };
 
+/** The URL path as breadcrumbs ("docs › guide › install"), short enough for one line. */
 function pathOf(url: string): string {
   try {
-    const u = new URL(url);
-    const path = decodeURIComponent(u.pathname).replace(/\/$/, "");
-    return path.length > 48 ? `${path.slice(0, 47)}…` : path;
+    const parts = decodeURIComponent(new URL(url).pathname)
+      .split("/")
+      .filter(Boolean)
+      .map((p) => (p.length > 24 ? `${p.slice(0, 23)}…` : p));
+    const crumbs = parts.length > 3 ? [parts[0], "…", ...parts.slice(-2)] : parts;
+    return crumbs.join(" › ");
   } catch {
     return "";
   }
@@ -95,7 +99,9 @@ export function AnswerBlock(p: AnswerProps) {
   return (
     <section className={`answer ${p.done ? "done" : "streaming"}`} aria-labelledby="answer-title">
       <header className="answer-head">
-        <IconSparkle size={15} />
+        <span className="answer-mark" aria-hidden="true">
+          <IconSparkle size={14} />
+        </span>
         <h2 id="answer-title">Answer</h2>
         {p.deep && <span className="pill">Deep</span>}
         {p.confidence && <ConfidenceBadge level={p.confidence} />}
@@ -141,9 +147,12 @@ export function AnswerBlock(p: AnswerProps) {
             const r = p.results[i]!;
             return (
               <a key={i} className="source-chip" href={r.url} title={r.title}>
-                <Fav domain={r.source} icons={p.icons} size={14} />
-                <span>{r.source}</span>
-                <b>{i + 1}</b>
+                <span className="source-chip-site">
+                  <Fav domain={r.source} icons={p.icons} size={14} />
+                  <span>{r.source}</span>
+                  <b>{i + 1}</b>
+                </span>
+                <span className="source-chip-title">{r.title}</span>
               </a>
             );
           })}
@@ -155,22 +164,21 @@ export function AnswerBlock(p: AnswerProps) {
 
 // ---------------------------------------------------------------------------- results
 
+/** AI relevance as a ring that fills to the score out of 10; a shimmering ring while it is rated. */
 export function Meter({ rating, pending }: { rating?: ResultRating; pending: boolean }) {
   if (!rating) {
-    return (
-      <div className={`meter empty ${pending ? "pending" : ""}`} aria-hidden={!pending} aria-label={pending ? "Rating" : undefined}>
-        <b>{pending ? "" : "–"}</b>
-        <span className="meter-track" />
-      </div>
-    );
+    return <div className={`meter empty ${pending ? "pending" : ""}`} aria-hidden="true" title={pending ? "Rating…" : "Not rated"} />;
   }
   const tone = rating.score >= 8 ? "hi" : rating.score >= 5 ? "mid" : "lo";
   return (
-    <div className={`meter ${tone}`} data-score={rating.score} title={`AI relevance ${rating.score}/10`} aria-label={`AI relevance ${rating.score} out of 10`}>
+    <div
+      className={`meter ${tone}`}
+      data-score={rating.score}
+      style={{ "--score": rating.score } as CSSProperties}
+      title={`AI relevance ${rating.score}/10`}
+      aria-label={`AI relevance ${rating.score} out of 10`}
+    >
       <b>{rating.score}</b>
-      <span className="meter-track">
-        <span className="meter-fill" style={{ height: `${rating.score * 10}%` }} />
-      </span>
     </div>
   );
 }
@@ -212,8 +220,10 @@ export function ResultList({
     lastOrder.current = orderKey;
   });
 
+  // Without any rating coming (AI off or failed) the list drops the ring column.
+  const rated = ratingsPending || Object.keys(ratings).length > 0;
   return (
-    <ol className="results" aria-label="Results">
+    <ol className={`results ${rated ? "" : "unrated"}`} aria-label="Results">
       {order.map((i) => {
         const r = results[i]!;
         const rating = ratings[i];
@@ -228,14 +238,14 @@ export function ResultList({
             className={`result ${cited.has(i) ? "cited" : ""}`}
             data-rank={r.rank || i + 1}
           >
-            <Meter rating={rating} pending={ratingsPending} />
+            {rated && <Meter rating={rating} pending={ratingsPending} />}
             <div className="result-body">
               <div className="result-source">
                 <Fav domain={r.source} icons={icons} />
                 <span className="domain">{r.source}</span>
                 <span className="path">{pathOf(r.url)}</span>
                 <span className="n" title={cited.has(i) ? "Cited in the answer" : "Source number"}>
-                  {i + 1}
+                  {cited.has(i) ? `Cited ${i + 1}` : i + 1}
                 </span>
               </div>
               <h3>
@@ -274,10 +284,7 @@ export function ResultSkeleton({ count = 4 }: { count?: number }) {
     <div className="results" aria-hidden="true">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="result skeleton">
-          <div className="meter empty pending">
-            <b />
-            <span className="meter-track" />
-          </div>
+          <div className="meter empty pending" />
           <div className="skeleton-lines">
             <span />
             <span />

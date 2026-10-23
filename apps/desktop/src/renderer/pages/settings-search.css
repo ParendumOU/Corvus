@@ -6,6 +6,10 @@
   padding: 8px 0;
   background: var(--bg-2);
 }
+/* Section jumps land below the sticky page header (64px) and this band (8 + 46 + 8), plus a gap. */
+.card[id] {
+  scroll-margin-top: 140px;
+}
 .settings-search .search-box {
   display: flex;
   align-items: center;

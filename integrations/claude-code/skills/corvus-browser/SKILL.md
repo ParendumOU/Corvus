@@ -11,9 +11,11 @@ and a live activity timeline of your actions, and pause you at any time.
 
 ## Connecting
 
-The server is provided by this plugin and connects automatically when Corvus is running with
-its MCP server enabled (Corvus → Settings → AI agents (MCP) → "Enable MCP server").
-If tools are missing, tell the user to enable that and retry — do not ask them for a token.
+The server is provided by this plugin and connects by itself: it uses Corvus if it is running,
+and otherwise starts it in a visible window with its MCP server on. The first time, Corvus asks
+the user to approve the client. If Corvus restarts, the connection resumes on its own.
+If tools are missing or calls keep failing, ask the user to open Corvus (or reconnect the server
+with `/mcp`) and retry — do not ask them for a token.
 
 ## Access levels
 

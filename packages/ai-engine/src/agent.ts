@@ -14,11 +14,11 @@
  *    native tool-return channel), reconstructing the transcript on each turn since it is stateless.
  * Token use is kept lean: compact transcripts, a per-turn output cap and a total token budget.
  */
-import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIProviderKind } from "@corvus/shared";
 import { CLI_THINKING_HEADROOM, ClaudeCliError, StreamJsonParser } from "./providers/claude-cli.js";
+import { spawnCli } from "./providers/cli-spawn.js";
 import {
   detectLocalCapabilities,
   isToolsUnsupported,
@@ -431,11 +431,9 @@ export function createClaudeCliAgentProvider(opts: ClaudeCliAgentOptions): Agent
     model: opts.model,
     async *streamTurn(req: AgentTurnRequest): AsyncIterable<TurnEvent> {
       const { system, user, image } = renderTranscript(req.messages, req.tools, { system: req.system, images: "attach" });
-      const child = spawn(cliPath, buildClaudeCliAgentArgs(opts.model, system, image !== null), {
+      const child = spawnCli(cliPath, buildClaudeCliAgentArgs(opts.model, system, image !== null), {
         cwd: tmpdir(),
         env: { ...process.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(req.maxTokens + CLI_THINKING_HEADROOM) },
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
       });
       const kill = (): void => {
         if (child.exitCode === null) child.kill();

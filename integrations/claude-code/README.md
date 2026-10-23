@@ -12,9 +12,10 @@ In Claude Code:
 /plugin install corvus@corvus
 ```
 
-Then enable the connection in Corvus: **Settings → AI agents (MCP) → "Enable MCP server"**, and
-approve the client the first time it connects. The plugin finds the running browser
-automatically, no token to copy.
+That's it: when Claude first needs the browser, the plugin uses Corvus if it is already running,
+or starts it (a normal, visible window) and turns on its MCP server. Approve the client the first
+time it connects. No token to copy. You can also turn the server on yourself in **Settings → AI
+agents (MCP) → "Enable MCP server"**, and off again there.
 
 ## How the connection works
 
@@ -22,7 +23,11 @@ While Corvus runs with its MCP server enabled, it writes a discovery file at `~/
 (owner-readable only) containing the local URL and bearer token. The plugin ships a bundled stdio
 bridge (`mcp/corvus-mcp-stdio.mjs`) that reads it and relays to Corvus on `127.0.0.1`. You can
 override discovery with `CORVUS_MCP_URL` and `CORVUS_MCP_TOKEN`, or point at a different home with
-`CORVUS_HOME`. If Corvus isn't running yet, the bridge waits and retries for up to a minute.
+`CORVUS_HOME`. If no server is running, the bridge starts Corvus with `--enable-mcp` (or hands that
+switch to the Corvus already open), using the executable Corvus records in `~/.corvus/app.json`
+each time it starts, `CORVUS_BIN`, or the default install folder, and waits up to a minute. Set
+`CORVUS_MCP_NO_LAUNCH=1` to only wait. When Corvus restarts or drops the session, the bridge finds
+it again and opens a new session by itself.
 
 ## Access levels
 

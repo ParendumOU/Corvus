@@ -5,7 +5,7 @@ import { isNewTabUrl } from "../../shared/internal-urls";
 import { GROUP_COLORS } from "../../shared/tab-strip";
 import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
-import { IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconMenu, IconReload, IconSparkle } from "../common/icons";
+import { IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
@@ -184,6 +184,17 @@ export function App() {
           ) : (
             <button className="icon-btn" title="Reload (Ctrl+R)" disabled={!active} onClick={() => active && void api.call("tabs.reload", active.id)}>
               <IconReload size={16} />
+            </button>
+          )}
+          {state.showHomeButton && (
+            <button
+              className="icon-btn"
+              title="Home (Alt+Home)"
+              disabled={!active}
+              onClick={(e) => active && void api.call("tabs.home", active.id, e.ctrlKey || e.metaKey)}
+              onAuxClick={(e) => e.button === 1 && active && void api.call("tabs.home", active.id, true)}
+            >
+              <IconHome size={17} />
             </button>
           )}
           <Omnibox

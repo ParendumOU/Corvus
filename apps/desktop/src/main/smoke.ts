@@ -15,6 +15,7 @@ import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
+import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
@@ -68,6 +69,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveCredentialsSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
+    if (serveSignInSmokeRoute(req, res)) return;
     const path = (req.url ?? "/").split("?")[0];
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(path === "/login" ? LOGIN_PAGE : path === "/after-login" ? "<!doctype html><title>Signed in</title><main>Welcome</main>" : PAGE);
@@ -191,6 +193,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runBrowserSmoke(ctx, { url, agentTabId: tab.id, win, check, capture });
     await runSplitSmoke(ctx, { url, win, check, capture });
     await runUxSmoke(ctx, { url, win, check, capture });
+    await runSignInSmoke(ctx, { url, win, check });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();

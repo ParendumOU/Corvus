@@ -26,6 +26,7 @@ import {
 } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
 import { pageBaseColor } from "../shared/page-base";
+import { homePageUrl } from "../shared/settings";
 import { commandForInput, type BrowserCommand } from "../shared/shortcuts";
 import { workspaceOpenPlan, type LiveTab } from "../shared/workspaces";
 import type { WorkspaceView } from "../shared/workspace-ipc";
@@ -63,6 +64,7 @@ import { paths } from "./paths";
 import { SplitSession } from "./split-view";
 import { pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
+import { currentUserAgent, followSignInUserAgent, userAgentFor } from "./user-agent";
 
 let seq = 0;
 const nextId = (prefix: string): string => `${prefix}${Date.now().toString(36)}${(++seq).toString(36)}`;
@@ -407,6 +409,7 @@ export class BrowserWindowCtl {
       activeBookmarked: active ? this.profile.bookmarks.isBookmarked(active.url) : false,
       bookmarksBar: childrenOf(this.profile.bookmarks.list(), BAR_FOLDER_ID),
       showBookmarksBar: settings.appearance.showBookmarksBar,
+      showHomeButton: settings.appearance.showHomeButton,
       dark: nativeTheme.shouldUseDarkColors,
       mcpRunning: this.ctx.mcp.isRunning(),
       tabLayout: settings.appearance.tabLayout,
@@ -602,6 +605,7 @@ export class BrowserWindowCtl {
         allowRunningInsecureContent: false,
         safeDialogs: true,
         spellcheck: true,
+        ...this.siteFeatures(),
       },
     });
     view.setVisible(false);
@@ -646,9 +650,19 @@ export class BrowserWindowCtl {
     return tab;
   }
 
+  /**
+   * Web platform features a site page gets. Passkeys are off unless the person turns them on: on
+   * Windows every passkey request a site makes (Google tries one at each sign-in) opens the system
+   * security-key dialog, where Chrome would offer it quietly.
+   */
+  private siteFeatures(): { disableBlinkFeatures?: string } {
+    return this.ctx.settings.get().passwords.passkeys ? {} : { disableBlinkFeatures: "WebAuth" };
+  }
+
   private wire(tab: TabRuntime): void {
     const wc = tab.view.webContents;
     const push = (): void => this.pushState();
+    followSignInUserAgent(wc, this.profile.userAgents);
     wc.on("did-start-loading", () => {
       tab.loading = true;
       push();
@@ -798,12 +812,22 @@ export class BrowserWindowCtl {
           overrideBrowserWindowOptions: {
             autoHideMenuBar: true,
             backgroundColor: pageBaseColor(url, nativeTheme.shouldUseDarkColors),
-            webPreferences: { session: this.profile.session, sandbox: true, contextIsolation: true, nodeIntegration: false },
+            webPreferences: { session: this.profile.session, sandbox: true, contextIsolation: true, nodeIntegration: false, ...this.siteFeatures() },
           },
         };
       }
       this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id });
       return { action: "deny" };
+    });
+    // Sign-in popups ("Continue with Google") are windows of their own: same UA rule as tabs. The
+    // first load started before this event, so a popup that opens on a sign-in host loads again.
+    wc.on("did-create-window", (popup, details) => {
+      const pw = popup.webContents;
+      followSignInUserAgent(pw, this.profile.userAgents);
+      const ua = userAgentFor(details.url, this.profile.userAgents);
+      if (currentUserAgent(pw, this.profile.userAgents) !== ua && !details.postBody) {
+        pw.loadURL(details.url, { userAgent: ua }).catch(() => undefined);
+      }
     });
   }
 
@@ -1031,6 +1055,13 @@ export class BrowserWindowCtl {
     if (history?.canGoForward()) history.goForward();
   }
 
+  /** The home page from Settings > Appearance, in this tab or a new one. */
+  home(id: TabId, inNewTab = false): void {
+    const url = homePageUrl(this.ctx.settings.get().appearance);
+    if (inNewTab || !this.tabs.has(id)) this.createTab(url, { activate: true });
+    else this.loadUrl(id, url);
+  }
+
   reload(id: TabId, hard = false): void {
     const tab = this.tabs.get(id);
     if (tab?.crashedUrl) return this.recoverCrashed(tab);
@@ -1188,6 +1219,9 @@ export class BrowserWindowCtl {
       }
       case "reload":
         if (active) this.reload(active.id, command.hard);
+        break;
+      case "home":
+        if (active) this.home(active.id);
         break;
       case "stop":
         if (active) this.stop(active.id);

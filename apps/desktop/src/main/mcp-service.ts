@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dialog } from "electron";
+import { app, dialog } from "electron";
 import type { AccessLevel, McpClientInfo, McpServerHandle } from "@corvus/shared";
 import type { FlowRunner, FlowSummary, SiteMemoryReader, StartMcpServerOptions } from "@corvus/mcp-server";
 import { memoryHints } from "../shared/site-memory";
@@ -13,6 +13,8 @@ import type { AppContext } from "./context";
 import { loadOptionalModule } from "./module-loader";
 
 const MAX_ACTIVITY = 100;
+/** Turns the MCP server on at launch; the stdio bridge passes it when it starts Corvus for an agent. */
+export const ENABLE_MCP_SWITCH = "--enable-mcp";
 
 /**
  * Runs @corvus/mcp-server on 127.0.0.1 when enabled in settings. New clients must be approved
@@ -35,6 +37,31 @@ export class McpService {
 
   isRunning(): boolean {
     return this.handle !== null;
+  }
+
+  /**
+   * Started (or handed over to the running Corvus) with --enable-mcp, as the stdio bridge does when
+   * an agent needs the browser: turns the server on. It stays on, visible in Settings > AI agents,
+   * and new clients still need the person's approval.
+   */
+  enableFromArgv(argv: readonly string[]): void {
+    if (argv.includes(ENABLE_MCP_SWITCH) && !this.ctx.settings.get().mcp.enabled) {
+      this.ctx.settings.update({ mcp: { enabled: true } });
+    }
+  }
+
+  /** Records where this Corvus runs from, so the stdio bridge can start it when it is closed. */
+  recordAppLocation(): void {
+    if (!app.isPackaged) return;
+    // The portable build and the AppImage run from a temporary copy; launch the original.
+    const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.env.APPIMAGE || process.execPath;
+    try {
+      const file = path.join(this.homeDir(), "app.json");
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(file, JSON.stringify({ exe, version: app.getVersion() }), { mode: 0o600 });
+    } catch {
+      // Without it the bridge falls back to the default install folders.
+    }
   }
 
   private desiredConfig(): string {
@@ -119,9 +146,13 @@ export class McpService {
     }
   }
 
+  private homeDir(): string {
+    return process.env.CORVUS_HOME || path.join(os.homedir(), ".corvus");
+  }
+
   /** Path the stdio bridge / Claude Code plugin reads to find the running server. */
   private discoveryPath(): string {
-    return path.join(process.env.CORVUS_HOME || path.join(os.homedir(), ".corvus"), "mcp.json");
+    return path.join(this.homeDir(), "mcp.json");
   }
 
   /** Writes {url, token, pid} with owner-only permissions so the local plugin can auto-connect. */

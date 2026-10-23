@@ -98,4 +98,61 @@ describe("stdio bridge", () => {
     );
     expect(await next()).toMatchObject({ id: 7, error: { code: -32000 } });
   });
+
+  describe("when Corvus goes away", () => {
+    const init = (name: string) => ({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name, version: "1" } },
+    });
+    const tabsList = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tabs_list", arguments: {} } };
+
+    async function connected(name: string, reconnect?: () => Promise<{ url: string; token: string }>) {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const next = lineReader(stdout);
+      bridge = await startStdioBridge({ url: h!.handle.url, token: TOKEN, stdin, stdout, log: () => {}, reconnect });
+      const send = (m: unknown) => stdin.write(`${JSON.stringify(m)}\n`);
+      send(init(name));
+      expect(await next()).toMatchObject({ id: 1, result: { serverInfo: { name: "corvus" } } });
+      send({ jsonrpc: "2.0", method: "notifications/initialized" });
+      return { send, next };
+    }
+
+    it("finds the restarted browser and replays the handshake", async () => {
+      h = await startHarness();
+      const { send, next } = await connected("stdio-restart", async () => ({ url: h!.handle.url, token: TOKEN }));
+      await h.close();
+      h = await startHarness();
+      send(tabsList);
+      expect(await next()).toMatchObject({ method: "notifications/tools/list_changed" });
+      const res = (await next()) as { id: number; result: { content: Array<{ text: string }> } };
+      expect(res.id).toBe(2);
+      expect(res.result.content[0]?.text).toContain("https://example.com/");
+    });
+
+    it("opens a new session when Corvus forgot this one", async () => {
+      h = await startHarness();
+      let reconnects = 0;
+      const { send, next } = await connected("stdio-forgotten", async () => {
+        reconnects += 1;
+        return { url: h!.handle.url, token: TOKEN };
+      });
+      h.handle.revokeClient?.("stdio-forgotten");
+      send(tabsList);
+      expect(await next()).toMatchObject({ method: "notifications/tools/list_changed" });
+      expect(await next()).toMatchObject({ id: 2, result: { content: [{ type: "text" }] } });
+      expect(reconnects).toBe(1);
+    });
+
+    it("reports the browser unreachable when it cannot reconnect", async () => {
+      h = await startHarness();
+      const { send, next } = await connected("stdio-gone");
+      await h.close();
+      h = undefined;
+      send(tabsList);
+      expect(await next()).toMatchObject({ id: 2, error: { code: -32000, message: expect.stringContaining("unreachable") } });
+    });
+  });
 });

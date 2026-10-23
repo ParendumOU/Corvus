@@ -37,6 +37,12 @@ export const IconReload = (p: IconProps) => (
     <path d="M21 3v6h-6" />
   </Svg>
 );
+export const IconHome = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 10.5 12 3l9 7.5" />
+    <path d="M5 9v11h5v-6h4v6h5V9" />
+  </Svg>
+);
 export const IconClose = (p: IconProps) => (
   <Svg {...p}>
     <path d="M18 6 6 18M6 6l12 12" />

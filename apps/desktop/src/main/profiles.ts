@@ -17,15 +17,11 @@ import { SiteProfileStore } from "./site-profile-store";
 import type { SecretCipher } from "./settings-store";
 import { SiteSettingsStore } from "./site-settings";
 import { BookmarkStore, HistoryStore } from "./stores";
+import { chromeUserAgent, electronUserAgent, type UserAgents } from "./user-agent";
 import { WorkspaceStore } from "./workspace-store";
 
 /** What a profile runtime needs from the window layer (implemented by WindowManager). */
 export type ProfileDelegate = ExtensionWindowDelegate & PermissionHost;
-
-/** Strip the Electron and app tokens so sites (and the Chrome Web Store) see a regular Chrome UA. */
-export function chromeUserAgent(ua: string): string {
-  return ua.replace(/\s(?:Electron|Corvus|corvus|@corvus\/desktop)\/\S+/g, "");
-}
 
 /** Everything that exists once per profile: session partition, stores and extensions. */
 export class ProfileRuntime {
@@ -50,6 +46,8 @@ export class ProfileRuntime {
   readonly siteSettings: SiteSettingsStore;
   readonly permissions: PermissionManager;
   readonly adblock: AdblockController;
+  /** Chrome UA for sites, Electron's for Google sign-in (see user-agent.ts). */
+  readonly userAgents: UserAgents;
 
   constructor(
     public profile: Profile,
@@ -59,7 +57,9 @@ export class ProfileRuntime {
   ) {
     this.partition = ProfileManager.partition(profile.id);
     this.session = electronSession.fromPartition(this.partition);
-    this.session.setUserAgent(chromeUserAgent(this.session.getUserAgent()));
+    const native = this.session.getUserAgent();
+    this.userAgents = { chrome: chromeUserAgent(native), electron: electronUserAgent(native) };
+    this.session.setUserAgent(this.userAgents.chrome);
     handleInternalProtocol(this.session);
     this.siteSettings = new SiteSettingsStore(dataDir);
     this.permissions = new PermissionManager(this.siteSettings, delegate);
