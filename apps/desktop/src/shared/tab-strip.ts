@@ -253,6 +253,22 @@ export function removeGroup(state: TabStripState, groupId: GroupId): TabStripSta
   );
 }
 
+/** Link a group to the saved workspace it shows (null unlinks it). */
+export function linkGroupWorkspace(state: TabStripState, groupId: GroupId, workspaceId: string | null): TabStripState {
+  if (!getGroup(state, groupId)) return state;
+  const groups = state.groups.map((g) => {
+    if (g.id !== groupId) return g;
+    const unlinked: TabGroup = { id: g.id, title: g.title, color: g.color, collapsed: g.collapsed };
+    return workspaceId ? { ...unlinked, workspaceId } : unlinked;
+  });
+  return { ...state, groups };
+}
+
+/** The group showing a saved workspace, if one is open in this strip. */
+export function groupForWorkspace(state: TabStripState, workspaceId: string): TabGroup | undefined {
+  return state.groups.find((g) => g.workspaceId === workspaceId);
+}
+
 export type GroupPatch = Partial<Pick<TabGroup, "title" | "color" | "collapsed">>;
 
 /**

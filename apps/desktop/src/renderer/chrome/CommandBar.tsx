@@ -79,27 +79,32 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
   }, []);
 
   const staticActions = useMemo<UiAction[]>(() => {
-    const open = (url: string): (() => void) => () => void api.call("tabs.openUrl", url, "new-tab");
+    // Actions that take the user somewhere close the bar; the agent row keeps it open for its run.
+    const andClose = (fn: () => void): (() => void) => () => {
+      fn();
+      onClose();
+    };
+    const open = (url: string): (() => void) => andClose(() => void api.call("tabs.openUrl", url, "new-tab"));
     const items: UiAction[] = [
-      { action: { id: "newtab", kind: "command", title: "New tab", icon: "newtab", priority: 4 }, run: () => void api.call("tabs.create", {}) },
+      { action: { id: "newtab", kind: "command", title: "New tab", icon: "newtab", priority: 4 }, run: andClose(() => void api.call("tabs.create", {})) },
       { action: { id: "settings", kind: "command", title: "Open settings", icon: "settings", priority: 2 }, run: open("corvus://settings/") },
       { action: { id: "bookmarks", kind: "command", title: "Open bookmarks", icon: "bookmarks", priority: 1 }, run: open("corvus://bookmarks/") },
       { action: { id: "history", kind: "command", title: "Open history", icon: "history", priority: 1 }, run: open("corvus://history/") },
       { action: { id: "downloads", kind: "command", title: "Open downloads", icon: "downloads" }, run: open("corvus://downloads/") },
       { action: { id: "extensions", kind: "command", title: "Open extensions", icon: "extensions" }, run: open("corvus://extensions/") },
       { action: { id: "webscope", kind: "command", title: "Open WebScope", icon: "webscope" }, run: open("corvus://webscope/") },
-      { action: { id: "assist", kind: "command", title: "Toggle Corvus Assist", icon: "assist" }, run: () => void api.call("assist.toggle") },
+      { action: { id: "assist", kind: "command", title: "Toggle Corvus Assist", icon: "assist" }, run: andClose(() => void api.call("assist.toggle")) },
       { action: { id: "organize", kind: "command", title: "Organize tabs into groups", icon: "organize" }, run: onOrganize },
     ];
     for (const tab of state.tabs) {
       if (tab.id === state.activeTabId) continue;
       items.push({
         action: { id: `tab:${tab.id}`, kind: "tab", title: tab.title || tab.url, subtitle: hostOf(tab.url), keywords: tab.url, icon: "tab" },
-        run: () => void api.call("tabs.activate", tab.id),
+        run: andClose(() => void api.call("tabs.activate", tab.id)),
       });
     }
     return items;
-  }, [api, state.tabs, state.activeTabId, onOrganize]);
+  }, [api, state.tabs, state.activeTabId, onOrganize, onClose]);
 
   // Query-dependent actions: the agent task, the web search / open URL, and ranked history/bookmarks.
   const dynamic = useMemo<UiAction[]>(() => {

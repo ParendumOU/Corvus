@@ -8,8 +8,10 @@ import {
   createGroup,
   cycleTab,
   emptyStrip,
+  groupForWorkspace,
   insertTab,
   insertionIndexForChild,
+  linkGroupWorkspace,
   moveGroup,
   moveTab,
   nextGroupColor,
@@ -257,5 +259,27 @@ describe("closed tab stack", () => {
     stack = pushClosed(stack, { url: "u2", title: "2", index: 0, pinned: false }, 2);
     stack = pushClosed(stack, { url: "u3", title: "3", index: 0, pinned: false }, 2);
     expect(stack.map((x) => x.url)).toEqual(["u2", "u3"]);
+  });
+});
+
+describe("workspace links", () => {
+  it("links a group to a workspace, finds it by workspace, and unlinks it", () => {
+    let s = createGroup(strip("a", "b", "c"), ["b", "c"], group("G"));
+    s = linkGroupWorkspace(s, "G", "ws1");
+    expect(groupForWorkspace(s, "ws1")?.id).toBe("G");
+    expect(groupForWorkspace(s, "other")).toBeUndefined();
+    // Survives the usual group edits.
+    s = updateGroup(s, "G", { title: "Renamed", collapsed: true });
+    expect(groupForWorkspace(s, "ws1")?.title).toBe("Renamed");
+    s = linkGroupWorkspace(s, "G", null);
+    expect(groupForWorkspace(s, "ws1")).toBeUndefined();
+    expect(s.groups[0]).toEqual({ id: "G", title: "Renamed", color: "blue", collapsed: true });
+    expect(linkGroupWorkspace(s, "missing", "ws1")).toBe(s);
+  });
+
+  it("the link goes away with the group", () => {
+    let s = linkGroupWorkspace(createGroup(strip("a", "b"), ["b"], group("G")), "G", "ws1");
+    s = removeTab(s, "b");
+    expect(groupForWorkspace(s, "ws1")).toBeUndefined();
   });
 });

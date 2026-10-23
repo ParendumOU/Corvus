@@ -1,8 +1,10 @@
 .settings-search {
   position: sticky;
-  top: 72px;
+  top: 64px;
   z-index: 4;
-  margin: 0 0 4px;
+  margin: -8px 0 -4px;
+  padding: 8px 0;
+  background: var(--bg-2);
 }
 .settings-search .search-box {
   display: flex;

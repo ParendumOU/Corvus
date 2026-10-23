@@ -4,13 +4,14 @@ import type { DownloadsSummary, PermissionPromptView, SiteInfo } from "../../sha
 import { downloadActions, downloadProgress, downloadStatus, type DownloadAction, type DownloadRecord } from "../../shared/downloads";
 import { PERMISSION_LABELS, type PermissionDecision } from "../../shared/permissions";
 import type { WatchBarState } from "../../shared/watch-ipc";
-import type { WorkspaceOpenMode, WorkspaceView } from "../../shared/workspace-ipc";
+import type { WorkspaceView } from "../../shared/workspace-ipc";
 import { chromeApi } from "../common/api";
 import {
   IconAgent,
   IconBell,
   IconClose,
   IconDownload,
+  IconEdit,
   IconFile,
   IconFolder,
   IconLock,
@@ -363,32 +364,59 @@ export function WorkspacesButton({ onOpen }: { onOpen: (rect: DOMRect) => void }
   );
 }
 
-export function WorkspacesPopover({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
+const tabsLabel = (n: number): string => `${n} tab${n === 1 ? "" : "s"}`;
+
+/**
+ * Saved workspaces. Clicking one opens its tabs in this window as one tab group named after it (or
+ * shows that group if it is already open here). Saving takes this window's tabs; a single tab group
+ * is saved from its right-click menu.
+ */
+export function WorkspacesPopover({ anchor, saveCount, onClose }: { anchor: Anchor; saveCount: number; onClose: () => void }) {
   const api = chromeApi();
   const [list, setList] = useState<WorkspaceView[] | null>(null);
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [updated, setUpdated] = useState<string | null>(null);
   useEffect(() => {
     void api.call("workspaces.list").then(setList);
   }, [api]);
+  useEffect(() => {
+    if (!updated) return;
+    const timer = setTimeout(() => setUpdated(null), 1800);
+    return () => clearTimeout(timer);
+  }, [updated]);
 
+  const canSave = name.trim() !== "" && saveCount > 0;
   const save = (): void => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    void api.call("workspaces.saveCurrent", trimmed).then((l) => {
+    if (!canSave) return;
+    void api.call("workspaces.saveCurrent", name.trim()).then((l) => {
       setList(l);
       setName("");
     });
   };
-  const open = (id: string, mode: WorkspaceOpenMode): void => {
-    void api.call("workspaces.open", id, mode);
+  const open = (id: string): void => {
+    void api.call("workspaces.open", id);
     onClose();
+  };
+  const update = (w: WorkspaceView): void => {
+    if (!w.openGroupId) return;
+    void api.call("workspaces.saveGroup", w.openGroupId).then((l) => {
+      setList(l);
+      setUpdated(w.id);
+    });
   };
   const commitRename = (id: string): void => {
     const trimmed = draft.trim();
     setEditing(null);
     if (trimmed) void api.call("workspaces.rename", id, trimmed).then(setList);
+  };
+  const remove = (id: string): void => {
+    void api.call("workspaces.remove", id).then((l) => {
+      setList(l);
+      setConfirming(null);
+    });
   };
 
   return (
@@ -397,68 +425,91 @@ export function WorkspacesPopover({ anchor, onClose }: { anchor: Anchor; onClose
       <div className="ws-save">
         <input
           className="input"
-          placeholder="Save current tabs as…"
+          placeholder="Name this window's tabs…"
           value={name}
           maxLength={80}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && save()}
         />
-        <button className="btn small primary" disabled={!name.trim()} onClick={save}>
-          Save
+        <button
+          className="btn small primary ws-save-btn"
+          disabled={!canSave}
+          title={saveCount > 0 ? "Save every tab in this window as a workspace" : "No pages to save in this window yet"}
+          onClick={save}
+        >
+          {saveCount > 0 ? `Save ${tabsLabel(saveCount)}` : "Save"}
         </button>
       </div>
-      {list && list.length === 0 && <div className="muted small ws-empty">No saved workspaces yet.</div>}
+      {list && list.length === 0 && (
+        <div className="muted small ws-empty">No saved workspaces yet. Save this window's tabs above, or right-click a tab group and choose “Save group as workspace”.</div>
+      )}
+      {list && list.length > 0 && <div className="muted small ws-hint">Click a workspace to open its tabs here as a tab group.</div>}
       {list && list.length > 0 && (
         <ul className="ws-list">
-          {list.map((w) => (
-            <li key={w.id} className="ws-row">
-              <div className="ws-main">
+          {list.map((w) =>
+            confirming === w.id ? (
+              <li key={w.id} className="ws-row ws-confirm">
+                <span className="ws-confirm-text">Delete “{w.name}”?</span>
+                <button className="btn small danger" onClick={() => remove(w.id)}>
+                  Delete
+                </button>
+                <button className="btn small ghost" onClick={() => setConfirming(null)}>
+                  Cancel
+                </button>
+              </li>
+            ) : (
+              <li key={w.id} className={`ws-row ${w.openGroupId ? "open" : ""}`}>
                 {editing === w.id ? (
-                  <input
-                    className="input"
-                    autoFocus
-                    value={draft}
-                    maxLength={80}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={() => commitRename(w.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitRename(w.id);
-                      else if (e.key === "Escape") setEditing(null);
-                    }}
-                  />
+                  <div className="ws-main">
+                    <input
+                      className="input"
+                      autoFocus
+                      value={draft}
+                      maxLength={80}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => commitRename(w.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitRename(w.id);
+                        else if (e.key === "Escape") setEditing(null);
+                      }}
+                    />
+                  </div>
                 ) : (
                   <button
-                    className="ws-name"
+                    className="ws-main ws-open"
+                    title={w.openGroupId ? "Show its tab group" : "Open in this window as a tab group"}
+                    onClick={() => open(w.id)}
+                  >
+                    <span className="ws-name">{w.name}</span>
+                    <span className="muted small">
+                      {updated === w.id ? "Updated with the group's tabs" : tabsLabel(w.tabCount)}
+                      {w.openGroupId && updated !== w.id ? " · open in this window" : ""}
+                    </span>
+                  </button>
+                )}
+                <div className="ws-actions">
+                  {w.openGroupId && (
+                    <button className="icon-btn ws-update" title="Update: save the group's current tabs to this workspace" onClick={() => update(w)}>
+                      <IconReload size={14} />
+                    </button>
+                  )}
+                  <button
+                    className="icon-btn ws-rename"
                     title="Rename"
                     onClick={() => {
                       setEditing(w.id);
                       setDraft(w.name);
                     }}
                   >
-                    {w.name}
+                    <IconEdit size={14} />
                   </button>
-                )}
-                <span className="muted small">
-                  {w.tabCount} tab{w.tabCount === 1 ? "" : "s"}
-                  {w.groupCount > 0 ? ` · ${w.groupCount} group${w.groupCount === 1 ? "" : "s"}` : ""}
-                </span>
-              </div>
-              <div className="ws-actions">
-                <button className="btn small" title="Open in a new window" onClick={() => open(w.id, "new-window")}>
-                  Open
-                </button>
-                <button className="btn small ghost" title="Replace this window's tabs" onClick={() => open(w.id, "replace")}>
-                  Replace
-                </button>
-                <button className="btn small ghost" title="Add these tabs to this window" onClick={() => open(w.id, "merge")}>
-                  Merge
-                </button>
-                <button className="icon-btn ws-del" title="Delete workspace" onClick={() => void api.call("workspaces.remove", w.id).then(setList)}>
-                  <IconTrash size={14} />
-                </button>
-              </div>
-            </li>
-          ))}
+                  <button className="icon-btn ws-del" title="Delete workspace" onClick={() => setConfirming(w.id)}>
+                    <IconTrash size={14} />
+                  </button>
+                </div>
+              </li>
+            ),
+          )}
         </ul>
       )}
     </div>

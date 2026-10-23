@@ -7,7 +7,7 @@ import type { BrowserWindowCtl } from "./window";
 
 /**
  * Smoke for vertical tabs, workspaces and page-change monitoring (CORVUS_SMOKE_OUT): toggles the
- * vertical sidebar (light + dark screenshots), saves and reopens a workspace, then watches a page on
+ * vertical sidebar (light + dark screenshots), saves and opens a workspace, then watches a page on
  * the local server, forces a change and checks that a change + AI summary surface on corvus://watches.
  */
 
@@ -80,15 +80,14 @@ export async function runFeaturesSmoke(ctx: AppContext, h: Helpers): Promise<voi
   await sleep(250);
 
   // ---------------------------------------------------------------- workspaces
-  const before = win.tabIds().length;
   win.profile.workspaces.save("Smoke workspace", win.workspaceTabs(), win.listGroups());
-  const saved = win.profile.workspaces.list();
-  check("workspace saved with tabs + group", saved.some((w) => w.name === "Smoke workspace" && w.tabs.length >= 2 && w.groups.length === 1), saved.map((w) => w.name));
-  const ws = saved[saved.length - 1];
+  const ws = win.profile.workspaces.list().find((w) => w.name === "Smoke workspace");
+  check("workspace saved with the window's tabs", (ws?.tabs.length ?? 0) >= 2, ws?.tabs.length);
   if (ws) {
-    win.openWorkspace(ws.id, "merge");
+    const group = win.openWorkspace(ws.id);
     await sleep(400);
-    check("workspace merge restores tabs + group", win.tabIds().length > before && win.listGroups().some((g) => g.title === "Research"), { before, after: win.tabIds().length });
+    const members = group ? win.listTabs().filter((t) => t.groupId === group.id).length : 0;
+    check("workspace opens as one tab group in this window", group?.title === "Smoke workspace" && members === ws.tabs.length, { members, saved: ws.tabs.length });
   }
   // Workspaces popover screenshot.
   win.sendCommand({ type: "open-workspaces" });

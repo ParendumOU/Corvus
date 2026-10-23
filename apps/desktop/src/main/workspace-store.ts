@@ -1,14 +1,17 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import type { TabGroup } from "@corvus/shared";
+import type { GroupColor, TabGroup } from "@corvus/shared";
 import {
   cleanName,
+  nextWorkspaceName,
   removeWorkspace,
   renameWorkspace,
   reviveWorkspace,
   reviveWorkspaces,
   summarize,
+  updateWorkspaceTabs,
   upsertWorkspace,
+  workspaceFromGroup,
   workspaceFromWindow,
   type LiveTab,
   type Workspace,
@@ -48,11 +51,30 @@ export class WorkspaceStore {
     return this.file.get().find((w) => w.id === id);
   }
 
+  /** Save a window's tabs as a new workspace. Nothing is saved when no tab is worth keeping. */
   save(name: string, tabs: readonly LiveTab[], groups: readonly TabGroup[]): WorkspaceSummary[] {
-    const ws = workspaceFromWindow(name || "Workspace", tabs, groups, crypto.randomUUID(), Date.now());
+    this.put(workspaceFromWindow(name || "Workspace", tabs, groups, crypto.randomUUID(), Date.now()));
+    return this.summaries();
+  }
+
+  /** Save one tab group as a new workspace (named after the group, or "Workspace N"). */
+  saveGroup(title: string, tabs: readonly LiveTab[], color: GroupColor): Workspace | null {
+    const name = cleanName(title) || nextWorkspaceName(this.file.get().map((w) => w.name));
+    const ws = workspaceFromGroup(name, tabs, color, crypto.randomUUID(), Date.now());
+    return this.put(ws) ? ws : null;
+  }
+
+  /** Re-save a workspace with its open group's current tabs. False when it no longer exists. */
+  updateTabs(id: string, tabs: readonly LiveTab[], color: GroupColor): boolean {
+    const ws = this.get(id);
+    return ws ? this.put(updateWorkspaceTabs(ws, tabs, color, Date.now())) : false;
+  }
+
+  private put(ws: Workspace): boolean {
+    if (ws.tabs.length === 0) return false;
     this.file.set(upsertWorkspace(this.file.get(), ws));
     this.emit();
-    return this.summaries();
+    return true;
   }
 
   rename(id: string, name: string): WorkspaceSummary[] {

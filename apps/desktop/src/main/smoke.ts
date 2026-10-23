@@ -10,9 +10,11 @@ import { runAgentSmoke } from "./smoke-agent";
 import { runAgentRunsSmoke } from "./smoke-agent-runs";
 import { runAnnotationsSmoke } from "./smoke-annotations";
 import { runAssistSmoke } from "./smoke-assist";
+import { runAssistAgentSmoke } from "./smoke-assist-agent";
 import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
+import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
@@ -65,6 +67,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveBrowserSmokeRoute(req, res)) return;
     if (serveCredentialsSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
+    if (serveUxSmokeRoute(req, res)) return;
     const path = (req.url ?? "/").split("?")[0];
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(path === "/login" ? LOGIN_PAGE : path === "/after-login" ? "<!doctype html><title>Signed in</title><main>Welcome</main>" : PAGE);
@@ -187,6 +190,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
 
     await runBrowserSmoke(ctx, { url, agentTabId: tab.id, win, check, capture });
     await runSplitSmoke(ctx, { url, win, check, capture });
+    await runUxSmoke(ctx, { url, win, check, capture });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();
@@ -207,6 +211,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runFlowsSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runWorkflowsSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runSiteMemorySmoke(ctx, { win, check, capture });
+    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAssistAgentSmoke(ctx, { win, check, capture });
     await runWebscopeSmoke(ctx, { url, win, check, capture });
 
     await runExtensionSmoke(ctx, { check, capture, log });

@@ -5,6 +5,8 @@
  */
 import type { TabId } from "@corvus/shared";
 import type { AgentCall, AgentClient } from "./agent-activity";
+import type { AssistAgentView } from "./assist-agent";
+import type { AgentApprovalDecision } from "./command-bar-ipc";
 import type { GroupProposal, OrganizerProposal } from "./tab-organizer";
 import type { FlowApprovalDecision, FlowView, SiteMemoryPaneView, WorkflowDraftView } from "./flow-ipc";
 import type { MemoryHintKind } from "./site-memory";
@@ -47,6 +49,8 @@ export interface AssistMessage {
   translated?: number;
   /** Page translation: more passages are left after this batch. */
   more?: boolean;
+  /** The turn ran as a browser agent: its steps and any approval waiting for the person. */
+  agent?: AssistAgentView;
   at: number;
 }
 
@@ -60,6 +64,8 @@ export interface AssistTabView {
   messages: AssistMessage[];
   busy: boolean;
   translation: "none" | "translated" | "working";
+  /** The chat can act in the browser (an agent provider is set up), so it works on any tab. */
+  canAct: boolean;
 }
 
 export interface AgentActivityView {
@@ -101,6 +107,8 @@ export interface AssistPanelState {
   workflows: WorkflowsPaneView | null;
   /** Bumped when the input should take focus (shortcut, context menu). */
   focusToken: number;
+  /** An Assist run in another tab of this window is waiting for the person's approval. */
+  waitingElsewhere: { tabId: TabId; title: string } | null;
 }
 
 export type AssistEventMessage = { type: "state"; state: AssistPanelState };
@@ -119,6 +127,10 @@ export interface AssistRpc {
   "assist.clear"(): void;
   "assist.jumpToSection"(index: number): void;
   "assist.openSettings"(): void;
+  /** Answer the approval prompt of the active tab's running Assist agent turn. */
+  "assist.approve"(decision: AgentApprovalDecision): void;
+  /** Bring a tab of this window to the front (an Assist run there needs attention). */
+  "assist.showTab"(tabId: TabId): void;
   "agents.pause"(paused: boolean): void;
   "agents.revoke"(client: string): void;
   "agents.clear"(): void;

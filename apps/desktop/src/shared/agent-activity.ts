@@ -174,7 +174,9 @@ export type OverlayAction =
   | { kind: "navigate"; url: string }
   | { kind: "scroll"; direction: "up" | "down" }
   | { kind: "read" }
-  | { kind: "screenshot" };
+  | { kind: "screenshot" }
+  | { kind: "hover"; label: string }
+  | { kind: "key"; key: string };
 
 /** Caption shown next to the agent cursor, e.g. "Claude Code: clicking 'Sign in'". */
 export function overlayCaption(client: string, action: OverlayAction): string {
@@ -195,5 +197,9 @@ export function overlayCaption(client: string, action: OverlayAction): string {
       return `${who}: reading the page`;
     case "screenshot":
       return `${who}: taking a screenshot`;
+    case "hover":
+      return `${who}: pointing at ${action.label ? quote(action.label) : "the page"}`;
+    case "key":
+      return `${who}: pressing ${quote(action.key)}`;
   }
 }

@@ -151,12 +151,28 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "ui.setSidebarWidth": (_w, width) => void ctx.settings.update({ appearance: { sidebarWidth: num(width, "width") } }),
     "ui.setSidebarCollapsed": (_w, collapsed) => void ctx.settings.update({ appearance: { sidebarCollapsed: collapsed === true } }),
     "watch.addActive": (w) => ctx.monitor.addActive(w),
-    "workspaces.list": (w) => w.profile.workspaces.summaries(),
-    "workspaces.saveCurrent": (w, name) => w.profile.workspaces.save(str(name, "name", 120), w.workspaceTabs(), w.listGroups()),
-    "workspaces.open": (w, id, mode) =>
-      w.openWorkspace(str(id, "id"), mode === "new-window" || mode === "merge" ? mode : "replace"),
-    "workspaces.rename": (w, id, name) => w.profile.workspaces.rename(str(id, "id"), str(name, "name", 120)),
-    "workspaces.remove": (w, id) => w.profile.workspaces.remove(str(id, "id")),
+    "workspaces.list": (w) => w.workspaceViews(),
+    "workspaces.saveCurrent": (w, name) => {
+      w.profile.workspaces.save(str(name, "name", 120), w.workspaceTabs(), w.listGroups());
+      return w.workspaceViews();
+    },
+    "workspaces.saveGroup": (w, groupId) => {
+      w.saveGroupAsWorkspace(str(groupId, "group"));
+      return w.workspaceViews();
+    },
+    "workspaces.open": (w, id) => void w.openWorkspace(str(id, "id")),
+    "workspaces.rename": (w, id, name) => {
+      const wsId = str(id, "id");
+      w.profile.workspaces.rename(wsId, str(name, "name", 120));
+      for (const win of ctx.windows.forProfile(w.profile.profile.id)) win.workspaceChanged(wsId);
+      return w.workspaceViews();
+    },
+    "workspaces.remove": (w, id) => {
+      const wsId = str(id, "id");
+      w.profile.workspaces.remove(wsId);
+      for (const win of ctx.windows.forProfile(w.profile.profile.id)) win.workspaceChanged(wsId);
+      return w.workspaceViews();
+    },
     "agent.start": (w, task) => ctx.agentRunner.start(w, str(task, "task", 4000)),
     "agent.stop": (w) => ctx.agentRunner.stop(w),
     "agent.pause": (w, paused) => ctx.agentRunner.pause(w, paused === true),

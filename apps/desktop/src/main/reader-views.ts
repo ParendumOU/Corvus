@@ -1,4 +1,5 @@
-import { WebContentsView, type BaseWindow, type Rectangle, type View, type WebContents } from "electron";
+import { WebContentsView, nativeTheme, type BaseWindow, type Rectangle, type View, type WebContents } from "electron";
+import { pageBaseColor } from "../shared/page-base";
 import { READER_EVENT, type ReaderEventMessage, type ReaderState } from "../shared/reader-ipc";
 import { paths } from "./paths";
 
@@ -31,6 +32,8 @@ export class ReaderView {
         spellcheck: false,
       },
     });
+    // A Corvus page: its blank pre-paint follows the theme instead of flashing white in dark mode.
+    view.setBackgroundColor(pageBaseColor("corvus://reader/", nativeTheme.shouldUseDarkColors));
     const wc = view.webContents;
     wc.setWindowOpenHandler(() => ({ action: "deny" }));
     wc.on("will-navigate", (event) => event.preventDefault());

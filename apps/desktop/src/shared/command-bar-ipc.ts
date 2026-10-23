@@ -17,6 +17,8 @@ export interface AgentRunStep {
   kind: string;
   /** Short, display-only summary of the arguments. */
   summary: string;
+  /** One readable line for the step ("Opened github.com", "Clicked "Sign in""). */
+  label?: string;
   /** Result preview or message text (already truncated, untrusted page text stripped of markup). */
   detail?: string;
   status: AgentStepStatus;
@@ -60,6 +62,8 @@ export interface AgentRunView {
   offerWorkflow?: boolean;
   /** Saved workflows / learned site hints the prompt carried for the start site. */
   siteHints?: RunSiteHints;
+  /** Why the model loop ended, once it has (step cap, token budget, ...). */
+  stopReason?: "done" | "max_steps" | "aborted" | "error" | "budget";
 }
 
 export interface CommandBarWindowExtras {

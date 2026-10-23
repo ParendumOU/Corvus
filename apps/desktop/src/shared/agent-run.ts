@@ -9,7 +9,7 @@
 import type { AgentRunStatus, AgentRunStep } from "./command-bar-ipc";
 import type { RunSiteHints } from "./site-memory";
 
-export type AgentRunSource = "command-bar" | "scheduled";
+export type AgentRunSource = "command-bar" | "scheduled" | "assist";
 
 /** Why the model loop ended (mirrors ai-engine AgentStopReason); null while a run is in flight. */
 export type AgentRunStopReason = "done" | "max_steps" | "aborted" | "error" | "budget" | null;

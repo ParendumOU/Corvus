@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.3.2
+
+### For AI agents
+- **The side panel assistant now acts, not just reads**: ask it to do something ("open my issues
+  and summarize the ones assigned to me", "fill this form with…", "go to the next page and
+  compare") and it works in your current tab: it navigates, clicks, types, scrolls, opens tabs and
+  searches the web, then answers in the same chat. Each step shows as one line in the panel,
+  approvals (Approve / Skip / Stop) appear inline, and follow-ups like "now do the same for the
+  next one" work because the conversation carries the steps taken. Plain questions about the page
+  still answer directly. Runs appear on `corvus://agent-runs` labelled Assist.
+- **Visual browsing**: screenshots now reach the model as images (Claude Code CLI, Anthropic API,
+  and local models that report vision), and agents can click, hover, scroll, press keys and type by
+  position for canvas apps, maps and custom widgets. Position-based actions check what is under the
+  point first, so "Buy now" and payment buttons still always ask.
+- **Claude Code CLI provider**: Corvus's own instructions (site profiles, Assist rules, saved
+  logins, workflows) now reach the CLI; before, they were dropped.
+- **MCP: `console_messages` and `network_requests` work**: they failed with "not supported by
+  this browser build". Corvus now records a tab's console and network requests from the first
+  time an agent acts in it (status, type, size, timing, failures and blocked requests). Anything
+  sent with, or right after, a saved password or 2FA code Corvus filled is hidden from the log.
+- **MCP clients only see tools Corvus can run**: tools that this build does not implement yet
+  (`find`, `wait_for`, `get_text`, `click_at` and others) are no longer offered, so agents stop
+  calling tools that always fail.
+
+### Browser
+- **New tab puts the caret in the address bar**, for Ctrl+T, the + button, the Command Bar and a
+  new window's first tab, so you can type right away.
+- **Dark theme no longer darkens pages without a background** (for example boe.es): web pages are
+  painted on a white base like in Chrome; only Corvus pages follow the theme.
+- **Simpler workspaces**: clicking a workspace opens it as one tab group in the current window
+  (or focuses that group if it is already open). Replace, Merge and open-in-new-window are gone.
+  Right-click a group to "Save group as workspace" or "Update workspace"; the save button says how
+  many tabs it saves, and delete asks first.
+- **WebScope**: turning it off while tabs are still loading no longer fills the crash log with
+  "target closed while handling command" errors.
+
 ## v0.3.1
 
 ### For AI agents

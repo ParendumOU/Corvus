@@ -12,6 +12,7 @@
  *   itself, by reference.
  */
 import { isSpendClick, isSpendSubmit, spendHost, type SpendContext } from "@corvus/shared";
+import { isActivationKey, parseKey } from "./visual-input";
 
 export type { SpendContext } from "@corvus/shared";
 
@@ -29,6 +30,8 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "scroll",
   "switch_tab",
   "ask_user",
+  "hover_at",
+  "scroll_at",
 ]);
 
 /** Accessible names that mean an action commits something. */
@@ -102,6 +105,11 @@ export function classifyAction(tool: string, input: unknown, elementName = "", c
       if (isSpendClick(elementName, ctx)) return { risky: true, handoff: false, alwaysAsk: true, spend: true, reason: `Spends money: clicks "${clip(elementName)}".` };
       if (RISKY_NAME.test(elementName)) return { risky: true, handoff: false, reason: `Clicks "${elementName}".` };
       return SAFE;
+    case "click_at":
+    case "press_key":
+    case "type_text":
+      // Without a live read of the target: the conservative verdict (callers pass the target).
+      return classifyPointAction(tool, input, null);
     case "navigate":
     case "open_tab": {
       // Opening a checkout page is risky, not a spend: nothing is bought until a button says so.
@@ -126,6 +134,76 @@ function rank(r: ActionRisk): number {
 /** The stricter of two classifications of the same action (e.g. the snapshot name and the live one). */
 export function stricterRisk(a: ActionRisk, b: ActionRisk): ActionRisk {
   return rank(b) > rank(a) ? b : a;
+}
+
+/**
+ * What sits under a screen point (click_at) or has keyboard focus (press_key, type_text), read live
+ * from the page with elementFromPoint / activeElement. role and name are computed like
+ * page_snapshot (for the nearest clickable ancestor); `text` is the hit element's own text.
+ */
+export interface PointTarget {
+  url: string;
+  role: string;
+  name: string;
+  tag: string;
+  text?: string;
+  form?: SpendContext["form"];
+  /** A password, one-time-code or card field. */
+  secret?: boolean;
+  /** Inside a CAPTCHA / human-verification widget. */
+  captcha?: boolean;
+  /** A cross-origin frame: its host (the element inside cannot be read). */
+  frame?: string;
+  /** A cross-origin frame served by a payment provider (Stripe, PayPal, Adyen, ...). */
+  payFrame?: boolean;
+  /** Nothing has focus (press_key / type_text). */
+  none?: boolean;
+}
+
+function pointLabel(input: unknown): string {
+  const o = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  return typeof o.x === "number" && typeof o.y === "number" ? ` at (${Math.round(o.x)}, ${Math.round(o.y)})` : "";
+}
+
+/**
+ * Classifies a coordinate or keyboard action by what is really under the point / in focus, through
+ * the same rules as click and type, so the spend gate cannot be sidestepped with coordinates:
+ * - click_at on "Buy now" (or inside a payment provider's frame) spends money and always asks;
+ * - press_key Enter/Space activates the focused control or submits its form, classified like a
+ *   click on it or a type with submit;
+ * - type_text into a password, one-time-code or card field is handed to the person;
+ * - a CAPTCHA widget is always handed to the person, never clicked;
+ * - when Corvus cannot read the target at all, a click or activation always asks.
+ * hover_at and scroll_at only move the pointer or the page and never ask.
+ */
+export function classifyPointAction(tool: string, input: unknown, target: PointTarget | null): ActionRisk {
+  if (tool === "hover_at" || tool === "scroll_at") return SAFE;
+  const press = tool === "press_key" ? parseKey(str(input, "key"), (input as { modifiers?: unknown } | null)?.modifiers) : null;
+  const ctx = (t: PointTarget): SpendContext => ({ role: t.role, url: t.url, ...(t.form ? { form: t.form } : {}) });
+  const unreadable: ActionRisk = { risky: true, handoff: false, alwaysAsk: true, reason: `Acts${pointLabel(input)} on something Corvus cannot read.` };
+  if (target?.captcha) return { risky: true, handoff: true, reason: "This is a CAPTCHA or human check. Hand it to the person; never solve it." };
+
+  if (tool === "click_at" || (press && isActivationKey(press))) {
+    if (!target) return unreadable;
+    if (tool === "press_key" && target.none) return SAFE;
+    if (target.payFrame) return { risky: true, handoff: false, alwaysAsk: true, spend: true, reason: `Spends money: acts inside a payment form${target.frame ? ` (${target.frame})` : ""}.` };
+    if (target.frame && RISKY_URL.test(target.url)) {
+      return { risky: true, handoff: false, alwaysAsk: true, reason: `Acts inside an embedded frame (${target.frame}) on a sign-in or payment page.` };
+    }
+    const field = target.role === "textbox" || target.role === "searchbox" || target.role === "combobox";
+    if (tool === "press_key" && field) return classifyAction("type", { submit: true }, target.name, ctx(target));
+    const byName = classifyAction("click", input, target.name, ctx(target));
+    const byText = target.text && target.text !== target.name ? classifyAction("click", input, target.text, ctx(target)) : SAFE;
+    return stricterRisk(byName, byText);
+  }
+  if (tool === "type_text") {
+    if (!target) return { risky: true, handoff: false, reason: "Types into a field Corvus cannot read." };
+    if (target.none) return SAFE;
+    if (target.secret || SECRET_NAME.test(target.name)) return { risky: true, handoff: true, reason: "This field asks for a password, code or payment secret." };
+    return classifyAction("type", { text: str(input, "text") }, target.name, ctx(target));
+  }
+  if (tool === "press_key") return SAFE;
+  return classifyAction(tool, input);
 }
 
 /** Whether a snapshot's detected challenge (CAPTCHA etc.) must be handed to the user. */

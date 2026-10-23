@@ -21,6 +21,7 @@ export function registerExtractTools({ controller, register, resolveTab }: ToolC
     "get_text",
     {
       description: "Plain text of an element (ref) or of the page's main content.",
+      requires: "getText",
       inputSchema: { ref: ref.optional(), maxChars: z.number().int().min(100).max(MAX_CHARS).default(4000), tabId: optionalTabId },
       readOnly: true,
     },
@@ -35,6 +36,7 @@ export function registerExtractTools({ controller, register, resolveTab }: ToolC
     "extract",
     {
       description: "Extract structured data: main content as markdown, tables as JSON, links, or metadata/OpenGraph.",
+      requires: "extract",
       inputSchema: {
         kind: z.enum(["markdown", "tables", "links", "metadata"]),
         ref: ref.optional().describe("Limit to this element"),
@@ -55,6 +57,7 @@ export function registerExtractTools({ controller, register, resolveTab }: ToolC
     "get_html",
     {
       description: "Trimmed outerHTML of an element (ref or CSS selector); scripts, styles and SVG bodies removed.",
+      requires: "getHtml",
       inputSchema: {
         ref: ref.optional(),
         selector: z.string().min(1).max(1000).optional(),

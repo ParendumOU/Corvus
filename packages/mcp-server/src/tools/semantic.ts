@@ -83,19 +83,19 @@ export function registerSemanticTools({ controller, register, resolveTab }: Tool
 
   const elementAction = (name: string) => need(controller.elementAction?.bind(controller), name);
 
-  register("hover", { description: "Hover an element (real mouse move to its center).", inputSchema: { ref, tabId: optionalTabId } }, async (a) => {
+  register("hover", { description: "Hover an element (real mouse move to its center).", requires: "elementAction", inputSchema: { ref, tabId: optionalTabId } }, async (a) => {
     await elementAction("hover")(await resolveTab(a.tabId), a.ref, { type: "hover" });
     return OK;
   });
 
-  register("focus", { description: "Focus an element.", inputSchema: { ref, tabId: optionalTabId } }, async (a) => {
+  register("focus", { description: "Focus an element.", requires: "elementAction", inputSchema: { ref, tabId: optionalTabId } }, async (a) => {
     await elementAction("focus")(await resolveTab(a.tabId), a.ref, { type: "focus" });
     return OK;
   });
 
   register(
     "check",
-    { description: "Check or uncheck a checkbox, radio or switch.", inputSchema: { ref, checked: z.boolean().default(true), tabId: optionalTabId } },
+    { description: "Check or uncheck a checkbox, radio or switch.", requires: "elementAction", inputSchema: { ref, checked: z.boolean().default(true), tabId: optionalTabId } },
     async (a) => {
       await elementAction("check")(await resolveTab(a.tabId), a.ref, { type: "check", checked: a.checked });
       return OK;
@@ -106,6 +106,7 @@ export function registerSemanticTools({ controller, register, resolveTab }: Tool
     "select_option",
     {
       description: "Select option(s) of a <select> or listbox by value or visible label.",
+      requires: "elementAction",
       inputSchema: { ref, values: z.array(z.string().max(1000)).min(1).max(100), tabId: optionalTabId },
     },
     async (a) => {
@@ -118,6 +119,7 @@ export function registerSemanticTools({ controller, register, resolveTab }: Tool
     "fill_form",
     {
       description: "Fill many fields at once: text (string), checkbox/radio (boolean), select (string or string[]).",
+      requires: "fill",
       inputSchema: {
         fields: z.array(z.object({ ref, value: fieldValue })).min(1).max(100),
         tabId: optionalTabId,
@@ -144,6 +146,7 @@ export function registerSemanticTools({ controller, register, resolveTab }: Tool
     "find",
     {
       description: "Find elements by visible text, CSS selector and/or role; returns refs with boxes.",
+      requires: "find",
       inputSchema: {
         text: z.string().min(1).max(500).optional(),
         selector: z.string().min(1).max(1000).optional(),
@@ -167,6 +170,7 @@ export function registerSemanticTools({ controller, register, resolveTab }: Tool
     "wait_for",
     {
       description: "Wait for text, an element state, a URL, page load or network idle (polls until timeout).",
+      requires: "waitFor",
       inputSchema: {
         text: z.string().min(1).max(500).optional().describe("Text appears (case-insensitive)"),
         textGone: z.string().min(1).max(500).optional().describe("Text disappears"),

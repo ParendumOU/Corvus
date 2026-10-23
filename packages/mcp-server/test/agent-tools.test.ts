@@ -114,6 +114,92 @@ describe("access levels", () => {
   });
 });
 
+/** Every optional BrowserController method (AgentCapabilities plus evaluate). */
+const OPTIONAL_CAPABILITIES = [
+  "capture",
+  "input",
+  "elementAction",
+  "fill",
+  "uploadFiles",
+  "find",
+  "waitFor",
+  "getText",
+  "extract",
+  "getHtml",
+  "consoleMessages",
+  "networkRequests",
+  "pendingDialog",
+  "handleDialog",
+  "pdf",
+  "setZoom",
+  "setViewport",
+  "listDownloads",
+  "waitForLoad",
+  "detectChallenge",
+  "requestUserAction",
+  "cookies",
+  "clearCookie",
+  "download",
+  "fillTotp",
+  "fillLogin",
+  "secretFillLock",
+  "describeTarget",
+  "confirmSpend",
+  "evaluate",
+] as const;
+
+/** A controller like a browser build that implements only the required methods, plus `keep`. */
+function coreController(keep: readonly string[] = []): MockBrowserController {
+  const controller = controllerWithPages();
+  for (const name of OPTIONAL_CAPABILITIES) if (!keep.includes(name)) Object.defineProperty(controller, name, { value: undefined });
+  return controller;
+}
+
+async function fullToolNames(controller: MockBrowserController): Promise<string[]> {
+  const h = await startHarness({ accessLevel: "full", rateLimit: false }, controller);
+  try {
+    return (await (await h.connect()).listTools()).tools.map((t) => t.name).sort();
+  } finally {
+    await h.close();
+  }
+}
+
+describe("capabilities", () => {
+  it("offers only tools the browser build can run", async () => {
+    // A tool that needs an optional capability must declare it with `requires`, or it shows up here.
+    expect(await fullToolNames(coreController())).toEqual(
+      [
+        "tabs_list",
+        "tab_open",
+        "tab_close",
+        "tab_activate",
+        "navigate",
+        "back",
+        "forward",
+        "reload",
+        "group_create",
+        "ungroup",
+        "click",
+        "type",
+        "scroll",
+        "bookmarks_list",
+        "bookmark_add",
+        "history_search",
+        "page_snapshot",
+        "screenshot",
+        "snapshot",
+      ].sort(),
+    );
+  });
+
+  it("offers a capability's tools once the build implements it", async () => {
+    const names = await fullToolNames(coreController(["consoleMessages", "networkRequests"]));
+    expect(names).toContain("console_messages");
+    expect(names).toContain("network_requests");
+    expect(names).not.toContain("handle_dialog");
+  });
+});
+
 describe("agent tools", () => {
   let h: Harness;
   let client: Client;

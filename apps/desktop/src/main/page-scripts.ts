@@ -238,3 +238,149 @@ export function scrollScript(direction: "up" | "down", amount: number | undefine
   return { scrollY: Math.round(scrollY), maxScrollY: Math.max(0, document.documentElement.scrollHeight - innerHeight) };
 })()`;
 }
+
+/** Same clickable-element selector page_snapshot lists, to climb from a hit point to its control. */
+const CLICKABLE = [
+  "a[href]", "button", "input:not([type=hidden])", "textarea", "select", "summary", "label",
+  "[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]", "[role=tab]", "[role=menuitem]",
+  "[role=option]", "[role=switch]", "[role=combobox]", "[role=textbox]", "[role=searchbox]",
+  "[contenteditable='']", "[contenteditable=true]",
+].join(",");
+
+/** Shared helpers for describePointScript / describeFocusedScript (frame flags, form, secrets). */
+const TARGET_FNS = `
+  ${ROLE_NAME_FNS}
+  const CAPTCHA_RE = /recaptcha|hcaptcha|turnstile|challenges\\.cloudflare\\.com|arkoselabs|funcaptcha|geetest|captcha/i;
+  const PAY_RE = /(^|\\.)(stripe\\.com|stripe\\.network|paypal\\.com|paypalobjects\\.com|braintreegateway\\.com|braintree-api\\.com|adyen\\.com|adyenpayments\\.com|checkout\\.com|klarna\\.com|klarnaservices\\.com|squareup\\.com|squarecdn\\.com|authorize\\.net|worldpay\\.com|mollie\\.com|razorpay\\.com|pay\\.google\\.com|apple\\.com|affirm\\.com|afterpay\\.com|shopify\\.com|shopifycs\\.com)$/i;
+  const hostOf = (src) => { try { return new URL(src, location.href).host; } catch (e) { return ""; } };
+  const frameInfo = (el) => {
+    const src = el.getAttribute("src") || "";
+    const host = hostOf(src);
+    const label = clean(el.getAttribute("title") || el.getAttribute("name") || el.getAttribute("aria-label") || "");
+    return { url: location.href, role: "frame", name: label.slice(0, 120), tag: el.tagName.toLowerCase(), frame: host || "embedded frame",
+      captcha: CAPTCHA_RE.test(src + " " + label), payFrame: PAY_RE.test(host) };
+  };
+  const isSecret = (el) => {
+    if (!el || !el.getAttribute) return false;
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    const ac = (el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/);
+    return type === "password" || el.hasAttribute("data-corvus-secret") || ac.includes("one-time-code") || ac.some((a) => a.startsWith("cc-"));
+  };
+  const formOf = (el) => {
+    const form = el.form || (el.closest && el.closest("form"));
+    if (!form) return undefined;
+    let action = "";
+    try { action = new URL(form.getAttribute("action") || location.href, location.href).href; } catch (e) {}
+    const isSubmit = (e) =>
+      (e.tagName === "BUTTON" && (e.getAttribute("type") || "submit").toLowerCase() === "submit") ||
+      (e.tagName === "INPUT" && ["submit", "image"].includes((e.getAttribute("type") || "").toLowerCase()));
+    const submit = Array.from(form.elements || []).find(isSubmit);
+    const out = { action };
+    if (submit) { out.submitName = nameOf(submit).slice(0, 120); out.submitRole = roleOf(submit); }
+    return out;
+  };
+  const inCaptcha = (el) => Boolean(el.closest && el.closest(".g-recaptcha, .h-captcha, .cf-turnstile, [class*=captcha i], [id*=captcha i], [data-sitekey]"));
+  const describe = (el, hit) => {
+    const out = { url: location.href, role: roleOf(el), name: nameOf(el).slice(0, 120), tag: el.tagName.toLowerCase() };
+    const own = hit && hit !== el ? clean(hit.innerText || hit.textContent || "").slice(0, 120) : "";
+    if (own) out.text = own;
+    const form = formOf(el);
+    if (form) out.form = form;
+    if (isSecret(el)) out.secret = true;
+    if (inCaptcha(el)) out.captcha = true;
+    return out;
+  };`;
+
+/**
+ * What is at viewport point (x, y) in CSS px, for the click_at spend gate and the step label. Descends
+ * into same-origin frames; a cross-origin frame reports only its host. Climbs from the hit element
+ * to its clickable control (snapshot selector, else the outermost cursor:pointer ancestor). Also
+ * returns the control's box so the overlay can point at it. Read-only; null when nothing is there.
+ */
+export function describePointScript(x: number, y: number): string {
+  return `(() => {
+  ${TARGET_FNS}
+  let x = ${Number(x) || 0}, y = ${Number(y) || 0}, ox = 0, oy = 0;
+  let el = document.elementFromPoint(x, y);
+  while (el && (el.tagName === "IFRAME" || el.tagName === "FRAME")) {
+    let inner = null;
+    try { inner = el.contentDocument; } catch (e) {}
+    if (!inner) return frameInfo(el);
+    const r = el.getBoundingClientRect();
+    ox += r.left + el.clientLeft; oy += r.top + el.clientTop;
+    const next = inner.elementFromPoint(x - ox, y - oy);
+    if (!next) return frameInfo(el);
+    el = next;
+  }
+  if (!el) return null;
+  let target = el.closest(${JSON.stringify(CLICKABLE)});
+  if (!target) {
+    target = el;
+    const view = el.ownerDocument.defaultView || window;
+    for (let p = el.parentElement, i = 0; p && i < 6 && p !== el.ownerDocument.body; p = p.parentElement, i++) {
+      if (view.getComputedStyle(p).cursor === "pointer") target = p;
+      else if (view.getComputedStyle(target).cursor === "pointer") break;
+    }
+  }
+  const out = describe(target, el);
+  const r = target.getBoundingClientRect();
+  out.box = { x: r.left + ox, y: r.top + oy, width: r.width, height: r.height };
+  return out;
+})()`;
+}
+
+/** The focused element (descending into same-origin frames), for the press_key / type_text gate. */
+export function describeFocusedScript(): string {
+  return `(() => {
+  ${TARGET_FNS}
+  let el = document.activeElement;
+  while (el && (el.tagName === "IFRAME" || el.tagName === "FRAME")) {
+    let inner = null;
+    try { inner = el.contentDocument; } catch (e) {}
+    if (!inner) return frameInfo(el);
+    el = inner.activeElement;
+  }
+  if (!el || el === el.ownerDocument.body || el === el.ownerDocument.documentElement) {
+    return { url: location.href, role: "", name: "", tag: "body", none: true };
+  }
+  return describe(el, null);
+})()`;
+}
+
+/** Viewport size in CSS px (what an agent screenshot is scaled to) and the page scroll position. */
+export function viewportScript(): string {
+  return `(() => ({ width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), maxScrollY: Math.max(0, document.documentElement.scrollHeight - innerHeight) }))()`;
+}
+
+/**
+ * Background-tab fallback for click_at / hover_at / scroll_at (sendInputEvent needs a painted, visible
+ * view): dispatches synthetic pointer events at the element under the point. Returns false when
+ * nothing is there.
+ */
+export function pointerFallbackScript(action: "click" | "hover" | "scroll", x: number, y: number, dx = 0, dy = 0): string {
+  return `(() => {
+  const x = ${Number(x) || 0}, y = ${Number(y) || 0};
+  const el = document.elementFromPoint(x, y);
+  if (!el) return false;
+  const opts = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window };
+  if (${JSON.stringify(action)} === "scroll") {
+    let s = el;
+    while (s && s !== document.body && !(s.scrollHeight > s.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) s = s.parentElement;
+    (s && s !== document.body ? s : window).scrollBy({ left: ${Number(dx) || 0}, top: ${Number(dy) || 0}, behavior: "instant" });
+    return true;
+  }
+  el.dispatchEvent(new PointerEvent("pointerover", opts));
+  el.dispatchEvent(new MouseEvent("mouseover", opts));
+  el.dispatchEvent(new PointerEvent("pointermove", opts));
+  el.dispatchEvent(new MouseEvent("mousemove", opts));
+  if (${JSON.stringify(action)} === "click") {
+    el.dispatchEvent(new PointerEvent("pointerdown", opts));
+    el.dispatchEvent(new MouseEvent("mousedown", opts));
+    if (typeof el.focus === "function") el.focus();
+    el.dispatchEvent(new PointerEvent("pointerup", opts));
+    el.dispatchEvent(new MouseEvent("mouseup", opts));
+    el.dispatchEvent(new MouseEvent("click", opts));
+  }
+  return true;
+})()`;
+}

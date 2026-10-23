@@ -483,6 +483,9 @@
 .ws-empty {
   padding: 6px 2px 4px;
 }
+.ws-hint {
+  padding: 0 2px 6px;
+}
 .ws-list {
   list-style: none;
   margin: 0;
@@ -492,8 +495,8 @@
 .ws-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 2px;
+  gap: 6px;
+  padding: 2px 0;
   border-top: 1px solid var(--border-soft);
 }
 .ws-main {
@@ -502,24 +505,51 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding: 6px 6px;
 }
 .ws-main .input {
   height: 26px;
 }
-.ws-name {
+.ws-open {
   border: none;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.ws-open:hover {
+  background: var(--hover);
+}
+.ws-name {
   font-weight: 600;
-  padding: 0;
-  cursor: text;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ws-name:hover {
-  text-decoration: underline;
+.ws-row.open .ws-name::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+.ws-confirm {
+  padding: 6px 2px;
+}
+.ws-confirm-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-save-btn {
+  white-space: nowrap;
 }
 .ws-actions {
   display: flex;
@@ -527,7 +557,9 @@
   gap: 2px;
   flex: none;
 }
-.ws-del {
+.ws-del,
+.ws-rename,
+.ws-update {
   color: var(--text-2);
 }
 .ws-del:hover {

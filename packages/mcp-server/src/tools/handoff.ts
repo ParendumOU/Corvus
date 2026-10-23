@@ -8,6 +8,7 @@ export function registerHandoffTools({ controller, register, resolveTab }: ToolC
     "request_user_action",
     {
       description: "Ask the user to do something in a tab (CAPTCHA, 2FA, login, payment). Blocks until Done/Cancel.",
+      requires: "requestUserAction",
       inputSchema: {
         message: z.string().min(1).max(500).describe("What the user should do, shown in a banner"),
         timeoutSeconds: z.number().int().min(10).max(1800).default(300),

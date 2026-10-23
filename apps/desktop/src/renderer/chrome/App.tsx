@@ -1,7 +1,9 @@
 import { Component, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { GroupColor } from "@corvus/shared";
 import { GROUP_COLOR_HEX, type WindowState } from "../../shared/ipc";
+import { isNewTabUrl } from "../../shared/internal-urls";
 import { GROUP_COLORS } from "../../shared/tab-strip";
+import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
 import { IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconMenu, IconReload, IconSparkle } from "../common/icons";
 import { Favicon } from "../common/ui";
@@ -60,13 +62,17 @@ export function App() {
   const findFocusHandled = useRef(0);
   const barRef = useRef<HTMLDivElement>(null);
   const omniRef = useRef<OmniboxHandle>(null);
+  // A focus request that arrives before the omnibox exists (the UI renders once state is in).
+  const pendingOmniFocus = useRef<boolean | null>(null);
 
   useEffect(() => {
     void api.call("state.get").then(setState);
     const offState = api.onState(setState);
     const offCommand = api.onCommand((command) => {
-      if (command.type === "focus-omnibox") omniRef.current?.focus(command.selectAll);
-      else if (command.type === "close-overlays") {
+      if (command.type === "focus-omnibox") {
+        if (omniRef.current) omniRef.current.focus(command.selectAll);
+        else pendingOmniFocus.current = command.selectAll;
+      } else if (command.type === "close-overlays") {
         setEditor(null);
         setPopover(null);
         setOrganizer(false);
@@ -94,6 +100,17 @@ export function App() {
     };
   }, [api]);
 
+  // First render of a window: a new tab page starts with the caret in the omnibox.
+  const ready = state !== null;
+  useEffect(() => {
+    if (!state) return;
+    const active = state.tabs.find((t) => t.id === state.activeTabId);
+    const selectAll = pendingOmniFocus.current ?? (active && isNewTabUrl(active.url) ? true : null);
+    pendingOmniFocus.current = null;
+    if (selectAll !== null) omniRef.current?.focus(selectAll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
   useLayoutEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
@@ -114,6 +131,7 @@ export function App() {
 
   const onOmniOpen = useCallback((open: boolean) => setOmniOpen(open), []);
   const closePopover = useCallback(() => setPopover(null), []);
+  const closePalette = useCallback(() => setPalette(false), []);
 
   if (!state) return null;
   const active = state.tabs.find((t) => t.id === state.activeTabId);
@@ -254,7 +272,7 @@ export function App() {
           }}
         />
       )}
-      {palette && <DebugBoundary><CommandBar state={state} onClose={() => setPalette(false)} onOrganize={() => { setPalette(false); setOrganizer(true); }} /></DebugBoundary>}
+      {palette && <DebugBoundary><CommandBar state={state} onClose={closePalette} onOrganize={() => { setPalette(false); setOrganizer(true); }} /></DebugBoundary>}
       {editor && <GroupEditor state={state} editor={editor} onClose={() => setEditor(null)} />}
       {prompt && <PermissionPrompt key={prompt.id} prompt={prompt} anchor={omniboxAnchor()} />}
       {popover?.kind === "site" && <SiteInfoPopover anchor={popover.anchor} onClose={closePopover} />}
@@ -262,7 +280,9 @@ export function App() {
       {organizer && <Organizer dark={state.dark} tabCount={state.tabs.length} onClose={() => setOrganizer(false)} />}
       {popover?.kind === "downloads" && <DownloadsBubble summary={state.downloads} anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "adblock" && <AdblockPopover state={state.adblock} anchor={popover.anchor} onClose={closePopover} />}
-      {popover?.kind === "workspaces" && <WorkspacesPopover anchor={popover.anchor} onClose={closePopover} />}
+      {popover?.kind === "workspaces" && (
+        <WorkspacesPopover anchor={popover.anchor} saveCount={state.tabs.filter((t) => isWorkspaceTabUrl(t.url)).length} onClose={closePopover} />
+      )}
     </div>
   );
 }
@@ -359,6 +379,15 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
   const group = state.groups.find((g) => g.id === editor.groupId);
   const [title, setTitle] = useState(group?.title ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  const workspaceId = group?.workspaceId;
+  useEffect(() => {
+    if (!workspaceId) {
+      setWorkspaceName(null);
+      return;
+    }
+    void api.call("workspaces.list").then((list) => setWorkspaceName(list.find((w) => w.id === workspaceId)?.name ?? null));
+  }, [api, workspaceId]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -374,6 +403,7 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
     if (title !== group.title) void api.call("groups.update", group.id, { title });
   };
   const setColor = (color: GroupColor): void => void api.call("groups.update", group.id, { color });
+  const saveCount = state.tabs.filter((t) => t.groupId === group.id && isWorkspaceTabUrl(t.url)).length;
   const left = Math.min(editor.left, window.innerWidth - 270);
 
   return (
@@ -410,6 +440,23 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
           onClose();
         }}>
           New tab in group
+        </button>
+        <button
+          className="menu-row ws-group-save"
+          disabled={saveCount === 0}
+          title={
+            workspaceName
+              ? `Save this group's current tabs to the workspace “${workspaceName}”`
+              : "Save this group's tabs as a workspace you can reopen later"
+          }
+          onClick={() => {
+            saveTitle();
+            void api.call("workspaces.saveGroup", group.id);
+            onClose();
+          }}
+        >
+          {workspaceName ? "Update workspace" : "Save group as workspace"}
+          <span className="muted"> · {saveCount} tab{saveCount === 1 ? "" : "s"}</span>
         </button>
         <button className="menu-row" onClick={() => {
           void api.call("groups.ungroup", group.id);

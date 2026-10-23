@@ -1,6 +1,6 @@
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { CallToolResult, ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
-import type { AccessLevel, BrowserController } from "@corvus/shared";
+import type { AccessLevel, AgentCapabilities, BrowserController } from "@corvus/shared";
 import type { WebScopeEngine } from "@corvus/webscope";
 import { z } from "zod";
 import { UNTRUSTED_NOTE, wrapUntrusted } from "../content.js";
@@ -67,6 +67,8 @@ export interface ToolConfig<S extends z.ZodRawShape> {
   description: string;
   inputSchema: S;
   readOnly?: boolean;
+  /** Optional browser capability the tool runs on; the tool is not offered when the controller lacks it. */
+  requires?: keyof AgentCapabilities;
 }
 
 export type Register = <S extends z.ZodRawShape>(

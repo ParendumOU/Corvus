@@ -62,6 +62,11 @@ export {
   createLocalAgentProvider,
   renderTranscript,
   parseToolCall,
+  buildClaudeCliAgentArgs,
+  cliStreamJsonInput,
+  toAnthropicMessages,
+  toLocalMessages,
+  MAX_CONTEXT_IMAGES,
   AgentStopError,
   DEFAULT_MAX_STEPS,
   DEFAULT_MAX_TURN_TOKENS,
@@ -83,4 +88,6 @@ export type {
   AnthropicAgentOptions,
   ClaudeCliAgentOptions,
   LocalAgentOptions,
+  RenderTranscriptOptions,
+  RenderedTranscript,
 } from "./agent.js";

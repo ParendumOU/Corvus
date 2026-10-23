@@ -21,6 +21,8 @@ export interface AssistPage {
 export interface ChatTurn {
   question: string;
   answer: string;
+  /** Browser steps the assistant took for this turn (agentic Assist), e.g. "Opened github.com". */
+  actions?: string[];
 }
 
 export interface TabInput {
@@ -61,6 +63,8 @@ export const ASSIST_LIMITS = {
   historyTurns: 4,
   historyChars: 2400,
   historyAnswerChars: 700,
+  historyActionChars: 500,
+  requestChars: 2000,
   segmentChars: 300,
   segmentsChars: 4500,
   maxSegments: 120,
@@ -174,7 +178,7 @@ const SYSTEM: Record<AssistKind, string> = {
   ].join("\n"),
 };
 
-const FENCE_TAGS = /<\/?\s*(page|article|selection|segments|term|tabs|conversation|question|diff)\s*>/gi;
+const FENCE_TAGS = /<\/?\s*(page|article|selection|segments|term|tabs|conversation|question|diff|request)\s*>/gi;
 
 /** Neutralizes text that could close a fence or forge a numbered header. */
 export function sanitizeUntrusted(text: string): string {
@@ -259,20 +263,51 @@ function articleBlock(page: AssistPage, maxChars: number): string {
 
 /** Keeps the most recent turns that fit the history budget, oldest first. */
 export function trimHistory(history: ChatTurn[]): ChatTurn[] {
-  const recent = history.slice(-ASSIST_LIMITS.historyTurns).map((t) => ({
-    question: truncate(collapseWhitespace(t.question), ASSIST_LIMITS.questionChars),
-    answer: truncate(collapseWhitespace(t.answer), ASSIST_LIMITS.historyAnswerChars),
-  }));
+  const recent = history.slice(-ASSIST_LIMITS.historyTurns).map((t) => {
+    const actions = t.actions?.length ? [truncate(collapseWhitespace(t.actions.join("; ")), ASSIST_LIMITS.historyActionChars)] : [];
+    return {
+      question: truncate(collapseWhitespace(t.question), ASSIST_LIMITS.questionChars),
+      answer: truncate(collapseWhitespace(t.answer), ASSIST_LIMITS.historyAnswerChars),
+      ...(actions.length ? { actions } : {}),
+    };
+  });
   const out: ChatTurn[] = [];
   let used = 0;
   for (let i = recent.length - 1; i >= 0; i--) {
     const turn = recent[i]!;
-    const size = turn.question.length + turn.answer.length;
+    const size = turn.question.length + turn.answer.length + (turn.actions?.[0]?.length ?? 0);
     if (used + size > ASSIST_LIMITS.historyChars) break;
     used += size;
     out.unshift(turn);
   }
   return out;
+}
+
+export interface AssistAgentInput {
+  lang: string;
+  /** What the user asked or told the assistant to do (trusted). */
+  question: string;
+  history: ChatTurn[];
+  /** The tab the agent works in, and its readable text when it is a web page. */
+  tab: { url: string; title: string } | null;
+  page: AssistPage | null;
+}
+
+/**
+ * The first user message of an agentic Assist turn: the request, the current tab with its page
+ * text (numbered sections, citable as [n], untrusted) and the recent conversation with the steps
+ * taken, so follow-ups like "now do the same for the next one" have the context they need.
+ */
+export function buildAssistAgentTask(input: AssistAgentInput): string {
+  const lang = `lang: ${collapseWhitespace(input.lang).slice(0, 35) || "en"}`;
+  const tab = input.tab ? `current tab: ${oneLine(input.tab.title, 160) || "(untitled)"} (${oneLine(input.tab.url, 300)})` : "current tab: (none)";
+  const page = input.page ? `\n${pageBlock(input.page, ASSIST_LIMITS.pageChars)}` : "";
+  const turns = trimHistory(input.history)
+    .map((t) => `user: ${t.question}\nassistant: ${t.answer || "(no answer)"}${t.actions?.length ? `\nsteps taken: ${t.actions.join("; ")}` : ""}`)
+    .join("\n");
+  const conversation = turns ? `\n<conversation>\n${sanitizeUntrusted(turns)}\n</conversation>` : "";
+  const request = truncate(collapseWhitespace(sanitizeUntrusted(input.question)), ASSIST_LIMITS.requestChars);
+  return `${lang}\n${tab}${page}${conversation}\n${UNTRUSTED}\n<request>${request}</request>`;
 }
 
 /** Caps and numbers page segments for translation. Returns how many segments were included. */

@@ -25,9 +25,10 @@ import {
   type InternalPage,
 } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
+import { pageBaseColor } from "../shared/page-base";
 import { commandForInput, type BrowserCommand } from "../shared/shortcuts";
-import { materializeWorkspace, type LiveTab } from "../shared/workspaces";
-import type { WorkspaceOpenMode } from "../shared/workspace-ipc";
+import { workspaceOpenPlan, type LiveTab } from "../shared/workspaces";
+import type { WorkspaceView } from "../shared/workspace-ipc";
 import {
   activateTab,
   activeTabHidden,
@@ -35,9 +36,11 @@ import {
   createGroup,
   cycleTab,
   emptyStrip,
+  groupForWorkspace,
   indexOfTab,
   insertTab,
   insertionIndexForChild,
+  linkGroupWorkspace,
   moveGroup,
   moveTab,
   nextGroupColor,
@@ -65,8 +68,8 @@ let seq = 0;
 const nextId = (prefix: string): string => `${prefix}${Date.now().toString(36)}${(++seq).toString(36)}`;
 
 export const THEME = {
-  light: { strip: "#e3e7ed", symbol: "#3c4043", page: "#ffffff" },
-  dark: { strip: "#1c1d21", symbol: "#e8eaed", page: "#202124" },
+  light: { strip: "#e3e7ed", symbol: "#3c4043" },
+  dark: { strip: "#1c1d21", symbol: "#e8eaed" },
 };
 
 /** Height of the tab strip, also used for the native window-controls overlay. */
@@ -100,6 +103,8 @@ export interface TabRuntime {
   unresponsiveTimer?: NodeJS.Timeout;
   /** Find bar state; null when the find bar is closed. */
   find: FindState | null;
+  /** Its first page has committed (or failed); until then nothing in it can have been clicked. */
+  committed: boolean;
 }
 
 export interface OpenTabOptions {
@@ -159,6 +164,9 @@ export class BrowserWindowCtl {
   private readonly startMaximized: boolean;
   private readonly cleanups: Array<() => void> = [];
   private sidePanel: WebContentsView | null = null;
+  /** Where keyboard focus belongs: the chrome UI or a shown tab (restored after a stray grab). */
+  private lastFocused: WebContents | null = null;
+  private focusRestoreQueued = false;
 
   constructor(
     private readonly ctx: AppContext,
@@ -203,6 +211,9 @@ export class BrowserWindowCtl {
       this.chromeReady = true;
       this.flushState();
       this.reveal();
+    });
+    chromeWc.on("focus", () => {
+      this.lastFocused = chromeWc;
     });
     chromeWc.on("render-process-gone", (_e, details) => {
       this.ctx.crashReporter.record("chrome-renderer-gone", { reason: details.reason, exitCode: details.exitCode });
@@ -252,6 +263,8 @@ export class BrowserWindowCtl {
     if (this.disposed || this.win.isVisible()) return;
     if (this.startMaximized) this.win.maximize();
     else this.win.show();
+    // Focus requests made while the window was hidden (the omnibox of its first new tab) did not land.
+    this.restoreFocus();
   }
 
   // ---------------------------------------------------------------- layout & state
@@ -315,8 +328,16 @@ export class BrowserWindowCtl {
       this.win.setTitleBarOverlay({ color: palette.strip, symbolColor: palette.symbol, height: TAB_STRIP_HEIGHT });
     }
     this.win.setBackgroundColor(palette.strip);
+    for (const tab of this.tabs.values()) {
+      if (!tab.view.webContents.isDestroyed()) this.applyPageBase(tab, tab.view.webContents.getURL() || tab.url);
+    }
     this.splitSession?.setTheme(this.splitAccent());
     this.pushState();
+  }
+
+  /** Base painted behind the tab's page: white for web content, the theme color for Corvus pages. */
+  private applyPageBase(tab: TabRuntime, url: string): void {
+    tab.view.setBackgroundColor(pageBaseColor(url, nativeTheme.shouldUseDarkColors));
   }
 
   setChromeHeight(height: number): void {
@@ -354,7 +375,11 @@ export class BrowserWindowCtl {
       const next = activeId ? this.tabs.get(activeId) : undefined;
       if (next) {
         this.profile.extensions.selectTab(next.view.webContents);
-        if (focusContent && !isNewTabUrl(next.url)) next.view.webContents.focus();
+        // A new tab page puts the caret in the omnibox, like Chrome; any other page gets the keyboard.
+        if (focusContent) {
+          if (isNewTabUrl(next.url)) this.focusOmnibox();
+          else this.focusWebContents(next.view.webContents);
+        }
       }
       this.activeShown = activeId;
     }
@@ -493,12 +518,50 @@ export class BrowserWindowCtl {
   }
 
   focusOmnibox(selectAll = true): void {
-    this.chrome.webContents.focus();
+    this.focusWebContents(this.chrome.webContents);
     this.sendCommand({ type: "focus-omnibox", selectAll });
   }
 
   focusContent(): void {
-    this.activeTab()?.view.webContents.focus();
+    const tab = this.activeTab();
+    if (tab) this.focusWebContents(tab.view.webContents);
+  }
+
+  /** Give a webContents of this window the keyboard and remember it as where focus belongs. */
+  private focusWebContents(wc: WebContents): void {
+    if (wc.isDestroyed()) return;
+    this.lastFocused = wc;
+    wc.focus();
+  }
+
+  /**
+   * Electron hands keyboard focus to a new webContents as its first page commits, even when its
+   * view is hidden. Unchecked, that pulls the caret out of the omnibox of a new tab (Ctrl+T, the +
+   * button, a new window) and out of the page a background tab was opened from. A hidden tab never
+   * keeps focus, nor does a tab whose first page has not committed yet: focus goes back to where it
+   * belongs. Deferred because a focus change made while one is being dispatched is ignored.
+   */
+  private onTabFocus(tab: TabRuntime): void {
+    if (!tab.committed || !this.shownTabIds.includes(tab.id)) {
+      if (this.focusRestoreQueued) return;
+      this.focusRestoreQueued = true;
+      setImmediate(() => {
+        this.focusRestoreQueued = false;
+        this.restoreFocus();
+      });
+      return;
+    }
+    this.lastFocused = tab.view.webContents;
+    // Clicking the non-focused pane of a split makes it the active tab (omnibox/keyboard target).
+    if (this.splitSession && tab.id !== this.strip.activeId) this.focusSplitPane(tab.id);
+  }
+
+  private restoreFocus(): void {
+    if (this.disposed) return;
+    const target = this.lastFocused;
+    const shown = target && this.shownTabIds.some((id) => this.tabs.get(id)?.view.webContents === target);
+    if (target && !target.isDestroyed() && (target === this.chrome.webContents || shown)) target.focus();
+    else this.focusWebContents(this.chrome.webContents);
   }
 
   // ---------------------------------------------------------------- tabs
@@ -542,7 +605,7 @@ export class BrowserWindowCtl {
       },
     });
     view.setVisible(false);
-    view.setBackgroundColor(nativeTheme.shouldUseDarkColors ? THEME.dark.page : THEME.light.page);
+    view.setBackgroundColor(pageBaseColor(url, nativeTheme.shouldUseDarkColors));
     this.win.contentView.addChildView(view, 0);
 
     const lazy = opts.lazy === true && opts.activate === false;
@@ -556,6 +619,7 @@ export class BrowserWindowCtl {
       crashed: false,
       audible: false,
       find: null,
+      committed: false,
       ...(lazy ? { pendingUrl: url } : {}),
       ...(lazy && opts.faviconUrl ? { faviconUrl: opts.faviconUrl } : {}),
     };
@@ -578,7 +642,6 @@ export class BrowserWindowCtl {
       });
     }
     this.syncActive(true);
-    if (activate && isNewTabUrl(url)) this.focusOmnibox();
     this.pushState();
     return tab;
   }
@@ -592,9 +655,17 @@ export class BrowserWindowCtl {
     });
     wc.on("did-stop-loading", () => {
       tab.loading = false;
+      tab.committed = true;
       push();
     });
+    // A web page gets its white base before it can first paint; a Corvus page paints its own
+    // background, so its themed base waits for the commit and a page being left never flashes dark.
+    wc.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument && !isInternalUrl(details.url)) this.applyPageBase(tab, details.url);
+    });
     wc.on("did-navigate", (_e, url) => {
+      tab.committed = true;
+      this.applyPageBase(tab, url);
       // The recovery page is loaded over a crashed tab; keep the tab's real URL and crashed flag.
       if (internalPageOf(url) === "crash") return;
       tab.url = url;
@@ -662,10 +733,7 @@ export class BrowserWindowCtl {
       }, UNRESPONSIVE_GRACE_MS);
     });
     wc.on("responsive", () => this.clearUnresponsive(tab));
-    // Clicking the non-focused pane of a split makes it the active tab (omnibox/keyboard target).
-    wc.on("focus", () => {
-      if (this.splitSession && tab.id !== this.strip.activeId) this.focusSplitPane(tab.id);
-    });
+    wc.on("focus", () => this.onTabFocus(tab));
     wc.on("audio-state-changed", (event) => {
       tab.audible = event.audible;
       push();
@@ -729,7 +797,7 @@ export class BrowserWindowCtl {
           action: "allow",
           overrideBrowserWindowOptions: {
             autoHideMenuBar: true,
-            backgroundColor: nativeTheme.shouldUseDarkColors ? THEME.dark.page : THEME.light.page,
+            backgroundColor: pageBaseColor(url, nativeTheme.shouldUseDarkColors),
             webPreferences: { session: this.profile.session, sandbox: true, contextIsolation: true, nodeIntegration: false },
           },
         };
@@ -919,7 +987,7 @@ export class BrowserWindowCtl {
     tab.view.webContents.loadURL(url).catch(() => {
       // Reported via did-fail-load.
     });
-    if (id === this.strip.activeId) tab.view.webContents.focus();
+    if (id === this.strip.activeId) this.focusWebContents(tab.view.webContents);
     this.pushState();
   }
 
@@ -1002,6 +1070,15 @@ export class BrowserWindowCtl {
     }
   }
 
+  /** The user's own tab is theirs again after an Assist agent run worked in it. */
+  clearAgentMark(id: TabId): void {
+    const tab = this.tabs.get(id);
+    if (tab?.agentControlled) {
+      tab.agentControlled = false;
+      this.pushState();
+    }
+  }
+
   moveTab(id: TabId, toIndex: number, groupId: GroupId | null): void {
     this.strip = moveTab(this.strip, id, toIndex, groupId);
     this.pushState();
@@ -1014,10 +1091,16 @@ export class BrowserWindowCtl {
 
   // ---------------------------------------------------------------- groups
 
-  createGroup(tabIds: TabId[], opts: { title?: string; color?: GroupColor } = {}): TabGroup | null {
+  createGroup(tabIds: TabId[], opts: { title?: string; color?: GroupColor; workspaceId?: string } = {}): TabGroup | null {
     const ids = tabIds.filter((id) => this.tabs.has(id));
     if (ids.length === 0) return null;
-    const group: TabGroup = { id: nextId("g"), title: opts.title ?? "", color: opts.color ?? nextGroupColor(this.strip), collapsed: false };
+    const group: TabGroup = {
+      id: nextId("g"),
+      title: opts.title ?? "",
+      color: opts.color ?? nextGroupColor(this.strip),
+      collapsed: false,
+      ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
+    };
     this.strip = createGroup(this.strip, ids, group);
     this.pushState();
     return group;
@@ -1153,11 +1236,11 @@ export class BrowserWindowCtl {
         this.ctx.assist.toggle(this);
         break;
       case "command-palette":
-        this.chrome.webContents.focus();
+        this.focusWebContents(this.chrome.webContents);
         this.sendCommand({ type: "open-command-palette" });
         break;
       case "organize-tabs":
-        this.chrome.webContents.focus();
+        this.focusWebContents(this.chrome.webContents);
         this.sendCommand({ type: "open-organizer" });
         break;
     }
@@ -1199,7 +1282,7 @@ export class BrowserWindowCtl {
     const tab = this.activeTab();
     if (!tab) return;
     if (!tab.find) tab.find = { text: "", active: 0, matches: 0 };
-    this.chrome.webContents.focus();
+    this.focusWebContents(this.chrome.webContents);
     this.sendCommand({ type: "find-focus" });
     this.pushState();
   }
@@ -1225,7 +1308,7 @@ export class BrowserWindowCtl {
     if (!tab?.find) return;
     tab.find = null;
     tab.view.webContents.stopFindInPage("keepSelection");
-    tab.view.webContents.focus();
+    this.focusWebContents(tab.view.webContents);
     this.pushState();
   }
 
@@ -1320,7 +1403,7 @@ export class BrowserWindowCtl {
         const id = ids[i];
         return t.groupId === g.id && id ? [id] : [];
       });
-      const group = this.createGroup(members, { title: g.title, color: g.color });
+      const group = this.createGroup(members, { title: g.title, color: g.color, ...(g.workspaceId ? { workspaceId: g.workspaceId } : {}) });
       if (group && g.collapsed && !(activeId && members.includes(activeId))) this.updateGroup(group.id, { collapsed: true });
     }
     if (this.tabs.size === 0) this.createTab(NEW_TAB_URL);
@@ -1337,39 +1420,76 @@ export class BrowserWindowCtl {
     });
   }
 
-  private applyWorkspaceAppend(mat: ReturnType<typeof materializeWorkspace>, activateFirst: boolean): void {
-    const ids: Array<TabId | undefined> = [];
-    const known = this.profile.history.faviconsFor(mat.tabs.map((t) => t.url));
-    mat.tabs.forEach((t, i) => {
-      const active = activateFirst && i === 0;
-      const faviconUrl = known.get(t.url);
-      ids.push(this.createTab(t.url, { activate: active, lazy: !active, pinned: t.pinned, title: t.title, ...(faviconUrl ? { faviconUrl } : {}) }).id);
+  private groupLiveTabs(groupId: GroupId): LiveTab[] {
+    return tabsInGroup(this.strip, groupId).flatMap((entry) => {
+      const tab = this.tabs.get(entry.id);
+      return tab ? [{ url: tab.pendingUrl ?? tab.url, title: tab.title, pinned: false }] : [];
     });
-    for (const g of mat.groups) {
-      const members = mat.tabs.flatMap((t, i) => (t.groupId === g.id && ids[i] ? [ids[i] as TabId] : []));
-      const group = this.createGroup(members, { title: g.title, color: g.color });
-      if (group && g.collapsed) this.updateGroup(group.id, { collapsed: true });
-    }
   }
 
-  openWorkspace(id: string, mode: WorkspaceOpenMode): void {
+  /** Saved workspaces, marking the ones whose group is open in this window. */
+  workspaceViews(): WorkspaceView[] {
+    return this.profile.workspaces.summaries().map((w) => {
+      const group = groupForWorkspace(this.strip, w.id);
+      return group ? { ...w, openGroupId: group.id } : w;
+    });
+  }
+
+  /**
+   * Open a workspace in this window as one tab group named after it, its first tab active and the
+   * others loading when first shown. If its group is already open here, that group is focused.
+   */
+  openWorkspace(id: string): TabGroup | null {
     const ws = this.profile.workspaces.get(id);
-    if (!ws) return;
-    const mat = materializeWorkspace(ws, () => nextId("g"));
-    if (mat.tabs.length === 0) return;
-    if (mode === "new-window") {
-      this.ctx.windows.restore({
-        profileId: this.profile.profile.id,
-        maximized: false,
-        activeIndex: 0,
-        tabs: mat.tabs.map(({ url, title, pinned, groupId }) => ({ url, title, pinned, ...(groupId ? { groupId } : {}) })),
-        groups: mat.groups.map(({ id: gid, title, color, collapsed }) => ({ id: gid, title, color, collapsed })),
-      });
-      return;
+    if (!ws) return null;
+    const open = groupForWorkspace(this.strip, id);
+    if (open) {
+      this.focusGroup(open.id);
+      return open;
     }
-    const old = mode === "replace" ? this.tabIds() : [];
-    this.applyWorkspaceAppend(mat, mode === "replace");
-    if (old.length > 0) this.closeTabs(old);
+    const plan = workspaceOpenPlan(ws);
+    if (plan.tabs.length === 0) return null;
+    const known = this.profile.history.faviconsFor(plan.tabs.map((t) => t.url));
+    const ids = plan.tabs.map((t, i) => {
+      const faviconUrl = known.get(t.url);
+      return this.createTab(t.url, { activate: i === 0, lazy: i > 0, title: t.title, ...(faviconUrl ? { faviconUrl } : {}) }).id;
+    });
+    return this.createGroup(ids, { title: plan.title, ...(plan.color ? { color: plan.color } : {}), workspaceId: id });
+  }
+
+  /** Expand a group and make one of its tabs the active one (unless it already is). */
+  focusGroup(groupId: GroupId): void {
+    const group = this.strip.groups.find((g) => g.id === groupId);
+    if (!group) return;
+    if (group.collapsed) this.updateGroup(groupId, { collapsed: false });
+    const members = tabsInGroup(this.strip, groupId);
+    if (!members.some((t) => t.id === this.strip.activeId) && members[0]) this.activate(members[0].id);
+  }
+
+  /**
+   * Save a tab group as a new workspace (and link the group to it), or re-save the workspace the
+   * group is already linked to. Returns the workspace id, or null when nothing was worth saving.
+   */
+  saveGroupAsWorkspace(groupId: GroupId): string | null {
+    const group = this.strip.groups.find((g) => g.id === groupId);
+    if (!group) return null;
+    const tabs = this.groupLiveTabs(groupId);
+    if (group.workspaceId && this.profile.workspaces.updateTabs(group.workspaceId, tabs, group.color)) return group.workspaceId;
+    const ws = this.profile.workspaces.saveGroup(group.title, tabs, group.color);
+    if (!ws) return null;
+    this.strip = linkGroupWorkspace(this.strip, groupId, ws.id);
+    if (group.title !== ws.name) this.strip = updateGroup(this.strip, groupId, { title: ws.name });
+    this.pushState();
+    return ws.id;
+  }
+
+  /** A workspace was renamed or deleted: its open group follows the new name, or is unlinked. */
+  workspaceChanged(id: string): void {
+    const group = groupForWorkspace(this.strip, id);
+    if (!group) return;
+    const ws = this.profile.workspaces.get(id);
+    this.strip = ws ? updateGroup(this.strip, group.id, { title: ws.name }) : linkGroupWorkspace(this.strip, group.id, null);
+    this.pushState();
   }
 
   toggleBookmark(): boolean {

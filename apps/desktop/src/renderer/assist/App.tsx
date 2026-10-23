@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { AgentActivityView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
+import type { AssistAgentStep, AssistAgentView } from "../../shared/assist-agent";
 import type { FlowView } from "../../shared/flow-ipc";
 import { editOf } from "../../shared/workflow";
 import { OriginBadge, UsageLine, WorkflowEditor, WorkflowRunForm, WorkflowStepList } from "../common/workflows";
@@ -111,14 +112,23 @@ function AssistPane({ state }: { state: AssistPanelState }) {
   useLayoutEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [tab?.tabId, tab?.messages.length, last?.text.length, last?.status]);
+  }, [tab?.tabId, tab?.messages.length, last?.text.length, last?.status, last?.agent?.steps.length, last?.agent?.approval?.id]);
 
   if (!state.ready) return <SetupState reason={state.setupReason} />;
   if (!tab) return <div className="empty">No tab is open.</div>;
 
+  const waiting = state.waitingElsewhere;
   return (
     <>
       <PageContext tab={tab} state={state} />
+      {waiting && (
+        <div className="waiting-elsewhere">
+          <span>Corvus is waiting for you in “{waiting.title || "another tab"}”.</span>
+          <button className="btn small" onClick={() => void api().call("assist.showTab", waiting.tabId)}>
+            Show
+          </button>
+        </div>
+      )}
       <div className="thread" ref={listRef}>
         {tab.messages.length === 0 ? (
           <Intro tab={tab} />
@@ -175,6 +185,8 @@ function PageContext({ tab, state }: { tab: AssistTabView; state: AssistPanelSta
             </button>
           )}
         </div>
+      ) : tab.canAct ? (
+        <p className="context-note">Tell Corvus what to do: it can search, open sites and work in this tab while you watch.</p>
       ) : (
         <p className="context-note">Open a web page to summarize, translate or ask about it. Selected text works anywhere: right-click it.</p>
       )}
@@ -183,6 +195,14 @@ function PageContext({ tab, state }: { tab: AssistTabView; state: AssistPanelSta
 }
 
 function Intro({ tab }: { tab: AssistTabView }) {
+  if (tab.canAct) {
+    return (
+      <div className="intro">
+        <p>Ask about this page, or tell Corvus what to do: “find the cheapest flight to Lisbon”, “open my GitLab issues and summarize the ones assigned to me”, “fill this form with my work address”.</p>
+        <p className="muted">Corvus works in this tab while you watch, shows each step here, and asks before anything risky. Spending money always asks.</p>
+      </div>
+    );
+  }
   if (!tab.readable) return null;
   return (
     <div className="intro">
@@ -326,6 +346,28 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
     );
   }
 
+  if (m.agent) {
+    const agent = m.agent;
+    return (
+      <>
+        <div className="question">{m.prompt}</div>
+        <article className="msg ask agent">
+          <AgentSteps agent={agent} />
+          {agent.approval && <AgentApproval agent={agent} />}
+          {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} /> : null}
+          {streaming && !agent.approval && <Streaming />}
+          {agent.limit && (
+            <p className="muted small">
+              {agent.limit === "max_steps" ? `Stopped after ${agent.stepCount} steps, the limit for one request.` : "Stopped at the token budget for one request."} Say “continue” to keep going.
+            </p>
+          )}
+          {failed}
+          <Usage m={m} />
+        </article>
+      </>
+    );
+  }
+
   const isSelection = m.kind === "explain" || m.kind === "translate-selection";
   return (
     <>
@@ -349,6 +391,69 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
   );
 }
 
+/** Steps shown before the older ones fold into "N earlier steps". */
+const VISIBLE_STEPS = 6;
+
+/** The agent's steps, compact: one line each, a thumbnail under screenshots, older ones folded. */
+function AgentSteps({ agent }: { agent: AssistAgentView }) {
+  const [all, setAll] = useState(false);
+  if (agent.steps.length === 0) return null;
+  const hidden = all ? 0 : Math.max(0, agent.steps.length - VISIBLE_STEPS);
+  const shown = agent.steps.slice(hidden);
+  return (
+    <ol className="agent-steps" aria-label="Steps">
+      {hidden > 0 && (
+        <li className="astep more">
+          <button className="link-btn" onClick={() => setAll(true)}>
+            {hidden} earlier step{hidden === 1 ? "" : "s"}
+          </button>
+        </li>
+      )}
+      {shown.map((s) => (
+        <AgentStepRow key={s.id} s={s} />
+      ))}
+    </ol>
+  );
+}
+
+function AgentStepRow({ s }: { s: AssistAgentStep }) {
+  if (s.kind === "message") {
+    return <li className="astep note">{s.label}</li>;
+  }
+  return (
+    <li className={`astep ${s.status}`} data-tool={s.kind}>
+      <span className="astep-dot" aria-hidden="true" />
+      <span className="astep-label">{s.label}</span>
+      {s.status === "skipped" && <span className="astep-flag">skipped</span>}
+      {s.thumb && <img className="astep-thumb" src={s.thumb} alt="Screenshot the assistant took" />}
+    </li>
+  );
+}
+
+/** The approval prompt of a running turn, answered right here in the conversation. */
+function AgentApproval({ agent }: { agent: AssistAgentView }) {
+  const a = agent.approval!;
+  const decide = (d: "approve" | "skip" | "stop"): void => void api().call("assist.approve", d);
+  return (
+    <div className={`agent-approval ${a.handoff ? "handoff" : ""}`} role="alertdialog" aria-label={a.handoff ? "Over to you" : "Approve this action?"}>
+      <strong>{a.handoff ? "Over to you" : "Approve this action?"}</strong>
+      <p>{a.reason}</p>
+      {a.summary && !a.handoff && <p className="muted small">{`${a.tool} ${a.summary}`}</p>}
+      <div className="row">
+        <button className="btn small primary" onClick={() => decide("approve")}>
+          {a.handoff ? "I've done it" : "Approve"}
+        </button>
+        <button className="btn small" onClick={() => decide("skip")}>
+          Skip
+        </button>
+        <button className="btn small ghost" onClick={() => decide("stop")}>
+          Stop
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -364,12 +469,13 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
     el.style.height = `${Math.min(140, el.scrollHeight)}px`;
   }, [value]);
 
+  const usable = tab.readable || tab.canAct;
   const send = useCallback(() => {
     const q = value.trim();
-    if (!q || tab.busy || !tab.readable) return;
+    if (!q || tab.busy || !usable) return;
     void api().call("assist.ask", q);
     setValue("");
-  }, [value, tab.busy, tab.readable]);
+  }, [value, tab.busy, usable]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -384,18 +490,18 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
         ref={ref}
         rows={1}
         value={value}
-        disabled={!tab.readable}
-        placeholder={tab.readable ? "Ask about this page" : "Open a web page to ask about it"}
+        disabled={!usable}
+        placeholder={tab.canAct ? (tab.readable ? "Ask about this page or tell Corvus what to do" : "Tell Corvus what to do") : tab.readable ? "Ask about this page" : "Open a web page to ask about it"}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKey}
-        maxLength={600}
+        maxLength={tab.canAct ? 2000 : 600}
       />
       {tab.busy ? (
         <button className="send stop" title="Stop" onClick={() => void api().call("assist.cancel")}>
           <GlyphStop size={16} />
         </button>
       ) : (
-        <button className="send" title="Ask (Enter)" disabled={!value.trim() || !tab.readable} onClick={send}>
+        <button className="send" title="Send (Enter)" disabled={!value.trim() || !usable} onClick={send}>
           <GlyphSend size={16} />
         </button>
       )}

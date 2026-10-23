@@ -182,7 +182,8 @@ export class WebScopeEngine {
       maxBodyBytes: this.maxBodyBytes,
       nextId: () => this.newId("cap"),
     });
-    void this.capture.start();
+    // The target can close before Network.enable answers (tab closed, WebScope turned off).
+    void this.capture.start().catch(() => undefined);
     return this.capture;
   }
 
@@ -206,7 +207,7 @@ export class WebScopeEngine {
       ...(opts.sensitive ? { sensitive: opts.sensitive } : {}),
     });
     this.captures.add(capture);
-    void capture.start();
+    void capture.start().catch(() => undefined);
     return () => {
       capture.stop();
       this.captures.delete(capture);
@@ -279,7 +280,7 @@ export class WebScopeEngine {
       nextId: () => this.newId("int"),
     });
     this.intercepts.add(engine);
-    void engine.sync();
+    void engine.sync().catch(() => undefined);
     return () => {
       void engine.disable().catch(() => undefined);
       this.intercepts.delete(engine);

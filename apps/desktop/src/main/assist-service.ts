@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
-import { app, nativeTheme, type Rectangle, type WebContents } from "electron";
+import { app, nativeImage, nativeTheme, type Rectangle, type WebContents } from "electron";
 import {
   type AnswerProvider,
   type AssistTask,
   type ChatTurn,
+  buildAssistAgentTask,
   createProvider,
   parseSummary,
   parseTabGroups,
@@ -12,6 +13,8 @@ import {
   runAssist,
 } from "@corvus/ai-engine";
 import type { TabId } from "@corvus/shared";
+import { ASSIST_MAX_THUMBS, ASSIST_MIN_STEPS, ASSIST_TOKEN_BUDGET, assistAgentView, historyActions } from "../shared/assist-agent";
+import type { AgentApprovalDecision, AgentRunView } from "../shared/command-bar-ipc";
 import { commandForInput } from "../shared/shortcuts";
 import { matchSiteProfile, type SiteProfile } from "../shared/site-profiles";
 import { hostKey, workflowsForUrl } from "../shared/workflow";
@@ -45,6 +48,7 @@ import {
   type RawPage,
 } from "./assist-scripts";
 import { AssistPanelView } from "./assist-views";
+import { ASSIST_AGENT_SYSTEM } from "./agent-tools";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -54,10 +58,16 @@ const ORGANIZER_CACHE = 10;
 const TRANSLATE_SEGMENTS = 120;
 const TRANSLATE_CHARS = 4500;
 const SCRIPT_TIMEOUT_MS = 8000;
+/** Longest request the agentic chat takes (instructions can be longer than a question). */
+const AGENT_REQUEST_CHARS = 2000;
+const THUMB_WIDTH = 280;
 
 interface TabAssist {
   messages: AssistMessage[];
+  /** Cancels the running action; for an agent turn it stops the run. */
   abort: AbortController | null;
+  /** The live agent run of this conversation, while it runs. */
+  runId: string | null;
   translation: "none" | "translated" | "working";
   translatedUrl: string;
 }
@@ -104,6 +114,18 @@ function setLru<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
   map.delete(key);
   map.set(key, value);
   while (map.size > max) map.delete(map.keys().next().value as K);
+}
+
+/** A small JPEG data: URL of a screenshot for the conversation, or null when it cannot be decoded. */
+function thumbnail(base64: string): string | null {
+  try {
+    const image = nativeImage.createFromBuffer(Buffer.from(base64, "base64"));
+    if (image.isEmpty()) return null;
+    const small = image.getSize().width > THUMB_WIDTH ? image.resize({ width: THUMB_WIDTH, quality: "good" }) : image;
+    return `data:image/jpeg;base64,${small.toJPEG(62).toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -300,9 +322,10 @@ export class AssistService {
     const panel = this.panel(win);
     const provider = this.currentProvider();
     const ai = this.ctx.settings.get().ai;
-    const setupReason = provider ? null : providerSetupReason(ai.provider, "Corvus Assist");
+    const ready = provider !== null || this.ctx.agentRunner.ready();
+    const setupReason = ready ? null : providerSetupReason(ai.provider, "Corvus Assist");
     return {
-      ready: provider !== null,
+      ready,
       setupReason,
       provider: provider?.kind ?? ai.provider,
       model: provider?.model ?? ai.model,
@@ -313,7 +336,22 @@ export class AssistService {
       agents: this.ctx.agents.view(),
       workflows: panel.current === "workflows" ? this.workflowsView(win) : null,
       focusToken: panel.focusToken,
+      waitingElsewhere: this.waitingElsewhere(win),
     };
+  }
+
+  /** Another tab of the window whose Assist agent turn waits for an approval (the panel shows the active tab). */
+  private waitingElsewhere(win: BrowserWindowCtl): AssistPanelState["waitingElsewhere"] {
+    const active = win.activeTab()?.id;
+    const activeEntry = active ? this.tabs.get(active) : undefined;
+    for (const [tabId, entry] of this.tabs) {
+      if (tabId === active || entry === activeEntry || !entry.runId || !win.hasTab(tabId)) continue;
+      if (entry.messages.at(-1)?.agent?.approval) {
+        const title = win.listTabs().find((t) => t.id === tabId)?.title ?? "";
+        return { tabId, title };
+      }
+    }
+    return null;
   }
 
   /** Workflows for the active tab's site (the side panel's Workflows view). */
@@ -335,7 +373,7 @@ export class AssistService {
   private entry(tabId: TabId): TabAssist {
     let entry = this.tabs.get(tabId);
     if (!entry) {
-      entry = { messages: [], abort: null, translation: "none", translatedUrl: "" };
+      entry = { messages: [], abort: null, runId: null, translation: "none", translatedUrl: "" };
       this.tabs.set(tabId, entry);
     }
     return entry;
@@ -357,6 +395,7 @@ export class AssistService {
       messages: entry?.messages ?? [],
       busy: entry?.abort !== null && entry?.abort !== undefined,
       translation: entry?.translation ?? "none",
+      canAct: this.ctx.agentRunner.ready(),
     };
   }
 
@@ -391,7 +430,109 @@ export class AssistService {
   activeAction(win: BrowserWindowCtl, kind: "summarize" | "translate-page" | "translate-more" | "ask", input = ""): void {
     const tab = win.activeTab();
     if (!tab) return;
+    // The chat runs as a browser agent whenever agent mode is set up; otherwise it is page Q&A.
+    if (kind === "ask" && this.ctx.agentRunner.ready()) {
+      void this.runAgentChat(win, tab, input);
+      return;
+    }
     void this.run(win, tab, kind === "translate-more" ? "translate-page" : kind, input, kind === "translate-more");
+  }
+
+  /** Approve, skip or stop the action the active tab's Assist agent turn is waiting on. */
+  approve(win: BrowserWindowCtl, decision: AgentApprovalDecision): void {
+    const tab = win.activeTab();
+    const runId = tab ? this.tabs.get(tab.id)?.runId : null;
+    if (runId) this.ctx.agentRunner.approveEmbedded(runId, decision);
+  }
+
+  showTab(win: BrowserWindowCtl, tabId: TabId): void {
+    if (win.hasTab(tabId)) win.activate(tabId);
+  }
+
+  /**
+   * One chat turn as a browser agent in the user's current tab: the agent gets the request, the
+   * page text and the recent conversation (with the steps taken), answers directly when it can,
+   * and otherwise navigates, clicks, types and searches through the shared AgentRunner, so the
+   * approval and spend gates, the pause switch, the overlay and run history all apply. Steps,
+   * approvals and screenshot thumbnails show up inline in this conversation.
+   */
+  private async runAgentChat(win: BrowserWindowCtl, tab: TabRuntime, question: string): Promise<void> {
+    const entry = this.entry(tab.id);
+    entry.abort?.abort();
+    const abort = new AbortController();
+    entry.abort = abort;
+    const wc = tab.view.webContents;
+    const prompt = question.trim().slice(0, AGENT_REQUEST_CHARS);
+    const history: ChatTurn[] = entry.messages
+      .filter((m) => m.kind === "ask" && m.status === "done")
+      .map((m) => ({ question: m.prompt, answer: m.text, actions: historyActions(m.agent) }));
+    const message: AssistMessage = { id: crypto.randomUUID(), kind: "ask", prompt, text: "", status: "streaming", at: Date.now() };
+    entry.messages = [...entry.messages, message].slice(-MAX_MESSAGES);
+    const update = (patch: Partial<AssistMessage>): void => {
+      Object.assign(message, patch);
+      for (const e of new Set(this.tabs.values())) {
+        if (e.messages.some((m) => m.id === message.id)) e.messages = e.messages.map((m) => (m.id === message.id ? { ...message } : m));
+      }
+      this.refresh(win);
+    };
+    const finish = (): void => {
+      if (entry.abort === abort) entry.abort = null;
+      entry.runId = null;
+      this.refresh(win);
+    };
+    this.refresh(win);
+
+    const started = Date.now();
+    const url = wc.isDestroyed() ? tab.url : wc.getURL() || tab.url;
+    const page = !wc.isDestroyed() && isReadable(url) ? await this.readPage(wc).catch(() => null) : null;
+    if (abort.signal.aborted) {
+      update({ status: "cancelled" });
+      finish();
+      return;
+    }
+    if (page) update({ sections: page.sections.map((s) => s.heading) });
+
+    const thumbs = new Map<string, string>();
+    const sync = (view: AgentRunView): void => {
+      const { view: agent, answer } = assistAgentView(view, thumbs);
+      const status: AssistMessage["status"] =
+        view.status === "done" ? "done" : view.status === "stopped" ? "cancelled" : view.status === "error" ? "error" : "streaming";
+      const done = status !== "streaming";
+      update({
+        agent,
+        text: answer,
+        status,
+        ...(status === "error" ? { error: view.error ?? "The assistant stopped with an error." } : {}),
+        ...(done ? { usage: { inputTokens: view.inputTokens, outputTokens: view.outputTokens, model: view.model, cached: false, ms: Date.now() - started } } : {}),
+      });
+      // The conversation follows the agent into a tab it opened, so the panel keeps showing it there.
+      if (view.tabId && view.tabId !== tab.id && !this.tabs.has(view.tabId)) this.tabs.set(view.tabId, entry);
+      if (done && entry.runId === view.id) finish();
+    };
+    const settings = this.ctx.settings.get();
+    const launched = this.ctx.agentRunner.startEmbedded(win, {
+      tabId: tab.id,
+      url: isReadable(url) ? url : null,
+      task: prompt,
+      seed: buildAssistAgentTask({ lang: this.lang(), question: prompt, history, tab: { url, title: tab.title }, page }),
+      system: ASSIST_AGENT_SYSTEM,
+      maxSteps: Math.max(settings.agent.maxSteps, ASSIST_MIN_STEPS),
+      tokenBudget: ASSIST_TOKEN_BUDGET,
+      onUpdate: sync,
+      onScreenshot: (stepId, image) => {
+        const thumb = thumbnail(image.base64);
+        if (!thumb) return;
+        thumbs.set(stepId, thumb);
+        while (thumbs.size > ASSIST_MAX_THUMBS) thumbs.delete(thumbs.keys().next().value as string);
+      },
+    });
+    if ("error" in launched) {
+      update({ status: "error", error: launched.error });
+      finish();
+      return;
+    }
+    entry.runId = launched.id;
+    abort.signal.addEventListener("abort", () => this.ctx.agentRunner.stopEmbedded(launched.id), { once: true });
   }
 
   cancel(win: BrowserWindowCtl): void {

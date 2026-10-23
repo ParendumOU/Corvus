@@ -1,9 +1,11 @@
 /**
- * Named workspaces: a saved set of tabs and groups a user can reopen, replace the window with, or
- * merge into the current window. Pure so the save/restore/merge plan is unit tested; the per-profile
- * JSON store and the window wiring live in main/.
+ * Named workspaces: a saved set of tabs that opens as one tab group in the current window. Saved
+ * from the whole window or from one tab group; workspaces saved by older versions may hold several
+ * groups and are flattened into one group when opened. Pure so the save/open plan is unit tested;
+ * the per-profile JSON store and the window wiring live in main/.
  */
 import type { GroupColor, TabGroup } from "@corvus/shared";
+import { isNewTabUrl } from "./internal-urls";
 import { GROUP_COLORS } from "./tab-strip";
 import { isRestorableUrl, type SessionGroup, type SessionTab } from "./session-state";
 
@@ -22,7 +24,6 @@ export interface WorkspaceSummary {
   createdAt: number;
   updatedAt: number;
   tabCount: number;
-  groupCount: number;
 }
 
 const MAX_WORKSPACES = 100;
@@ -37,7 +38,12 @@ export interface LiveTab {
   groupId?: string;
 }
 
-/** Build a workspace from a window's live tabs and groups. Unsaveable tabs (corvus://chrome, etc.) drop. */
+/** Tabs worth saving in a workspace: restorable pages, but not empty new tab pages. */
+export function isWorkspaceTabUrl(url: string): boolean {
+  return isRestorableUrl(url) && !isNewTabUrl(url);
+}
+
+/** Build a workspace from a window's live tabs and groups. Unsaveable tabs (new tab pages, etc.) drop. */
 export function workspaceFromWindow(
   name: string,
   liveTabs: readonly LiveTab[],
@@ -45,7 +51,7 @@ export function workspaceFromWindow(
   id: string,
   now: number,
 ): Workspace {
-  const kept = liveTabs.filter((t) => isRestorableUrl(t.url)).slice(0, MAX_TABS);
+  const kept = liveTabs.filter((t) => isWorkspaceTabUrl(t.url)).slice(0, MAX_TABS);
   const usedGroups = new Set(kept.filter((t) => !t.pinned).map((t) => t.groupId).filter((g): g is string => g !== undefined));
   const groups: SessionGroup[] = liveGroups
     .filter((g) => usedGroups.has(g.id))
@@ -64,8 +70,42 @@ export function cleanName(name: string): string {
   return name.replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
 }
 
+/** The single group a workspace saved from a tab group stores (its id is local to the workspace). */
+const SAVED_GROUP_ID = "g1";
+
+function groupTabs(liveTabs: readonly LiveTab[]): SessionTab[] {
+  return liveTabs
+    .filter((t) => isWorkspaceTabUrl(t.url))
+    .slice(0, MAX_TABS)
+    .map(({ url, title }) => ({ url, title, pinned: false, groupId: SAVED_GROUP_ID }));
+}
+
+/**
+ * Build a workspace from one tab group's tabs. Stored as a single group named after the workspace
+ * (older versions open it as that group too), keeping the group's color for the next open.
+ */
+export function workspaceFromGroup(name: string, liveTabs: readonly LiveTab[], color: GroupColor, id: string, now: number): Workspace {
+  const clean = cleanName(name) || "Workspace";
+  const tabs = groupTabs(liveTabs);
+  const groups: SessionGroup[] = tabs.length > 0 ? [{ id: SAVED_GROUP_ID, title: clean, color, collapsed: false }] : [];
+  return { id, name: clean, createdAt: now, updatedAt: now, tabs, groups };
+}
+
+/** Re-save a workspace with a group's current tabs ("Update workspace"); name and creation time stay. */
+export function updateWorkspaceTabs(ws: Workspace, liveTabs: readonly LiveTab[], color: GroupColor, now: number): Workspace {
+  const next = workspaceFromGroup(ws.name, liveTabs, color, ws.id, now);
+  return { ...next, createdAt: ws.createdAt };
+}
+
+/** "Workspace", then "Workspace 2", "Workspace 3", ... whichever is not taken yet. */
+export function nextWorkspaceName(taken: readonly string[]): string {
+  const names = new Set(taken.map((n) => n.toLowerCase()));
+  if (!names.has("workspace")) return "Workspace";
+  for (let n = 2; ; n++) if (!names.has(`workspace ${n}`)) return `Workspace ${n}`;
+}
+
 export function summarize(ws: Workspace): WorkspaceSummary {
-  return { id: ws.id, name: ws.name, createdAt: ws.createdAt, updatedAt: ws.updatedAt, tabCount: ws.tabs.length, groupCount: ws.groups.length };
+  return { id: ws.id, name: ws.name, createdAt: ws.createdAt, updatedAt: ws.updatedAt, tabCount: ws.tabs.length };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -120,35 +160,24 @@ export function reviveWorkspaces(raw: unknown, now: number): Workspace[] {
   return out;
 }
 
-export interface MaterializedTab {
-  url: string;
+export interface WorkspaceOpenPlan {
+  /** Title of the one tab group the workspace opens as: the workspace's name. */
   title: string;
-  pinned: boolean;
-  groupId?: string;
+  /** Color of the first saved group, if any (else the window picks the next free color). */
+  color?: GroupColor;
+  /** Every saved tab in saved order, flattened out of any groups, unpinned. */
+  tabs: Array<{ url: string; title: string }>;
 }
 
-export interface MaterializedWorkspace {
-  tabs: MaterializedTab[];
-  groups: TabGroup[];
-}
-
-/**
- * Prepare a workspace to be opened in a window. Group ids are regenerated (via `newId`) so that
- * merging into a window that already has groups never collides, and reopening the same workspace
- * twice yields independent groups. Collapsed state and colors are preserved.
- */
-export function materializeWorkspace(ws: Workspace, newId: () => string): MaterializedWorkspace {
-  const remap = new Map<string, string>();
-  const groups: TabGroup[] = ws.groups.map((g) => {
-    const id = newId();
-    remap.set(g.id, id);
-    return { id, title: g.title, color: g.color, collapsed: g.collapsed };
-  });
-  const tabs: MaterializedTab[] = ws.tabs.map((t) => {
-    const groupId = t.groupId ? remap.get(t.groupId) : undefined;
-    return { url: t.url, title: t.title, pinned: t.pinned, ...(groupId ? { groupId } : {}) };
-  });
-  return { tabs, groups };
+/** What opening a workspace creates: one group named after it holding all its tabs in order. */
+export function workspaceOpenPlan(ws: Workspace): WorkspaceOpenPlan {
+  const firstGroupId = ws.tabs.find((t) => t.groupId !== undefined)?.groupId;
+  const color = ws.groups.find((g) => g.id === firstGroupId)?.color;
+  return {
+    title: ws.name,
+    ...(color ? { color } : {}),
+    tabs: ws.tabs.filter((t) => isWorkspaceTabUrl(t.url)).map(({ url, title }) => ({ url, title })),
+  };
 }
 
 export function upsertWorkspace(list: readonly Workspace[], ws: Workspace): Workspace[] {

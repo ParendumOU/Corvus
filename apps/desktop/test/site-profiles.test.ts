@@ -9,7 +9,7 @@ import {
   reviveProfile,
   type SiteProfile,
 } from "../src/shared/site-profiles";
-import { AGENT_TOOL_ACCESS, CREDENTIAL_AGENT_TOOLS, TOOLS, agentToolset, capAgentTools } from "../src/main/agent-tools";
+import { AGENT_TOOL_ACCESS, CREDENTIAL_AGENT_TOOLS, TOOLS, VISUAL_TOOLS, agentToolset, capAgentTools } from "../src/main/agent-tools";
 
 function profile(partial: Partial<SiteProfile>): SiteProfile {
   return {
@@ -111,7 +111,14 @@ describe("capAgentTools", () => {
     expect(capAgentTools(TOOLS, "full")).toHaveLength(TOOLS.length);
   });
   it("every tool has a declared access level", () => {
-    for (const t of [...TOOLS, ...CREDENTIAL_AGENT_TOOLS]) expect(AGENT_TOOL_ACCESS[t.name]).toBeDefined();
+    for (const t of [...TOOLS, ...VISUAL_TOOLS, ...CREDENTIAL_AGENT_TOOLS]) expect(AGENT_TOOL_ACCESS[t.name]).toBeDefined();
+  });
+  it("read keeps pointing and wheel scrolling but drops coordinate clicks and keyboard input", () => {
+    const { tools } = agentToolset(false);
+    const read = capAgentTools(tools, "read").map((t) => t.name);
+    expect(read).toEqual(expect.arrayContaining(["hover_at", "scroll_at", "screenshot"]));
+    for (const t of ["click", "type", "click_at", "press_key", "type_text"]) expect(read).not.toContain(t);
+    expect(capAgentTools(tools, "standard").map((t) => t.name)).toEqual(tools.map((t) => t.name));
   });
   it("credential tools need full access, so a capped site profile drops them", () => {
     const { tools } = agentToolset(true);
@@ -124,12 +131,19 @@ describe("capAgentTools", () => {
 describe("agentToolset", () => {
   it("offers the credential tools only when agents may use opted-in logins", () => {
     const off = agentToolset(false);
-    expect(off.tools).toBe(TOOLS);
+    expect(off.tools.map((t) => t.name)).toEqual([...TOOLS, ...VISUAL_TOOLS].map((t) => t.name));
     expect(off.system).not.toContain("fill_totp");
     const on = agentToolset(true);
-    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "fill_login", "fill_totp"]);
+    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "click_at", "hover_at", "scroll_at", "press_key", "type_text", "fill_login", "fill_totp"]);
     expect(on.system).toContain("fill_totp");
     expect(on.system).toContain("ask_user");
+  });
+
+  it("offers the visual tools and tells the model to prefer refs", () => {
+    const { system } = agentToolset(false);
+    expect(system).toContain("click_at");
+    expect(system).toMatch(/Prefer refs/);
+    expect(agentToolset(false, "ASSIST BASE").system.startsWith("ASSIST BASE")).toBe(true);
   });
 });
 

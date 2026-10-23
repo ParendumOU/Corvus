@@ -92,7 +92,7 @@ function reviveRun(raw: unknown): StoredAgentRun | null {
   return {
     id: r.id,
     task: r.task,
-    source: r.source === "scheduled" ? "scheduled" : "command-bar",
+    source: r.source === "scheduled" || r.source === "assist" ? r.source : "command-bar",
     status: statusOnLoad(status),
     stopReason: STOP_REASONS.includes(r.stopReason as never) ? (r.stopReason as AgentRunStopReason) : null,
     steps: reviveSteps(r.steps),

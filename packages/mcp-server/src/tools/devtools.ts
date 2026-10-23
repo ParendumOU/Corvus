@@ -12,6 +12,7 @@ export function registerDevtoolsTools({ controller, register, resolveTab }: Tool
     "console_messages",
     {
       description: "Recent console messages and uncaught errors of a tab.",
+      requires: "consoleMessages",
       inputSchema: {
         level: z.enum(["error", "warning", "info", "debug"]).optional().describe("Minimum level"),
         limit: z.number().int().min(1).max(200).default(50),
@@ -32,6 +33,7 @@ export function registerDevtoolsTools({ controller, register, resolveTab }: Tool
     "network_requests",
     {
       description: "Recent network requests of a tab (method, status, type, size, time, URL).",
+      requires: "networkRequests",
       inputSchema: {
         filter: z.string().min(1).max(500).optional().describe("URL substring"),
         failedOnly: z.boolean().optional().describe("Only failed or >= 400"),
@@ -60,6 +62,7 @@ export function registerDevtoolsTools({ controller, register, resolveTab }: Tool
     "handle_dialog",
     {
       description: "Accept or dismiss an open alert/confirm/prompt/beforeunload dialog.",
+      requires: "handleDialog",
       inputSchema: {
         accept: z.boolean(),
         promptText: z.string().max(10000).optional().describe("Answer for prompt()"),

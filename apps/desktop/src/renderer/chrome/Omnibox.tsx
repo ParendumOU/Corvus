@@ -80,6 +80,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     const [autofillOpen, setAutofillOpen] = useState(false);
     const [matches, setMatches] = useState<CredentialMatch[]>([]);
     const request = useRef(0);
+    const typed = useRef(false);
     const url = tab?.url ?? "";
     const open = focused && suggestions.length > 0;
     const showAutofill = Boolean(tab) && !focused && (autofill.available || autofill.canSave);
@@ -120,6 +121,15 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     useEffect(() => {
       if (!focused) setValue(displayUrl(url));
     }, [url, focused]);
+
+    // Focused for a tab that just became active (Ctrl+T focuses before the new tab's state arrives):
+    // show that tab's value unless the user already started typing.
+    useEffect(() => {
+      if (!focused || typed.current) return;
+      setValue(editValue(url));
+      requestAnimationFrame(() => inputRef.current?.select());
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tab?.id]);
 
     useEffect(() => onOpenChange(open), [open, onOpenChange]);
 
@@ -203,6 +213,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             spellCheck={false}
             placeholder="Ask Corvus AI or type a URL"
             onFocus={(e) => {
+              typed.current = false;
               setFocused(true);
               const v = editValue(url);
               setValue(v);
@@ -213,6 +224,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               reset();
             }}
             onChange={(e) => {
+              typed.current = true;
               setValue(e.target.value);
               updateSuggestions(e.target.value);
             }}

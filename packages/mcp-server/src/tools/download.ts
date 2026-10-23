@@ -15,6 +15,7 @@ export function registerDownloadTools({ controller, register, resolveTab }: Tool
     "download",
     {
       description: "Download an http(s) URL into the browser's downloads folder (size-capped).",
+      requires: "download",
       inputSchema: {
         url: z.string().min(1).max(8192).describe("Absolute http(s) URL"),
         maxBytes: z.number().int().min(1).max(HARD_MAX_BYTES).optional().describe(`Size cap in bytes; default ${DEFAULT_MAX_BYTES}`),

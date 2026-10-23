@@ -44,6 +44,8 @@ export interface LocalChatMessage {
   toolCalls?: Array<{ id: string; name: string; arguments: unknown }>;
   /** Links a "tool" message back to the call it answers (OpenAI needs this). */
   toolCallId?: string;
+  /** Base64 images for a vision model (Ollama only). */
+  images?: string[];
 }
 
 /** A tool offered to the model. `parameters` is a JSON Schema object. */
@@ -163,6 +165,7 @@ async function* readLines(res: Response): AsyncIterable<string> {
 
 function toOllamaMessage(m: LocalChatMessage): unknown {
   const out: Record<string, unknown> = { role: m.role, content: m.content };
+  if (m.images?.length) out.images = m.images;
   if (m.toolCalls?.length) {
     out.tool_calls = m.toolCalls.map((c) => ({ function: { name: c.name, arguments: c.arguments ?? {} } }));
   }
@@ -276,6 +279,8 @@ export interface LocalCapabilities {
   reachable: boolean;
   /** The configured model does native tool calls (agent loop can use real tools). */
   tools: boolean;
+  /** The configured model accepts images (Ollama "vision" capability). */
+  vision: boolean;
   /** Models the server has available. */
   models: string[];
   /** The configured model is among the server's models. */
@@ -296,16 +301,18 @@ async function probeOllama(opts: LocalProviderOptions, signal?: AbortSignal): Pr
   const models = (tags.models ?? []).map((m) => m.name ?? m.model ?? "").filter(Boolean);
   const modelPresent = models.some((m) => m === opts.model || m.split(":")[0] === opts.model);
   let tools = false;
+  let vision = false;
   try {
     const showRes = await fetchWithTimeout(f, `${base}/api/show`, { method: "POST", headers: headers(opts), body: JSON.stringify({ model: opts.model }) }, PROBE_TIMEOUT_MS, signal);
     if (showRes.ok) {
       const show = (await showRes.json()) as { capabilities?: string[] };
       tools = Array.isArray(show.capabilities) && show.capabilities.includes("tools");
+      vision = Array.isArray(show.capabilities) && show.capabilities.includes("vision");
     }
   } catch {
     // Older Ollama has no /api/show capabilities; leave tools false -> agent uses the text protocol.
   }
-  return { reachable: true, tools, models, modelPresent };
+  return { reachable: true, tools, vision, models, modelPresent };
 }
 
 async function probeOpenAI(opts: LocalProviderOptions, signal?: AbortSignal): Promise<LocalCapabilities> {
@@ -316,7 +323,8 @@ async function probeOpenAI(opts: LocalProviderOptions, signal?: AbortSignal): Pr
   const models = (data.data ?? []).map((m) => m.id ?? "").filter(Boolean);
   const modelPresent = models.includes(opts.model);
   // OpenAI-compatible servers advertise no tool capability; assume yes and let the agent loop fall back on error.
-  return { reachable: true, tools: true, models, modelPresent };
+  // Images are only sent through Ollama's message `images` field; other servers get a text note.
+  return { reachable: true, tools: true, vision: false, models, modelPresent };
 }
 
 /** Checks reachability, available models and native-tool support. Never throws; folds errors into the result. */
@@ -324,7 +332,7 @@ export async function detectLocalCapabilities(opts: LocalProviderOptions, signal
   try {
     return resolveApi(opts.api) === "openai" ? await probeOpenAI(opts, signal) : await probeOllama(opts, signal);
   } catch (err) {
-    return { reachable: false, tools: false, models: [], modelPresent: false, error: errorMessage(err) };
+    return { reachable: false, tools: false, vision: false, models: [], modelPresent: false, error: errorMessage(err) };
   }
 }
 

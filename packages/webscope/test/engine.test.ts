@@ -75,3 +75,30 @@ describe("fuzz + compare", () => {
     expect(diff.b.status).toBe(200);
   });
 });
+
+describe("CDP sources", () => {
+  it("does not leave unhandled rejections when the target closes while enabling", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const engine = new WebScopeEngine({ scope, send: okSend() });
+      await engine.setInterceptConfig({ enabled: true, interceptRequests: true, interceptResponses: false });
+      const client = {
+        send: async () => {
+          throw new Error("target closed while handling command");
+        },
+        onEvent: () => () => undefined,
+      };
+      engine.attachCapture(client);
+      engine.captureFrom(client)();
+      engine.interceptFrom(client)();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});

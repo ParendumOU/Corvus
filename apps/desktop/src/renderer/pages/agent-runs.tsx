@@ -164,7 +164,7 @@ function RunRow({
           {usedWorkflow && <span className="pill ar-wf">Used a workflow</span>}
         </div>
         <div className="sub muted">
-          {r.source === "scheduled" ? "Scheduled" : "Command Bar"} · {ago(r.startedAt)} · {r.stepCount}
+          {r.source === "scheduled" ? "Scheduled" : r.source === "assist" ? "Assist" : "Command Bar"} · {ago(r.startedAt)} · {r.stepCount}
           {r.maxSteps ? `/${r.maxSteps}` : ""} steps · {(r.inputTokens + r.outputTokens).toLocaleString()} tok
           {r.model ? ` · ${r.model}` : ""}
           {r.siteHints?.hints ? ` · ${r.siteHints.hints} site hints` : ""}

@@ -22,6 +22,7 @@ export function registerCredentialTools({ controller, register, resolveTab }: To
     {
       description:
         "Fill the user's saved 2FA code into a field once they approve; you never see it. Else: request_user_action.",
+      requires: "fillTotp",
       inputSchema: { ref, username, tabId: optionalTabId },
     },
     async (a) => {
@@ -36,6 +37,7 @@ export function registerCredentialTools({ controller, register, resolveTab }: To
     {
       description:
         "Fill the user's saved login into the sign-in form once they approve; you never see it. Else: request_user_action.",
+      requires: "fillLogin",
       inputSchema: { ref: ref.optional(), username, tabId: optionalTabId },
     },
     async (a) => {

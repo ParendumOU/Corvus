@@ -769,3 +769,127 @@ blockquote {
   color: var(--text-2);
   cursor: pointer;
 }
+
+/* ---------------------------------------------------------------- agent turns */
+
+.agent-steps {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0 0 0 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.astep {
+  position: relative;
+  padding: 3px 0 3px 18px;
+  overflow-wrap: anywhere;
+}
+.astep-dot {
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.75;
+}
+.astep::before {
+  content: "";
+  position: absolute;
+  left: 5.5px;
+  top: 1.25em;
+  bottom: -0.35em;
+  width: 1px;
+  background: var(--border);
+}
+.astep:last-child::before {
+  display: none;
+}
+.astep.running .astep-dot {
+  background: var(--sheen);
+  animation: pulse 1s ease-in-out infinite;
+  opacity: 1;
+}
+.astep.running .astep-label {
+  color: var(--text);
+}
+.astep.error .astep-dot {
+  background: var(--danger);
+}
+.astep.error .astep-label {
+  color: var(--danger);
+}
+.astep.skipped .astep-dot {
+  background: var(--text-3);
+}
+.astep.skipped .astep-label {
+  text-decoration: line-through;
+  color: var(--text-3);
+}
+.astep-flag {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.astep.note {
+  padding-left: 18px;
+  font-style: italic;
+  color: var(--text-3);
+}
+.astep.more {
+  padding-left: 18px;
+}
+.astep-thumb {
+  display: block;
+  max-width: min(100%, 240px);
+  margin: 6px 0 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border-soft);
+}
+.link-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+.agent-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+}
+.agent-approval p {
+  margin: 0;
+}
+.agent-approval .row {
+  margin-top: 6px;
+}
+.agent-approval.handoff {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.waiting-elsewhere {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+.waiting-elsewhere span {
+  flex: 1;
+}

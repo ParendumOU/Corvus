@@ -12,7 +12,8 @@ import {
 } from "@corvus/ai-engine";
 import type { TabId } from "@corvus/shared";
 import { summarizeArgs } from "../shared/agent-activity";
-import { isResumableStatus, recentRunMemoryNote, type AgentRunStopReason, type StoredRunStatus } from "../shared/agent-run";
+import { actionLabel, resultLabel } from "../shared/assist-agent";
+import { isResumableStatus, recentRunMemoryNote, type AgentRunSource, type AgentRunStopReason, type StoredRunStatus } from "../shared/agent-run";
 import { CREDENTIAL_TOOLS } from "../shared/agent-safety";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import type {
@@ -66,6 +67,34 @@ interface Run {
   stopReason: AgentRunStopReason;
   /** Saved workflows: start site, the "save as workflow" offer, the action being captured. */
   wf: WorkflowRunState;
+  /** Where the run lives: the Command Bar (one per window) or an Assist conversation. */
+  source: AgentRunSource;
+  /** Embedded (Assist) runs: called on every change instead of pushing the window state. */
+  onUpdate: ((view: AgentRunView) => void) | null;
+  /** Embedded runs: a screenshot was handed to the model (for a thumbnail in the conversation). */
+  onScreenshot: ((stepId: string, image: { base64: string; mediaType: string }) => void) | null;
+  /** Total token budget for the run (runAgent's default when undefined). */
+  tokenBudget: number | undefined;
+  /** The working tab was not agent-driven before an embedded run: drop the AI badge after it. */
+  clearAgentMark: boolean;
+}
+
+/** An Assist conversation turn run as a browser agent in the user's current tab. */
+export interface EmbeddedRunOptions {
+  /** The tab the agent works in (the user's current tab). */
+  tabId: TabId;
+  /** The URL of that tab, for site profiles and saved workflows. */
+  url: string | null;
+  /** The user's request as typed (run history). */
+  task: string;
+  /** The first user message handed to the model (request + page context + conversation). */
+  seed: string;
+  /** Base system prompt; the visual, credential, site-profile and workflow blocks are added to it. */
+  system: string;
+  maxSteps: number;
+  tokenBudget: number;
+  onUpdate(view: AgentRunView): void;
+  onScreenshot?(stepId: string, image: { base64: string; mediaType: string }): void;
 }
 
 /**
@@ -76,6 +105,8 @@ interface Run {
  */
 export class AgentRunner {
   private readonly runs = new WeakMap<BrowserWindowCtl, Run>();
+  /** Embedded (Assist) runs by id, while they are live. */
+  private readonly embedded = new Map<string, Run>();
   private testProvider: AgentModelProvider | null | undefined;
 
   constructor(private readonly ctx: AppContext) {}
@@ -106,11 +137,14 @@ export class AgentRunner {
   }
 
   /** The system prompt, tool set and provider override to use, given any matching site profile. */
-  private siteContext(win: BrowserWindowCtl): { system: string; tools: AgentTool[]; override: ProviderOverride | undefined } {
-    const url = this.activeUrl(win);
+  private siteContext(
+    win: BrowserWindowCtl,
+    url: string | null = this.activeUrl(win),
+    baseSystem?: string,
+  ): { system: string; tools: AgentTool[]; override: ProviderOverride | undefined } {
     const profile = url ? matchSiteProfile(win.profile.siteProfiles.list(), url) : null;
     // Credential tools only when Settings, Passwords allows agents to use opted-in logins.
-    const base = agentToolset(this.ctx.agentCredentials.enabled);
+    const base = agentToolset(this.ctx.agentCredentials.enabled, baseSystem);
     if (!profile) return { system: base.system, tools: base.tools, override: undefined };
     const level = capAccessLevel("full", profile.accessCap);
     const override = profile.provider || profile.model ? { provider: profile.provider, model: profile.model } : undefined;
@@ -128,26 +162,65 @@ export class AgentRunner {
 
   private view(win: BrowserWindowCtl): AgentRunView | null {
     const run = this.runs.get(win);
-    if (!run) return null;
-    return {
-      id: run.id,
-      task: run.task,
-      status: run.status,
-      steps: run.steps,
-      finalText: run.finalText,
-      error: run.error,
-      stepCount: run.stepCount,
-      maxSteps: run.maxSteps,
-      inputTokens: run.inputTokens,
-      outputTokens: run.outputTokens,
-      provider: run.provider,
-      model: run.model,
-      tabId: run.tabId,
-      approval: run.approval?.request ?? null,
-      startedAt: run.startedAt,
-      ...(run.wf.offer ? { offerWorkflow: true } : {}),
-      ...(run.wf.hints ? { siteHints: run.wf.hints } : {}),
+    return run ? viewOf(run) : null;
+  }
+
+  /** Whether agent mode is set up, so an Assist chat turn can run as an agent. Cheap: builds nothing. */
+  ready(): boolean {
+    return this.setupReason() === null;
+  }
+
+  // ----------------------------------------------------------------- embedded (Assist) runs
+
+  /**
+   * Starts an Assist conversation turn as a browser agent in the user's current tab: the same loop,
+   * tools, approval gate, spend gate, pause switch and run history as a Command Bar run, reported
+   * through `onUpdate` to the Assist panel instead of the Command Bar.
+   */
+  startEmbedded(win: BrowserWindowCtl, opts: EmbeddedRunOptions): { id: string } | { error: string } {
+    const site = this.siteContext(win, opts.url, opts.system);
+    const provider = this.provider(site.override);
+    if (!provider) return { error: this.setupReason() ?? "Agent mode is not available." };
+    const wf = workflowRunContext(this.ctx, win.profile, opts.url, site, opts.task);
+    const working = this.ctx.windows.findTab(opts.tabId)?.tab;
+    const run: Run = {
+      ...this.blankRun(opts.task, opts.seed),
+      maxSteps: opts.maxSteps,
+      provider: provider.kind,
+      model: provider.model,
+      system: wf.system,
+      tools: wf.tools,
+      wf: wf.state,
+      tabId: opts.tabId,
+      source: "assist",
+      onUpdate: opts.onUpdate,
+      onScreenshot: opts.onScreenshot ?? null,
+      tokenBudget: opts.tokenBudget,
+      clearAgentMark: working ? !working.agentControlled : false,
     };
+    this.embedded.set(run.id, run);
+    void this.drive(win, run, provider);
+    return { id: run.id };
+  }
+
+  embeddedView(id: string): AgentRunView | null {
+    const run = this.embedded.get(id);
+    return run ? viewOf(run) : null;
+  }
+
+  stopEmbedded(id: string): void {
+    const run = this.embedded.get(id);
+    if (!run) return;
+    run.approval?.resolve("stop");
+    run.abort.abort();
+    if (!isFinished(run.status)) {
+      run.status = "stopped";
+      run.onUpdate?.(viewOf(run));
+    }
+  }
+
+  approveEmbedded(id: string, decision: AgentApprovalDecision): void {
+    this.embedded.get(id)?.approval?.resolve(decision);
   }
 
   // ----------------------------------------------------------------- controls
@@ -209,6 +282,11 @@ export class AgentRunner {
       transcript: new TranscriptBuilder(seededTask),
       stopReason: null,
       wf: { siteUrl: null, offer: false, captured: null, trail: [], hints: null },
+      source: "command-bar",
+      onUpdate: null,
+      onScreenshot: null,
+      tokenBudget: undefined,
+      clearAgentMark: false,
     };
   }
 
@@ -248,7 +326,8 @@ export class AgentRunner {
   }
 
   private push(win: BrowserWindowCtl, run: Run): void {
-    if (this.runs.get(win) === run) win.pushState();
+    if (run.onUpdate) run.onUpdate(viewOf(run));
+    else if (this.runs.get(win) === run) win.pushState();
   }
 
   // ----------------------------------------------------------------- the loop
@@ -297,11 +376,12 @@ export class AgentRunner {
     provider: AgentModelProvider,
     seed?: { messages: AgentMessage[]; steps: number; tokens: { input: number; output: number } },
   ): Promise<void> {
-    this.ctx.assist.open(win, "agents");
+    if (run.source === "command-bar") this.ctx.assist.open(win, "agents");
     this.ctx.agents.clientConnected(AGENT_CLIENT, true);
     this.persist(win, run, true);
     try {
-      run.tabId = win.createTab(NEW_TAB_URL, { activate: true, agent: true }).id;
+      // Command Bar runs work in a fresh agent tab; Assist runs in the user's current tab.
+      if (run.source === "command-bar") run.tabId = win.createTab(NEW_TAB_URL, { activate: true, agent: true }).id;
       const execute: ToolExecutor = (name, input, signal) => this.execute(win, run, name, input, signal);
       for await (const step of runAgent({
         provider,
@@ -311,6 +391,7 @@ export class AgentRunner {
         execute,
         maxSteps: run.maxSteps,
         maxTokens: PER_TURN_TOKENS,
+        ...(run.tokenBudget ? { tokenBudget: run.tokenBudget } : {}),
         signal: run.abort.signal,
         ...(seed ? { seedMessages: seed.messages, startSteps: seed.steps, startTokens: seed.tokens } : {}),
       })) {
@@ -326,6 +407,11 @@ export class AgentRunner {
       this.push(win, run);
       this.persist(win, run, true);
       learnFromRun(this.ctx, win.profile, run.wf, run.status === "done" && run.stopReason === "done");
+      if (run.source === "assist") {
+        this.embedded.delete(run.id);
+        const working = run.clearAgentMark && run.tabId ? this.ctx.windows.findTab(run.tabId) : undefined;
+        working?.window.clearAgentMark(working.tab.id);
+      }
     }
   }
 
@@ -345,11 +431,13 @@ export class AgentRunner {
       }
       case "tool_use": {
         run.messageStepId = null;
-        run.steps = [...run.steps, { id: step.id, kind: step.name, summary: summarizeArgs(step.name, step.input), status: "running", at: Date.now() }];
+        const label = actionLabel(step.name, step.input, run.elementNames.get(argStr(step.input, "ref")) ?? "");
+        run.steps = [...run.steps, { id: step.id, kind: step.name, summary: summarizeArgs(step.name, step.input), label, status: "running", at: Date.now() }];
         break;
       }
       case "tool_result": {
         run.stepCount += 1;
+        if (step.result.image && run.onScreenshot) run.onScreenshot(step.id, step.result.image);
         const action = noteToolResult(run.wf, run, step.name, step.result.isError === true);
         run.steps = run.steps.map((s) =>
           s.id === step.id
@@ -357,6 +445,7 @@ export class AgentRunner {
                 ...s,
                 status: step.result.isError ? "error" : s.status === "skipped" ? "skipped" : "ok",
                 detail: stepPreview(step.name, step.result.content),
+                label: s.status === "skipped" ? (s.label ?? s.summary) : resultLabel(step.name, s.label ?? s.summary, step.result.content, step.result.isError === true),
                 resultChars: step.result.content.length,
                 ...(action && s.status !== "skipped" ? { action } : {}),
               }
@@ -558,6 +647,29 @@ export class AgentRunner {
 
 }
 
+function viewOf(run: Run): AgentRunView {
+  return {
+    id: run.id,
+    task: run.task,
+    status: run.status,
+    steps: run.steps,
+    finalText: run.finalText,
+    error: run.error,
+    stepCount: run.stepCount,
+    maxSteps: run.maxSteps,
+    inputTokens: run.inputTokens,
+    outputTokens: run.outputTokens,
+    provider: run.provider,
+    model: run.model,
+    tabId: run.tabId,
+    approval: run.approval?.request ?? null,
+    startedAt: run.startedAt,
+    ...(run.wf.offer ? { offerWorkflow: true } : {}),
+    ...(run.wf.hints ? { siteHints: run.wf.hints } : {}),
+    ...(run.stopReason ? { stopReason: run.stopReason } : {}),
+  };
+}
+
 function isFinished(status: AgentRunView["status"]): boolean {
   return status === "done" || status === "error" || status === "stopped";
 }
@@ -571,7 +683,7 @@ function toStored(run: Run): StoredAgentRun {
   return {
     id: run.id,
     task: run.task,
-    source: "command-bar",
+    source: run.source,
     status,
     stopReason: run.stopReason,
     steps: run.steps,

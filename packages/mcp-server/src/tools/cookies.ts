@@ -15,6 +15,7 @@ export function registerCookieTools({ controller, register, resolveTab }: ToolCo
     "cookies",
     {
       description: "List cookies for the active tab's site, or clear one by name. Only the current site's cookies are shown.",
+      requires: "cookies",
       inputSchema: {
         action: z.enum(["list", "clear"]).default("list"),
         name: z.string().min(1).max(4096).optional().describe("Cookie name; required when action is clear"),

@@ -40,6 +40,7 @@ export function registerFillFieldsTools({ controller, register, resolveTab }: To
     "fill_fields",
     {
       description: "Fill several form fields by role/name in one call; optionally submit. A submit that spends money asks the user first.",
+      requires: "fill",
       inputSchema: {
         fields: z
           .array(

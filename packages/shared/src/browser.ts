@@ -31,6 +31,8 @@ export interface TabGroup {
   title: string;
   color: GroupColor;
   collapsed: boolean;
+  /** Saved workspace this group was opened from or saved as (desktop workspaces). */
+  workspaceId?: string;
 }
 
 export interface Profile {

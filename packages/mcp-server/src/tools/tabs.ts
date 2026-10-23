@@ -7,6 +7,7 @@ export function registerTabTools({ controller, register, resolveTab }: ToolConte
     "tab_wait_load",
     {
       description: "Wait until a tab finishes loading.",
+      requires: "waitForLoad",
       inputSchema: { timeoutMs: z.number().int().min(100).max(120_000).default(15_000), tabId: optionalTabId },
       readOnly: true,
     },
@@ -19,7 +20,7 @@ export function registerTabTools({ controller, register, resolveTab }: ToolConte
 
   register(
     "zoom",
-    { description: "Set page zoom (1 = 100%).", inputSchema: { factor: z.number().min(0.25).max(5), tabId: optionalTabId } },
+    { description: "Set page zoom (1 = 100%).", requires: "setZoom", inputSchema: { factor: z.number().min(0.25).max(5), tabId: optionalTabId } },
     async (a) => {
       const zoom = await need(controller.setZoom?.bind(controller), "zoom")(await resolveTab(a.tabId), a.factor);
       return text(`zoom: ${zoom}`);
@@ -30,6 +31,7 @@ export function registerTabTools({ controller, register, resolveTab }: ToolConte
     "set_viewport",
     {
       description: "Emulate a viewport size (e.g. mobile 390x844), or reset to the window size.",
+      requires: "setViewport",
       inputSchema: {
         width: z.number().int().min(200).max(4000).optional(),
         height: z.number().int().min(200).max(4000).optional(),

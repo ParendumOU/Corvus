@@ -192,12 +192,18 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
 export function showGroupMenu(win: BrowserWindowCtl, groupId: GroupId, x: number, y: number): void {
   const group = win.listGroups().find((g) => g.id === groupId);
   if (!group) return;
+  const workspace = group.workspaceId ? win.profile.workspaces.get(group.workspaceId) : undefined;
   popup(
     win,
     [
       { label: "Edit group…", click: () => win.sendCommand({ type: "edit-group", groupId }) },
       { label: group.collapsed ? "Expand group" : "Collapse group", click: () => win.updateGroup(groupId, { collapsed: !group.collapsed }) },
       { label: "New tab in group", click: () => win.newTabInGroup(groupId) },
+      { type: "separator" },
+      {
+        label: workspace ? `Update workspace “${workspace.name}”` : "Save group as workspace",
+        click: () => void win.saveGroupAsWorkspace(groupId),
+      },
       { type: "separator" },
       { label: "Ungroup", click: () => win.ungroup(groupId) },
       { label: "Close group", click: () => win.closeGroup(groupId) },

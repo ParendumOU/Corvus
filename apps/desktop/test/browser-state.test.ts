@@ -90,6 +90,16 @@ describe("session state", () => {
     expect(serializeWindow({ ...live, tabs: [{ url: "about:blank", title: "", pinned: false, active: true }] })).toBeNull();
   });
 
+  it("keeps a group's workspace link across a restart", () => {
+    const linked = { ...live, groups: [{ id: "g1", title: "Work", color: "blue" as const, collapsed: true, workspaceId: "ws-1" }] };
+    const w = serializeWindow(linked);
+    expect(w?.groups).toEqual([{ id: "g1", title: "Work", color: "blue", collapsed: true, workspaceId: "ws-1" }]);
+    const revived = reviveSession(JSON.parse(JSON.stringify(buildSnapshot([w], 1))));
+    expect(revived?.windows[0]?.groups[0]?.workspaceId).toBe("ws-1");
+    const junk = reviveSession({ version: 1, savedAt: 1, windows: [{ ...w, groups: [{ id: "g1", title: "W", color: "blue", workspaceId: 7 }] }] });
+    expect(junk?.windows[0]?.groups[0]).toEqual({ id: "g1", title: "W", color: "blue", collapsed: false });
+  });
+
   it("round-trips through JSON and filters by existing profiles", () => {
     const snap = buildSnapshot([serializeWindow(live), null, serializeWindow({ ...live, profileId: "gone" })], 123);
     const revived = reviveSession(JSON.parse(JSON.stringify(snap)));

@@ -1,5 +1,6 @@
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import { ASSIST_RPC, OVERLAY_DISMISS, type AssistChromeRpc, type AssistRpc, type AssistView } from "../shared/assist-ipc";
+import type { AgentApprovalDecision } from "../shared/command-bar-ipc";
 import type { FlowApprovalDecision } from "../shared/flow-ipc";
 import type { AppContext } from "./context";
 import { hintKind, paramValues } from "./ipc-flow";
@@ -12,6 +13,10 @@ type Handlers<T> = {
 };
 
 const view = (value: unknown): AssistView => (value === "agents" || value === "workflows" ? value : "assist");
+const agentDecision = (value: unknown): AgentApprovalDecision => {
+  if (value === "approve" || value === "skip" || value === "stop") return value;
+  throw new IpcError("Invalid decision");
+};
 const flowDecision = (value: unknown): FlowApprovalDecision => {
   if (value === "approve" || value === "skip" || value === "stop") return value;
   throw new IpcError("Invalid decision");
@@ -54,6 +59,8 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
       return ctx.assist.jumpToSection(w, index);
     },
     "assist.openSettings": (w) => w.openSingleton("corvus://settings/#ai"),
+    "assist.approve": (w, decision) => ctx.assist.approve(w, agentDecision(decision)),
+    "assist.showTab": (w, tabId) => ctx.assist.showTab(w, text(tabId, "tab", 128)),
     "agents.pause": (_w, paused) => ctx.agents.setPaused(paused === true),
     "agents.revoke": (_w, client) => ctx.agents.revoke(text(client, "client", 200)),
     "agents.clear": () => ctx.agents.clear(),

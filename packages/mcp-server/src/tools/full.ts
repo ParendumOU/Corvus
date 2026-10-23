@@ -37,6 +37,7 @@ export function registerFullTools({ controller, register, resolveTab }: ToolCont
     "upload_file",
     {
       description: "Set local files on an <input type=file> (absolute paths).",
+      requires: "uploadFiles",
       inputSchema: { ref, paths: z.array(z.string().min(1).max(4096)).min(1).max(20), tabId: optionalTabId },
     },
     async (a) => {
@@ -51,6 +52,7 @@ export function registerFullTools({ controller, register, resolveTab }: ToolCont
     "pdf",
     {
       description: "Save the page as PDF into the Downloads folder.",
+      requires: "pdf",
       inputSchema: { landscape: z.boolean().optional(), printBackground: z.boolean().optional(), tabId: optionalTabId },
     },
     async (a) => {
@@ -61,7 +63,7 @@ export function registerFullTools({ controller, register, resolveTab }: ToolCont
 
   register(
     "downloads_list",
-    { description: "Recent downloads with state and file path.", inputSchema: { limit: z.number().int().min(1).max(200).default(20) }, readOnly: true },
+    { description: "Recent downloads with state and file path.", requires: "listDownloads", inputSchema: { limit: z.number().int().min(1).max(200).default(20) }, readOnly: true },
     async (a) => {
       const rows = await need(controller.listDownloads?.bind(controller), "downloads_list")(a.limit);
       return untrusted("downloads", rows.length ? rows.map((d) => compactJson(d)).join("\n") : "no downloads");

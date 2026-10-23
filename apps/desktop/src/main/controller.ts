@@ -5,12 +5,14 @@ import type {
   ActionTarget,
   Bookmark,
   BrowserController,
+  ConsoleEntry,
   CookieInfo,
   CredentialFillResult,
   DownloadEntry,
   GroupColor,
   GroupId,
   HistoryEntry,
+  NetworkEntry,
   PageSnapshot,
   SpendApprovalRequest,
   Tab,
@@ -35,6 +37,7 @@ import {
   snapshotScript,
   type RawSnapshot,
 } from "./page-scripts";
+import { TabLogs } from "./tab-logs";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 const LOAD_TIMEOUT_MS = 15_000;
@@ -113,6 +116,11 @@ function timeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T
 
 /** BrowserController for MCP agents. Every tab an agent touches is flagged agentControlled. */
 export class Controller implements BrowserController {
+  private readonly logs = new TabLogs({
+    sensitiveRequest: (wc, request) => this.ctx.secretFills.isSensitiveRequest(this.ctx.windows.byTabWebContents(wc)?.tab.id ?? null, request),
+    sensitiveText: (text) => this.ctx.secretFills.containsFilledValue(text),
+  });
+
   constructor(private readonly ctx: AppContext) {}
 
   private locate(id: TabId): { window: BrowserWindowCtl; tab: TabRuntime } {
@@ -137,6 +145,8 @@ export class Controller implements BrowserController {
 
   private touch(window: BrowserWindowCtl, id: TabId): void {
     window.markAgent(id);
+    const tab = window.getTab(id);
+    if (tab) this.logs.watch(tab.view.webContents);
   }
 
   private exec<T>(wc: WebContents, code: string): Promise<T> {
@@ -165,6 +175,7 @@ export class Controller implements BrowserController {
     const window = (opts.groupId ? this.ctx.windows.all().find((w) => w.hasGroup(opts.groupId as GroupId)) : undefined) ?? this.ctx.windows.target();
     const groupId = opts.groupId && window.hasGroup(opts.groupId) ? opts.groupId : undefined;
     const tab = window.createTab(target, { activate: opts.background !== true, agent: opts.agent ?? true, ...(groupId ? { groupId } : {}) });
+    this.logs.watch(tab.view.webContents);
     await waitForLoad(tab.view.webContents);
     return window.toTab(tab);
   }
@@ -295,6 +306,22 @@ export class Controller implements BrowserController {
     const image = await wc.capturePage(undefined, { stayHidden: true });
     if (image.isEmpty()) throw new AgentError("The tab has not been painted yet; activate it and retry");
     return { mimeType: "image/png", base64: image.toPNG().toString("base64") };
+  }
+
+  /** Console messages since an agent first acted in the tab (recording starts then). */
+  async consoleMessages(id: TabId, opts: { level?: string; limit?: number; clear?: boolean } = {}): Promise<ConsoleEntry[]> {
+    const { window, wc } = this.readable(id);
+    this.touch(window, id);
+    await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
+    return this.logs.consoleMessages(wc, opts);
+  }
+
+  /** Network requests since an agent first acted in the tab (recording starts then). */
+  async networkRequests(id: TabId, opts: { filter?: string; failedOnly?: boolean; limit?: number; clear?: boolean } = {}): Promise<NetworkEntry[]> {
+    const { window, wc } = this.readable(id);
+    this.touch(window, id);
+    await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
+    return this.logs.networkRequests(wc, opts);
   }
 
   /** Script access is refused on a tab where Corvus filled a saved secret, until it navigates. */

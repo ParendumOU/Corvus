@@ -71,7 +71,7 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
   const point = { x: coord.describe("CSS px from the left of the viewport"), y: coord.describe("CSS px from the top of the viewport") };
 
   const clickTool = (name: string, description: string, extra: Partial<Extract<AgentInput, { type: "click" }>>): void =>
-    register(name, { description, inputSchema: { ...point, modifiers, tabId: optionalTabId } }, async (a): Promise<CallToolResult> => {
+    register(name, { description, requires: "input", inputSchema: { ...point, modifiers, tabId: optionalTabId } }, async (a): Promise<CallToolResult> => {
       await input(await resolveTab(a.tabId), defined({ type: "click" as const, x: a.x, y: a.y, modifiers: a.modifiers, ...extra }));
       return OK;
     });
@@ -79,7 +79,7 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
   clickTool("double_click_at", "Double-click at viewport coordinates (CSS px).", { clickCount: 2 });
   clickTool("right_click_at", "Right-click at viewport coordinates (CSS px).", { button: "right" });
 
-  register("hover_at", { description: "Move the mouse to viewport coordinates (CSS px).", inputSchema: { ...point, tabId: optionalTabId } }, async (a) => {
+  register("hover_at", { description: "Move the mouse to viewport coordinates (CSS px).", requires: "input", inputSchema: { ...point, tabId: optionalTabId } }, async (a) => {
     await input(await resolveTab(a.tabId), { type: "move", x: a.x, y: a.y });
     return OK;
   });
@@ -88,6 +88,7 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
     "drag",
     {
       description: "Drag with the left button from one point to another (CSS px). Works for sliders and HTML5 drag and drop.",
+      requires: "input",
       inputSchema: { fromX: coord, fromY: coord, toX: coord, toY: coord, steps: z.number().int().min(1).max(50).default(10), tabId: optionalTabId },
     },
     async (a) => {
@@ -100,6 +101,7 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
     "scroll_at",
     {
       description: "Mouse-wheel scroll at a point (CSS px); scrolls the element under it. Positive deltaY = down.",
+      requires: "input",
       inputSchema: {
         ...point,
         deltaX: z.number().min(-20000).max(20000).default(0),
@@ -117,6 +119,7 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
     "press_keys",
     {
       description: 'Press keys or shortcuts in order, e.g. ["Control+A", "Backspace", "Enter", "Shift+Tab"].',
+      requires: "input",
       inputSchema: { keys: z.array(z.string().min(1).max(60)).min(1).max(30), tabId: optionalTabId },
     },
     async (a) => {
@@ -129,6 +132,7 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
     "type_text",
     {
       description: "Type into the focused element with real key events (for sites that ignore set values).",
+      requires: "input",
       inputSchema: {
         text: z.string().min(1).max(5000),
         delayMs: z.number().int().min(0).max(300).default(0).describe("Pause between characters"),

@@ -23,7 +23,13 @@ export type AgentStep =
   | { kind: "navigate"; url: string }
   | { kind: "scroll"; direction: "up" | "down" }
   | { kind: "read" }
-  | { kind: "screenshot" };
+  | { kind: "screenshot" }
+  /** A coordinate action at viewport CSS px (click_at, hover_at, scroll_at). */
+  | { kind: "point"; x: number; y: number; label: string; action: "click" | "hover" | "scroll" }
+  | { kind: "key"; key: string };
+
+/** Half the side of the ring drawn around a coordinate target, in DIPs. */
+const POINT_RING = 12;
 
 /** How long the cursor takes to glide to its target; the real input waits for it. */
 const POINTER_TRAVEL_MS = 480;
@@ -156,6 +162,17 @@ export class AgentActivityService {
       box = await (wc.executeJavaScriptInIsolatedWorld(AGENT_WORLD_ID, [{ code: describeRefScript(step.ref) }]) as Promise<RefBox | null>).catch(() => null);
       if (!box) return;
     }
+    const zoom = wc.getZoomFactor();
+    if (step.kind === "point" || step.kind === "key") {
+      const action: OverlayAction =
+        step.kind === "key" ? { kind: "key", key: step.key } : step.action === "click" ? { kind: "click", label: step.label } : { kind: "hover", label: step.label };
+      const target =
+        step.kind === "point" ? { x: step.x * zoom - POINT_RING, y: step.y * zoom - POINT_RING, width: POINT_RING * 2, height: POINT_RING * 2 } : null;
+      const kind = step.kind === "key" ? "type" : step.action === "click" ? "click" : "scroll";
+      this.overlayFor(win).show({ type: "act", caption: overlayCaption(this.lastClient, action), target, kind, dark: nativeTheme.shouldUseDarkColors }, OVERLAY_HOLD_MS);
+      if (target) await sleep(POINTER_TRAVEL_MS);
+      return;
+    }
     const action: OverlayAction =
       step.kind === "click"
         ? { kind: "click", label: box?.label ?? "" }
@@ -166,7 +183,6 @@ export class AgentActivityService {
             : step.kind === "scroll"
               ? { kind: "scroll", direction: step.direction }
               : { kind: step.kind };
-    const zoom = wc.getZoomFactor();
     const target = box ? { x: box.x * zoom, y: box.y * zoom, width: box.width * zoom, height: box.height * zoom } : null;
     this.overlayFor(win).show(
       { type: "act", caption: overlayCaption(this.lastClient, action), target, kind: step.kind, dark: nativeTheme.shouldUseDarkColors },

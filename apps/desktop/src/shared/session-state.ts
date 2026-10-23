@@ -20,6 +20,8 @@ export interface SessionGroup {
   title: string;
   color: GroupColor;
   collapsed: boolean;
+  /** Workspace the group is linked to, so "Update workspace" survives a restart. */
+  workspaceId?: string;
 }
 
 export interface SessionBounds {
@@ -70,7 +72,7 @@ export function serializeWindow(win: LiveWindow): SessionWindow | null {
   const usedGroups = new Set(kept.map((t) => t.groupId).filter((g): g is string => g !== undefined));
   const groups = win.groups
     .filter((g) => usedGroups.has(g.id))
-    .map(({ id, title, color, collapsed }) => ({ id, title, color, collapsed }));
+    .map(({ id, title, color, collapsed, workspaceId }) => ({ id, title, color, collapsed, ...(workspaceId ? { workspaceId } : {}) }));
   const known = new Set(groups.map((g) => g.id));
   const tabs = kept.map(({ url, title, pinned, groupId, faviconUrl }) => ({
     url,
@@ -110,7 +112,15 @@ function reviveWindow(raw: unknown): SessionWindow | null {
   const groups: SessionGroup[] = Array.isArray(raw.groups)
     ? raw.groups.filter(isObject).flatMap((g) =>
         typeof g.id === "string" && typeof g.title === "string" && GROUP_COLORS.includes(g.color as GroupColor)
-          ? [{ id: g.id, title: g.title.slice(0, 80), color: g.color as GroupColor, collapsed: g.collapsed === true }]
+          ? [
+              {
+                id: g.id,
+                title: g.title.slice(0, 80),
+                color: g.color as GroupColor,
+                collapsed: g.collapsed === true,
+                ...(typeof g.workspaceId === "string" && g.workspaceId.length <= 100 ? { workspaceId: g.workspaceId } : {}),
+              },
+            ]
           : [],
       )
     : [];

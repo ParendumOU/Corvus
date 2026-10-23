@@ -530,3 +530,120 @@ describe("AgentRunner", () => {
     expect(result.isError).toBe(true);
   });
 });
+
+describe("AgentRunner embedded (Assist) runs", () => {
+  /** A user tab the Assist run works in, with a page that answers elementFromPoint / activeElement reads. */
+  function userTab(hit: Record<string, unknown> | null) {
+    const sent: Array<{ type: string; x?: number; y?: number }> = [];
+    const wc = {
+      isDestroyed: () => false,
+      getURL: () => snap.url,
+      getZoomFactor: () => 1,
+      sendInputEvent: (e: { type: string; x?: number; y?: number }) => sent.push(e),
+      executeJavaScriptInIsolatedWorld: async () => hit,
+    };
+    const tab = { id: "user1", url: snap.url, agentControlled: false, view: { webContents: wc } };
+    const win = {
+      createTab: vi.fn(() => ({ id: "new-agent-tab" })),
+      pushState: vi.fn(),
+      sendCommand: vi.fn(),
+      markAgent: vi.fn(() => (tab.agentControlled = true)),
+      clearAgentMark: vi.fn(() => (tab.agentControlled = false)),
+      activeTab: () => tab,
+      win: { isVisible: () => true, isMinimized: () => false },
+      profile: { agentRuns: store, siteProfiles: { list: () => [] } },
+    } as unknown as BrowserWindowCtl;
+    return { tab, win, sent };
+  }
+
+  function embeddedContext(askBeforeRisky: boolean, hit: Record<string, unknown> | null) {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, askBeforeRisky);
+    const user = userTab(hit);
+    Object.assign(ctx, {
+      windows: { findTab: (id: string) => (id === "user1" ? { window: user.win, tab: user.tab } : undefined) },
+      agents: { ...(ctx.agents as object), beforeAction: vi.fn(async () => undefined), paused: false, onChange: () => () => undefined },
+    });
+    return { ctx, controller, ...user };
+  }
+
+  function start(runner: AgentRunner, win: BrowserWindowCtl, views: Array<{ status: string; approval: unknown; steps: Array<{ kind: string; label?: string }> }>) {
+    return runner.startEmbedded(win, {
+      tabId: "user1",
+      url: snap.url,
+      task: "buy it",
+      seed: "lang: en\ncurrent tab: Item\n<request>buy it</request>",
+      system: "ASSIST SYSTEM",
+      maxSteps: 40,
+      tokenBudget: 400_000,
+      onUpdate: (v) => views.push(structuredClone(v)),
+    });
+  }
+
+  it("works in the user's tab, reports through onUpdate and records an Assist run", async () => {
+    const { ctx, controller, win, tab } = embeddedContext(false, null);
+    const { provider, seen } = scripted([
+      [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+      [{ type: "tool_use", id: "t2", name: "click", input: { ref: "e2" } }],
+      [{ type: "text", text: "It has 12 reviews." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const views: Array<{ status: string; approval: unknown; steps: Array<{ kind: string; label?: string }> }> = [];
+    const started = start(runner, win, views);
+    expect("id" in started).toBe(true);
+    await waitFor(() => views.at(-1)?.status === "done");
+
+    expect(win.createTab).not.toHaveBeenCalled();
+    expect(controller.calls).toEqual(["snapshot", "click:e2"]);
+    expect(views.at(-1)!.steps.map((s) => s.label)).toEqual(["Read the page", 'Clicked "Reviews"', undefined]);
+    // The model saw the Assist prompt with the visual tools, and the seeded conversation as the task.
+    expect(seen[0]!.system.startsWith("ASSIST SYSTEM")).toBe(true);
+    expect(seen[0]!.tools.map((t) => t.name)).toContain("click_at");
+    expect(seen[0]!.messages[0]!.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("<request>buy it</request>") });
+    expect(store.views()[0]).toMatchObject({ source: "assist", status: "done", maxSteps: 40 });
+    expect(tab.agentControlled).toBe(false);
+  });
+
+  it("click_at on a Buy now button asks in auto mode, then clicks at the point when approved", async () => {
+    const { ctx, win, sent } = embeddedContext(false, { url: snap.url, role: "button", name: "Buy now", tag: "button" });
+    const { provider } = scripted([
+      [{ type: "tool_use", id: "t1", name: "click_at", input: { x: 120, y: 80 } }],
+      [{ type: "text", text: "Bought." }],
+    ]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const views: Array<{ status: string; approval: unknown; steps: Array<{ kind: string; label?: string }> }> = [];
+    const started = start(runner, win, views) as { id: string };
+    await waitFor(() => views.at(-1)?.status === "awaiting-approval");
+    expect(views.at(-1)!.approval).toMatchObject({ tool: "click_at", reason: 'Spends money: clicks "Buy now".' });
+    expect(sent).toEqual([]);
+    runner.approveEmbedded(started.id, "approve");
+    await waitFor(() => views.at(-1)?.status === "done");
+    expect(sent.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["mouseMove@120,80", "mouseDown@120,80", "mouseUp@120,80"]);
+    expect(views.at(-1)!.steps[0]!.label).toBe('Clicked at (120, 80) on button "Buy now"');
+  });
+
+  it("stops from the conversation", async () => {
+    const { ctx, win } = embeddedContext(true, null);
+    // A model that keeps reading the page, slowly enough for Stop to land mid-run.
+    const provider: AgentModelProvider = {
+      kind: "claude-code-cli",
+      model: "slow",
+      async *streamTurn() {
+        await new Promise((r) => setTimeout(r, 15));
+        yield { type: "tool_use", id: `t${Date.now()}`, name: "page_snapshot", input: {} };
+        yield { type: "end", stopReason: "tool_use" };
+      },
+    };
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const views: Array<{ status: string; approval: unknown; steps: Array<{ kind: string; label?: string }> }> = [];
+    const started = start(runner, win, views) as { id: string };
+    await waitFor(() => views.some((v) => v.steps.length > 0));
+    runner.stopEmbedded(started.id);
+    await waitFor(() => views.at(-1)?.status === "stopped");
+    await waitFor(() => runner.embeddedView(started.id) === null);
+    expect(store.views()[0]).toMatchObject({ source: "assist", status: "stopped" });
+  });
+});

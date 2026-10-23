@@ -690,6 +690,15 @@ body,
 .menu-row.danger {
   color: var(--danger);
 }
+.menu-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.menu-row.ws-group-save {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ---------------------------------------------------------------- vertical tabs (left sidebar) */
 

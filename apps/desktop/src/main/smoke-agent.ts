@@ -12,7 +12,7 @@ import type { BrowserWindowCtl } from "./window";
  * navigate -> snapshot -> click "Buy now" (spends money, so it asks even in auto mode; approved) ->
  * extract, the in-page overlay, the shared timeline and the Stop control, capturing the palette and
  * a running task. Then an MCP client clicks the same "Buy now" through the real MCP server and hits
- * the native spend dialog (answered by the test hook).
+ * the native spend dialog (answered by the test hook), and reads a page's console and network log.
  */
 
 interface Helpers {
@@ -26,6 +26,16 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>
 <p>The Raven travel umbrella is matte-black, wind-tested and folds to 24 cm. It costs 42 dollars and ships worldwide in three days.</p>
 <form onsubmit="return false"><input id="q" name="q" placeholder="Search products"><button id="buy" type="button">Buy now</button></form>
 <div id="out">idle</div><a href="/next">More products</a></main></body></html>`;
+
+/** Logs to the console and fetches one good and one missing URL shortly after it loads (reading the bodies, so both finish). */
+const DEVTOOLS_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Corvus Devtools Smoke</title></head>
+<body><p>Console and network smoke page.</p><script>
+setTimeout(() => {
+  console.log("corvus-smoke-log");
+  console.error("corvus-smoke-error");
+  fetch("/api/ok").then((r) => r.text()).then(() => fetch("/api/missing")).then((r) => r.text());
+}, 400);
+</script></body></html>`;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -76,9 +86,9 @@ function fakeProvider(url: string): AgentModelProvider {
 export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> {
   const { win, check, capture } = h;
   const themeBefore = nativeTheme.themeSource;
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(PAGE);
+  const server = http.createServer((req, res) => {
+    res.writeHead(req.url === "/api/missing" ? 404 : 200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(req.url === "/devtools" ? DEVTOOLS_PAGE : PAGE);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
@@ -152,7 +162,8 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
     const stopped = await waitFor(() => runView()?.status === "stopped", 5000);
     check("agent stop control", stopped, runView()?.status);
 
-    // 4. An MCP client clicking "Buy now" gets the native spend dialog (answered by the test hook).
+    // 4. An MCP client clicking "Buy now" gets the native spend dialog (answered by the test hook), then
+    //    reads a page's console and network log and is offered no tool this build lacks.
     await mcpSpendSmoke(ctx, url, check);
   } finally {
     ctx.settings.update({ agent: { askBeforeRisky: askBefore } });
@@ -167,6 +178,7 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
 }
 
 interface McpSession {
+  tools(): Promise<string[]>;
   tool(name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }>;
   close(): Promise<void>;
 }
@@ -200,6 +212,10 @@ async function openMcpSession(endpoint: string, token: string, clientName: strin
   protocol = String((init?.result as { protocolVersion?: string } | undefined)?.protocolVersion ?? "");
   await post({ method: "notifications/initialized" });
   return {
+    async tools() {
+      const res = await post({ id: ++seq, method: "tools/list", params: {} });
+      return ((res?.result as { tools?: Array<{ name: string }> } | undefined)?.tools ?? []).map((t) => t.name);
+    },
     async tool(name, args) {
       const res = await post({ id: ++seq, method: "tools/call", params: { name, arguments: args } });
       const error = res?.error as { message?: string } | undefined;
@@ -215,7 +231,9 @@ async function openMcpSession(endpoint: string, token: string, clientName: strin
 
 /**
  * MCP clients have no run panel: a click that spends money gets the browser's native "Allow once /
- * Deny" dialog, at any access level. Drives the real MCP server over HTTP against the shop page.
+ * Deny" dialog, at any access level. Drives the real MCP server over HTTP against the shop page, then
+ * runs the console/network checks on the same session (restarting the server between the two would
+ * leave fetch holding keep-alive sockets to the old one).
  */
 async function mcpSpendSmoke(ctx: AppContext, shopUrl: string, check: Helpers["check"]): Promise<void> {
   const clientName = "corvus-smoke-spend";
@@ -256,14 +274,65 @@ async function mcpSpendSmoke(ctx: AppContext, shopUrl: string, check: Helpers["c
     check("MCP spend: Deny returns a tool error", prompts.length === 2 && denied.isError && denied.text.includes("The user declined"), { prompts, denied });
     const plain = await session.tool("click", { ref: linkRef, tabId });
     check("MCP spend: a plain link click does not ask", prompts.length === 2 && !plain.isError, { prompts, plain });
+
+    await mcpDevtoolsChecks(session, shopUrl, check);
   } catch (err) {
-    check("MCP spend smoke", false, (err as Error).message);
+    check("MCP spend smoke", false, errorDetail(err));
   } finally {
     if (session && tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
     await session?.close();
     ctx.spendApprovals.setTestApprover(null);
     ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, allowEvaluate: before.allowEvaluate, approvedClients: before.approvedClients } });
     await ctx.mcp.apply();
+  }
+}
+
+function errorDetail(err: unknown): string {
+  const e = err as Error & { cause?: unknown };
+  const cause = e.cause instanceof Error ? e.cause.message : e.cause !== undefined ? String(e.cause) : "";
+  return cause ? `${e.message}: ${cause}` : String(e.message ?? err);
+}
+
+/**
+ * console_messages and network_requests run on the desktop controller's per-tab logs (recording
+ * starts when the agent opens the tab), and tools whose capability this build lacks are not offered.
+ */
+async function mcpDevtoolsChecks(session: McpSession, baseUrl: string, check: Helpers["check"]): Promise<void> {
+  let tabId = "";
+  try {
+    const names = await session.tools();
+    check("MCP offers console_messages and network_requests", names.includes("console_messages") && names.includes("network_requests"), names);
+    const unsupported = ["find", "wait_for", "get_text", "click_at", "handle_dialog"].filter((n) => names.includes(n));
+    check("MCP does not offer tools this build cannot run", unsupported.length === 0, unsupported);
+
+    const opened = await session.tool("tab_open", { url: `${baseUrl}devtools` });
+    tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
+    let network = { isError: true, text: "" };
+    for (const until = Date.now() + 8000; Date.now() < until; await sleep(200)) {
+      network = await session.tool("network_requests", { tabId });
+      if (network.isError || /404 fetch \S+ \d+ms \S*\/api\/missing/.test(network.text)) break;
+    }
+    check(
+      "MCP network_requests lists the page's fetches with status, size and time",
+      !network.isError && /GET 200 fetch \d[\d.]*k?B \d+ms \S*\/api\/ok/.test(network.text) && /GET 404 fetch \d[\d.]*k?B \d+ms \S*\/api\/missing/.test(network.text),
+      network.text.slice(-600),
+    );
+    const failed = await session.tool("network_requests", { tabId, failedOnly: true });
+    check("MCP network_requests failedOnly", !failed.isError && failed.text.includes("/api/missing") && !failed.text.includes("/api/ok"), failed.text.slice(-400));
+
+    const logs = await session.tool("console_messages", { tabId });
+    check("MCP console_messages lists the page's logs", !logs.isError && logs.text.includes("[info] corvus-smoke-log") && logs.text.includes("[error] corvus-smoke-error"), logs.text.slice(-600));
+    const errors = await session.tool("console_messages", { tabId, level: "error", clear: true });
+    const cleared = await session.tool("console_messages", { tabId });
+    check(
+      "MCP console_messages level filter and clear",
+      errors.text.includes("corvus-smoke-error") && !errors.text.includes("corvus-smoke-log") && cleared.text.includes("no messages"),
+      { errors: errors.text.slice(-300), cleared: cleared.text.slice(-200) },
+    );
+  } catch (err) {
+    check("MCP devtools smoke", false, errorDetail(err));
+  } finally {
+    if (tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
   }
 }
 
