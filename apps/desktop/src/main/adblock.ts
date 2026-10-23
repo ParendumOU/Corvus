@@ -8,10 +8,13 @@ import { ElectronBlocker, Request, adsAndTrackingLists, fromElectronDetails } fr
 import {
   ADBLOCK_RESOURCE_SCHEME,
   ADBLOCK_SCRIPTLETS_CHANNEL,
+  ADBLOCK_YOUTUBE_LOOP_CHANNEL,
   BlockedCounts,
   DEFAULT_ADBLOCK_SETTINGS,
+  YOUTUBE_AD_SKIPPER,
   bundleScriptlets,
   decodeDataUrl,
+  isYouTubeHost,
   addAllowed,
   hostFromUrl,
   isBlockablePageUrl,
@@ -25,6 +28,7 @@ import {
   type AdblockListsInfo,
   type AdblockSettings,
   type AdblockView,
+  type ScriptletsAnswer,
 } from "../shared/adblock";
 import { FALLBACK_FILTERS } from "./adblock-fallback";
 import { JsonFile } from "./json-file";
@@ -64,6 +68,8 @@ const LIST_SET = "ghostery-ads-and-tracking-1";
 const REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
 const STATS_THROTTLE_MS = 500;
 const STAND_IN_TTL_MS = 60_000;
+/** How long YouTube stays in the fallback before the lists get another try. */
+const YOUTUBE_FALLBACK_MS = 24 * 3_600_000;
 
 /** DOM features the cosmetic preload reports as a page changes (only these are read). */
 interface CosmeticUpdate {
@@ -80,6 +86,8 @@ interface AdblockFile {
   version: 1;
   enabled: boolean;
   allowed: string[];
+  /** Until when YouTube pages are in the fallback (see AdblockService.inYouTubeFallback); kept across restarts. */
+  youtubeFallbackUntil?: number;
 }
 
 interface ListMeta {
@@ -111,7 +119,8 @@ export class AdblockController {
       () => ({ version: 1, ...DEFAULT_ADBLOCK_SETTINGS }),
       (raw) => {
         const s = reviveAdblockSettings(raw);
-        return { version: 1, enabled: s.enabled, allowed: s.allowed };
+        const until = (raw as { youtubeFallbackUntil?: unknown } | null)?.youtubeFallbackUntil;
+        return { version: 1, enabled: s.enabled, allowed: s.allowed, ...(typeof until === "number" && until > Date.now() ? { youtubeFallbackUntil: until } : {}) };
       },
       300,
     );
@@ -135,6 +144,14 @@ export class AdblockController {
   onStats(listener: () => void): () => void {
     this.emitter.on("stats", listener);
     return () => this.emitter.off("stats", listener);
+  }
+
+  youtubeFallbackUntil(): number {
+    return this.file.get().youtubeFallbackUntil ?? 0;
+  }
+
+  setYouTubeFallbackUntil(until: number): void {
+    this.file.update((f) => ({ ...f, youtubeFallbackUntil: until }));
   }
 
   setEnabled(enabled: boolean): void {
@@ -184,6 +201,7 @@ export class AdblockController {
       total: this.counts.total(),
       host,
       active: settings.enabled && blockable && !allowedHere,
+      ...(settings.enabled && !allowedHere && isYouTubeHost(host) && this.youtubeFallbackUntil() > Date.now() ? { skippingYouTubeAds: true } : {}),
     };
   }
 
@@ -334,11 +352,35 @@ export class AdblockService {
     return referrer;
   }
 
-  /** Whether blocking runs for this request's top page (web page, enabled, not allow-listed). */
+  /**
+   * Whether blocking runs for this request's top page (web page, enabled, not allow-listed). YouTube
+   * pages in the fallback get no request blocking: their ads must load to be played (and skipped).
+   */
   private pageBlocks(controller: AdblockController, webContentsId: number, referrer: string): boolean {
     const pageUrl = this.pageUrl(webContentsId, referrer);
     if (!isBlockablePageUrl(pageUrl)) return false;
-    return shouldBlockPage(controller.settings(), hostFromUrl(pageUrl) ?? "");
+    const host = hostFromUrl(pageUrl) ?? "";
+    return shouldBlockPage(controller.settings(), host) && !this.inYouTubeFallback(controller, host);
+  }
+
+  /**
+   * Whether YouTube pages of this session are in the fallback: YouTube caught a player in its
+   * ad-blocker loop (it plays nothing until it gets its ads), so for a while its ads load and the
+   * ad skipper gets past them instead of the lists removing them.
+   */
+  private inYouTubeFallback(controller: AdblockController, host: string): boolean {
+    return isYouTubeHost(host) && controller.youtubeFallbackUntil() > Date.now();
+  }
+
+  private onYouTubeLoop(event: IpcMainInvokeEvent): boolean {
+    const controller = this.controllerFor(event.sender.session);
+    const url = event.sender.getURL();
+    const host = hostFromUrl(url) ?? "";
+    if (!controller || !isYouTubeHost(host) || !shouldBlockPage(controller.settings(), host)) return false;
+    if (this.inYouTubeFallback(controller, host)) return false;
+    controller.setYouTubeFallbackUntil(Date.now() + YOUTUBE_FALLBACK_MS);
+    console.warn(`[corvus] adblock: YouTube refused to play without its ads; skipping them instead for ${YOUTUBE_FALLBACK_MS / 3_600_000} h`);
+    return true;
   }
 
   private registerCosmeticHandlers(): void {
@@ -353,6 +395,7 @@ export class AdblockService {
     ipcMain.on(ADBLOCK_SCRIPTLETS_CHANNEL, (event, url: unknown) => {
       event.returnValue = this.scriptletsFor(event, url);
     });
+    ipcMain.handle(ADBLOCK_YOUTUBE_LOOP_CHANNEL, (event) => this.onYouTubeLoop(event));
   }
 
   /**
@@ -380,17 +423,21 @@ export class AdblockService {
     if (active && styles.length > 0) void event.sender.insertCSS(styles, { cssOrigin: "user" }).catch(() => undefined);
   }
 
-  /** Scriptlets for a frame that is starting, answered synchronously; [] when nothing should run. */
-  private scriptletsFor(event: IpcMainEvent, url: unknown): string[] {
+  /** Scripts for a frame that is starting, answered synchronously (nothing when blocking is off). */
+  private scriptletsFor(event: IpcMainEvent, url: unknown): ScriptletsAnswer {
+    const none: ScriptletsAnswer = { scripts: [], watchYouTube: false };
     try {
-      if (typeof url !== "string" || !isBlockablePageUrl(url)) return [];
+      if (typeof url !== "string" || !isBlockablePageUrl(url)) return none;
       const controller = this.controllerFor(event.sender.session);
-      if (!controller) return [];
+      if (!controller) return none;
       // The site allow list goes by the tab's page; a subframe asks with its own address.
       const isTop = event.senderFrame?.parent === null;
       const page = isTop ? url : event.sender.getURL() || url;
-      if (!isBlockablePageUrl(page) || !shouldBlockPage(controller.settings(), hostFromUrl(page) ?? "")) return [];
+      const pageHost = hostFromUrl(page) ?? "";
+      if (!isBlockablePageUrl(page) || !shouldBlockPage(controller.settings(), pageHost)) return none;
       const { hostname, domain } = Request.fromRawDetails({ url });
+      const youtube = isYouTubeHost(hostname);
+      if (this.inYouTubeFallback(controller, pageHost)) return { scripts: youtube ? [YOUTUBE_AD_SKIPPER] : [], watchYouTube: false };
       const { active, scripts } = this.blocker.getCosmeticsFilters({
         url,
         hostname,
@@ -402,9 +449,11 @@ export class AdblockService {
         getRulesFromDOM: false,
         callerContext: { frameId: event.frameId, processId: event.processId },
       });
-      return active && scripts.length > 0 ? [bundleScriptlets(scripts)] : [];
+      const out = active && scripts.length > 0 ? [bundleScriptlets(scripts)] : [];
+      if (youtube) out.push(YOUTUBE_AD_SKIPPER);
+      return { scripts: out, watchYouTube: youtube && isTop };
     } catch {
-      return [];
+      return none;
     }
   }
 

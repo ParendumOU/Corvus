@@ -565,6 +565,9 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
         <span className="grow">Block ads and trackers (all sites)</span>
         <input type="checkbox" checked={state.enabled} onChange={(e) => void api.call("adblock.setEnabled", e.target.checked)} />
       </label>
+      {state.skippingYouTubeAds && (
+        <div className="shield-stats muted small">YouTube stops playing when its ads are removed, so for now Corvus skips them instead.</div>
+      )}
       <div className="shield-stats muted small">{state.total} requests blocked this session</div>
       <div className="popover-actions">
         <button

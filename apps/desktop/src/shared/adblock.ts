@@ -9,6 +9,78 @@ export type AdblockListSource = "bundled" | "cache" | "network";
 /** Sync IPC a starting web frame uses to fetch its scriptlets (they must run before the page's scripts). */
 export const ADBLOCK_SCRIPTLETS_CHANNEL = "corvus:adblock-scriptlets";
 
+/** What a starting frame gets: the scripts to run, and whether to watch YouTube's player for the loop. */
+export interface ScriptletsAnswer {
+  scripts: string[];
+  watchYouTube: boolean;
+}
+
+/** A YouTube page reports that its player is caught in YouTube's ad-blocker loop. */
+export const ADBLOCK_YOUTUBE_LOOP_CHANNEL = "corvus:adblock-youtube-loop";
+
+export function isYouTubeHost(host: string): boolean {
+  return /(^|\.)(youtube\.com|youtube-nocookie\.com)$/i.test(host);
+}
+
+/**
+ * Recognizes the loop YouTube puts a player in when it insists on the ads an ad blocker removed:
+ * the player restarts the video (a new media source each time) about once a second without ever
+ * playing a second of it, while "Experiencing interruptions?" shows. Fed one sample of the main
+ * video per second; a person skipping between videos never restarts this often.
+ */
+export class PlaybackLoopDetector {
+  private readonly starts: Array<{ src: string; at: number }> = [];
+
+  constructor(
+    private readonly restarts = 6,
+    private readonly windowMs = 15_000,
+  ) {}
+
+  sample(src: string, currentTime: number, now: number): boolean {
+    if (currentTime >= 1) {
+      this.starts.length = 0;
+      return false;
+    }
+    if (src && this.starts[this.starts.length - 1]?.src !== src) this.starts.push({ src, at: now });
+    while (this.starts.length > 0 && now - this.starts[0]!.at > this.windowMs) this.starts.shift();
+    return this.starts.length >= this.restarts;
+  }
+}
+
+/**
+ * Runs in YouTube pages: an ad that still reaches the player plays muted, at top speed, jumps to
+ * its end and is skipped, then the video's own volume and speed come back. The only defence when
+ * YouTube refuses to play without its ads, and a safety net when the lists miss one. Plain ES5
+ * source (not a bundled function) so it runs in the page as written.
+ */
+export const YOUTUBE_AD_SKIPPER = `(function () {
+  var saved = new WeakMap();
+  var SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button';
+  function tick() {
+    var player = document.getElementById('movie_player');
+    if (!player) return;
+    var video = player.querySelector('video.html5-main-video');
+    if (!video) return;
+    var ad = player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting');
+    if (ad) {
+      if (!saved.has(video)) saved.set(video, { muted: video.muted, rate: video.playbackRate });
+      video.muted = true;
+      try { if (video.playbackRate !== 16) video.playbackRate = 16; } catch (e) {}
+      if (isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration - 0.25) {
+        try { video.currentTime = video.duration - 0.1; } catch (e) {}
+      }
+      var buttons = player.querySelectorAll(SKIP);
+      for (var i = 0; i < buttons.length; i++) buttons[i].click();
+    } else if (saved.has(video)) {
+      var before = saved.get(video);
+      saved.delete(video);
+      video.muted = before.muted;
+      video.playbackRate = before.rate || 1;
+    }
+  }
+  setInterval(tick, 250);
+})();`;
+
 /**
  * Scheme of the harmless stand-ins ($redirect resources: noop scripts, empty images, player stubs)
  * the blocker serves instead of a blocked script. Chromium refuses a redirect to a data: URL
@@ -77,6 +149,8 @@ export interface AdblockBarState {
   host: string;
   /** Blocking is actually in effect for the active page. */
   active: boolean;
+  /** YouTube refused to play with its ads removed, so its ads are skipped instead for a while. */
+  skippingYouTubeAds?: boolean;
 }
 
 export const DEFAULT_ADBLOCK_SETTINGS: AdblockSettings = { enabled: true, allowed: [] };

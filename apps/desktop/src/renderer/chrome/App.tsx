@@ -463,9 +463,20 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
     void api.call("workspaces.list").then((list) => setWorkspaceName(list.find((w) => w.id === workspaceId)?.name ?? null));
   }, [api, workspaceId]);
 
+  // The caret goes to the name, and stays there when the chrome UI gets the keyboard a moment later
+  // (a group made from the tab menu: the window focus lands after the editor opened).
   useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
+    const focus = (): void => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
+    focus();
+    const frame = requestAnimationFrame(focus);
+    window.addEventListener("focus", focus, { once: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("focus", focus);
+    };
   }, []);
 
   useEffect(() => {

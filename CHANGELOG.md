@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.2
+
+### Browser
+- **YouTube keeps playing**: when signed in, YouTube can refuse to play a video whose ads were
+  removed, restarting it over and over ("Experiencing interruptions?"). Corvus now notices that
+  loop within seconds and switches YouTube to skipping its ads instead: they load, play muted at
+  top speed, jump to their end and are skipped, and the video plays. It stays that way for a day,
+  then the lists get another try. The shield popover tells you when this is on.
+- Ads that still reach the YouTube player in normal mode are skipped the same way.
+- "Add tab to new group" keeps the caret in the group's name.
+
 ## v0.4.1
 
 ### Browser

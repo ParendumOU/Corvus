@@ -2,8 +2,11 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import {
   BlockedCounts,
+  PlaybackLoopDetector,
+  YOUTUBE_AD_SKIPPER,
   addAllowed,
   bundleScriptlets,
+  isYouTubeHost,
   decodeDataUrl,
   hostFromUrl,
   isBlockablePageUrl,
@@ -42,6 +45,56 @@ describe("bundleScriptlets", () => {
 
   it("is empty when there is nothing to run", () => {
     expect(bundleScriptlets([])).toBe("");
+  });
+});
+
+describe("YouTube", () => {
+  it("knows YouTube's hosts", () => {
+    expect(isYouTubeHost("www.youtube.com")).toBe(true);
+    expect(isYouTubeHost("m.youtube.com")).toBe(true);
+    expect(isYouTubeHost("www.youtube-nocookie.com")).toBe(true);
+    expect(isYouTubeHost("notyoutube.com")).toBe(false);
+    expect(isYouTubeHost("youtube.com.evil.example")).toBe(false);
+  });
+
+  it("recognizes the restart loop, not a person skipping videos or a video that plays", () => {
+    const loop = new PlaybackLoopDetector();
+    const hits = Array.from({ length: 7 }, (_, i) => loop.sample(`blob:${i}`, 0, i * 1000));
+    expect(hits).toEqual([false, false, false, false, false, true, true]);
+
+    const skipping = new PlaybackLoopDetector();
+    expect(Array.from({ length: 6 }, (_, i) => skipping.sample(`blob:${i}`, 0, i * 4000)).some(Boolean)).toBe(false);
+
+    const playing = new PlaybackLoopDetector();
+    expect(Array.from({ length: 8 }, (_, i) => playing.sample(`blob:${i}`, i % 2 ? 5 : 0, i * 1000)).some(Boolean)).toBe(false);
+    expect(Array.from({ length: 8 }, (_, i) => playing.sample("blob:same", 0, 10_000 + i * 1000)).some(Boolean)).toBe(false);
+  });
+
+  it("plays an ad that reaches the player muted at top speed, skips it, then restores the video", () => {
+    const classes = new Set<string>(["ad-showing"]);
+    const clicks: string[] = [];
+    const video = { muted: false, playbackRate: 1.25, currentTime: 1, duration: 15 };
+    const player = {
+      classList: { contains: (c: string) => classes.has(c) },
+      querySelector: () => video,
+      querySelectorAll: () => [{ click: () => clicks.push("skip") }],
+    };
+    let tick = (): void => undefined;
+    runInNewContext(YOUTUBE_AD_SKIPPER, {
+      WeakMap,
+      isFinite,
+      document: { getElementById: (id: string) => (id === "movie_player" ? player : null) },
+      setInterval: (fn: () => void) => {
+        tick = fn;
+        return 1;
+      },
+    });
+    tick();
+    expect(video).toMatchObject({ muted: true, playbackRate: 16, currentTime: 14.9 });
+    expect(clicks).toEqual(["skip"]);
+    classes.clear();
+    tick();
+    expect(video).toMatchObject({ muted: false, playbackRate: 1.25 });
   });
 });
 
