@@ -54,13 +54,51 @@ function withLanguage(html: string): string {
   return html.replace(/<html lang="[^"]*">/, `<html lang="${pageLanguage()}">`);
 }
 
-async function handle(request: Request): Promise<Response> {
+interface NewTabRoutes {
+  /** A custom widget's document and its CSP, for corvus://newtab/widget/<id>. */
+  widget(session: Session, id: string, tone: "light" | "dark" | null): { html: string; csp: string } | null;
+  /** An uploaded background picture, for corvus://newtab/media/<file>. */
+  media(session: Session, file: string): { body: Buffer; type: string } | null;
+}
+
+let newTabRoutes: NewTabRoutes | null = null;
+
+export function setNewTabRoutes(routes: NewTabRoutes): void {
+  newTabRoutes = routes;
+}
+
+/** Widget documents and pictures of the New Tab page, which come from the profile, not the app files. */
+function newTabRoute(session: Session, pathname: string, search: URLSearchParams): Response | null {
+  const widget = /^\/widget\/([A-Za-z0-9_-]{1,40})$/.exec(pathname);
+  if (widget) {
+    const tone = search.get("tone");
+    const doc = newTabRoutes?.widget(session, widget[1]!, tone === "dark" || tone === "light" ? tone : null);
+    if (!doc) return new Response("Not found", { status: 404 });
+    return new Response(doc.html, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": doc.csp, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store" },
+    });
+  }
+  const media = /^\/media\/([A-Za-z0-9.-]{1,80})$/.exec(pathname);
+  if (media) {
+    const file = newTabRoutes?.media(session, media[1]!);
+    if (!file) return new Response("Not found", { status: 404 });
+    return new Response(new Uint8Array(file.body), { status: 200, headers: { "Content-Type": file.type, "X-Content-Type-Options": "nosniff" } });
+  }
+  return null;
+}
+
+async function handle(request: Request, session: Session): Promise<Response> {
   const url = new URL(request.url);
   const page = url.hostname;
   if (!(INTERNAL_PAGES as readonly string[]).includes(page)) {
     return new Response("Not found", { status: 404 });
   }
   let pathname = decodeURIComponent(url.pathname);
+  if (page === "newtab") {
+    const routed = newTabRoute(session, pathname, url.searchParams);
+    if (routed) return routed;
+  }
   const isDocument = pathname === "/" || pathname === "";
   if (isDocument) pathname = `/${page}.html`;
 
@@ -98,5 +136,5 @@ async function handle(request: Request): Promise<Response> {
 
 export function handleInternalProtocol(session: Session): void {
   if (session.protocol.isProtocolHandled(INTERNAL_SCHEME)) return;
-  session.protocol.handle(INTERNAL_SCHEME, handle);
+  session.protocol.handle(INTERNAL_SCHEME, (request) => handle(request, session));
 }

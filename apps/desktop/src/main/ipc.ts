@@ -21,6 +21,7 @@ import { assistChromeHandlers, registerAssistIpc } from "./ipc-assist";
 import { BROWSER_INTERNAL_PERMISSIONS, browserChromeHandlers, browserInternalHandlers } from "./ipc-browser";
 import { CREDENTIALS_INTERNAL_PERMISSIONS, KEEPASS_INTERNAL_PERMISSIONS, autofillChromeHandlers, credentialsInternalHandlers, keepassInternalHandlers, registerAutofillCapture } from "./ipc-credentials";
 import { FLOW_INTERNAL_PERMISSIONS, flowChromeHandlers, flowInternalHandlers, registerFlowCapture } from "./ipc-flow";
+import { NEWTAB_INTERNAL_PERMISSIONS, newtabInternalHandlers } from "./ipc-newtab";
 import { READING_INTERNAL_PERMISSIONS, readerChromeHandlers, readingInternalHandlers, registerReaderIpc } from "./ipc-reader";
 import { PDF_INTERNAL_PERMISSIONS, pdfInternalHandlers } from "./ipc-pdf";
 import { SEMANTIC_INTERNAL_PERMISSIONS, semanticChromeHandlers, semanticInternalHandlers } from "./ipc-semantic";
@@ -199,6 +200,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   ...BROWSER_INTERNAL_PERMISSIONS,
   ...WEBSCOPE_INTERNAL_PERMISSIONS,
   ...READING_INTERNAL_PERMISSIONS,
+  ...NEWTAB_INTERNAL_PERMISSIONS,
   ...CREDENTIALS_INTERNAL_PERMISSIONS,
   ...KEEPASS_INTERNAL_PERMISSIONS,
   ...PDF_INTERNAL_PERMISSIONS,
@@ -217,7 +219,6 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "history.query": ["history"],
   "history.remove": ["history"],
   "history.clear": ["history"],
-  "newtab.data": ["newtab"],
   "settings.get": ["settings", "welcome"],
   "settings.update": ["settings", "welcome"],
   "settings.setSecret": ["settings", "welcome"],
@@ -335,6 +336,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     ...browserInternalHandlers(ctx),
     ...webscopeInternalHandlers(ctx),
     ...readingInternalHandlers(),
+    ...newtabInternalHandlers(ctx),
     ...credentialsInternalHandlers(ctx),
     ...keepassInternalHandlers(ctx),
     ...pdfInternalHandlers(ctx),
@@ -376,12 +378,6 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       c.profile.history.query(str(q, "query", 512), Math.max(0, num(offset, "offset")), Math.min(500, Math.max(1, num(limit, "limit")))),
     "history.remove": (c, ids) => c.profile.history.remove(strArray(ids, "ids")),
     "history.clear": (c) => c.profile.history.clear(),
-    "newtab.data": (c) => ({
-      topSites: c.profile.history.top(8),
-      recent: c.profile.history.query("", 0, 6).entries,
-      profileName: c.profile.profile.name,
-      mcpRunning: ctx.mcp.isRunning(),
-    }),
     "settings.get": () => ctx.settings.view(),
     "settings.update": (_c, patch) => {
       ctx.settings.update(patch as SettingsPatch);

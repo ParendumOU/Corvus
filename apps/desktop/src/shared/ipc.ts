@@ -18,6 +18,7 @@ import type { ExtensionSuggestion } from "./extension-suggestions";
 import type { BrowserChromeCommand, BrowserChromeRpc, BrowserInternalEvent, BrowserInternalRpc, BrowserWindowExtras } from "./browser-ipc";
 import type { HistoryRecord } from "./history-ops";
 import type { RemoteDeviceTabs } from "./open-tabs";
+import type { NewTabInternalEvent, NewTabRpc } from "./newtab-ipc";
 import type { ReaderChromeRpc, ReadingLibraryRpc } from "./reader-ipc";
 import type { ScheduleInternalEvent, ScheduleInternalRpc } from "./schedule-ipc";
 import type { SiteProfileInternalEvent, SiteProfileInternalRpc } from "./site-profile-ipc";
@@ -276,7 +277,7 @@ export interface ConnectionTestResult {
 /** A streamed search event, or the end-of-stream marker sent once the engine is done. */
 export type SearchEventMessage = { searchId: string; event: SearchEvent } | { searchId: string; done: true };
 
-export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, KeePassRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc {
+export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, KeePassRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc, NewTabRpc {
   "search.start"(query: string, opts: { depth?: "quick" | "deep"; category?: SearchCategory }): string;
   /** data: URLs of result-site favicons (null when unavailable), fetched cookie-less by the main process. */
   "search.favicons"(domains: string[]): Record<string, string | null>;
@@ -290,7 +291,6 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "history.query"(query: string, offset: number, limit: number): { entries: HistoryRecord[]; total: number };
   "history.remove"(ids: string[]): void;
   "history.clear"(): void;
-  "newtab.data"(): { topSites: HistoryRecord[]; recent: HistoryRecord[]; profileName: string; mcpRunning: boolean };
   "settings.get"(): SettingsView;
   "settings.update"(patch: SettingsPatch): SettingsView;
   "settings.setSecret"(key: SecretKey, value: string): SettingsView;
@@ -382,6 +382,7 @@ export type InternalEvent =
   | SiteProfileInternalEvent
   | AgentRunsInternalEvent
   | FlowInternalEvent
+  | NewTabInternalEvent
   | { type: "extensions-changed" };
 
 type Promisify<F> = F extends (...args: infer A) => infer R ? (...args: A) => Promise<Awaited<R>> : never;

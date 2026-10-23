@@ -352,6 +352,7 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
     register,
     resolveTab,
     level,
+    client: () => mcp.server.getClientVersion()?.name ?? "unknown",
     ...(opts.webscope ? { webscope: opts.webscope } : {}),
     ...(opts.flows ? { flows: opts.flows } : {}),
     ...(opts.siteMemory ? { siteMemory: opts.siteMemory } : {}),

@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.4.0
+
+### Browser
+- **The New Tab page is now a dashboard you can arrange**: press **Customize** to drag widgets,
+  resize them from the corner, open their settings or remove them, add new ones from a gallery,
+  undo, or go back to the original page. Out of the box it looks like before (greeting, search,
+  shortcuts), so nothing changes until you customize.
+- **Shortcuts you control**: add a shortcut by hand, edit its name and address, remove it (or hide
+  one of your most visited sites), and drag tiles to reorder them.
+- **Backgrounds**: the default grey, a color (swatches or any color), a picture of your own (kept
+  on the device) or a daily picture from Bing, Wikimedia Commons, NASA or Lorem Picsum, with
+  darken and blur. Text on the background stays readable.
+- **Built-in widgets**: greeting, search box, shortcuts, a digital or analog clock with other time
+  zones, and notes that save as you type.
+- **Custom widgets for anything**: a custom widget draws its own HTML, CSS and JavaScript and reads
+  the data sources you give it: any public address (JSON or text), an RSS or Atom feed, a site you
+  are signed in to (its unread count and the text of a part of the page, only after you allow
+  that site for that widget), or Corvus's own watched pages and most visited sites. The gallery
+  starts you off with crypto prices, stock quotes, weather, a news feed, watched pages and unread
+  counts; edit their sources and code, or write one from scratch.
+- **Widgets run isolated**: no network, cookies, storage or access to the page; they only get the
+  data Corvus reads for them, links open only on the hosts they declared, and widgets holding
+  private data cannot load images from the web.
+
+### For AI agents
+- **Build the New Tab page over MCP**: `newtab_layout`, `newtab_add_widget`,
+  `newtab_custom_widget`, `newtab_update_widget`, `newtab_remove_widget`, `newtab_set_background`
+  and `newtab_undo`. Ask an agent for the dashboard you want and it builds it in Corvus's look; the
+  page updates live, every change can be undone, and an agent can never allow a widget to read a
+  site with your session: you do that on the page.
+- **The Command Bar agent and Assist build widgets too**: ask them "add a widget with ..." and they
+  use the same New Tab tools, no tab needed.
+
 ## v0.3.4
 
 ### For AI agents

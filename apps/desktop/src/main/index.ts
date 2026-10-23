@@ -23,7 +23,8 @@ import { PageMonitor } from "./page-monitor";
 import { ProfileManager } from "./profile-manager";
 import { ProfileRegistry } from "./profiles";
 import { ReaderService } from "./reader-service";
-import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage } from "./protocol";
+import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setNewTabRoutes } from "./protocol";
+import { NewTabService } from "./newtab-service";
 import { ScheduledAgentRunner } from "./scheduled-agent-runner";
 import { FlowService } from "./flow-service";
 import { SearchService } from "./search-service";
@@ -110,6 +111,17 @@ async function main(): Promise<void> {
   ctx.spendApprovals = new SpendApprovalService(ctx);
   ctx.webscope = new WebScopeService(ctx);
   ctx.monitor = new PageMonitor(ctx);
+  ctx.newtab = new NewTabService(ctx);
+  setNewTabRoutes({
+    widget: (s, id, tone) => {
+      const runtime = profiles.bySession(s);
+      return runtime ? ctx.newtab.widgetDoc(runtime, id, resolveUiLanguage(settings.get().appearance.language, app.getLocale()), tone) : null;
+    },
+    media: (s, file) => {
+      const runtime = profiles.bySession(s);
+      return runtime ? ctx.newtab.media(runtime, file) : null;
+    },
+  });
   ctx.scheduledAgents = new ScheduledAgentRunner(ctx);
   ctx.flows = new FlowService(ctx);
   ctx.autofill = new AutofillService(ctx);
@@ -189,6 +201,7 @@ async function main(): Promise<void> {
     settings.flush();
     ctx.webscope.stop();
     ctx.monitor.stop();
+    ctx.newtab.flush();
     ctx.scheduledAgents.stop();
     ctx.flows.stop();
     void ctx.mcp.stop();

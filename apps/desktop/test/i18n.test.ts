@@ -9,7 +9,7 @@ import { resolveUiLanguage } from "../src/shared/settings";
 
 const PAGES = fileURLToPath(new URL("../src/renderer/pages", import.meta.url));
 /** Pages whose own text is translated so far (the rest only get the shared menu and title). */
-const TRANSLATED = readdirSync(PAGES).filter((f) => /^settings.*\.tsx$/.test(f) || f === "shell.tsx");
+const TRANSLATED = readdirSync(PAGES).filter((f) => /^(settings|newtab).*\.tsx?$/.test(f) || f === "shell.tsx");
 const source = (file: string): string => readFileSync(join(PAGES, file), "utf8");
 
 /** The runtime value of a double-quoted JS string literal's body. */
@@ -53,9 +53,11 @@ describe("UI language", () => {
   });
 
   it("leaves no English text outside t() on the translated pages", () => {
-    const KEEP = new Set(["Ctrl+Shift+B"]);
+    // Names and examples that read the same in every language.
+    const KEEP = new Set(["Ctrl+Shift+B", "America/New_York, Asia/Tokyo", "JavaScript"]);
     const leftovers: string[] = [];
-    for (const file of TRANSLATED) {
+    // Markup in .ts files is widget content (templates), not Corvus's own interface.
+    for (const file of TRANSLATED.filter((f) => f.endsWith(".tsx"))) {
       const lines = source(file).split("\n");
       lines.forEach((line, i) => {
         const where = `${file}:${i + 1}: ${line.trim()}`;

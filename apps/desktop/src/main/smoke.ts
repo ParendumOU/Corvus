@@ -16,6 +16,7 @@ import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
+import { runNewTabSmoke } from "./smoke-newtab";
 import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
@@ -194,6 +195,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runSplitSmoke(ctx, { url, win, check, capture });
     await runUxSmoke(ctx, { url, win, check, capture });
     await runSignInSmoke(ctx, { url, win, check });
+    await runNewTabSmoke(ctx, { url, win, check, capture });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();

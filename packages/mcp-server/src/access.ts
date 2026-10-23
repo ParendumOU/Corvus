@@ -19,6 +19,7 @@ const READ_TOOLS = new Set([
   "history_search",
   "web_search",
   "snapshot",
+  "newtab_layout",
 ]);
 
 /** Tools that can run code in pages or touch the local file system. */

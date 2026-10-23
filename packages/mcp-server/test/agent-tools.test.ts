@@ -76,7 +76,7 @@ describe("access levels", () => {
   it("read exposes only observing tools", async () => {
     const names = await toolNames("read");
     expect(names).toEqual(
-      ["tabs_list", "tab_wait_load", "page_snapshot", "screenshot", "find", "wait_for", "get_text", "extract", "get_html", "console_messages", "network_requests", "bookmarks_list", "history_search", "snapshot"].sort(),
+      ["tabs_list", "tab_wait_load", "page_snapshot", "screenshot", "find", "wait_for", "get_text", "extract", "get_html", "console_messages", "network_requests", "bookmarks_list", "history_search", "snapshot", "newtab_layout"].sort(),
     );
   });
 
@@ -145,6 +145,7 @@ const OPTIONAL_CAPABILITIES = [
   "secretFillLock",
   "describeTarget",
   "confirmSpend",
+  "newtab",
   "evaluate",
 ] as const;
 

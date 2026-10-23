@@ -603,6 +603,15 @@ export class MockBrowserController implements BrowserController {
     return (this.cookieJar.get(this.hostOf(id)) ?? []).map((c) => ({ ...c }));
   }
 
+  /** New Tab requests the newtab_* tools sent, with the client that sent them. */
+  newtabRequests: Array<{ request: Record<string, unknown>; client: string }> = [];
+
+  async newtab(request: Record<string, unknown>, client: string): Promise<string> {
+    this.newtabRequests.push({ request, client });
+    if (request.action === "remove" && request.id === "missing") throw new Error('No widget "missing" on the New Tab page.');
+    return JSON.stringify({ widgets: [{ id: "clock-1", type: "clock" }], background: { kind: "default" } });
+  }
+
   async clearCookie(id: TabId, name: string): Promise<{ removed: number }> {
     this.record("clearCookie", id, name);
     const host = this.hostOf(id);

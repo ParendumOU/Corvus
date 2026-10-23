@@ -6,6 +6,7 @@ import { registerExtractTools } from "./extract.js";
 import { registerFillFieldsTools } from "./fill-fields.js";
 import { registerFullTools } from "./full.js";
 import { registerHandoffTools } from "./handoff.js";
+import { registerNewTabTools } from "./newtab.js";
 import { registerRunFlowTools } from "./run-flow.js";
 import { registerSiteMemoryTools } from "./site-memory.js";
 import { registerSemanticTools } from "./semantic.js";
@@ -47,4 +48,5 @@ export function registerAgentTools(ctx: ToolContext): void {
   registerFillFieldsTools(ctx);
   registerDownloadTools(ctx);
   registerCredentialTools(ctx);
+  registerNewTabTools(ctx);
 }

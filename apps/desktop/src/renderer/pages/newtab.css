@@ -1,3 +1,5 @@
+/* The New Tab dashboard: a background, a 12-column grid of widgets and the customize mode. */
+
 body {
   background:
     radial-gradient(1200px 500px at 50% -10%, var(--accent-soft), transparent 70%),
@@ -5,27 +7,120 @@ body {
 }
 
 .newtab {
+  --card: color-mix(in srgb, var(--surface) 92%, transparent);
+  --on-bg: var(--text);
+  --on-bg-2: var(--text-2);
+  position: relative;
+  min-height: 100vh;
+  padding: 10vh 24px 96px;
+  color: var(--text);
+}
+/* Over a picture or a dark color, text sitting on the background is light; cards stay readable. */
+.newtab.on-dark {
+  --on-bg: #f5f6f8;
+  --on-bg-2: rgba(245, 246, 248, 0.78);
+}
+.newtab.on-light {
+  --on-bg: #1f2023;
+  --on-bg-2: #4a4f57;
+}
+.newtab.has-bg {
+  --card: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+/* ------------------------------------------------------------------ background */
+
+.nt-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+.nt-bg-fill {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+}
+.nt-bg-dim {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+.nt-credit {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.nt-credit:hover {
+  color: #fff;
+}
+
+/* ------------------------------------------------------------------ grid */
+
+.nt-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: 48px;
+  gap: 16px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.nt-widget {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  padding: 16vh 24px 48px;
-  min-height: 100vh;
 }
+.nt-widget.nt-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--border-soft) 70%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(16px) saturate(1.2);
+  overflow: hidden;
+}
+.nt-widget.bare {
+  justify-content: center;
+  align-items: center;
+}
+
+/* ------------------------------------------------------------------ built-in widgets */
 
 .nt-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 .nt-hero h1 {
   margin: 0;
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  color: var(--on-bg);
+}
+.nt-hero h1 .muted {
+  color: var(--on-bg-2);
 }
 
+.nt-search-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
 .nt-search {
   display: flex;
   align-items: center;
@@ -38,7 +133,6 @@ body {
   border: 1px solid var(--border);
   color: var(--text-2);
   box-shadow: var(--shadow);
-  margin-top: 8px;
 }
 .nt-search:focus-within {
   border-color: var(--accent);
@@ -46,6 +140,7 @@ body {
 }
 .nt-search input {
   flex: 1;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -70,33 +165,55 @@ body {
   cursor: default;
 }
 
-.nt-hint {
-  margin: 0;
-  max-width: 560px;
-  text-align: center;
-  color: var(--text-3);
-  font-size: 12.5px;
-  line-height: 1.5;
+/* Over a picture or a dark color, cards are dark glass with light text. */
+.newtab.on-dark .nt-card {
+  --text: #f1f2f4;
+  --text-2: rgba(241, 242, 244, 0.72);
+  --text-3: rgba(241, 242, 244, 0.5);
+  --surface-2: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.08);
+  background: rgba(18, 18, 26, 0.55);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+.newtab.on-light .nt-card {
+  background: rgba(255, 255, 255, 0.7);
 }
 
+/* Shortcuts: tiles like today's page, on the background. */
 .nt-sites {
-  display: grid;
-  grid-template-columns: repeat(4, 112px);
-  gap: 12px;
-  margin-top: 28px;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.nt-sites > .nt-site {
+  width: 112px;
 }
 .nt-site {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 16px 8px 12px;
+  gap: 9px;
+  padding: 14px 6px 10px;
+  border: none;
   border-radius: 14px;
+  background: transparent;
   color: var(--text);
+  font: inherit;
   text-decoration: none;
+  cursor: pointer;
 }
 .nt-site:hover {
-  background: var(--hover);
+  background: color-mix(in srgb, var(--surface) 22%, transparent);
 }
 .nt-site-icon {
   display: flex;
@@ -107,6 +224,7 @@ body {
   border-radius: 50%;
   background: var(--surface);
   box-shadow: var(--shadow);
+  color: var(--text-2);
 }
 .nt-site-name {
   max-width: 100%;
@@ -114,18 +232,483 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+  color: var(--on-bg);
+}
+.has-bg .nt-site-name {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.on-light .nt-site-name {
+  text-shadow: none;
+}
+.nt-site-add .nt-site-name {
+  color: var(--on-bg-2);
+}
+.nt-site-tools {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: none;
+  gap: 2px;
+}
+.nt-site:hover .nt-site-tools,
+.editing .nt-site-tools {
+  display: flex;
+}
+.nt-site-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.nt-site-tools button:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.nt-shortcut-form {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.nt-shortcut-form input {
+  flex: 1 1 140px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
 }
 
+.nt-clock {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+.nt-clock-time {
+  font-size: clamp(28px, 4.5vw, 52px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.nt-clock-date {
+  color: var(--text-2);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+.nt-analog {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-height: 100%;
+}
+.nt-analog .face {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+.nt-analog .tick {
+  stroke: var(--text-3);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.nt-analog .hour,
+.nt-analog .minute {
+  stroke: var(--text);
+}
+.nt-analog .second {
+  stroke: var(--accent);
+}
+.nt-analog .pin {
+  fill: var(--accent);
+}
+.nt-clock-zones {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  width: 100%;
+  font-size: 12px;
+}
+.nt-clock-zones li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-notes {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* ------------------------------------------------------------------ custom widgets */
+
+.nt-custom {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.nt-custom-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color-scheme: normal;
+}
+.nt-consent {
+  position: absolute;
+  inset: -14px -16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.nt-consent p {
+  margin: 0;
+}
+.nt-author {
+  position: absolute;
+  right: 0;
+  bottom: -6px;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+/* ------------------------------------------------------------------ customize mode */
+
+.editing .nt-widget {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+.editing .nt-widget.bare {
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
+.nt-widget.moving {
+  z-index: 5;
+  opacity: 0.92;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25);
+}
+.nt-handle {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: grab;
+}
+.nt-widget.moving .nt-handle {
+  cursor: grabbing;
+}
+.nt-widget-tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.nt-widget-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.nt-widget-tools button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.nt-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 3;
+  width: 18px;
+  height: 18px;
+  border-right: 3px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
+  border-radius: 0 0 8px 0;
+  cursor: nwse-resize;
+}
+
+.nt-dock {
+  position: fixed;
+  right: 20px;
+  bottom: 18px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 16px;
+}
+.editing .nt-dock {
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-soft);
+}
+.nt-customize {
+  opacity: 0.75;
+  backdrop-filter: blur(10px);
+}
+.nt-customize:hover {
+  opacity: 1;
+}
 .nt-agent {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: auto;
-  padding: 6px 14px;
-  border-radius: 16px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   background: var(--accent-soft);
   color: var(--accent);
-  text-decoration: none;
+}
+.nt-error {
+  position: fixed;
+  left: 50%;
+  bottom: 70px;
+  z-index: 11;
+  transform: translateX(-50%);
+}
+
+/* ------------------------------------------------------------------ panels */
+
+.nt-panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 80px;
+  z-index: 12;
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.nt-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.nt-panel h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.nt-panel h3 {
+  margin: 16px 0 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.nt-panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 16px 18px;
+}
+.nt-panel-hint {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.nt-gallery,
+.nt-wallpapers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.nt-gallery-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nt-gallery-item:hover,
+.nt-gallery-item.on {
+  border-color: var(--accent);
+}
+.nt-gallery-item strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+.nt-gallery-item span {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.nt-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.nt-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 2px solid var(--border-soft);
+  cursor: pointer;
+  padding: 0;
+}
+.nt-swatch.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.nt-swatch.default {
+  width: auto;
+  padding: 0 10px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
   font-size: 12px;
-  font-weight: 500;
+}
+.nt-swatch.custom {
+  position: relative;
+  overflow: hidden;
+  background: conic-gradient(#f87171, #fbbf24, #34d399, #60a5fa, #a78bfa, #f472b6, #f87171);
+}
+.nt-swatch.custom input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.nt-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.nt-slider span {
+  width: 80px;
+  color: var(--text-2);
+}
+.nt-slider input {
+  flex: 1;
+}
+.nt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 10px 0;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.nt-field.row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.nt-field .input {
+  width: 100%;
+  color: var(--text);
+}
+.nt-field textarea.input {
+  height: auto;
+  min-height: 90px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+.nt-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nt-source {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr auto;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.nt-source > input:nth-of-type(2),
+.nt-source > select:nth-of-type(2) {
+  grid-column: 1 / -1;
+}
+.nt-source .input {
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+}
+.nt-source input[type="number"] {
+  width: 64px;
+}
+.nt-remove {
+  margin-top: 18px;
+}
+
+@media (max-width: 760px) {
+  .newtab {
+    padding: 6vh 12px 96px;
+  }
+  .nt-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .nt-widget {
+    grid-column: 1 / -1 !important;
+  }
 }

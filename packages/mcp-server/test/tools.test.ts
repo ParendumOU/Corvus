@@ -49,6 +49,13 @@ const ALL_TOOLS = [
   "set_viewport",
   "request_user_action",
   "snapshot",
+  "newtab_layout",
+  "newtab_add_widget",
+  "newtab_custom_widget",
+  "newtab_update_widget",
+  "newtab_remove_widget",
+  "newtab_set_background",
+  "newtab_undo",
 ];
 
 interface TabJson {

@@ -25,6 +25,7 @@ import type { SyncService } from "./sync-service";
 import type { UpdateService } from "./update-service";
 import type { WebScopeService } from "./webscope-service";
 import type { WindowManager } from "./window-manager";
+import type { NewTabService } from "./newtab-service";
 
 /** Main-process services, wired together once in index.ts. */
 export interface AppContext {
@@ -50,6 +51,8 @@ export interface AppContext {
   adblock: AdblockService;
   webscope: WebScopeService;
   monitor: PageMonitor;
+  /** The New Tab dashboard of each profile. */
+  newtab: NewTabService;
   scheduledAgents: ScheduledAgentRunner;
   flows: FlowService;
   autofill: AutofillService;

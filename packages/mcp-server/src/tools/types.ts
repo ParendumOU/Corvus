@@ -88,6 +88,8 @@ export interface ToolContext {
   flows?: FlowProvider;
   /** Present when the app wired in site memory; site_memory gates on this (standard level). */
   siteMemory?: SiteMemoryProvider;
+  /** Name of the connected MCP client. */
+  client: () => string;
 }
 
 export const tabId = z.string().min(1).max(200);

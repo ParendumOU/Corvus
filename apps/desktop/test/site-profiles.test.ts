@@ -111,7 +111,7 @@ describe("capAgentTools", () => {
     expect(capAgentTools(TOOLS, "full")).toHaveLength(TOOLS.length);
   });
   it("every tool has a declared access level", () => {
-    for (const t of [...TOOLS, ...VISUAL_TOOLS, ...CREDENTIAL_AGENT_TOOLS]) expect(AGENT_TOOL_ACCESS[t.name]).toBeDefined();
+    for (const t of agentToolset(true).tools) expect(AGENT_TOOL_ACCESS[t.name]).toBeDefined();
   });
   it("read keeps pointing and wheel scrolling but drops coordinate clicks and keyboard input", () => {
     const { tools } = agentToolset(false);
@@ -131,10 +131,10 @@ describe("capAgentTools", () => {
 describe("agentToolset", () => {
   it("offers the credential tools only when agents may use opted-in logins", () => {
     const off = agentToolset(false);
-    expect(off.tools.map((t) => t.name)).toEqual([...TOOLS, ...VISUAL_TOOLS].map((t) => t.name));
+    expect(off.tools.map((t) => t.name)).toEqual([...[...TOOLS, ...VISUAL_TOOLS].map((t) => t.name), "newtab_layout", "newtab_change"]);
     expect(off.system).not.toContain("fill_totp");
     const on = agentToolset(true);
-    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "click_at", "hover_at", "scroll_at", "press_key", "type_text", "fill_login", "fill_totp"]);
+    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "click_at", "hover_at", "scroll_at", "press_key", "type_text", "newtab_layout", "newtab_change", "fill_login", "fill_totp"]);
     expect(on.system).toContain("fill_totp");
     expect(on.system).toContain("ask_user");
   });

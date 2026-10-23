@@ -8,4 +8,5 @@ export type { BridgeTarget, StdioBridge, StdioBridgeOptions } from "./bridge.js"
 export { ENABLE_MCP_SWITCH, corvusExecutable, readDiscovery, waitForCorvus } from "./launch.js";
 export type { WaitOptions } from "./launch.js";
 export { checkAgentUrl, wrapUntrusted } from "./content.js";
+export { NEWTAB_GUIDE } from "./tools/newtab.js";
 export type { RateLimitOptions } from "./security.js";

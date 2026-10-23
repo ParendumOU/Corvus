@@ -21,6 +21,7 @@ import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry
 import type { AppContext } from "./context";
 import { agentScreenshot, clickAt, describeFocused, describePoint, hoverAt, pressKey, scrollAt, typeText } from "./visual-input";
 import { claudeCliEnv } from "../shared/settings";
+import { NEWTAB_GUIDE } from "@corvus/mcp-server";
 
 export const PER_TURN_TOKENS = 1536;
 export const RESULT_PREVIEW_CHARS = 200;
@@ -235,13 +236,46 @@ export const CREDENTIAL_PROMPT = [
   "yourself. If either tool says the login or code is not available, call ask_user.",
 ].join("\n");
 
+/** The New Tab dashboard: agents can build it for the user (no tab needed; every change is undoable). */
+const NEWTAB_TOOLS: AgentTool[] = [
+  {
+    name: "newtab_layout",
+    description: "Read the user's New Tab dashboard (widgets, background) and how custom widgets work. Call it before newtab_change.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "newtab_change",
+    description:
+      "Change the New Tab dashboard. action: add (type, config), update (id, config), remove (id), custom (id?, config: {title, html, css, script, sources, links}), background (background), undo. x, y, w, h place it on the 12-column grid.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["add", "update", "remove", "custom", "background", "undo"] },
+        id: { type: "string" },
+        type: { type: "string", enum: ["greeting", "search", "shortcuts", "clock", "notes"] },
+        config: { type: "object" },
+        background: { type: "object" },
+        x: { type: "number" },
+        y: { type: "number" },
+        w: { type: "number" },
+        h: { type: "number" },
+      },
+      required: ["action"],
+    },
+  },
+];
+
+const NEWTAB_PROMPT =
+  "To build or change the user's New Tab page (widgets, a dashboard, its background), call newtab_layout and then newtab_change; no tab is needed.";
+
 /**
  * The interactive agent's tools and prompt (Command Bar and Assist): the browser tools, the visual
- * tools, and the credential tools when Settings allows them. `system` replaces the base prompt.
+ * tools, the New Tab tools, and the credential tools when Settings allows them. `system` replaces
+ * the base prompt.
  */
 export function agentToolset(credentials: boolean, system: string = AGENT_SYSTEM): { tools: AgentTool[]; system: string } {
-  const tools = [...TOOLS, ...VISUAL_TOOLS, ...(credentials ? CREDENTIAL_AGENT_TOOLS : [])];
-  return { tools, system: [system, VISUAL_PROMPT, ...(credentials ? [CREDENTIAL_PROMPT] : [])].join("\n") };
+  const tools = [...TOOLS, ...VISUAL_TOOLS, ...NEWTAB_TOOLS, ...(credentials ? CREDENTIAL_AGENT_TOOLS : [])];
+  return { tools, system: [system, VISUAL_PROMPT, NEWTAB_PROMPT, ...(credentials ? [CREDENTIAL_PROMPT] : [])].join("\n") };
 }
 
 /**
@@ -267,6 +301,8 @@ export const AGENT_TOOL_ACCESS: Record<string, AccessLevel> = {
   click_at: "standard",
   press_key: "standard",
   type_text: "standard",
+  newtab_layout: "read",
+  newtab_change: "standard",
   // Saved secrets: only at full, so a site profile capped at standard or read never offers them.
   fill_login: "full",
   fill_totp: "full",
@@ -402,7 +438,7 @@ export async function runAgentTool(
 ): Promise<AgentToolResult> {
   const c = ctx.controller;
   const tabId = state.tabId;
-  if (!tabId && name !== "web_search" && name !== "list_tabs" && name !== "open_tab") throw new Error("No agent tab is open yet.");
+  if (!tabId && name !== "web_search" && name !== "list_tabs" && name !== "open_tab" && !name.startsWith("newtab_")) throw new Error("No agent tab is open yet.");
   switch (name) {
     case "page_snapshot": {
       const snap = await c.snapshot(tabId!, { maxChars: Math.min(Math.max(num(input, "maxChars", SNAPSHOT_CHARS), 200), 12000) });
@@ -491,6 +527,10 @@ export async function runAgentTool(
     }
     case "web_search":
       return { content: await webSearchTool(ctx, argStr(input, "query"), (input as { depth?: "quick" | "deep" })?.depth, signal) };
+    case "newtab_layout":
+      return { content: `${ctx.newtab.agent(ctx.windows.target().profile, { action: "get" }, "Corvus agent")}\n\n${NEWTAB_GUIDE}` };
+    case "newtab_change":
+      return { content: ctx.newtab.agent(ctx.windows.target().profile, (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>, "Corvus agent") };
     default:
       throw new Error(`Unknown tool ${name}`);
   }

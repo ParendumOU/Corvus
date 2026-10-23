@@ -265,6 +265,12 @@ export interface AgentCapabilities {
   waitForLoad?(id: TabId, timeoutMs?: number): Promise<Tab>;
   detectChallenge?(id: TabId): Promise<ChallengeInfo | null>;
   requestUserAction?(id: TabId, request: UserActionRequest, signal?: AbortSignal): Promise<UserActionResult>;
+  /**
+   * Reads or changes the New Tab page of the focused window's profile (the newtab_* tools).
+   * `request.action` is get | add | update | remove | background | custom | undo; returns the
+   * resulting layout as JSON text. `client` is who asked, shown on what it made.
+   */
+  newtab?(request: Record<string, unknown>, client: string): Promise<string>;
   /** Cookies the tab's current site can read. Scoped to that origin — never another site's cookies. */
   cookies?(id: TabId): Promise<CookieInfo[]>;
   /** Removes every cookie named `name` set for the tab's current site. Returns how many were removed. */
