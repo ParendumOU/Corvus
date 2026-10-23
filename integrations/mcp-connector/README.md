@@ -205,6 +205,10 @@ Optional environment variables:
 | `CORVUS_BIN` | Corvus executable to start when it is not running. By default the connector uses the one Corvus last ran from (`~/.corvus/app.json`), then the default install folder. |
 | `CORVUS_MCP_NO_LAUNCH=1` | Never start Corvus; wait for it instead. |
 
+Inside Claude Code the connector also reports the session's `CLAUDE_CONFIG_DIR` to Corvus, so
+Corvus can run its own Claude Code CLI calls as the same account when you choose **Settings > AI
+search > Claude Code account > Follow the Claude Code session connected over MCP**.
+
 ## Remote access (Streamable HTTP)
 
 Clients can also talk to Corvus directly over Streamable HTTP, without this connector, including

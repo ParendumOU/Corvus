@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.3.4
+
+### For AI agents
+- **Choose the Claude Code account Corvus uses**: with the Claude Code CLI provider, Settings >
+  AI search > Claude Code account runs the CLI with your default login, a config folder of your
+  choice (`CLAUDE_CONFIG_DIR`), or the account of the Claude Code session that drives Corvus over
+  MCP. The connector reports that session's config folder when it connects, so tools that keep
+  several accounts in separate folders work without extra setup, and a switch of account is
+  picked up when the session reconnects. Only approved local clients, and only folders that exist.
+- **Environment variables for the Claude Code CLI**: an optional list of `NAME=value` lines added
+  to the CLI process (proxy, base URL and so on). Kept on the device, never synced.
+
+### Browser
+- **Command bar and address bar suggestions keep your selection**: a list that opened under a
+  resting mouse pointer selected the row under it, so Enter could run another command or open a
+  suggestion instead of what you typed. Hover now selects only when the pointer moves.
+
 ## v0.3.3
 
 ### For AI agents

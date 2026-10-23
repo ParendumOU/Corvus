@@ -1,4 +1,4 @@
-export { startMcpServer, resetClientApprovals } from "./http.js";
+export { CLAUDE_CONFIG_DIR_HEADER, startMcpServer, resetClientApprovals } from "./http.js";
 export type { StartMcpServerOptions } from "./http.js";
 export type { FlowDetail, FlowProvider, FlowRunner, FlowRunResult, FlowSummary, SiteMemoryHints, SiteMemoryProvider, SiteMemoryReader, WebScopeProvider } from "./tools/index.js";
 export { createMcpServer, DEFAULT_RATE_LIMIT, SERVER_NAME, SERVER_VERSION } from "./server.js";

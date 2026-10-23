@@ -20,6 +20,7 @@ import { classifyAction, classifyPointAction, stricterRisk, type ActionRisk } fr
 import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry } from "../shared/visual-input";
 import type { AppContext } from "./context";
 import { agentScreenshot, clickAt, describeFocused, describePoint, hoverAt, pressKey, scrollAt, typeText } from "./visual-input";
+import { claudeCliEnv } from "../shared/settings";
 
 export const PER_TURN_TOKENS = 1536;
 export const RESULT_PREVIEW_CHARS = 200;
@@ -311,7 +312,7 @@ export function providerFromSettings(ctx: AppContext, override?: ProviderOverrid
     }
   }
   try {
-    return createClaudeCliAgentProvider({ model, cliPath: ai.claudeCliPath || undefined });
+    return createClaudeCliAgentProvider({ model, cliPath: ai.claudeCliPath || undefined, env: claudeCliEnv(ai) });
   } catch {
     return null;
   }

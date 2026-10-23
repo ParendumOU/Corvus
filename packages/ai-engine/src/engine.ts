@@ -39,7 +39,7 @@ export interface SearchEngineDeps {
 
 export function createProvider(config: AiEngineConfig): AnswerProvider | null {
   const model = config.model || DEFAULT_MODEL;
-  if (config.provider === "claude-code-cli") return createClaudeCliProvider({ model, cliPath: config.claudeCliPath });
+  if (config.provider === "claude-code-cli") return createClaudeCliProvider({ model, cliPath: config.claudeCliPath, env: config.claudeCliEnv });
   if (config.provider === "local") return createLocalProvider({ model, baseUrl: config.localBaseUrl, api: config.localApi });
   if (config.provider === "anthropic-api" && config.apiKey) return createAnthropicProvider({ apiKey: config.apiKey, model });
   return null;

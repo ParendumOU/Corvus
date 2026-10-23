@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
-import { startStdioBridge, type StdioBridge } from "../src/index.js";
+import { CLAUDE_CONFIG_DIR_HEADER, startStdioBridge, type StdioBridge } from "../src/index.js";
 import { startHarness, TOKEN, type Harness } from "./helpers.js";
 
 function lineReader(stream: PassThrough) {
@@ -97,6 +97,30 @@ describe("stdio bridge", () => {
       })}\n`,
     );
     expect(await next()).toMatchObject({ id: 7, error: { code: -32000 } });
+  });
+
+  it("tells Corvus which Claude Code config folder the session runs under", async () => {
+    const sessions: Array<{ client: string; claudeConfigDir: string | null }> = [];
+    h = await startHarness({ onClientSession: (s) => sessions.push(s) });
+    const open = async (name: string, headers?: Record<string, string>) => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      const next = lineReader(stdout);
+      const b = await startStdioBridge({ url: h!.handle.url, token: TOKEN, stdin, stdout, log: () => {}, headers });
+      stdin.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name, version: "1" } } })}\n`,
+      );
+      await next();
+      await b.close();
+    };
+    await open("stdio-account", { [CLAUDE_CONFIG_DIR_HEADER]: encodeURIComponent("C:\\Users\\José\\.claude-work") });
+    await open("stdio-default", { [CLAUDE_CONFIG_DIR_HEADER]: "" });
+    await open("stdio-other");
+    expect(sessions).toEqual([
+      { client: "stdio-account", claudeConfigDir: "C:\\Users\\José\\.claude-work" },
+      { client: "stdio-default", claudeConfigDir: "" },
+      { client: "stdio-other", claudeConfigDir: null },
+    ]);
   });
 
   describe("when Corvus goes away", () => {

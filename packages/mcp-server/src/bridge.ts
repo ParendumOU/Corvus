@@ -26,6 +26,8 @@ export interface StdioBridgeOptions extends BridgeTarget {
    * it, those requests fail.
    */
   reconnect?: () => Promise<BridgeTarget>;
+  /** Extra headers on every request to Corvus. */
+  headers?: Record<string, string>;
   stdin?: Readable;
   stdout?: Writable;
   log?: (message: string) => void;
@@ -78,7 +80,7 @@ export async function startStdioBridge(opts: StdioBridgeOptions): Promise<StdioB
 
   const connect = (target: BridgeTarget): StreamableHTTPClientTransport => {
     const transport = new StreamableHTTPClientTransport(endpoint(target), {
-      requestInit: { headers: { Authorization: `Bearer ${target.token}` } },
+      requestInit: { headers: { ...opts.headers, Authorization: `Bearer ${target.token}` } },
     });
     transport.onmessage = (msg: JSONRPCMessage) => {
       if (isJSONRPCResultResponse(msg) || isJSONRPCErrorResponse(msg)) {

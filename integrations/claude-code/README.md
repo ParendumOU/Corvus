@@ -29,6 +29,11 @@ each time it starts, `CORVUS_BIN`, or the default install folder, and waits up t
 `CORVUS_MCP_NO_LAUNCH=1` to only wait. When Corvus restarts or drops the session, the bridge finds
 it again and opens a new session by itself.
 
+Running inside Claude Code, the bridge also tells Corvus which Claude Code config folder
+(`CLAUDE_CONFIG_DIR`) the session uses. If you keep several Claude accounts in separate config
+folders, Corvus's own Claude Code CLI provider can then run as the same account: **Settings → AI
+search → Claude Code account → Follow the Claude Code session connected over MCP**.
+
 ## Access levels
 
 Corvus controls what Claude may do (Settings → AI agents): **Read-only**, **Standard** (default),

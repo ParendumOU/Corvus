@@ -5,7 +5,7 @@ import type { LocalTestResult } from "@corvus/ai-engine";
 import type { AiEngineConfig, LocalModelApi, SearchCategory, SearchEngine, SearchEvent, SearchOptions } from "@corvus/shared";
 import type { ConnectionTestResult, EngineInfo, InternalEvent } from "../shared/ipc";
 import { INTERNAL_EVENT } from "../shared/ipc";
-import type { Settings } from "../shared/settings";
+import { claudeCliEnv, type Settings } from "../shared/settings";
 import { loadOptionalModule } from "./module-loader";
 import type { SettingsStore } from "./settings-store";
 
@@ -66,6 +66,7 @@ export class SearchService {
       apiKey: this.settings.getSecret("anthropicApiKey"),
       model: ai.model,
       claudeCliPath: ai.claudeCliPath || undefined,
+      claudeCliEnv: claudeCliEnv(ai),
       localBaseUrl: ai.localBaseUrl || undefined,
       localApi: ai.localApi,
       retriever: ai.retriever,

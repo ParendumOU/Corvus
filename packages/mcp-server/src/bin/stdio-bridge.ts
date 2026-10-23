@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { startStdioBridge, type BridgeTarget } from "../bridge.js";
+import { CLAUDE_CONFIG_DIR_HEADER } from "../http.js";
 import { waitForCorvus } from "../launch.js";
 
 /**
@@ -13,6 +14,11 @@ import { waitForCorvus } from "../launch.js";
  */
 const launch = process.env.CORVUS_MCP_NO_LAUNCH !== "1";
 
+// Inside Claude Code (which sets CLAUDECODE=1 for its child processes), tell Corvus which Claude
+// Code config folder this session runs under, so Corvus can use the same account if asked to.
+const headers: Record<string, string> =
+  process.env.CLAUDECODE === "1" ? { [CLAUDE_CONFIG_DIR_HEADER]: encodeURIComponent(process.env.CLAUDE_CONFIG_DIR ?? "") } : {};
+
 function fromEnv(): BridgeTarget | null {
   const url = process.env.CORVUS_MCP_URL;
   const token = process.env.CORVUS_MCP_TOKEN;
@@ -22,7 +28,7 @@ function fromEnv(): BridgeTarget | null {
 try {
   const env = fromEnv();
   const find = async (): Promise<BridgeTarget> => env ?? (await waitForCorvus({ launch }));
-  const bridge = await startStdioBridge({ ...(await find()), reconnect: find });
+  const bridge = await startStdioBridge({ ...(await find()), reconnect: find, headers });
   await bridge.closed;
   process.exit(0);
 } catch (err) {

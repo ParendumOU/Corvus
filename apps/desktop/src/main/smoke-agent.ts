@@ -301,6 +301,7 @@ async function mcpBridgeSmoke(ctx: AppContext, check: Helpers["check"]): Promise
   const before = ctx.settings.get().mcp;
   const bin = path.resolve(process.cwd(), "../../packages/mcp-server/dist/bin/stdio-bridge.js");
   const home = process.env.CORVUS_HOME || path.join(os.homedir(), ".corvus");
+  const accountDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-account-"));
   let child: ReturnType<typeof spawn> | null = null;
   try {
     ctx.settings.update({ mcp: { enabled: false, accessLevel: "standard", approvedClients: [...before.approvedClients.filter((c) => c !== clientName), clientName] } });
@@ -318,7 +319,8 @@ async function mcpBridgeSmoke(ctx: AppContext, check: Helpers["check"]): Promise
 
     // Electron runs the built bridge as plain Node; CORVUS_MCP_NO_LAUNCH keeps it from starting Corvus.
     child = spawn(process.execPath, [bin], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", CORVUS_HOME: home, CORVUS_MCP_NO_LAUNCH: "1" },
+      // As inside Claude Code started for another account (the way account switchers do it).
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", CORVUS_HOME: home, CORVUS_MCP_NO_LAUNCH: "1", CLAUDECODE: "1", CLAUDE_CONFIG_DIR: accountDir },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const lines: unknown[] = [];
@@ -355,6 +357,12 @@ async function mcpBridgeSmoke(ctx: AppContext, check: Helpers["check"]): Promise
     send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "tabs_list", arguments: {} } });
     const first = await reply(2);
     check("MCP bridge: connects through the discovery file", !init.error && !first.error && Boolean(first.result?.content?.[0]?.text), { init: init.error, first: first.error ?? first.result?.content?.[0]?.text?.slice(0, 80) });
+    const followed = ctx.settings.get().ai;
+    check(
+      "MCP bridge: Corvus learns the Claude Code account folder of the session",
+      followed.mcpClaudeConfigDir === accountDir && followed.mcpClaudeClient === clientName && followed.mcpClaudeAt > 0,
+      { dir: followed.mcpClaudeConfigDir, client: followed.mcpClaudeClient },
+    );
 
     // A restart of the server drops every session, as a browser restart does.
     ctx.settings.update({ mcp: { enabled: false } });

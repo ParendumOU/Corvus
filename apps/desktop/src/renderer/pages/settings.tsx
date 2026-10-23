@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Profile } from "@corvus/shared";
 import type { AdblockView } from "../../shared/adblock";
 import type { ConnectionTestResult, EngineInfo, McpActivity, McpStatus, UpdateStatus } from "../../shared/ipc";
-import type { AccessLevel, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
+import type { AccessLevel, ClaudeAccountMode, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
 import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
 import { errorMessage, internalApi } from "../common/api";
 import { setUiLanguage, t } from "../common/i18n";
@@ -88,6 +88,24 @@ function LazyInput({ value, onSave, placeholder, type = "text", width }: { value
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => e.key === "Enter" && commit()}
+    />
+  );
+}
+
+/** Multi-line text that saves on blur. */
+function LazyTextarea({ value, onSave, placeholder, rows = 4 }: { value: string; onSave: (v: string) => void; placeholder?: string; rows?: number }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <textarea
+      className="input mono"
+      rows={rows}
+      value={draft}
+      placeholder={placeholder}
+      spellCheck={false}
+      style={{ width: 320, height: "auto", padding: "8px 10px", resize: "vertical" }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => draft !== value && onSave(draft)}
     />
   );
 }
@@ -461,9 +479,47 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
         </Row>
       )}
       {ai.provider === "claude-code-cli" && (
-        <Row label={t("Claude CLI path")} hint={t("Executable used for `claude -p`.")}>
-          <LazyInput value={ai.claudeCliPath} placeholder="claude" onSave={(v) => update({ ai: { claudeCliPath: v } })} />
-        </Row>
+        <>
+          <Row label={t("Claude CLI path")} hint={t("Executable used for `claude -p`, or a wrapper around it.")}>
+            <LazyInput value={ai.claudeCliPath} placeholder="claude" onSave={(v) => update({ ai: { claudeCliPath: v } })} />
+          </Row>
+          <Row
+            label={t("Claude Code account")}
+            hint={t(
+              "Claude Code picks the account from its config folder (CLAUDE_CONFIG_DIR). Follow the connected session to use the account of the Claude Code session that drives Corvus over MCP; it updates when that session reconnects.",
+            )}
+          >
+            <select className="input" value={ai.claudeAccount} onChange={(e) => update({ ai: { claudeAccount: e.target.value as ClaudeAccountMode } })}>
+              <option value="default">{t("Your default Claude Code login")}</option>
+              <option value="folder">{t("A config folder")}</option>
+              <option value="mcp">{t("Follow the Claude Code session connected over MCP")}</option>
+            </select>
+          </Row>
+          {ai.claudeAccount === "folder" && (
+            <Row label={t("Config folder")} hint={t("The CLAUDE_CONFIG_DIR of the account, for example C:\\Users\\you\\.claude-work.")}>
+              <LazyInput value={ai.claudeConfigDir} width={320} placeholder="~/.claude" onSave={(v) => update({ ai: { claudeConfigDir: v.trim() } })} />
+            </Row>
+          )}
+          {ai.claudeAccount === "mcp" && (
+            <Row label={t("Following")}>
+              <span className="muted small">
+                {ai.mcpClaudeAt > 0
+                  ? t("{folder} · from {client}, {time}", {
+                      folder: ai.mcpClaudeConfigDir || t("Claude Code's default folder"),
+                      client: ai.mcpClaudeClient,
+                      time: formatTime(ai.mcpClaudeAt),
+                    })
+                  : t("No Claude Code session has connected yet; the default login is used until one does.")}
+              </span>
+            </Row>
+          )}
+          <Row
+            label={t("Environment variables")}
+            hint={t("Optional. One NAME=value per line, added to the Claude Code CLI process (proxy, base URL and so on). They stay on this device.")}
+          >
+            <LazyTextarea value={ai.cliEnv} placeholder={"HTTPS_PROXY=http://proxy:8080"} onSave={(v) => update({ ai: { cliEnv: v } })} />
+          </Row>
+        </>
       )}
       {ai.provider === "local" && (
         <>

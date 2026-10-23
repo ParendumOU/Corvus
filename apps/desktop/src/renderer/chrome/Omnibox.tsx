@@ -8,6 +8,7 @@ import type { Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
 import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconWarning, IconZoom } from "../common/icons";
 import { Favicon } from "../common/ui";
+import { useHoverSelect } from "./hover-select";
 
 export interface OmniboxHandle {
   focus(selectAll: boolean): void;
@@ -77,6 +78,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     const [value, setValue] = useState("");
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [selected, setSelected] = useState(0);
+    const hoverSelect = useHoverSelect(setSelected);
     const [autofillOpen, setAutofillOpen] = useState(false);
     const [matches, setMatches] = useState<CredentialMatch[]>([]);
     const request = useRef(0);
@@ -278,7 +280,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
                 role="option"
                 aria-selected={i === selected}
                 className={i === selected ? "selected" : ""}
-                onMouseEnter={() => setSelected(i)}
+                onMouseMove={hoverSelect(i)}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   commit(i === 0 ? value : s.url);

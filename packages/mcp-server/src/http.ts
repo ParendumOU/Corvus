@@ -24,6 +24,12 @@ export interface StartMcpServerOptions extends McpServerOptions {
   maxSessions?: number;
   /** Sessions with no request and no open stream for this long are closed. Default 30 min. */
   sessionIdleMs?: number;
+  /**
+   * Called when an approved local client opens a session, with the Claude Code config folder its
+   * connector runs under ("" = Claude Code's default folder), or null when it did not say (not
+   * Claude Code, an older connector, or a remote client).
+   */
+  onClientSession?: (session: { client: string; claudeConfigDir: string | null }) => void;
 }
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -33,6 +39,21 @@ const DEFAULT_MAX_BODY = 1024 * 1024;
 const DEFAULT_MAX_SESSIONS = 32;
 const DEFAULT_SESSION_IDLE_MS = 30 * 60 * 1000;
 const MIN_TOKEN_LENGTH = 16;
+/** Set by the stdio connector when it runs inside Claude Code (URI-encoded CLAUDE_CONFIG_DIR, "" = default). */
+export const CLAUDE_CONFIG_DIR_HEADER = "x-corvus-claude-config-dir";
+const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+/** The Claude Code config folder a local client reported, or null. */
+function reportedClaudeConfigDir(req: IncomingMessage): string | null {
+  const raw = req.headers[CLAUDE_CONFIG_DIR_HEADER];
+  if (typeof raw !== "string" || raw.length > 4096 || !LOOPBACK_ADDRESSES.has(req.socket.remoteAddress ?? "")) return null;
+  try {
+    const dir = decodeURIComponent(raw);
+    return dir.includes("\0") ? null : dir;
+  } catch {
+    return null;
+  }
+}
 
 /** Client names the user approved, kept for the lifetime of the process. */
 const approvedClients = new Set<string>();
@@ -164,6 +185,7 @@ export async function startMcpServer(opts: StartMcpServerOptions): Promise<McpSe
       remoteAddress: req.socket.remoteAddress ?? "",
     };
     if (!(await approve(info))) throw new HttpError(403, `Client "${info.name}" was not approved`);
+    opts.onClientSession?.({ client: info.name, claudeConfigDir: reportedClaudeConfigDir(req) });
 
     const server = createMcpServer({
       controller: opts.controller,

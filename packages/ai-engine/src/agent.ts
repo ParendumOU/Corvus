@@ -302,6 +302,8 @@ export interface ClaudeCliAgentOptions {
   cliPath?: string;
   /** Hard limit for one turn, in ms. Default 120000. */
   timeoutMs?: number;
+  /** Extra environment for the CLI process (for example CLAUDE_CONFIG_DIR to pick an account). */
+  env?: Record<string, string>;
 }
 
 const TOOL_CALL_RE = /```json\s*([\s\S]*?)```/g;
@@ -433,7 +435,7 @@ export function createClaudeCliAgentProvider(opts: ClaudeCliAgentOptions): Agent
       const { system, user, image } = renderTranscript(req.messages, req.tools, { system: req.system, images: "attach" });
       const child = spawnCli(cliPath, buildClaudeCliAgentArgs(opts.model, system, image !== null), {
         cwd: tmpdir(),
-        env: { ...process.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(req.maxTokens + CLI_THINKING_HEADROOM) },
+        env: { ...process.env, ...opts.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(req.maxTokens + CLI_THINKING_HEADROOM) },
       });
       const kill = (): void => {
         if (child.exitCode === null) child.kill();

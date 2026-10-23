@@ -100,6 +100,11 @@ describe.skipIf(process.platform === "win32")("createClaudeCliProvider (fake bin
     await expect(collect(provider.answer({ prompt, maxOutputTokens: 400 }))).rejects.toThrow(/exited with code 2: boom/);
   });
 
+  it("passes extra environment to the CLI process", async () => {
+    const provider = createClaudeCliProvider({ model: "m", cliPath: fakeCli, env: { FAKE_CLAUDE_MODE: "error" } });
+    await expect(collect(provider.answer({ prompt, maxOutputTokens: 400 }))).rejects.toThrow(/Not logged in/);
+  });
+
   it("reports a missing binary", async () => {
     const provider = createClaudeCliProvider({ model: "m", cliPath: "/nonexistent/claude" });
     await expect(collect(provider.answer({ prompt, maxOutputTokens: 400 }))).rejects.toThrow(/not found/);

@@ -8,6 +8,8 @@ export interface ClaudeCliProviderOptions {
   cliPath?: string;
   /** Hard limit for one answer, in ms. Default 60000. */
   timeoutMs?: number;
+  /** Extra environment for the CLI process (for example CLAUDE_CONFIG_DIR to pick an account). */
+  env?: Record<string, string>;
 }
 
 /**
@@ -160,6 +162,7 @@ export function createClaudeCliProvider(opts: ClaudeCliProviderOptions): AnswerP
         cwd: tmpdir(),
         env: {
           ...process.env,
+          ...opts.env,
           // The CLI's output cap also counts thinking tokens, and hitting it makes Claude Code send a
           // second "continue" request that re-reads the whole prompt. Headroom avoids that.
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(req.maxOutputTokens + CLI_THINKING_HEADROOM),

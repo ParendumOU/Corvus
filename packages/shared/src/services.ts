@@ -13,6 +13,7 @@ export interface AiEngineConfig {
   apiKey?: string; // anthropic-api
   model?: string; // default "claude-haiku-5-5"
   claudeCliPath?: string; // claude-code-cli, default "claude"
+  claudeCliEnv?: Record<string, string>; // claude-code-cli: extra environment for the CLI process
   localBaseUrl?: string; // local, default "http://localhost:11434"
   localApi?: LocalModelApi; // local, default "ollama"
   retriever: RetrieverKind;

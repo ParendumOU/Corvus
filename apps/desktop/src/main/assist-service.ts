@@ -51,6 +51,7 @@ import { AssistPanelView } from "./assist-views";
 import { ASSIST_AGENT_SYSTEM } from "./agent-tools";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
+import { claudeCliEnv } from "../shared/settings";
 
 const MAX_MESSAGES = 40;
 const SUMMARY_CACHE = 40;
@@ -159,7 +160,7 @@ export class AssistService {
     if (this.testProvider !== undefined) return this.testProvider;
     const ai = this.ctx.settings.get().ai;
     const apiKey = this.ctx.settings.getSecret("anthropicApiKey");
-    const key = JSON.stringify([ai.provider, ai.model, ai.claudeCliPath, ai.localBaseUrl, ai.localApi, Boolean(apiKey), apiKey ? hash(apiKey) : ""]);
+    const key = JSON.stringify([ai.provider, ai.model, ai.claudeCliPath, claudeCliEnv(ai), ai.localBaseUrl, ai.localApi, Boolean(apiKey), apiKey ? hash(apiKey) : ""]);
     if (this.provider?.key !== key) {
       let value: AnswerProvider | null = null;
       try {
@@ -168,6 +169,7 @@ export class AssistService {
           apiKey,
           model: ai.model,
           claudeCliPath: ai.claudeCliPath || undefined,
+          claudeCliEnv: claudeCliEnv(ai),
           localBaseUrl: ai.localBaseUrl || undefined,
           localApi: ai.localApi,
           retriever: ai.retriever,
@@ -195,6 +197,7 @@ export class AssistService {
         apiKey: this.ctx.settings.getSecret("anthropicApiKey"),
         model: profile.model || ai.model,
         claudeCliPath: ai.claudeCliPath || undefined,
+        claudeCliEnv: claudeCliEnv(ai),
         localBaseUrl: ai.localBaseUrl || undefined,
         localApi: ai.localApi,
         retriever: ai.retriever,

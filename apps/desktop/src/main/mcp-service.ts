@@ -116,6 +116,7 @@ export class McpService {
       flows: () => this.flowRunner(),
       siteMemory: () => this.siteMemoryReader(),
       onClientConnect: (info) => this.approve(info),
+      onClientSession: (session) => this.noteClaudeSession(session),
       onToolCall: (event) => {
         this.record(event.client, event.tool, event.at);
         this.ctx.agents.toolCall(event);
@@ -148,6 +149,23 @@ export class McpService {
 
   private homeDir(): string {
     return process.env.CORVUS_HOME || path.join(os.homedir(), ".corvus");
+  }
+
+  /**
+   * Remembers the Claude Code config folder of the session that connected, for the CLI provider's
+   * "follow the Claude Code session" account. Only folders that exist are taken.
+   */
+  private noteClaudeSession(session: { client: string; claudeConfigDir: string | null }): void {
+    const dir = session.claudeConfigDir;
+    if (dir === null) return;
+    if (dir !== "") {
+      try {
+        if (!path.isAbsolute(dir) || !fs.statSync(dir).isDirectory()) return;
+      } catch {
+        return;
+      }
+    }
+    this.ctx.settings.update({ ai: { mcpClaudeConfigDir: dir, mcpClaudeClient: session.client, mcpClaudeAt: Date.now() } });
   }
 
   /** Path the stdio bridge / Claude Code plugin reads to find the running server. */

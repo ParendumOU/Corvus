@@ -8,6 +8,8 @@ export type TabLayout = "horizontal" | "vertical";
 /** Language of Corvus's own pages; "system" follows the operating system. */
 export type UiLanguageSetting = "system" | "en" | "es";
 export type UiLanguage = "en" | "es";
+/** Which Claude Code account the CLI provider runs as. */
+export type ClaudeAccountMode = "default" | "folder" | "mcp";
 /** Where the toolbar's home button goes. */
 export type HomePage = "corvus" | "google" | "bing" | "duckduckgo" | "yahoo" | "ecosia" | "brave" | "startpage" | "custom";
 
@@ -44,6 +46,18 @@ export interface Settings {
     provider: AIProviderKind;
     model: string;
     claudeCliPath: string;
+    /**
+     * Claude Code account for the CLI provider: the CLI's own default, a config folder
+     * (CLAUDE_CONFIG_DIR), or the folder of the Claude Code session last connected over MCP.
+     */
+    claudeAccount: ClaudeAccountMode;
+    claudeConfigDir: string;
+    /** Extra environment for the CLI process, one NAME=value per line. */
+    cliEnv: string;
+    /** Last Claude Code config folder an approved MCP client reported ("" = default), who and when (0 = never). */
+    mcpClaudeConfigDir: string;
+    mcpClaudeClient: string;
+    mcpClaudeAt: number;
     /** Local provider: model server root, e.g. http://localhost:11434 (Ollama). */
     localBaseUrl: string;
     /** Local provider: wire protocol the server speaks. */
@@ -189,7 +203,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     ai: {
       provider,
       model: env.CORVUS_AI_MODEL || DEFAULT_MODEL,
-      claudeCliPath: "claude",
+      claudeCliPath: "claude", claudeAccount: "default", claudeConfigDir: "", cliEnv: "", mcpClaudeConfigDir: "", mcpClaudeClient: "", mcpClaudeAt: 0,
       localBaseUrl: env.CORVUS_LOCAL_BASE_URL || "http://localhost:11434",
       localApi,
       retriever,
@@ -258,6 +272,7 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   if (!["horizontal", "vertical"].includes(merged.appearance.tabLayout)) merged.appearance.tabLayout = base.appearance.tabLayout;
   if (!["system", "light", "dark"].includes(merged.appearance.theme)) merged.appearance.theme = base.appearance.theme;
   if (!["system", "en", "es"].includes(merged.appearance.language)) merged.appearance.language = base.appearance.language;
+  if (!["default", "folder", "mcp"].includes(merged.ai.claudeAccount)) merged.ai.claudeAccount = base.ai.claudeAccount;
   if (!["corvus", "custom", ...Object.keys(HOME_PAGES)].includes(merged.appearance.homePage)) merged.appearance.homePage = base.appearance.homePage;
   if (!["anthropic-api", "claude-code-cli", "local"].includes(merged.ai.provider)) merged.ai.provider = base.ai.provider;
   if (!["ollama", "openai"].includes(merged.ai.localApi)) merged.ai.localApi = base.ai.localApi;
@@ -303,4 +318,26 @@ export function homePageUrl(appearance: Pick<Settings["appearance"], "homePage" 
     }
   }
   return HOME_PAGES[appearance.homePage];
+}
+
+/** NAME=value lines (blank lines and # comments ignored); later lines win. */
+export function parseEnvLines(text: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    const name = eq > 0 ? trimmed.slice(0, eq).trim() : "";
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) env[name] = trimmed.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+/** Extra environment for the Claude Code CLI: the person's variables, then the chosen account. */
+export function claudeCliEnv(ai: Settings["ai"]): Record<string, string> {
+  const env = parseEnvLines(ai.cliEnv);
+  if (ai.claudeAccount === "folder" && ai.claudeConfigDir.trim()) env.CLAUDE_CONFIG_DIR = ai.claudeConfigDir.trim();
+  // "" makes the CLI use its default folder even when Corvus itself runs with another one.
+  if (ai.claudeAccount === "mcp" && ai.mcpClaudeAt > 0) env.CLAUDE_CONFIG_DIR = ai.mcpClaudeConfigDir;
+  return env;
 }

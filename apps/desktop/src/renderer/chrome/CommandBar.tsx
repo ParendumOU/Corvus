@@ -29,6 +29,7 @@ import {
   IconStar,
 } from "../common/icons";
 import { Favicon } from "../common/ui";
+import { useHoverSelect } from "./hover-select";
 
 interface UiAction {
   action: PaletteAction;
@@ -64,6 +65,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
   const api = chromeApi();
   const [value, setValue] = useState("");
   const [selected, setSelected] = useState(0);
+  const hoverSelect = useHoverSelect(setSelected);
   const [suggestions, setSuggestions] = useState<UiAction[]>([]);
   const [localHits, setLocalHits] = useState<SemanticHit[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -267,7 +269,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
                 role="option"
                 aria-selected={i === selected}
                 className={`cmd-row ${i === selected ? "sel" : ""} ${u.action.kind === "agent" ? "agent" : ""}`}
-                onMouseEnter={() => setSelected(i)}
+                onMouseMove={hoverSelect(i)}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   u.run();

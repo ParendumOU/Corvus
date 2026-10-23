@@ -38,6 +38,12 @@ export const OPT_IN_SYNCED_SETTINGS = ["ai.searxngUrl", "ai.localBaseUrl"] as co
 export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "agent.siteMemory": "Whether this device learns about sites is its own choice (what it learned syncs as the site memory category).",
   "ai.claudeCliPath": "Path of an executable on this machine.",
+  "ai.claudeAccount": "Which local Claude Code account this machine's CLI runs as.",
+  "ai.claudeConfigDir": "Folder on this machine.",
+  "ai.cliEnv": "Environment of a process on this machine; may hold machine-specific values.",
+  "ai.mcpClaudeConfigDir": "Reported by a Claude Code session on this machine.",
+  "ai.mcpClaudeClient": "Reported by a Claude Code session on this machine.",
+  "ai.mcpClaudeAt": "Reported by a Claude Code session on this machine.",
   "downloads.directory": "Folder on this machine.",
   "passwords.agentAccess": "Lets AI agents use opted-in logins and 2FA codes on this device; a per-device security decision.",
   "passwords.keepassAutoLockMinutes": "KeePass databases are local files; their lock timeout is chosen per device.",

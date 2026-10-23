@@ -370,11 +370,12 @@ async function runFocusSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> 
   const web = win.createTab(`${url}ux-plain`);
   await waitForLoad(web.view.webContents);
   const opened: string[] = [];
+  let cmdTrouble: unknown = null;
   const scenario = async (name: string, open: () => Promise<boolean | void> | boolean | void): Promise<void> => {
     await focusPage(win, web);
     const before = new Set(win.tabIds());
     if ((await open()) === false) {
-      check(`new tab focuses the omnibox: ${name}`, false, "could not trigger");
+      check(`new tab focuses the omnibox: ${name}`, false, { reason: "could not trigger", detail: cmdTrouble });
       return;
     }
     const tab = await settleNewTab(win, before);
@@ -395,8 +396,24 @@ async function runFocusSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> 
     // Park the pointer away from where the bar opens: hovering a row selects it.
     chrome.sendInputEvent({ type: "mouseMove", x: 2, y: 2 });
     win.runCommand({ type: "command-palette" });
-    if (!(await waitForJs(chrome, "document.activeElement?.classList.contains('cmd-input')"))) return false;
-    if (!(await waitForJs(chrome, "document.querySelector('.cmd-row.sel .cmd-title')?.textContent === 'New tab'"))) return false;
+    if (!(await waitForJs(chrome, "document.activeElement?.classList.contains('cmd-input')"))) {
+      cmdTrouble = await chrome.executeJavaScript("({ step: 'focus', active: document.activeElement?.className ?? null, open: Boolean(document.querySelector('.cmdbar')) })");
+      return false;
+    }
+    // Move the selection to the command, so the result does not depend on which row the bar lists first.
+    const selected = "document.querySelector('.cmd-row.sel .cmd-title')?.textContent === 'New tab'";
+    await waitForJs(chrome, "document.querySelector('.cmd-row.sel')");
+    for (let i = 0; i < 12 && !(await chrome.executeJavaScript(selected)); i++) {
+      chrome.sendInputEvent({ type: "keyDown", keyCode: "Down" });
+      chrome.sendInputEvent({ type: "keyUp", keyCode: "Down" });
+      await sleep(60);
+    }
+    if (!(await waitForJs(chrome, selected, 2000))) {
+      cmdTrouble = await chrome.executeJavaScript(
+        "({ step: 'select', value: document.querySelector('.cmd-input')?.value, rows: [...document.querySelectorAll('.cmd-row .cmd-title')].slice(0, 5).map((e) => e.textContent), sel: document.querySelector('.cmd-row.sel .cmd-title')?.textContent ?? null })",
+      );
+      return false;
+    }
     chrome.sendInputEvent({ type: "keyDown", keyCode: "Return" });
     return true;
   });

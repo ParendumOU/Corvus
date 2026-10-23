@@ -248,7 +248,24 @@ export const ES: Record<string, string> = {
   "No OS keychain available: the key is kept in memory until Corvus quits.":
     "No hay llavero del sistema: la clave se guarda en memoria hasta que cierres Corvus.",
   "Claude CLI path": "Ruta del CLI de Claude",
-  "Executable used for `claude -p`.": "Ejecutable que se usa para `claude -p`.",
+  "Executable used for `claude -p`, or a wrapper around it.": "Ejecutable que se usa para `claude -p`, o un envoltorio que lo lanza.",
+  "Claude Code account": "Cuenta de Claude Code",
+  "Claude Code picks the account from its config folder (CLAUDE_CONFIG_DIR). Follow the connected session to use the account of the Claude Code session that drives Corvus over MCP; it updates when that session reconnects.":
+    "Claude Code elige la cuenta según su carpeta de configuración (CLAUDE_CONFIG_DIR). Si sigues la sesión conectada, se usa la cuenta de la sesión de Claude Code que maneja Corvus por MCP; se actualiza cuando esa sesión se vuelve a conectar.",
+  "Your default Claude Code login": "Tu sesión de Claude Code por defecto",
+  "A config folder": "Una carpeta de configuración",
+  "Follow the Claude Code session connected over MCP": "Seguir la sesión de Claude Code conectada por MCP",
+  "Config folder": "Carpeta de configuración",
+  "The CLAUDE_CONFIG_DIR of the account, for example C:\\Users\\you\\.claude-work.":
+    "El CLAUDE_CONFIG_DIR de la cuenta, por ejemplo C:\\Users\\tu\\.claude-trabajo.",
+  Following: "Siguiendo",
+  "{folder} · from {client}, {time}": "{folder} · de {client}, {time}",
+  "Claude Code's default folder": "la carpeta por defecto de Claude Code",
+  "No Claude Code session has connected yet; the default login is used until one does.":
+    "Todavía no se ha conectado ninguna sesión de Claude Code; hasta entonces se usa la sesión por defecto.",
+  "Environment variables": "Variables de entorno",
+  "Optional. One NAME=value per line, added to the Claude Code CLI process (proxy, base URL and so on). They stay on this device.":
+    "Opcional. Una línea NOMBRE=valor por variable, que se añaden al proceso del CLI de Claude Code (proxy, URL base, etc.). Se quedan en este dispositivo.",
   "Local API": "API local",
   "Ollama speaks its own API; llama.cpp, LM Studio and vLLM speak the OpenAI-compatible one.":
     "Ollama usa su propia API; llama.cpp, LM Studio y vLLM usan la compatible con OpenAI.",
