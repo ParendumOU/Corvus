@@ -11,7 +11,7 @@ The website (https://corvus.parendum.com) links to
 `Corvus-Setup-<v>.exe`, `Corvus-Portable-<v>.exe`, `Corvus-<v>-x86_64.AppImage`,
 `corvus_<v>_amd64.deb` (`test/update-feed.test.ts` pins the patterns in `electron-builder.yml`).
 
-Current: `v0.15.0` (Windows + Linux, unsigned), draft. Corvus for mobile: `mobile-v0.3.0` (Android preview, pre-release), published 2026-10-25.
+Current: `v0.15.0` (Windows + Linux, unsigned), published 2026-10-25. Corvus for mobile: `mobile-v0.3.0` (Android preview, pre-release), published 2026-10-25.
 Previous tags: `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
 
 ---
