@@ -159,6 +159,10 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "extensions.menu": (w, id, x, y) => showExtensionMenu(w, str(id, "id"), num(x, "x"), num(y, "y")),
     "adblock.setEnabled": (w, enabled) => w.setAdblockEnabled(enabled === true),
     "adblock.pauseSite": (w, paused) => w.pauseAdblockSite(paused === true),
+    "adblock.pickElement": (w) => {
+      const tab = w.activeTab();
+      if (tab) void ctx.adblock.pickElement(w, tab);
+    },
     "split.with": (w, tabId) => w.enterSplit(w.activeTab()?.id ?? str(tabId, "tab"), str(tabId, "tab")),
     "split.focus": (w, tabId) => w.focusSplitPane(str(tabId, "tab")),
     "split.exit": (w) => w.exitSplit(),
@@ -277,6 +281,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "adblock.removeAllowed": ["settings"],
   "adblock.update": ["settings"],
   "adblock.setOptions": ["settings"],
+  "adblock.setUserFilters": ["settings"],
   "clipboard.write": ["settings", "passwords"],
   "watch.list": ["watches"],
   "watch.add": ["watches"],
@@ -513,6 +518,10 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },
     "adblock.update": async (c) => c.profile.adblock.view(await ctx.adblock.updateNow()),
+    "adblock.setUserFilters": (c, text) => {
+      c.profile.adblock.setUserFilters(str(text ?? "", "filters", 1_000_000));
+      return c.profile.adblock.view(ctx.adblock.listsInfo());
+    },
     "adblock.setOptions": (c, patch) => {
       const p = (patch ?? {}) as Record<string, unknown>;
       c.profile.adblock.setOptions({

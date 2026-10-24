@@ -166,6 +166,17 @@ body,
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+/* A sleeping tab (its page unloaded to save memory) fades until it wakes. */
+.tab.sleeping:not(.active) .tab-icon,
+.tab.sleeping:not(.active) .tab-title,
+.v-tab.sleeping:not(.active) .tab-icon,
+.v-tab.sleeping:not(.active) .v-tab-title {
+  opacity: 0.5;
+}
+.tab.sleeping:not(.active) .tab-icon,
+.v-tab.sleeping:not(.active) .tab-icon {
+  filter: grayscale(1);
+}
 
 .tab-close {
   display: inline-flex;

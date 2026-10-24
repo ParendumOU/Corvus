@@ -6,6 +6,16 @@ import { buildStripRows } from "../../shared/tab-strip-view";
 import { chromeApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconClose, IconPlus, IconSparkle, IconVolume } from "../common/icons";
 import { Favicon } from "../common/ui";
+import { formatMemory } from "../../shared/tab-sleep";
+
+/** A tab's hover text: its title, then who drives it, whether it sleeps, or what memory it uses. */
+function tabTooltip(tab: TabView): string {
+  const lines = [tab.title || tab.url];
+  if (tab.agentControlled) lines.push("Controlled by an AI agent");
+  if (tab.sleeping) lines.push("Sleeping to save memory: it wakes up where it was");
+  else if (tab.memoryKB) lines.push(`Memory: ${formatMemory(tab.memoryKB)}`);
+  return lines.join("\n");
+}
 
 const TAB_MIME = "application/x-corvus-tab";
 const GROUP_MIME = "application/x-corvus-group";
@@ -199,6 +209,7 @@ function Tab({
     tab.pinned ? "pinned" : "",
     color ? "grouped" : "",
     tab.agentControlled ? "agent" : "",
+    tab.sleeping ? "sleeping" : "",
     hint ? `drop-${hint}` : "",
   ].join(" ");
 
@@ -207,7 +218,7 @@ function Tab({
       className={classes}
       role="tab"
       aria-selected={tab.active}
-      title={tab.agentControlled ? `${tab.title}\nControlled by an AI agent` : tab.title}
+      title={tabTooltip(tab)}
       style={{ "--group-color": color } as CSSProperties}
       draggable
       onDragStart={(e) => {
@@ -379,6 +390,7 @@ function VTab({
     tab.pinned ? "pinned" : "",
     grouped ? "grouped" : "",
     tab.agentControlled ? "agent" : "",
+    tab.sleeping ? "sleeping" : "",
     hint ? `drop-${hint}` : "",
   ].join(" ");
   return (
@@ -386,7 +398,7 @@ function VTab({
       className={classes}
       role="tab"
       aria-selected={tab.active}
-      title={tab.agentControlled ? `${tab.title}\nControlled by an AI agent` : tab.title || tab.url}
+      title={tabTooltip(tab)}
       style={{ "--group-color": color } as CSSProperties}
       draggable
       onDragStart={(e) => {

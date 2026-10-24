@@ -48,6 +48,8 @@ import {
   type RawPage,
 } from "./assist-scripts";
 import { AssistPanelView } from "./assist-views";
+import { readVideoTranscript, seekVideo } from "./youtube-transcript";
+import { youTubeVideoId } from "../shared/youtube";
 import { ASSIST_AGENT_SYSTEM } from "./agent-tools";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
@@ -73,6 +75,8 @@ interface TabAssist {
   runId: string | null;
   translation: "none" | "translated" | "working";
   translatedUrl: string;
+  /** The video last read on this tab: its address and where each cited stretch starts (s). */
+  video?: { url: string; starts: number[] };
 }
 
 type GroupsInput = Array<{ name: string; color: string; tabIds: string[] }>;
@@ -555,9 +559,35 @@ export class AssistService {
   }
 
   async jumpToSection(win: BrowserWindowCtl, index: number): Promise<void> {
-    const wc = win.activeTab()?.view.webContents;
-    if (!wc || wc.isDestroyed()) return;
+    const tab = win.activeTab();
+    const wc = tab?.view.webContents;
+    if (!tab || !wc || wc.isDestroyed()) return;
+    // A video's sections are stretches of its transcript: jump the video, not the page.
+    const video = this.tabs.get(tab.id)?.video;
+    const start = video && video.url === wc.getURL() ? video.starts[index] : undefined;
+    if (start !== undefined) {
+      await seekVideo(wc, start);
+      return;
+    }
     await this.exec(wc, jumpToSectionScript(index)).catch(() => false);
+  }
+
+  /**
+   * What Summarize and Ask read: on a video page with captions, the transcript in timestamped
+   * stretches (remembered for jumps); otherwise the page's own sections.
+   */
+  private async readForAssist(wc: WebContents, entry: TabAssist): Promise<RawPage & { video?: boolean }> {
+    const url = wc.getURL();
+    if (youTubeVideoId(url)) {
+      const transcript = await readVideoTranscript(wc, this.lang());
+      if (transcript) {
+        entry.video = { url, starts: transcript.chunks.map((c) => c.start) };
+        const sections = transcript.chunks.map((c) => ({ heading: c.heading, text: c.text }));
+        return { url, title: transcript.title, lang: "", sections, words: sections.reduce((n, s) => n + s.text.split(/\s+/).length, 0), video: true };
+      }
+    }
+    delete entry.video;
+    return this.readPage(wc);
   }
 
   /**
@@ -639,9 +669,10 @@ export class AssistService {
 
       if (kind === "summarize" || kind === "ask") {
         if (wc.isDestroyed() || !isReadable(wc.getURL())) throw new Error("Corvus Assist can only read web pages.");
-        const page = await this.readPage(wc);
+        const page = await this.readForAssist(wc, entry);
         sections = page.sections.map((s) => s.heading);
         const fullText = page.sections.map((s) => s.text).join(" ");
+        if (page.video) update({ video: true });
         if (kind === "summarize") {
           update({ sections, readingMinutes: readingMinutes(fullText) });
           task = { kind, page, lang };

@@ -1,5 +1,10 @@
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import type { AddressInfo } from "node:net";
+import os from "node:os";
+import path from "node:path";
 import { nativeTheme, type WebContents } from "electron";
 import type { AnswerProvider, ProviderEvent } from "@corvus/ai-engine";
 import type { OverlayEvent } from "../shared/assist-ipc";
@@ -65,11 +70,37 @@ function replyFor(system: string, user: string): string {
   return ASK;
 }
 
+/** The last prompt the fake provider was given (what Assist actually sent). */
+let lastUserPrompt = "";
+
+// A stand-in YouTube watch page: a player object with captions and a seek that records calls.
+const WATCH_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Ravens explained - YouTube</title></head><body>
+<div id="movie_player"></div>
+<script>
+window.__seeks = [];
+const player = document.getElementById("movie_player");
+player.getPlayerResponse = () => ({
+  videoDetails: { videoId: "ravens12345", title: "Ravens explained" },
+  captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: "/api/timedtext?v=ravens12345&lang=en", languageCode: "en" }] } },
+});
+player.seekTo = (t) => window.__seeks.push(t);
+player.playVideo = () => {};
+</script></body></html>`;
+
+const CAPTIONS = JSON.stringify({
+  events: [
+    { tStartMs: 0, segs: [{ utf8: "Ravens are large black birds." }] },
+    { tStartMs: 70_000, segs: [{ utf8: "They can solve puzzles." }] },
+    { tStartMs: 140_000, segs: [{ utf8: "They mate for life." }] },
+  ],
+});
+
 function fakeProvider(): AnswerProvider {
   return {
     kind: "anthropic-api",
     model: "claude-haiku-5-5",
     async *answer(req): AsyncGenerator<ProviderEvent> {
+      lastUserPrompt = req.prompt.user;
       const reply = replyFor(req.prompt.system, req.prompt.user);
       for (const part of chunk(reply)) {
         if (req.signal?.aborted) return;
@@ -103,7 +134,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void> {
   const { win, check, capture } = h;
   const themeBefore = nativeTheme.themeSource;
-  const server = http.createServer((req, res) => {
+  const closers: Array<() => void> = [];
+  const server = http.createServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(PAGE);
   });
@@ -173,6 +205,35 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
     const restored = (await translateState("offer")) && (await poll(pageTab.view.webContents, `document.querySelector('h1').textContent === ${JSON.stringify(original)}`));
     check("show original puts the page's own text back", restored, win.state().translate);
     ctx.settings.update({ translate: { targetLanguage: "", offer: true } });
+
+    // A YouTube video: Summarize reads its captions as timestamped stretches, and a cited stretch
+    // jumps the video to its moment.
+    // youtube.com is HSTS-preloaded: the stand-in is served over HTTPS with a throwaway certificate.
+    const tls = selfSignedCert("www.youtube.com");
+    const videoServer = https.createServer(tls ?? {}, (req, res) => {
+      res.writeHead(200, { "Content-Type": req.url?.startsWith("/api/timedtext") ? "application/json" : "text/html; charset=utf-8" });
+      res.end(req.url?.startsWith("/api/timedtext") ? CAPTIONS : WATCH_PAGE);
+    });
+    await new Promise<void>((resolve) => videoServer.listen(0, "127.0.0.1", resolve));
+    closers.push(() => videoServer.close());
+    const port = (videoServer.address() as AddressInfo).port;
+    const videoTab = win.createTab(`https://www.youtube.com:${port}/watch?v=ravens12345`, { activate: true });
+    extraTabs.push(videoTab.id);
+    await poll(videoTab.view.webContents, "document.getElementById('movie_player') && window.__seeks");
+    lastUserPrompt = "";
+    ctx.assist.activeAction(win, "summarize");
+    const videoSummary = await poll(panel, "document.querySelectorAll('.msg.summary .tldr').length > 0");
+    check(
+      "assist summarizes a video from its captions",
+      videoSummary && lastUserPrompt.includes("kind: video transcript") && lastUserPrompt.includes("[3] 2:20") && lastUserPrompt.includes("They mate for life."),
+      lastUserPrompt.slice(0, 400),
+    );
+    await ctx.assist.jumpToSection(win, 1);
+    const seeks = (await videoTab.view.webContents.executeJavaScript("window.__seeks")) as number[];
+    check("a cited stretch jumps the video to its moment", JSON.stringify(seeks) === "[70]", seeks);
+    await capture("assist-video-summary", panel);
+    ctx.assist.clear(win);
+    win.activate(pageTab.id);
 
     // Agents timeline: connect a client and record a realistic run.
     nativeTheme.themeSource = "light";
@@ -263,7 +324,21 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
     for (const id of extraTabs) win.closeTab(id);
     win.closeTab(pageTab.id);
     server.close();
+    for (const close of closers) close();
   }
+}
+
+/** A throwaway self-signed certificate for `host` (openssl, as in the Docker image), or null. */
+function selfSignedCert(host: string): { key: Buffer; cert: Buffer } | null {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-smoke-tls-"));
+  const key = path.join(dir, "key.pem");
+  const cert = path.join(dir, "cert.pem");
+  const made = spawnSync(
+    "openssl",
+    ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "2", "-subj", `/CN=${host}`, "-addext", `subjectAltName=DNS:${host}`],
+    { stdio: "ignore" },
+  );
+  return made.status === 0 ? { key: fs.readFileSync(key), cert: fs.readFileSync(cert) } : null;
 }
 
 /** A short, realistic agent run so the timeline and clients list have content. */

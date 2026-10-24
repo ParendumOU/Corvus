@@ -138,6 +138,25 @@ export interface AdblockView {
   annoyances: boolean;
   /** Remove tracking parameters (utm_*, fbclid, gclid, ...) from the addresses you open. */
   cleanUrls: boolean;
+  /** Your own rules (uBlock Origin syntax), including elements hidden with "Hide this element". */
+  userFilters: string[];
+}
+
+export const MAX_USER_FILTERS = 2000;
+
+/** Your filter list as stored: one rule per line, trimmed, no blanks or repeats, capped. */
+export function normalizeUserFilters(lines: readonly string[] | string): string[] {
+  const list = typeof lines === "string" ? lines.split(/\r?\n/) : lines;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const line = typeof raw === "string" ? raw.trim() : "";
+    if (!line || line.length > 1000 || seen.has(line)) continue;
+    seen.add(line);
+    out.push(line);
+    if (out.length >= MAX_USER_FILTERS) break;
+  }
+  return out;
 }
 
 /** The blocker's per-profile switches beyond on/off and the allow list. */

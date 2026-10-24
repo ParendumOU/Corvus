@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.6.0
+
+### Browser
+- **Hide anything on a page**: right-click > "Hide this element…" (or "Hide an element…" in the
+  shield popover) and pick it: a click chooses it, "Wider" or Up takes the element around it,
+  Enter hides it. It stays hidden on that site, as a rule in your own filter list.
+- **Your own filters**: Settings > Ad & tracker blocker > "My filters" lists your rules in
+  uBlock Origin syntax, including every element you hid; edit them or add your own.
+- **Sleeping tabs**: a background tab you have not looked at for an hour (Settings > Memory)
+  goes to sleep and gives its memory back; it comes back where it was, with its history and what
+  you typed in forms, when you return. Pinned tabs, tabs playing sound, tabs an AI agent uses
+  and pages where you typed stay awake. "Sleep to save memory" in the tab menu puts one to sleep
+  now, and hovering a tab shows the memory it uses.
+
+### Corvus Assist
+- **YouTube videos**: on a YouTube video, Summarize and Ask read what is said in it (its
+  captions) instead of the page around it, and every point cites the moment it comes from:
+  "▶ 1:10" plays the video from there.
+
 ## v0.5.0
 
 ### Browser

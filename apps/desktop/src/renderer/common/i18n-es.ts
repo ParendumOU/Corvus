@@ -145,6 +145,15 @@ export const ES: Record<string, string> = {
 
   // ------------------------------------------------------------------ startup and downloads
   "On startup": "Al iniciar",
+  Memory: "Memoria",
+  "Tabs you have not looked at for a while go to sleep: their page is unloaded to free memory and comes back where it was, with its history and what you typed in forms, as soon as you return. Hover a tab to see the memory it uses.":
+    "Las pestañas que llevas un rato sin mirar se duermen: su página se descarga para liberar memoria y vuelve tal como estaba, con su historial y lo que escribiste en los formularios, en cuanto regresas. Pasa el ratón por una pestaña para ver la memoria que usa.",
+  "Sleeping tabs": "Pestañas dormidas",
+  "Pinned tabs, tabs playing sound, tabs an AI agent is using and pages where you typed something stay awake.":
+    "Las pestañas fijadas, las que reproducen sonido, las que usa un agente de IA y las páginas donde escribiste algo se quedan despiertas.",
+  "Sleep after": "Dormir tras",
+  "{n} minutes": "{n} minutos",
+  "{n} hours": "{n} horas",
   "When Corvus starts": "Cuando se inicia Corvus",
   "Windows, tabs and tab groups are saved continuously, so they also come back after a crash.":
     "Las ventanas, pestañas y grupos de pestañas se guardan continuamente, así que también vuelven tras un cierre inesperado.",
@@ -199,6 +208,9 @@ export const ES: Record<string, string> = {
   "Cookie consent banners, newsletter pop-ups, app banners and other clutter, with the EasyList Cookie and uBlock Origin annoyances lists.":
     "Avisos de consentimiento de cookies, ventanas de suscripción, banners de apps y otros estorbos, con las listas EasyList Cookie y de molestias de uBlock Origin.",
   "Remove tracking from links": "Quitar el rastreo de los enlaces",
+  "My filters": "Mis filtros",
+  "Your own rules, one per line, in uBlock Origin syntax (example.com##.banner hides .banner on example.com). “Hide this element” on a page adds its rule here.":
+    "Tus propias reglas, una por línea, con la sintaxis de uBlock Origin (example.com##.banner oculta .banner en example.com). «Ocultar este elemento» en una página añade aquí su regla.",
   "Opens addresses without their tracking parameters (utm_*, fbclid, gclid, msclkid and similar), which only tell trackers where you came from.":
     "Abre las direcciones sin sus parámetros de rastreo (utm_*, fbclid, gclid, msclkid y similares), que solo sirven para que los rastreadores sepan de dónde vienes.",
   "Filter lists": "Listas de filtros",

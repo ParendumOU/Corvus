@@ -60,6 +60,8 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "webscope.maxBodyBytes": "Capture buffer size tuned to this machine.",
   "appearance.sidebarWidth": "Vertical tab sidebar width tuned to this screen.",
   "appearance.sidebarCollapsed": "Sidebar collapse is a per-device UI state.",
+  "memory.sleepTabs": "Memory pressure is a property of this machine.",
+  "memory.sleepAfterMinutes": "Tuned to this machine's memory.",
   "monitor.enabled": "Runs a background network fetcher on this device; a per-device decision.",
   "monitor.defaultIntervalMinutes": "Monitoring runs per device, so its cadence stays local.",
   "monitor.maxWatches": "Concurrency cap tuned to this machine.",

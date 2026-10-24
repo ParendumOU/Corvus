@@ -66,7 +66,7 @@ export class ExtensionWindowBridge implements ProfileDelegate {
 
   selectTab(webContents: WebContents): void {
     const found = this.ctx.windows.byTabWebContents(webContents);
-    found?.window.activate(found.tab.id);
+    if (found && !found.window.isQuietExtensionTab(webContents)) found.window.activate(found.tab.id);
   }
 
   removeTab(webContents: WebContents): void {

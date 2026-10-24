@@ -65,6 +65,19 @@ describe("compactPage", () => {
     const many: AssistPage = { ...PAGE, sections: Array.from({ length: 80 }, (_, i) => ({ heading: `S${i}`, text: "x" })) };
     expect(compactPage(many).sections).toHaveLength(ASSIST_LIMITS.maxSections);
   });
+
+  it("gives a video transcript a larger budget and tells the model what it reads", () => {
+    const talk: AssistPage = {
+      ...PAGE,
+      video: true,
+      sections: Array.from({ length: 70 }, (_, i) => ({ heading: `${i}:00`, text: "said ".repeat(120) })),
+    };
+    const c = compactPage(talk, ASSIST_LIMITS.pageChars);
+    expect(c.sections).toHaveLength(ASSIST_LIMITS.videoSections);
+    expect(c.sections.reduce((n, s) => n + s.text.length, 0)).toBeGreaterThan(ASSIST_LIMITS.pageChars);
+    expect(buildAssistPrompt({ kind: "summarize", page: talk, lang: "en" }).user).toContain("kind: video transcript");
+    expect(buildAssistPrompt({ kind: "summarize", page: PAGE, lang: "en" }).user).not.toContain("kind: video");
+  });
 });
 
 describe("buildAssistPrompt", () => {

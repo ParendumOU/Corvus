@@ -30,6 +30,11 @@ const CONSENT_PAGE = `<!doctype html><html><head><title>Consent</title></head><b
 <h1>Cookie notice smoke</h1>
 <div id="onetrust-banner-sdk" style="display:block;position:fixed;bottom:0">We use cookies <button>Accept all</button></div>
 </body></html>`;
+// Something to hide with "Hide this element", next to something to keep.
+const PICKER_PAGE = `<!doctype html><html><head><title>Picker</title></head><body style="margin:40px">
+<p id="keep">The article.</p>
+<div class="promo" style="width:300px;height:80px;background:#fde68a">Buy now!</div>
+</body></html>`;
 export const DOWNLOAD_BODY = "corvus download smoke\n";
 
 /** Extra routes on the smoke server. Returns true when the request was handled. */
@@ -51,6 +56,10 @@ export function serveBrowserSmokeRoute(req: http.IncomingMessage, res: http.Serv
     case "/consent":
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(CONSENT_PAGE);
+      return true;
+    case "/picker":
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(PICKER_PAGE);
       return true;
     case "/report.txt":
       res.writeHead(200, { "Content-Type": "text/plain", "Content-Disposition": 'attachment; filename="report.txt"' });
@@ -75,6 +84,16 @@ async function waitFor<T>(fn: () => T | null | undefined | false, timeoutMs = 80
     await sleep(100);
   }
   return null;
+}
+
+/** Waits until a page expression is truthy (false after the timeout). */
+async function untilJs(wc: WebContents, expr: string, timeoutMs = 6000): Promise<boolean> {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    if ((await wc.executeJavaScript(`Boolean(${expr})`).catch(() => false)) === true) return true;
+    await sleep(100);
+  }
+  return false;
 }
 
 function waitForLoad(wc: WebContents): Promise<void> {
@@ -293,6 +312,50 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   const unfiltered = await consentState();
   check("with both options off the address and the notice stay", unfiltered.href === `${site}consent?utm_source=news&keep=1` && unfiltered.banner === "block", unfiltered);
   profile.adblock.setOptions({ annoyances: true, cleanUrls: true });
+
+  // "Hide this element": the picker takes a real click and Enter, the element hides at once and
+  // stays hidden on reload (a rule in the profile's filters); Escape cancels without a rule.
+  const pageWc = adTab.view.webContents;
+  const promoDisplay = (): Promise<string> =>
+    pageWc.executeJavaScript("getComputedStyle(document.querySelector('.promo')).display") as Promise<string>;
+  win.activate(adTab.id);
+  win.loadUrl(adTab.id, `${site}picker`);
+  await waitForLoad(pageWc);
+  await sleep(300);
+  const picking = ctx.adblock.pickElement(win, adTab);
+  await untilJs(pageWc, "document.querySelector('corvus-element-picker')");
+  const promo = (await pageWc.executeJavaScript(
+    "(() => { const r = document.querySelector('.promo').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 20) }; })()",
+  )) as { x: number; y: number };
+  pageWc.sendInputEvent({ type: "mouseMove", x: promo.x, y: promo.y });
+  pageWc.sendInputEvent({ type: "mouseDown", x: promo.x, y: promo.y, button: "left", clickCount: 1 });
+  pageWc.sendInputEvent({ type: "mouseUp", x: promo.x, y: promo.y, button: "left", clickCount: 1 });
+  await sleep(300);
+  await capture("element-picker", pageWc);
+  pageWc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+  const rule = await picking;
+  const hiddenNow = await promoDisplay();
+  const keepShown = (await pageWc.executeJavaScript("getComputedStyle(document.getElementById('keep')).display")) as string;
+  check("hide this element saves a site rule and hides it at once", rule === "corvus-smoke.test##div.promo" && hiddenNow === "none" && keepShown !== "none", {
+    rule,
+    hiddenNow,
+    keepShown,
+    filters: profile.adblock.userFilters(),
+  });
+  win.loadUrl(adTab.id, `${site}picker`);
+  await waitForLoad(pageWc);
+  await sleep(800);
+  check("a hidden element stays hidden after a reload", (await promoDisplay()) === "none");
+  const cancelling = ctx.adblock.pickElement(win, adTab);
+  await untilJs(pageWc, "document.querySelector('corvus-element-picker')");
+  pageWc.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+  const cancelled = await cancelling;
+  check("escape cancels the picker without a rule", cancelled === null && profile.adblock.userFilters().length === 1, profile.adblock.userFilters());
+  profile.adblock.setUserFilters("");
+  win.loadUrl(adTab.id, `${site}picker`);
+  await waitForLoad(pageWc);
+  await sleep(800);
+  check("removing the rule shows the element again", (await promoDisplay()) !== "none");
 
   const adblockSettings = win.createTab("corvus://settings/#adblock");
   await sleep(1500);

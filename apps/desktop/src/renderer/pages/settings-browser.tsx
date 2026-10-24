@@ -32,6 +32,39 @@ export function StartupSection({ view, update }: Props) {
   );
 }
 
+const SLEEP_AFTER_MINUTES = [15, 30, 60, 120, 240];
+
+export function MemorySection({ view, update }: Props) {
+  const m = view.settings.memory;
+  return (
+    <Section
+      id="memory"
+      title={t("Memory")}
+      description={t("Tabs you have not looked at for a while go to sleep: their page is unloaded to free memory and comes back where it was, with its history and what you typed in forms, as soon as you return. Hover a tab to see the memory it uses.")}
+    >
+      <Row label={t("Sleeping tabs")} hint={t("Pinned tabs, tabs playing sound, tabs an AI agent is using and pages where you typed something stay awake.")}>
+        <Toggle label={t("Sleeping tabs")} checked={m.sleepTabs} onChange={(v) => update({ memory: { sleepTabs: v } })} />
+      </Row>
+      <Row label={t("Sleep after")}>
+        <select
+          className="input"
+          value={m.sleepAfterMinutes}
+          disabled={!m.sleepTabs}
+          onChange={(e) => update({ memory: { sleepAfterMinutes: Number(e.target.value) } })}
+        >
+          {[...new Set([...SLEEP_AFTER_MINUTES, m.sleepAfterMinutes])]
+            .sort((a, b) => a - b)
+            .map((minutes) => (
+              <option key={minutes} value={minutes}>
+                {minutes < 60 ? t("{n} minutes", { n: minutes }) : t("{n} hours", { n: minutes / 60 })}
+              </option>
+            ))}
+        </select>
+      </Row>
+    </Section>
+  );
+}
+
 export function DownloadsSection({ view, update, setView }: Props & { setView: (v: SettingsView) => void }) {
   const d = view.settings.downloads;
   const [error, setError] = useState<string | null>(null);

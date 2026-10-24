@@ -262,6 +262,16 @@ body,
   background: var(--accent);
   color: var(--accent-text);
 }
+/* A video citation shows the timestamp it plays from. */
+.cite.time {
+  padding: 0 5px;
+  font-weight: 650;
+}
+.cite.time::before {
+  content: "▶";
+  margin-right: 3px;
+  font-size: 7px;
+}
 .rich p {
   margin: 0 0 9px;
   text-wrap: pretty;

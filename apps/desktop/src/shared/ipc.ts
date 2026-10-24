@@ -44,6 +44,10 @@ export interface TabView extends Tab {
   webContentsId: number;
   crashed: boolean;
   audible: boolean;
+  /** Asleep to save memory; it wakes up where it was when shown. */
+  sleeping?: boolean;
+  /** Memory of the page's renderer process, in KB (shared by the tabs of one site). */
+  memoryKB?: number;
 }
 
 export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, CommandBarWindowExtras {
@@ -132,6 +136,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "extensions.menu"(id: string, x: number, y: number): void;
   "adblock.setEnabled"(enabled: boolean): void;
   "adblock.pauseSite"(paused: boolean): void;
+  /** "Hide an element" from the shield: the picker runs in the active tab's page. */
+  "adblock.pickElement"(): void;
   /** The address bar's translate button: translate the page, or show its original again. */
   "translate.toggle"(): void;
   "split.with"(tabId: TabId): void;
@@ -346,6 +352,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "adblock.removeAllowed"(host: string): AdblockView;
   "adblock.update"(): AdblockView;
   "adblock.setOptions"(patch: Partial<AdblockOptions>): AdblockView;
+  /** Replaces the profile's own filter list (one rule per line). */
+  "adblock.setUserFilters"(text: string): AdblockView;
   "clipboard.write"(text: string): void;
   /** Reload the page that crashed in the calling tab (the recovery page calls this). */
   "crash.reload"(): void;

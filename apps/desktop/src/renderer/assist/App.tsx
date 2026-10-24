@@ -227,17 +227,19 @@ function Streaming() {
   return <div className="sheen-line" aria-label="Working" />;
 }
 
-function Cite({ n, sections }: { n: number; sections: string[] | undefined }) {
+function Cite({ n, sections, video }: { n: number; sections: string[] | undefined; video?: boolean | undefined }) {
   const heading = sections?.[n];
+  // A video's sections are stretches of its transcript: the chip shows and plays from their timestamp.
+  const title = heading ? (video ? `Play from ${heading}` : `Jump to “${heading}”`) : `Section ${n + 1}`;
   return (
-    <button className="cite" title={heading ? `Jump to “${heading}”` : `Section ${n + 1}`} onClick={() => void api().call("assist.jumpToSection", n)}>
-      {n + 1}
+    <button className={video ? "cite time" : "cite"} title={title} onClick={() => void api().call("assist.jumpToSection", n)}>
+      {video && heading ? heading : n + 1}
     </button>
   );
 }
 
 /** Paragraphs, "- " bullets, **bold** and [n] section citations. */
-function RichText({ text, sections }: { text: string; sections?: string[] }) {
+function RichText({ text, sections, video }: { text: string; sections?: string[]; video?: boolean | undefined }) {
   const inline = (line: string, key: string): ReactNode[] => {
     const out: ReactNode[] = [];
     const re = /\*\*([^*]+)\*\*|\[(\d+(?:\s*,\s*\d+)*)\]/g;
@@ -249,7 +251,7 @@ function RichText({ text, sections }: { text: string; sections?: string[] }) {
       else
         for (const part of m[2]!.split(",")) {
           const n = Number(part.trim()) - 1;
-          if (sections && n >= 0 && n < sections.length) out.push(<Cite key={`${key}c${i++}`} n={n} sections={sections} />);
+          if (sections && n >= 0 && n < sections.length) out.push(<Cite key={`${key}c${i++}`} n={n} sections={sections} video={video} />);
         }
       last = m.index! + m[0].length;
     }
@@ -295,7 +297,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
               <li key={i}>
                 <span>{p.text}</span>
                 {p.sections.map((n) => (
-                  <Cite key={n} n={n} sections={m.sections} />
+                  <Cite key={n} n={n} sections={m.sections} video={m.video} />
                 ))}
               </li>
             ))}
@@ -354,7 +356,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
         <article className="msg ask agent">
           <AgentSteps agent={agent} />
           {agent.approval && <AgentApproval agent={agent} />}
-          {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} /> : null}
+          {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} video={m.video} /> : null}
           {streaming && !agent.approval && <Streaming />}
           {agent.limit && (
             <p className="muted small">
@@ -382,7 +384,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
             <blockquote>{m.prompt}</blockquote>
           </>
         )}
-        {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} /> : streaming ? null : null}
+        {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} video={m.video} /> : streaming ? null : null}
         {streaming && <Streaming />}
         {failed}
         <Usage m={m} />

@@ -18,6 +18,7 @@ import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
 import { runChromeUiSmoke } from "./smoke-chrome-ui";
+import { runSleepSmoke } from "./smoke-sleep";
 import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
@@ -198,6 +199,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runSignInSmoke(ctx, { url, win, check });
     await runNewTabSmoke(ctx, { url, win, check, capture });
     await runChromeUiSmoke(ctx, { url, win, check, capture });
+    await runSleepSmoke(ctx, { url, win, check });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();

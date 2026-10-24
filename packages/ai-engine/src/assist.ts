@@ -16,6 +16,11 @@ export interface AssistPage {
   url: string;
   title: string;
   sections: PageSection[];
+  /**
+   * The sections are a video's transcript, one per stretch of time, each headed by the timestamp
+   * it starts at: a larger budget applies (speech is long) and the model is told what it reads.
+   */
+  video?: boolean;
 }
 
 export interface ChatTurn {
@@ -57,6 +62,9 @@ export interface AssistPrompt {
 export const ASSIST_LIMITS = {
   pageChars: 6000,
   maxSections: 40,
+  /** A video transcript (AssistPage.video): about half an hour of speech, in up to 60 stretches. */
+  videoChars: 32000,
+  videoSections: 60,
   headingChars: 90,
   questionChars: 600,
   selectionChars: 2000,
@@ -229,10 +237,11 @@ export function compactPage(page: AssistPage, maxChars: number = ASSIST_LIMITS.p
   } catch {
     host = "";
   }
+  if (page.video) maxChars = Math.max(maxChars, ASSIST_LIMITS.videoChars);
   const sections = page.sections
     .map((s) => ({ heading: oneLine(s.heading, ASSIST_LIMITS.headingChars), text: block(s.text, maxChars) }))
     .filter((s) => s.text || s.heading);
-  const kept = sections.slice(0, ASSIST_LIMITS.maxSections);
+  const kept = sections.slice(0, page.video ? ASSIST_LIMITS.videoSections : ASSIST_LIMITS.maxSections);
   const totalBefore = sections.reduce((n, s) => n + s.text.length, 0);
   const budgets = allocateBudget(
     kept.map((s) => s.text.length),
@@ -251,7 +260,8 @@ export function compactPage(page: AssistPage, maxChars: number = ASSIST_LIMITS.p
 function pageBlock(page: AssistPage, maxChars: number): string {
   const c = compactPage(page, maxChars);
   const lines = c.sections.map((s, i) => `[${i + 1}] ${s.heading || "(untitled)"}\n${s.text}`);
-  return `<page>\ntitle: ${c.title}\nsite: ${c.host}${c.truncated ? "\n(excerpt)" : ""}\n${lines.join("\n")}\n</page>`;
+  const kind = page.video ? "\nkind: video transcript; each numbered section is the speech from the timestamp in its heading" : "";
+  return `<page>\ntitle: ${c.title}\nsite: ${c.host}${kind}${c.truncated ? "\n(excerpt)" : ""}\n${lines.join("\n")}\n</page>`;
 }
 
 /** Flowing article text (headings + prose) for the rewrite/translate reader tools. */

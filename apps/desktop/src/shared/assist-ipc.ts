@@ -44,6 +44,8 @@ export interface AssistMessage {
   summary?: { tldr: string; points: Array<{ text: string; sections: number[] }> };
   /** Section headings the answer can cite as [n] (summaries and answers). */
   sections?: string[];
+  /** The sections are a video's transcript: their headings are timestamps a citation plays from. */
+  video?: boolean;
   readingMinutes?: number;
   /** Page translation: how many passages were translated. */
   translated?: number;

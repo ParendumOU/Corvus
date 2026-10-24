@@ -6,6 +6,7 @@ import type { AgentRunner } from "./agent-runner";
 import type { AnnotationService } from "./annotation-service";
 import type { AssistService } from "./assist-service";
 import type { TranslateService } from "./translate-service";
+import type { TabSleeper } from "./tab-sleeper";
 import type { AutofillService } from "./autofill-service";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
@@ -65,4 +66,6 @@ export interface AppContext {
   secretFills: SecretFillGuard;
   annotations: AnnotationService;
   crashReporter: CrashReporter;
+  /** Puts background tabs to sleep and keeps per-tab memory figures. */
+  tabSleeper: TabSleeper;
 }

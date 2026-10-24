@@ -9,6 +9,7 @@ import { AgentRunner } from "./agent-runner";
 import { AnnotationService } from "./annotation-service";
 import { AssistService } from "./assist-service";
 import { TranslateService } from "./translate-service";
+import { TabSleeper } from "./tab-sleeper";
 import { AutofillService } from "./autofill-service";
 import type { AppContext } from "./context";
 import { AgentCredentialService } from "./agent-credentials";
@@ -45,8 +46,13 @@ import { WindowManager } from "./window-manager";
 registerInternalScheme();
 app.setName("Corvus");
 
-// The smoke test also serves its pages as a non-local site (the ad blocker never touches loopback).
-if (process.env.CORVUS_SMOKE_TEST === "1") app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1");
+// The smoke test also serves its pages as a non-local site (the ad blocker never touches loopback)
+// and a stand-in YouTube watch page (video features key on youtube.com).
+if (process.env.CORVUS_SMOKE_TEST === "1") {
+  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP www.youtube.com 127.0.0.1");
+  // The YouTube stand-in is served over HTTPS (HSTS) with a throwaway certificate.
+  app.commandLine.appendSwitch("ignore-certificate-errors");
+}
 
 const userDataOverride = process.env.CORVUS_USER_DATA;
 if (userDataOverride) app.setPath("userData", path.resolve(userDataOverride));
@@ -109,6 +115,7 @@ async function main(): Promise<void> {
   ctx.agents = new AgentActivityService(ctx);
   ctx.assist = new AssistService(ctx);
   ctx.translate = new TranslateService(ctx);
+  ctx.tabSleeper = new TabSleeper(ctx);
   ctx.reader = new ReaderService(ctx);
   ctx.controller = new Controller(ctx);
   ctx.agentRunner = new AgentRunner(ctx);
@@ -228,6 +235,7 @@ async function main(): Promise<void> {
   void ctx.mcp.apply();
   ctx.sync.start();
   ctx.monitor.start();
+  ctx.tabSleeper.start();
   ctx.updater.startupCheck();
 
   if (process.env.CORVUS_SMOKE_TEST === "1") void runSmokeTest(ctx);

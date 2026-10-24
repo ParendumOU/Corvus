@@ -4,6 +4,7 @@ import { hostFromUrl } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
+import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
@@ -86,6 +87,8 @@ const SIDE_PANEL_WIDTH = 360;
 /** Vertical tabs: collapsed sidebar width, and the top band left for the window caption buttons. */
 const SIDEBAR_COLLAPSED_WIDTH = 52;
 const VERTICAL_TOP_INSET = TAB_STRIP_HEIGHT;
+/** Isolated world that checks whether a page has typed text before its tab sleeps. */
+const SLEEP_CHECK_WORLD_ID = 1999;
 
 export interface TabRuntime {
   id: TabId;
@@ -107,6 +110,10 @@ export interface TabRuntime {
   find: FindState | null;
   /** Its first page has committed (or failed); until then nothing in it can have been clicked. */
   committed: boolean;
+  /** Asleep: its page was unloaded to free memory; this history comes back when it is shown. */
+  asleep?: { entries: Electron.NavigationEntry[]; index: number };
+  /** When it was last on screen (epoch ms). */
+  lastShownAt?: number;
 }
 
 export interface OpenTabOptions {
@@ -169,6 +176,10 @@ export class BrowserWindowCtl {
   /** Where keyboard focus belongs: the chrome UI or a shown tab (restored after a stray grab). */
   private lastFocused: WebContents | null = null;
   private focusRestoreQueued = false;
+  /** Memory of each renderer process by OS pid, in KB (refreshed by the tab sleeper). */
+  private processMemory: ReadonlyMap<number, number> = new Map();
+  /** A sleeping tab's view while the extensions layer is told about it (see sleepTab). */
+  private quietExtensionTab: WebContents | null = null;
 
   constructor(
     private readonly ctx: AppContext,
@@ -362,13 +373,19 @@ export class BrowserWindowCtl {
       this.teardownSplit();
     }
     const visible = this.visibleTabIds();
+    const now = Date.now();
     for (const id of this.shownTabIds) {
-      if (!visible.includes(id)) this.tabs.get(id)?.view.setVisible(false);
-    }
-    for (const id of visible) {
-      if (this.shownTabIds.includes(id)) continue;
+      if (visible.includes(id)) continue;
       const tab = this.tabs.get(id);
       if (!tab) continue;
+      tab.view.setVisible(false);
+      tab.lastShownAt = now;
+    }
+    for (const id of visible) {
+      const tab = this.tabs.get(id);
+      if (!tab) continue;
+      tab.lastShownAt = now;
+      if (this.shownTabIds.includes(id)) continue;
       tab.view.setVisible(true);
       if (tab.pendingUrl) this.loadPending(tab);
     }
@@ -449,6 +466,8 @@ export class BrowserWindowCtl {
     const entry = this.strip.tabs.find((t) => t.id === id);
     if (!tab || !entry || tab.view.webContents.isDestroyed()) return null;
     const history = tab.view.webContents.navigationHistory;
+    const pid = tab.pendingUrl ? 0 : tab.view.webContents.getOSProcessId();
+    const memoryKB = pid ? this.processMemory.get(pid) : undefined;
     return {
       ...this.toTab(tab),
       canGoBack: history.canGoBack(),
@@ -456,6 +475,8 @@ export class BrowserWindowCtl {
       webContentsId: tab.view.webContents.id,
       crashed: tab.crashed,
       audible: tab.audible,
+      ...(tab.asleep ? { sleeping: true } : {}),
+      ...(memoryKB ? { memoryKB } : {}),
     };
   }
 
@@ -591,9 +612,8 @@ export class BrowserWindowCtl {
     return this.tabs.size;
   }
 
-  createTab(url: string, opts: OpenTabOptions = {}): TabRuntime {
-    const id = nextId("t");
-    url = pdfViewerRedirect(this.ctx, opts.agent === true, url) ?? url;
+  /** A hidden page view for a tab, in this window, below the chrome UI. */
+  private newTabView(url: string): WebContentsView {
     const view = new WebContentsView({
       webPreferences: {
         session: this.profile.session,
@@ -612,6 +632,13 @@ export class BrowserWindowCtl {
     view.setVisible(false);
     view.setBackgroundColor(pageBaseColor(url, nativeTheme.shouldUseDarkColors));
     this.win.contentView.addChildView(view, 0);
+    return view;
+  }
+
+  createTab(url: string, opts: OpenTabOptions = {}): TabRuntime {
+    const id = nextId("t");
+    url = pdfViewerRedirect(this.ctx, opts.agent === true, url) ?? url;
+    const view = this.newTabView(url);
 
     const lazy = opts.lazy === true && opts.activate === false;
     const tab: TabRuntime = {
@@ -733,8 +760,9 @@ export class BrowserWindowCtl {
       push();
     });
     wc.on("render-process-gone", (_e, details) => {
-      // "clean-exit" is our own teardown (closeTab/dispose), not a crash.
-      if (details.reason === "clean-exit" || this.disposed || !this.tabs.has(tab.id)) return;
+      // "clean-exit" is our own teardown (closeTab/dispose/sleepTab), not a crash; a page a
+      // sleeping tab let go of is no longer the tab's.
+      if (details.reason === "clean-exit" || this.disposed || !this.tabs.has(tab.id) || tab.view.webContents !== wc) return;
       this.clearUnresponsive(tab);
       this.ctx.crashReporter.record("tab-renderer-gone", { url: tab.url, reason: details.reason, exitCode: details.exitCode });
       this.enterCrashed(tab, details.reason);
@@ -742,7 +770,7 @@ export class BrowserWindowCtl {
     });
     wc.on("unresponsive", () => {
       this.ctx.crashReporter.record("tab-unresponsive", { url: tab.url });
-      if (tab.unresponsiveTimer || tab.crashed || this.disposed) return;
+      if (tab.unresponsiveTimer || tab.crashed || this.disposed || tab.view.webContents !== wc) return;
       tab.unresponsiveTimer = setTimeout(() => {
         tab.unresponsiveTimer = undefined;
         if (this.disposed || !this.tabs.has(tab.id) || tab.crashed) return;
@@ -964,9 +992,92 @@ export class BrowserWindowCtl {
     if (!url) return;
     delete tab.pendingUrl;
     tab.loading = true;
-    tab.view.webContents.loadURL(url).catch(() => {
+    const asleep = tab.asleep;
+    delete tab.asleep;
+    // A sleeping tab wakes with its whole history, scroll position and form values.
+    const load = asleep ? tab.view.webContents.navigationHistory.restore(asleep) : tab.view.webContents.loadURL(url);
+    load.catch(() => {
       // Reported via did-fail-load.
     });
+  }
+
+  /** Whether the tab can go to sleep right now, by what only its page knows (typed text). */
+  async pageIsEdited(id: TabId): Promise<boolean> {
+    const wc = this.tabs.get(id)?.view.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    return (await wc.executeJavaScriptInIsolatedWorld(SLEEP_CHECK_WORLD_ID, [{ code: EDITED_PAGE_SCRIPT }]).catch(() => true)) === true;
+  }
+
+  /**
+   * Puts a background tab to sleep: its history is kept, its page and renderer are released, and
+   * a fresh unloaded view takes its place; showing the tab restores the history. Refuses a tab
+   * that is on screen, already unloaded, or not a web page.
+   */
+  sleepTab(id: TabId): boolean {
+    const tab = this.tabs.get(id);
+    if (!tab || tab.pendingUrl || this.shownTabIds.includes(id) || !/^https?:/i.test(tab.url)) return false;
+    const old = tab.view;
+    const wc = old.webContents;
+    if (wc.isDestroyed()) return false;
+    const entries = wc.navigationHistory.getAllEntries();
+    const index = wc.navigationHistory.getActiveIndex();
+    if (entries.length === 0 || index < 0) return false;
+    this.clearUnresponsive(tab);
+    this.profile.adblock.forgetTab(wc.id);
+    this.ctx.translate.forget(id);
+    this.ctx.reader.forgetTab(id);
+    this.win.contentView.removeChildView(old);
+    wc.close();
+    tab.view = this.newTabView(tab.url);
+    tab.asleep = { entries, index };
+    tab.pendingUrl = tab.url;
+    tab.loading = false;
+    tab.committed = false;
+    tab.find = null;
+    this.wire(tab);
+    // The extensions layer makes a tab it is given active when it lost track of the active one
+    // (asking us to select it), which would wake this tab at once.
+    this.quietExtensionTab = tab.view.webContents;
+    try {
+      this.profile.extensions.addTab(tab.view.webContents, this.win);
+    } finally {
+      this.quietExtensionTab = null;
+    }
+    this.pushState();
+    return true;
+  }
+
+  /** The extensions layer is being told about a sleeping tab's new view: its select request is ours to ignore. */
+  isQuietExtensionTab(wc: WebContents): boolean {
+    return wc === this.quietExtensionTab;
+  }
+
+  /** What the tab sleeper weighs for each tab of this window. */
+  sleepCandidates(): SleepCandidate[] {
+    return this.strip.tabs.flatMap((entry) => {
+      const tab = this.tabs.get(entry.id);
+      if (!tab) return [];
+      return [
+        {
+          id: tab.id,
+          url: tab.url,
+          lastShownAt: tab.lastShownAt,
+          shown: this.shownTabIds.includes(tab.id),
+          pinned: entry.pinned,
+          audible: tab.audible,
+          loading: tab.loading,
+          agentControlled: tab.agentControlled,
+          crashed: tab.crashed,
+          unloaded: Boolean(tab.pendingUrl),
+        },
+      ];
+    });
+  }
+
+  /** Memory of each renderer process (by OS pid, in KB), shown next to the tabs using it. */
+  setProcessMemory(byPid: ReadonlyMap<number, number>): void {
+    this.processMemory = byPid;
+    this.pushState();
   }
 
   /** Show the in-tab recovery page over a crashed/hung renderer, keeping the tab's real URL. */

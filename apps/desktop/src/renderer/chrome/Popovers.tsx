@@ -572,6 +572,17 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
       <div className="popover-actions">
         <button
           className="btn small"
+          disabled={!state.active}
+          title="Choose something on this page to hide on this site from now on"
+          onClick={() => {
+            onClose();
+            void api.call("adblock.pickElement");
+          }}
+        >
+          Hide an element…
+        </button>
+        <button
+          className="btn small"
           onClick={() => {
             void api.call("tabs.openUrl", "corvus://settings/#adblock", "new-tab");
             onClose();

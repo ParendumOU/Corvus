@@ -9,7 +9,7 @@ import { setUiLanguage, t } from "../common/i18n";
 import { IconCopy, IconTrash } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
 import { SyncSection } from "./settings-sync";
-import { DownloadsSection, SitePermissionsSection, StartupSection } from "./settings-browser";
+import { DownloadsSection, MemorySection, SitePermissionsSection, StartupSection } from "./settings-browser";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 
@@ -889,6 +889,17 @@ function AdblockSection() {
           {lists?.updating ? t("Updating…") : t("Update now")}
         </button>
       </Row>
+      <Row
+        label={t("My filters")}
+        hint={t("Your own rules, one per line, in uBlock Origin syntax (example.com##.banner hides .banner on example.com). “Hide this element” on a page adds its rule here.")}
+      >
+        <LazyTextarea
+          value={(view?.userFilters ?? []).join("\n")}
+          rows={5}
+          placeholder={"example.com##.newsletter-popup\n||tracker.example^"}
+          onSave={(v) => run(api.call("adblock.setUserFilters", v))}
+        />
+      </Row>
       <Row label={t("Allowed sites")} hint={t("Sites where blocking is paused (chosen from the shield in the address bar).")}>
         {view && view.allowedSites.length === 0 && <span className="muted">{t("None")}</span>}
       </Row>
@@ -1115,6 +1126,7 @@ function SettingsPage() {
       [
         ["semantic-search", t("Find in my pages")],
         ["startup", t("On startup")],
+        ["memory", t("Memory")],
         ["downloads", t("Downloads")],
         ["passwords", t("Passwords")],
         ["site-permissions", t("Site permissions")],
@@ -1169,6 +1181,7 @@ function SettingsPage() {
           <PdfSection view={view} update={update} />
           <SemanticSearchSection view={view} update={update} />
           <StartupSection view={view} update={update} />
+          <MemorySection view={view} update={update} />
           <DownloadsSection view={view} update={update} setView={setView} />
           <PasswordsSection view={view} update={update} />
           <SitePermissionsSection />

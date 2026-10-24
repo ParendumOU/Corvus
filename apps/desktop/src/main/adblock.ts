@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { ipcMain, webContents as allWebContents, type IpcMainEvent, type IpcMainInvokeEvent, type Session, type WebContents } from "electron";
-import { Request, fromElectronDetails, type ElectronBlocker } from "@ghostery/adblocker-electron";
+import { ElectronBlocker, Request, fromElectronDetails } from "@ghostery/adblocker-electron";
 import {
   ADBLOCK_RESOURCE_SCHEME,
   ADBLOCK_SCRIPTLETS_CHANNEL,
@@ -17,6 +17,7 @@ import {
   bundleScriptlets,
   decodeDataUrl,
   isYouTubeHost,
+  normalizeUserFilters,
   addAllowed,
   hostFromUrl,
   isBlockablePageUrl,
@@ -32,9 +33,14 @@ import {
   type ScriptletsAnswer,
 } from "../shared/adblock";
 import { FALLBACK_FILTERS } from "./adblock-fallback";
-import { FilterSet, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
+import { FilterSet, ENGINE_CONFIG, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
+import { elementPickerScript, pickedFilter } from "./adblock-picker";
 import { JsonFile } from "./json-file";
 import { paths } from "./paths";
+import type { BrowserWindowCtl, TabRuntime } from "./window";
+
+/** Isolated world of the "Hide this element" picker. */
+const PICKER_WORLD_ID = 1998;
 
 const require_ = createRequire(import.meta.url);
 
@@ -83,6 +89,7 @@ interface AdblockFile {
   youtubeFallbackUntil?: number;
   annoyances?: boolean;
   cleanUrls?: boolean;
+  userFilters?: string[];
 }
 
 interface Attachment {
@@ -106,7 +113,7 @@ export class AdblockController {
       () => ({ version: 1, ...DEFAULT_ADBLOCK_SETTINGS }),
       (raw) => {
         const s = reviveAdblockSettings(raw);
-        const data = (raw ?? {}) as { youtubeFallbackUntil?: unknown; annoyances?: unknown; cleanUrls?: unknown };
+        const data = (raw ?? {}) as { youtubeFallbackUntil?: unknown; annoyances?: unknown; cleanUrls?: unknown; userFilters?: unknown };
         const until = data.youtubeFallbackUntil;
         return {
           version: 1,
@@ -114,6 +121,7 @@ export class AdblockController {
           allowed: s.allowed,
           annoyances: data.annoyances !== false,
           cleanUrls: data.cleanUrls !== false,
+          userFilters: Array.isArray(data.userFilters) ? normalizeUserFilters(data.userFilters.filter((l): l is string => typeof l === "string")) : [],
           ...(typeof until === "number" && until > Date.now() ? { youtubeFallbackUntil: until } : {}),
         };
       },
@@ -142,7 +150,20 @@ export class AdblockController {
 
   view(lists: AdblockListsInfo): AdblockView {
     const f = this.file.get();
-    return { enabled: f.enabled, allowedSites: f.allowed, lists, ...this.options() };
+    return { enabled: f.enabled, allowedSites: f.allowed, lists, ...this.options(), userFilters: this.userFilters() };
+  }
+
+  userFilters(): string[] {
+    return this.file.get().userFilters ?? [];
+  }
+
+  setUserFilters(lines: readonly string[] | string): void {
+    this.file.update((f) => ({ ...f, userFilters: normalizeUserFilters(lines) }));
+    this.emitter.emit("change");
+  }
+
+  addUserFilter(filter: string): void {
+    this.setUserFilters([...this.userFilters(), filter]);
   }
 
   onChange(listener: () => void): () => void {
@@ -232,6 +253,8 @@ export class AdblockService {
   private readonly annoyances: FilterSet;
   private readonly attachments: Attachment[] = [];
   private readonly cosmeticPreload = resolveCosmeticPreload();
+  /** Each profile's own rules as an engine, with the text it was built from. */
+  private readonly userEngines = new WeakMap<AdblockController, { text: string; engine: ElectronBlocker | null }>();
   /** $redirect stand-ins waiting to be loaded, by one-time token (oldest first). */
   private readonly standIns = new Map<string, { type: string; bytes: Uint8Array; at: number }>();
 
@@ -250,7 +273,49 @@ export class AdblockService {
 
   /** The engines that apply to a profile: ads and trackers, plus annoyances when it wants them. */
   private enginesFor(controller: AdblockController): ElectronBlocker[] {
-    return controller.options().annoyances ? [this.ads.blocker, this.annoyances.blocker] : [this.ads.blocker];
+    const engines = controller.options().annoyances ? [this.ads.blocker, this.annoyances.blocker] : [this.ads.blocker];
+    const own = this.userEngine(controller);
+    return own ? [...engines, own] : engines;
+  }
+
+  /** The profile's own rules as an engine, rebuilt when they change (they are few: parsing is quick). */
+  private userEngine(controller: AdblockController): ElectronBlocker | null {
+    const text = controller.userFilters().join("\n");
+    const cached = this.userEngines.get(controller);
+    if (cached?.text === text) return cached.engine;
+    let engine: ElectronBlocker | null = null;
+    try {
+      engine = text ? ElectronBlocker.parse(text, ENGINE_CONFIG) : null;
+    } catch {
+      engine = null;
+    }
+    this.userEngines.set(controller, { text, engine });
+    return engine;
+  }
+
+  /**
+   * "Hide this element": runs the picker in the tab's page (starting at a right-clicked point when
+   * given), saves the chosen element as this site's rule in the profile's filters and hides it at
+   * once. Resolves with the rule, or null when the picker was cancelled.
+   */
+  async pickElement(win: BrowserWindowCtl, tab: TabRuntime, at?: { x: number; y: number }): Promise<string | null> {
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return null;
+    const url = wc.getURL();
+    const host = hostFromUrl(url) ?? "";
+    const controller = this.controllerFor(wc.session);
+    if (!controller || !isBlockablePageUrl(url) || !host) return null;
+    win.activate(tab.id);
+    wc.focus();
+    const picked = (await wc.executeJavaScriptInIsolatedWorld(PICKER_WORLD_ID, [{ code: elementPickerScript(at ?? {}) }], true).catch(() => null)) as {
+      selector?: unknown;
+    } | null;
+    const filter = pickedFilter(host, picked?.selector);
+    if (!filter || wc.isDestroyed()) return null;
+    controller.addUserFilter(filter);
+    const selector = filter.slice(filter.indexOf("##") + 2);
+    await wc.insertCSS(`${selector} { display: none !important; }`, { cssOrigin: "user" }).catch(() => undefined);
+    return filter;
   }
 
   /** Binds blocking to a profile's session and wires its controller's counters. */

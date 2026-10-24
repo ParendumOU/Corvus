@@ -166,6 +166,7 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       ...(win.isSplit() ? [{ label: "Exit split", click: () => win.exitSplit() }] : []),
       { type: "separator" },
       { label: "Reload", click: () => win.reload(tabId) },
+      { label: "Sleep to save memory", enabled: tabId !== win.activeTab()?.id && /^https?:/.test(tab.url), click: () => win.sleepTab(tabId) },
       { label: "Duplicate", click: () => win.duplicate(tabId) },
       { label: pinned ? "Unpin" : "Pin", click: () => win.pin(tabId, !pinned) },
       {
@@ -348,6 +349,12 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       { label: "Translate this page", enabled: /^https?:/.test(wc.getURL()), click: () => void ctx.translate.translate(win, tab) },
       { label: "Watch this page for changes", enabled: /^https?:/.test(wc.getURL()), click: () => ctx.monitor.watchTab(win, { url: wc.getURL(), title: tab.title, ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}) }) },
     );
+    sep();
+  }
+  if (/^https?:/.test(wc.getURL()) && !params.isEditable) {
+    // params are in window pixels; the picker works in the page's CSS pixels.
+    const zoom = wc.getZoomFactor() || 1;
+    items.push({ label: "Hide this element…", click: () => void ctx.adblock.pickElement(win, tab, { x: params.x / zoom, y: params.y / zoom }) });
     sep();
   }
   const inspect: MenuItemConstructorOptions = { label: "Inspect", click: () => wc.inspectElement(params.x, params.y) };

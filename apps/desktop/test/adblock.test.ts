@@ -16,10 +16,12 @@ import {
   normalizeHost,
   removeAllowed,
   reviveAdblockSettings,
+  normalizeUserFilters,
   shouldBlockPage,
   stripTrackingParams,
   type AdblockSettings,
 } from "../src/shared/adblock";
+import { pickedFilter } from "../src/main/adblock-picker";
 
 const on: AdblockSettings = { enabled: true, allowed: [] };
 
@@ -46,6 +48,21 @@ describe("bundleScriptlets", () => {
 
   it("is empty when there is nothing to run", () => {
     expect(bundleScriptlets([])).toBe("");
+  });
+});
+
+describe("your own filters", () => {
+  it("are stored one rule per line, trimmed, without blanks or repeats", () => {
+    expect(normalizeUserFilters("  example.com##.a \n\n||ads.example^\r\nexample.com##.a\n")).toEqual(["example.com##.a", "||ads.example^"]);
+    expect(normalizeUserFilters([`x.com##${"a".repeat(1001)}`, "x.com##.b"])).toEqual(["x.com##.b"]);
+    expect(normalizeUserFilters(Array.from({ length: 2100 }, (_, i) => `x.com##.c${i}`))).toHaveLength(2000);
+  });
+
+  it("turn a picked element into this site's rule, refusing selectors that could break out", () => {
+    expect(pickedFilter("www.Example.com", " div.promo > a ")).toBe("example.com##div.promo > a");
+    expect(pickedFilter("news.example.org", "#banner")).toBe("news.example.org###banner");
+    for (const bad of ["", "a { color: red }", "a}b", "x\ny", "a##b", "/* x */", 7, null]) expect(pickedFilter("example.com", bad)).toBeNull();
+    expect(pickedFilter("bad host", ".x")).toBeNull();
   });
 });
 
