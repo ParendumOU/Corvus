@@ -6,6 +6,7 @@
 import type { TabId } from "@corvus/shared";
 import type { AgentCall, AgentClient } from "./agent-activity";
 import type { AssistAgentView } from "./assist-agent";
+import type { CompareCandidate, ComparisonTable } from "./compare";
 import type { AgentApprovalDecision } from "./command-bar-ipc";
 import type { GroupProposal, OrganizerProposal } from "./tab-organizer";
 import type { FlowApprovalDecision, FlowView, SiteMemoryPaneView, WorkflowDraftView } from "./flow-ipc";
@@ -21,7 +22,7 @@ export const ASSIST_MIN_WIDTH = 320;
 export const ASSIST_MAX_WIDTH = 640;
 export const ASSIST_DEFAULT_WIDTH = 380;
 
-export type AssistActionKind = "summarize" | "ask" | "explain" | "translate-selection" | "translate-page";
+export type AssistActionKind = "summarize" | "ask" | "explain" | "translate-selection" | "translate-page" | "write" | "compare";
 
 export interface AssistUsage {
   inputTokens: number;
@@ -51,6 +52,10 @@ export interface AssistMessage {
   translated?: number;
   /** Page translation: more passages are left after this batch. */
   more?: boolean;
+  /** "Write with Corvus AI": the text is for a field on `site`; Insert puts it there (once). */
+  write?: { site: string; inserted: boolean; gone?: boolean };
+  /** "Compare tabs": the table (pages as columns) and the verdict, once the reply is in. */
+  comparison?: ComparisonTable;
   /** The turn ran as a browser agent: its steps and any approval waiting for the person. */
   agent?: AssistAgentView;
   at: number;
@@ -66,6 +71,10 @@ export interface AssistTabView {
   messages: AssistMessage[];
   busy: boolean;
   translation: "none" | "translated" | "working";
+  /** A text field waits for what to write in it ("Write…" in its menu): the composer asks for that. */
+  writing: { site: string; excerpt: string } | null;
+  /** "Compare tabs" is choosing its tabs: the window's web pages, the ticked ones to compare. */
+  comparePicker: CompareCandidate[] | null;
   /** The chat can act in the browser (an agent provider is set up), so it works on any tab. */
   canAct: boolean;
 }
@@ -126,6 +135,18 @@ export interface AssistRpc {
   "assist.translateMore"(): void;
   "assist.restorePage"(): void;
   "assist.cancel"(): void;
+  /** What to write in the field waiting for it (see AssistTabView.writing). */
+  "assist.write"(request: string): void;
+  /** Stop waiting: the field is left as it is. */
+  "assist.cancelWrite"(): void;
+  /** Puts a written text into its field (the person approved it). */
+  "assist.insertWrite"(messageId: string): void;
+  "assist.copyText"(messageId: string): void;
+  /** Compares these tabs (2 to 6), with what matters to the person first. */
+  "assist.compare"(tabIds: TabId[], focus: string): void;
+  "assist.closeCompare"(): void;
+  /** Copies a comparison as a Markdown table. */
+  "assist.copyComparison"(messageId: string): void;
   "assist.clear"(): void;
   "assist.jumpToSection"(index: number): void;
   "assist.openSettings"(): void;

@@ -92,3 +92,16 @@ export function AssistMark({ size = 22 }: { size?: number }) {
     </svg>
   );
 }
+export const GlyphPen = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 20h4L19 9a2.1 2.1 0 0 0-4-4L4 16z" />
+    <path d="M13.5 6.5l4 4" />
+  </Svg>
+);
+export const GlyphCompare = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="7.5" height="14" rx="1.5" />
+    <rect x="13.5" y="5" width="7.5" height="14" rx="1.5" />
+    <path d="M5.5 9h2.5M5.5 12.5h2.5M16 9h2.5M16 12.5h2.5" />
+  </Svg>
+);

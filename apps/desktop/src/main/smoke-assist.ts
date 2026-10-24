@@ -5,7 +5,7 @@ import https from "node:https";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { nativeTheme, type WebContents } from "electron";
+import { clipboard, nativeTheme, type WebContents } from "electron";
 import type { AnswerProvider, ProviderEvent } from "@corvus/ai-engine";
 import type { OverlayEvent } from "../shared/assist-ipc";
 import type { AppContext } from "./context";
@@ -31,6 +31,26 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>
 <h2>Behaviour</h2><p>Pairs cooperate to steal food, play in flight and on the ground, and can mimic sounds from their environment, including human speech.</p>
 </article></body></html>`;
 
+/** A product page for "Compare tabs" ("/phone-a", "/phone-b"). */
+function phonePage(letter: string): string {
+  const specs: Record<string, [number, number]> = { a: [5000, 199], b: [4000, 149] };
+  const [battery, price] = specs[letter] ?? [3000, 99];
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Phone ${letter.toUpperCase()}</title></head><body><article>
+<h1>Phone ${letter.toUpperCase()}</h1><h2>Specs</h2><p>Battery ${battery} mAh. Price ${price} €. A phone with a bright screen and two cameras for everyday use.</p>
+</article></body></html>`;
+}
+
+/** A mail-like compose page: a textarea, a rich-text editor and a password field, each counting input events. */
+const COMPOSE_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Compose</title></head><body>
+<textarea id="body" rows="4" cols="60">Helo team,
+see you tomorow.</textarea>
+<div id="rich" contenteditable="true" style="min-height:40px;border:1px solid #ccc"></div>
+<input id="secret" type="password" value="hunter2">
+<script>
+window.__inputs = 0;
+for (const el of document.querySelectorAll("textarea, [contenteditable]")) el.addEventListener("input", () => window.__inputs++);
+</script></body></html>`;
+
 function chunk(text: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < text.length; i += 18) out.push(text.slice(i, i + 18));
@@ -55,6 +75,22 @@ const GROUPS = JSON.stringify({
 });
 
 function replyFor(system: string, user: string): string {
+  // The comparer: one column per page it was given, read back from the pages' own specs.
+  if (/Compare the numbered web pages/.test(system)) {
+    const pages = [...user.matchAll(/<page n="\d+">[\s\S]*?Battery (\d+) mAh[\s\S]*?Price (\d+) €[\s\S]*?<\/page>/g)];
+    return JSON.stringify({
+      rows: [
+        { label: "Battery", values: pages.map((p) => `${p[1]} mAh`) },
+        { label: "Price", values: pages.map((p) => `${p[2]} €`) },
+      ],
+      verdict: "Phone A lasts longer; Phone B costs less.",
+    });
+  }
+  // The writing helper: the field's text with its typos fixed, or a reply drafted for the request.
+  if (/writing helper inside a text field/.test(system)) {
+    if (/<request>/.test(user)) return "\"Thanks for the invitation, I will be there on Friday.\"";
+    return (/<text>\n([\s\S]*)\n<\/text>/.exec(user)?.[1] ?? "").replace("Helo", "Hello").replace("tomorow", "tomorrow");
+  }
   // The translator: echo every numbered segment back, marked as Spanish.
   if (/a translator\. Translate each numbered segment/.test(system)) {
     return user
@@ -137,7 +173,8 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
   const closers: Array<() => void> = [];
   const server = http.createServer((_req, res) => {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(PAGE);
+    const route = _req.url ?? "/";
+    res.end(route.startsWith("/compose") ? COMPOSE_PAGE : route.startsWith("/phone-") ? phonePage(route.slice(7, 8)) : PAGE);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -317,6 +354,84 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
     ctx.settings.update({ mcp: { accessLevel: "standard", allowEvaluate: false, enabled: false } });
     await ctx.mcp.apply();
     win.closeTab(settingsTab.id);
+
+    // "Write with Corvus AI": the text waits in the panel and goes into the field on Insert only.
+    nativeTheme.themeSource = "light";
+    const compose = win.createTab(`${base}/compose`, { activate: true });
+    extraTabs.push(compose.id);
+    const cwc = compose.view.webContents;
+    await poll(cwc, "document.getElementById('body')");
+    ctx.assist.open(win, "assist");
+    ctx.assist.clear(win);
+    cwc.focus();
+    await cwc.executeJavaScript("document.getElementById('body').focus(); true");
+    await ctx.assist.writeInField(win, compose, "fix");
+    const proposed = await poll(panel, "[...document.querySelectorAll('.msg.write .write-actions button')].some((b) => b.textContent.includes('Insert'))");
+    const untouched = (await cwc.executeJavaScript("document.getElementById('body').value")) as string;
+    check("write: the fixed text waits in the panel, the field is untouched", proposed && untouched === "Helo team,\nsee you tomorow.", { proposed, untouched });
+    await capture("assist-write", panel);
+    await panel.executeJavaScript("[...document.querySelectorAll('.msg.write .write-actions button')].find((b) => b.textContent.includes('Insert'))?.click()");
+    const fixed = await poll(cwc, "document.getElementById('body').value === 'Hello team,\\nsee you tomorrow.' && window.__inputs > 0");
+    check("write: Insert puts the text in the field as an edit the page sees", fixed, await cwc.executeJavaScript("({ value: document.getElementById('body').value, inputs: window.__inputs })"));
+
+    // "Write…" asks in the composer, then drafts into an empty rich-text editor.
+    cwc.focus();
+    await cwc.executeJavaScript("document.getElementById('rich').focus(); true");
+    await ctx.assist.writeInField(win, compose, "custom");
+    const asking = await poll(panel, "document.querySelector('.write-target') && document.querySelector('.composer textarea').placeholder.includes('write in the field')");
+    await panel.executeJavaScript(
+      "(() => { const t = document.querySelector('.composer textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, 'Accept the invitation for Friday'); t.dispatchEvent(new Event('input', { bubbles: true })); })()",
+    );
+    await sleep(100);
+    await panel.executeJavaScript("document.querySelector('.composer .send')?.click()");
+    const drafted = await poll(panel, "[...document.querySelectorAll('.msg.write')].some((m) => m.innerText.includes('Thanks for the invitation') && !m.innerText.includes('\"Thanks'))");
+    await panel.executeJavaScript("[...document.querySelectorAll('.msg.write')].at(-1).querySelector('.write-actions .primary')?.click()");
+    const rich = await poll(cwc, "document.getElementById('rich').innerText.trim() === 'Thanks for the invitation, I will be there on Friday.'");
+    check("write: “Write…” drafts from the composer's request into a rich-text field", asking && drafted && rich, {
+      asking,
+      drafted,
+      rich: await cwc.executeJavaScript("document.getElementById('rich').innerText"),
+    });
+
+    // A password field is never read.
+    cwc.focus();
+    await cwc.executeJavaScript("document.getElementById('secret').focus(); true");
+    const before = lastUserPrompt;
+    await ctx.assist.writeInField(win, compose, "fix");
+    const refused = await poll(panel, "[...document.querySelectorAll('.msg.write .error')].some((e) => e.textContent.includes('text field'))");
+    check("write: a password field is never sent to the AI", refused && lastUserPrompt === before && !lastUserPrompt.includes("hunter2"), { refused });
+
+    // "Compare tabs": pick two pages in the panel (one asleep), get a table with a column each.
+    const phoneA = win.createTab(`${base}/phone-a`, { activate: true });
+    const phoneB = win.createTab(`${base}/phone-b`, { activate: false });
+    extraTabs.push(phoneA.id, phoneB.id);
+    await poll(phoneA.view.webContents, "document.querySelector('h1')");
+    await poll(phoneB.view.webContents, "document.querySelector('h1')");
+    const asleep = win.sleepTab(phoneB.id);
+    ctx.assist.clear(win);
+    ctx.assist.openCompare(win, phoneA.id);
+    const picking = await poll(panel, "document.querySelectorAll('.compare-picker .compare-item').length >= 2");
+    await panel.executeJavaScript(
+      "[...document.querySelectorAll('.compare-picker .compare-item')].find((l) => l.textContent.includes('Phone B'))?.querySelector('input')?.click()",
+    );
+    await panel.executeJavaScript(
+      "(() => { const f = document.querySelector('.compare-focus'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, 'battery and price'); f.dispatchEvent(new Event('input', { bubbles: true })); })()",
+    );
+    await sleep(100);
+    await panel.executeJavaScript("document.querySelector('.compare-picker .btn.primary')?.click()");
+    const tabled = await poll(panel, "document.querySelectorAll('.compare-table thead .compare-page').length === 2 && document.querySelectorAll('.compare-table tbody tr').length === 2 && document.querySelector('.compare-verdict')", 12_000);
+    const cells = (await panel.executeJavaScript("[...document.querySelectorAll('.compare-table tbody td')].map((td) => td.textContent)")) as string[];
+    check("compare: two tabs (one asleep) become a table with a column each", picking && asleep && tabled && cells.join() === "5000 mAh,4000 mAh,199 €,149 €" && lastUserPrompt.includes("<request>battery and price</request>"), {
+      picking,
+      asleep,
+      cells,
+    });
+    await capture("assist-compare", panel);
+    clipboard.clear();
+    await panel.executeJavaScript("[...document.querySelectorAll('.msg.compare .btn')].find((b) => b.textContent.includes('Copy table'))?.click()");
+    await sleep(200);
+    const copied = String(await clipboard.readText());
+    check("compare: Copy table puts a Markdown table on the clipboard", copied.includes("| Battery | 5000 mAh | 4000 mAh |"), copied.slice(0, 200));
   } finally {
     nativeTheme.themeSource = themeBefore;
     ctx.assist.setTestProvider(undefined);

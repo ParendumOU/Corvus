@@ -91,8 +91,8 @@ function WatchesPage() {
         <div className="card-head">
           <h2>Watch a page for changes</h2>
           <p className="muted">
-            Corvus re-fetches the page on a schedule, detects meaningful changes to its main text and writes a short AI summary of what changed. Only public
-            http(s) pages, read-only.
+            Corvus re-fetches the page on a schedule, detects meaningful changes to its main text and writes a short AI summary of what changed. Give a
+            watch a condition (“Notify me when the price is under 150 €”) and it tells you only when that comes true. Only public http(s) pages, read-only.
           </p>
         </div>
         <div className="card-body">
@@ -152,10 +152,11 @@ function WatchRow({ w, api, run }: { w: WatchView; api: ReturnType<typeof intern
         </div>
         {w.changeSummary && w.lastResult === "changed" && (
           <div className="watch-summary">
-            <span className="watch-summary-label">What changed</span>
+            <span className="watch-summary-label">{w.condition ? "Now true" : "What changed"}</span>
             {w.changeSummary}
           </div>
         )}
+        <ConditionField w={w} api={api} run={run} />
       </div>
       <div className="watch-actions">
         <select
@@ -180,6 +181,38 @@ function WatchRow({ w, api, run }: { w: WatchView; api: ReturnType<typeof intern
           <IconTrash size={15} />
         </button>
       </div>
+    </div>
+  );
+}
+
+/** "Notify me when…": a condition in the user's words, and where it stands. */
+function ConditionField({ w, api, run }: { w: WatchView; api: ReturnType<typeof internalApi>; run: (p: Promise<WatchView[]>) => void }) {
+  const [value, setValue] = useState(w.condition ?? "");
+  useEffect(() => setValue(w.condition ?? ""), [w.condition]);
+  const save = (): void => {
+    if (value.trim() !== (w.condition ?? "")) run(api.call("watch.setCondition", w.id, value.trim()));
+  };
+  const state = w.condition === undefined ? null : w.conditionMet === true ? "met" : w.conditionMet === false ? "not-met" : "unknown";
+  return (
+    <div className="watch-condition">
+      <label className="watch-condition-row">
+        <span className="watch-summary-label">Notify me when</span>
+        <input
+          className="input small grow"
+          placeholder="Any change (or e.g. the price is under 150 €, it is back in stock)"
+          value={value}
+          maxLength={300}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        />
+      </label>
+      {state && (
+        <div className={`watch-condition-state ${state}`}>
+          {state === "met" ? "True now" : state === "not-met" ? "Not yet" : "Checking…"}
+          {w.conditionDetail ? `: ${w.conditionDetail}` : ""}
+        </div>
+      )}
     </div>
   );
 }

@@ -22,6 +22,12 @@ export interface WatchView {
   changeSummary: string;
   /** A change the user has not opened yet (drives the badge). */
   unseen: boolean;
+  /** "Notify me when…" in the user's words; none = every change notifies. */
+  condition?: string;
+  /** Whether it held at the last check (absent = not known yet). */
+  conditionMet?: boolean;
+  /** What on the page decided it, or why it could not be checked. */
+  conditionDetail?: string;
 }
 
 /** Badge state pushed to the chrome UI for the active window's profile. */
@@ -35,7 +41,9 @@ export interface WatchBarState {
 
 export interface WatchInternalRpc {
   "watch.list"(): WatchView[];
-  "watch.add"(url: string, intervalMinutes?: number): WatchView[];
+  "watch.add"(url: string, intervalMinutes?: number, condition?: string): WatchView[];
+  /** Sets or clears ("") a watch's "Notify me when…" condition, then checks the page. */
+  "watch.setCondition"(id: string, condition: string): WatchView[];
   "watch.remove"(id: string): WatchView[];
   "watch.pause"(id: string, paused: boolean): WatchView[];
   "watch.setInterval"(id: string, intervalMinutes: number): WatchView[];

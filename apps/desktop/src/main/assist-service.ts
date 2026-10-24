@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
-import { app, nativeImage, nativeTheme, type Rectangle, type WebContents } from "electron";
+import { app, clipboard, nativeImage, nativeTheme, type Rectangle, type WebContents } from "electron";
 import {
   type AnswerProvider,
   type AssistTask,
   type ChatTurn,
   buildAssistAgentTask,
   createProvider,
+  parseComparison,
+  parseConditionResult,
   parseSummary,
   parseTabGroups,
   parseTranslatedSegments,
@@ -18,6 +20,8 @@ import type { AgentApprovalDecision, AgentRunView } from "../shared/command-bar-
 import { commandForInput } from "../shared/shortcuts";
 import { matchSiteProfile, type SiteProfile } from "../shared/site-profiles";
 import { hostKey, workflowsForUrl } from "../shared/workflow";
+import { captureFieldScript, cleanWriteOutput, insertFieldScript, writeActionLabel, type CapturedField, type WriteAction } from "../shared/inline-write";
+import { MAX_COMPARE_TABS, compareCandidates, comparisonMarkdown, type CompareCandidate, type ComparisonTable } from "../shared/compare";
 import {
   ASSIST_MAX_WIDTH,
   ASSIST_MIN_WIDTH,
@@ -77,6 +81,12 @@ interface TabAssist {
   translatedUrl: string;
   /** The video last read on this tab: its address and where each cited stretch starts (s). */
   video?: { url: string; starts: number[] };
+  /** A text field waiting for the composer to say what to write in it ("Write…"). */
+  writing?: { field: CapturedField; site: string } | null;
+  /** The field each written text goes into, by message id (captured in the page by token). */
+  writeTokens?: Map<string, string>;
+  /** "Compare tabs" is choosing which tabs to compare. */
+  comparePicker?: CompareCandidate[] | null;
 }
 
 type GroupsInput = Array<{ name: string; color: string; tabIds: string[] }>;
@@ -404,6 +414,8 @@ export class AssistService {
       messages: entry?.messages ?? [],
       busy: entry?.abort !== null && entry?.abort !== undefined,
       translation: entry?.translation ?? "none",
+      writing: entry?.writing ? { site: entry.writing.site, excerpt: entry.writing.field.text.replace(/\s+/g, " ").trim().slice(0, 80) } : null,
+      comparePicker: entry?.comparePicker ?? null,
       canAct: this.ctx.agentRunner.ready(),
     };
   }
@@ -428,6 +440,212 @@ export class AssistService {
   runSelection(win: BrowserWindowCtl, tab: TabRuntime, kind: "explain" | "translate-selection", selection: string): void {
     this.open(win, "assist");
     void this.run(win, tab, kind, selection.slice(0, 4000));
+  }
+
+  /** The language the answers are written in, by name ("Spanish"), for menu labels. */
+  languageName(): string {
+    const lang = this.lang();
+    try {
+      return new Intl.DisplayNames(["en"], { type: "language" }).of(lang) ?? lang;
+    } catch {
+      return lang;
+    }
+  }
+
+  /**
+   * "Write with Corvus AI" from a text field's menu: rewrites the field's text (or its selection)
+   * into the panel, where Insert puts it in the field. "Write…" (custom) first asks in the panel's
+   * composer what to write.
+   */
+  async writeInField(win: BrowserWindowCtl, tab: TabRuntime, action: WriteAction): Promise<void> {
+    const wc = tab.view.webContents;
+    const entry = this.entry(tab.id);
+    const site = hostKey(wc.isDestroyed() ? tab.url : wc.getURL() || tab.url);
+    const field = wc.isDestroyed() ? null : await this.exec<CapturedField | null>(wc, captureFieldScript(crypto.randomUUID())).catch(() => null);
+    this.open(win, "assist");
+    const label = writeActionLabel(action, this.languageName());
+    const fail = (error: string): void => {
+      entry.messages = [...entry.messages, { id: crypto.randomUUID(), kind: "write" as const, prompt: label, text: "", status: "error" as const, error, at: Date.now() }].slice(-MAX_MESSAGES);
+      this.refresh(win);
+    };
+    if (!field) return fail("Click in a text field first, then choose what to write. Password and payment fields are left alone.");
+    if (action === "custom") {
+      entry.writing = { field, site };
+      this.refresh(win);
+      return;
+    }
+    if (!field.text.trim()) return fail("This field is empty: choose “Write…” and say what to write.");
+    await this.runWrite(win, tab, action, field, site, label);
+  }
+
+  /** The composer's request for the field waiting in "Write…". */
+  writeRequest(win: BrowserWindowCtl, request: string): void {
+    const tab = win.activeTab();
+    const pending = tab ? this.tabs.get(tab.id)?.writing : undefined;
+    if (!tab || !pending) return;
+    this.entry(tab.id).writing = null;
+    void this.runWrite(win, tab, "custom", pending.field, pending.site, request);
+  }
+
+  cancelWrite(win: BrowserWindowCtl): void {
+    const tab = win.activeTab();
+    const entry = tab ? this.tabs.get(tab.id) : undefined;
+    if (!entry?.writing) return;
+    entry.writing = null;
+    this.refresh(win);
+  }
+
+  private async runWrite(win: BrowserWindowCtl, tab: TabRuntime, action: WriteAction, field: CapturedField, site: string, prompt: string): Promise<void> {
+    const entry = this.entry(tab.id);
+    entry.abort?.abort();
+    const abort = new AbortController();
+    entry.abort = abort;
+    const message: AssistMessage = { id: crypto.randomUUID(), kind: "write", prompt, text: "", status: "streaming", at: Date.now(), write: { site, inserted: false } };
+    entry.messages = [...entry.messages, message].slice(-MAX_MESSAGES);
+    (entry.writeTokens ??= new Map()).set(message.id, field.token);
+    const update = (patch: Partial<AssistMessage>): void => {
+      Object.assign(message, patch);
+      entry.messages = entry.messages.map((m) => (m.id === message.id ? { ...message } : m));
+      this.refresh(win);
+    };
+    this.refresh(win);
+    const wc = tab.view.webContents;
+    const siteProfile = win.profile.siteProfiles.match(wc.isDestroyed() ? tab.url : wc.getURL() || tab.url);
+    const addendum = siteProfile?.promptAddendum.trim();
+    const provider = this.providerFor(siteProfile);
+    try {
+      if (!provider) throw new Error("Corvus Assist needs an AI provider. Open Settings to add one.");
+      const started = Date.now();
+      const task = { kind: "write" as const, instruction: action, text: field.text, lang: this.lang(), site, ...(action === "custom" ? { request: prompt } : {}) };
+      let text = "";
+      for await (const ev of runAssist(provider, task, abort.signal, addendum ? { systemAddendum: addendum } : undefined)) {
+        if (abort.signal.aborted) break;
+        if (ev.type === "delta") {
+          text += ev.text;
+          update({ text });
+        } else {
+          message.usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, model: ev.model, cached: false, ms: Date.now() - started };
+        }
+      }
+      if (abort.signal.aborted) {
+        update({ status: "cancelled" });
+        return;
+      }
+      const final = cleanWriteOutput(text, field.text);
+      update(final ? { text: final, status: "done" } : { text: "", status: "error", error: "The AI wrote nothing for this field." });
+    } catch (err) {
+      update({ status: abort.signal.aborted ? "cancelled" : "error", error: errorText(err) });
+    } finally {
+      if (entry.abort === abort) entry.abort = null;
+      this.refresh(win);
+    }
+  }
+
+  /** Insert: the person approved a written text; it goes into its field, as an edit the page sees. */
+  async insertWrite(win: BrowserWindowCtl, messageId: string): Promise<void> {
+    const tab = win.activeTab();
+    const entry = tab ? this.tabs.get(tab.id) : undefined;
+    const message = entry?.messages.find((m) => m.id === messageId);
+    const token = entry?.writeTokens?.get(messageId);
+    if (!tab || !entry || !message?.write || message.status !== "done" || message.write.inserted || !token) return;
+    const wc = tab.view.webContents;
+    const inserted = !wc.isDestroyed() && (await this.exec<boolean>(wc, insertFieldScript(token, message.text)).catch(() => false)) === true;
+    const write = { ...message.write, inserted, ...(inserted ? {} : { gone: true }) };
+    entry.messages = entry.messages.map((m) => (m.id === messageId ? { ...m, write } : m));
+    if (inserted) {
+      entry.writeTokens?.delete(messageId);
+      win.focusContent();
+    }
+    this.refresh(win);
+  }
+
+  /** "Compare tabs with Corvus AI…" from a tab's menu: the panel lists the window's pages to pick. */
+  openCompare(win: BrowserWindowCtl, fromTabId: TabId): void {
+    const tab = win.activeTab();
+    if (!tab) return;
+    this.entry(tab.id).comparePicker = compareCandidates(win.listTabs(), fromTabId);
+    this.open(win, "assist");
+  }
+
+  closeCompare(win: BrowserWindowCtl): void {
+    const tab = win.activeTab();
+    const entry = tab ? this.tabs.get(tab.id) : undefined;
+    if (!entry?.comparePicker) return;
+    entry.comparePicker = null;
+    this.refresh(win);
+  }
+
+  /**
+   * Reads each chosen tab (loading the ones that are asleep or not loaded yet, without showing
+   * them) and asks for one table that compares them, pages as columns, with a verdict.
+   */
+  async compareTabs(win: BrowserWindowCtl, tabIds: TabId[], focus: string): Promise<void> {
+    const tab = win.activeTab();
+    if (!tab) return;
+    const entry = this.entry(tab.id);
+    entry.comparePicker = null;
+    const ids = [...new Set(tabIds)].filter((id) => win.hasTab(id)).slice(0, MAX_COMPARE_TABS);
+    entry.abort?.abort();
+    const abort = new AbortController();
+    entry.abort = abort;
+    const message: AssistMessage = { id: crypto.randomUUID(), kind: "compare", prompt: focus || `Compare ${ids.length} tabs`, text: "", status: "streaming", at: Date.now() };
+    entry.messages = [...entry.messages, message].slice(-MAX_MESSAGES);
+    const update = (patch: Partial<AssistMessage>): void => {
+      Object.assign(message, patch);
+      entry.messages = entry.messages.map((m) => (m.id === message.id ? { ...message } : m));
+      this.refresh(win);
+    };
+    this.refresh(win);
+    try {
+      if (ids.length < 2) throw new Error("Choose at least two tabs to compare.");
+      const provider = this.currentProvider();
+      if (!provider) throw new Error("Corvus Assist needs an AI provider. Open Settings to add one.");
+      const started = Date.now();
+      const pages: Array<{ url: string; title: string; sections: Array<{ heading: string; text: string }> }> = [];
+      const columns: ComparisonTable["pages"] = [];
+      for (const id of ids) {
+        if (abort.signal.aborted) break;
+        await win.ensureLoaded(id);
+        const t = win.getTab(id);
+        const wc = t?.view.webContents;
+        if (!t || !wc || wc.isDestroyed() || !isReadable(wc.getURL())) continue;
+        const raw = await this.readPage(wc).catch(() => null);
+        if (!raw || raw.sections.length === 0) continue;
+        pages.push({ url: raw.url, title: raw.title, sections: raw.sections });
+        columns.push({ tabId: id, title: t.title || raw.title, url: raw.url, ...(t.faviconUrl ? { faviconUrl: t.faviconUrl } : {}) });
+      }
+      if (!abort.signal.aborted && pages.length < 2) throw new Error("Corvus could read fewer than two of these pages.");
+      let text = "";
+      for await (const ev of runAssist(provider, { kind: "compare", pages, lang: this.lang(), ...(focus ? { focus } : {}) }, abort.signal)) {
+        if (abort.signal.aborted) break;
+        if (ev.type === "delta") text += ev.text;
+        else message.usage = { inputTokens: ev.inputTokens, outputTokens: ev.outputTokens, model: ev.model, cached: false, ms: Date.now() - started };
+      }
+      if (abort.signal.aborted) {
+        update({ status: "cancelled" });
+        return;
+      }
+      const parsed = parseComparison(text, pages.length);
+      if (!parsed) throw new Error("The comparison came back unreadable. Try again.");
+      update({ status: "done", comparison: { pages: columns, rows: parsed.rows, verdict: parsed.verdict } });
+    } catch (err) {
+      update({ status: abort.signal.aborted ? "cancelled" : "error", error: errorText(err) });
+    } finally {
+      if (entry.abort === abort) entry.abort = null;
+      this.refresh(win);
+    }
+  }
+
+  copyComparison(win: BrowserWindowCtl, messageId: string): void {
+    const tab = win.activeTab();
+    const comparison = tab ? this.tabs.get(tab.id)?.messages.find((m) => m.id === messageId)?.comparison : undefined;
+    if (comparison) clipboard.writeText(comparisonMarkdown(comparison));
+  }
+
+  copyText(win: BrowserWindowCtl, messageId: string): void {
+    const tab = win.activeTab();
+    const message = tab ? this.tabs.get(tab.id)?.messages.find((m) => m.id === messageId) : undefined;
+    if (message?.text) clipboard.writeText(message.text);
   }
 
   /** Context menu / panel: page-level actions. */
@@ -637,7 +855,7 @@ export class AssistService {
     this.refresh(win);
   }
 
-  async run(win: BrowserWindowCtl, tab: TabRuntime, kind: AssistActionKind, input: string, continuing = false): Promise<void> {
+  async run(win: BrowserWindowCtl, tab: TabRuntime, kind: Exclude<AssistActionKind, "write" | "compare">, input: string, continuing = false): Promise<void> {
     const entry = this.entry(tab.id);
     entry.abort?.abort();
     const abort = new AbortController();
@@ -751,6 +969,23 @@ export class AssistService {
       if (entry.abort === abort) entry.abort = null;
       this.refresh(win);
     }
+  }
+
+  /**
+   * A watched page's "notify me when…": one small call that says whether the condition holds on
+   * the page now, and the fact that decides it. Null without an AI provider or a readable verdict.
+   */
+  async evaluateWatchCondition(
+    input: { url: string; title: string; condition: string; text: string },
+    signal?: AbortSignal,
+  ): Promise<{ met: boolean; detail: string } | null> {
+    const provider = this.currentProvider();
+    if (!provider) return null;
+    let text = "";
+    for await (const ev of runAssist(provider, { kind: "watch-condition", ...input, lang: this.lang() }, signal)) {
+      if (ev.type === "delta") text += ev.text;
+    }
+    return parseConditionResult(text);
   }
 
   /**

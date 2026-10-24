@@ -1104,6 +1104,25 @@ export class BrowserWindowCtl {
     });
   }
 
+  /**
+   * Loads a background tab that is not loaded yet (restored or asleep) without showing it, for a
+   * service that reads its page; resolves once it stops loading (or after a while).
+   */
+  async ensureLoaded(id: TabId, timeoutMs = 15_000): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab?.pendingUrl) return;
+    const wc = tab.view.webContents;
+    const stopped = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      wc.once("did-stop-loading", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    this.loadPending(tab);
+    await stopped;
+  }
+
   /** Whether the tab can go to sleep right now, by what only its page knows (typed text). */
   async pageIsEdited(id: TabId): Promise<boolean> {
     const wc = this.tabs.get(id)?.view.webContents;

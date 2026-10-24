@@ -21,6 +21,7 @@ import {
   fingerprint,
   isWatchableUrl,
   normalizeWatchText,
+  conditionNotifies,
   selectDue,
   type Watch,
 } from "../shared/page-watch";
@@ -58,6 +59,8 @@ export class PageMonitor {
   private readonly running = new Set<string>();
   /** Smoke tests inject a fetcher to exercise the pipeline against the loopback server the SSRF guard blocks. */
   private testFetch: ((url: string) => Promise<string>) | undefined;
+  /** The notifications shown, newest last (the smoke test reads them; a few are kept). */
+  readonly notified: Array<{ profileId: string; title: string; body: string }> = [];
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -154,10 +157,12 @@ export class PageMonitor {
     this.running.add(watch.id);
     store.setChecking(watch.id, true);
     try {
-      const normalized = normalizeWatchText(this.testFetch ? await this.testFetch(watch.url) : await this.fetchExtracted(watch.url));
+      const extracted = this.testFetch ? await this.testFetch(watch.url) : await this.fetchExtracted(watch.url);
+      const normalized = normalizeWatchText(extracted);
       const checkedAt = Date.now();
       const fp = fingerprint(normalized);
       const baseline = normalized.slice(0, BASELINE_CHARS);
+      if (watch.condition && (await this.checkCondition(profileId, store, watch, extracted, normalized, fp, baseline, checkedAt))) return;
       if (watch.fingerprint === null) {
         store.update(watch.id, { fingerprint: fp, baseline, lastCheckedAt: checkedAt, lastResult: "ok", lastError: undefined });
         return;
@@ -192,6 +197,51 @@ export class PageMonitor {
       this.running.delete(watch.id);
       store.setChecking(watch.id, false);
     }
+  }
+
+  /**
+   * A watch with a "Notify me when…" condition: when the page is new or meaningfully changed (or
+   * the condition's state is not known yet), the AI says whether the condition holds, and only its
+   * becoming true notifies. Returns false when there is no AI to judge it, so the caller falls back
+   * to notifying on any change.
+   */
+  private async checkCondition(
+    profileId: string,
+    store: WatchStore,
+    watch: Watch,
+    extracted: string,
+    normalized: string,
+    fp: string,
+    baseline: string,
+    checkedAt: number,
+  ): Promise<boolean> {
+    const known = watch.conditionMet === true || watch.conditionMet === false;
+    const unchanged = watch.fingerprint !== null && (fp === watch.fingerprint || !diffNormalized(watch.baseline, normalized).changed);
+    if (known && unchanged) {
+      store.update(watch.id, { fingerprint: fp, baseline, lastCheckedAt: checkedAt, lastResult: "ok", lastError: undefined });
+      return true;
+    }
+    const verdict = await this.ctx.assist
+      // The page as extracted (case, prices and dates intact), not the normalized text used for diffing.
+      .evaluateWatchCondition({ url: watch.url, title: watch.title, condition: watch.condition ?? "", text: extracted })
+      .catch(() => null);
+    if (!verdict) {
+      store.update(watch.id, { conditionDetail: "Checking a condition needs an AI provider: every change is reported instead." });
+      return false;
+    }
+    const notify = conditionNotifies(watch.conditionMet, verdict.met);
+    store.update(watch.id, {
+      fingerprint: fp,
+      baseline,
+      lastCheckedAt: checkedAt,
+      lastResult: notify ? "changed" : "ok",
+      lastError: undefined,
+      conditionMet: verdict.met,
+      conditionDetail: verdict.detail,
+      ...(notify ? { lastChangedAt: checkedAt, changeSummary: verdict.detail || watch.condition || "", unseen: true } : {}),
+    });
+    if (notify) this.onChanged(profileId, watch, verdict.detail || `Now true: ${watch.condition}`, `Now true: ${watch.condition}`);
+    return true;
   }
 
   /** Read-only GET of a public http(s) page, re-checking the public-address guard on every redirect. */
@@ -231,9 +281,11 @@ export class PageMonitor {
     return text;
   }
 
-  private onChanged(profileId: string, watch: Watch, summary: string): void {
+  private onChanged(profileId: string, watch: Watch, summary: string, heading = `Changed: ${watch.title}`): void {
+    this.notified.push({ profileId, title: heading, body: summary });
+    if (this.notified.length > 20) this.notified.shift();
     if (Notification.isSupported()) {
-      const notification = new Notification({ title: `Changed: ${watch.title}`.slice(0, 120), body: summary.slice(0, 200) });
+      const notification = new Notification({ title: heading.slice(0, 120), body: summary.slice(0, 200) });
       notification.on("click", () => {
         const win = this.ctx.windows.forProfile(profileId)[0] ?? this.ctx.windows.focused();
         win?.openSingleton(WATCHES_URL);

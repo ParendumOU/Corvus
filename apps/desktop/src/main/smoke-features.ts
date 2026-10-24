@@ -21,12 +21,26 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 const CHANGE_SUMMARY = "The product went out of stock and the price rose from 19.99 to 24.99.";
 
+/** The fake judge of a watch condition: "under N" compares the page's price, "in stock" its status. */
+function conditionVerdict(user: string): string {
+  const condition = /<request>(.*)<\/request>/.exec(user)?.[1] ?? "";
+  const price = Number(/Price (\d+(?:\.\d+)?)/.exec(user)?.[1] ?? NaN);
+  const under = /under (\d+)/.exec(condition);
+  if (under) return JSON.stringify({ met: price < Number(under[1]), detail: `Price: ${price}` });
+  const inStock = /Status: In stock/.test(user);
+  return JSON.stringify({ met: inStock, detail: inStock ? "In stock" : "Out of stock" });
+}
+
 function fakeProvider(): AnswerProvider {
   return {
     kind: "anthropic-api",
     model: "claude-haiku-5-5",
     async *answer(req): AsyncGenerator<ProviderEvent> {
-      const reply = /monitoring/i.test(req.prompt.system) ? CHANGE_SUMMARY : "ok";
+      const reply = /whether the condition in <request> is true now/.test(req.prompt.system)
+        ? conditionVerdict(req.prompt.user)
+        : /monitoring/i.test(req.prompt.system)
+          ? CHANGE_SUMMARY
+          : "ok";
       yield { type: "delta", text: reply };
       yield { type: "usage", inputTokens: 20, outputTokens: 12, model: "claude-haiku-5-5" };
     },
@@ -179,6 +193,60 @@ export async function runFeaturesSmoke(ctx: AppContext, h: Helpers): Promise<voi
     await capture("watches-dark", wc);
     win.closeTab(watchesTab.id);
     if (watch) store.remove(watch.id);
+
+    // "Notify me when…": only the condition becoming true notifies, not every change.
+    nativeTheme.themeSource = themeBefore;
+    const settle = async (id: string, want: (w: NonNullable<ReturnType<typeof store.get>>) => boolean): Promise<boolean> => {
+      for (let i = 0; i < 80; i++) {
+        const w = store.get(id);
+        if (w && !store.isChecking(id) && want(w)) return true;
+        await sleep(100);
+      }
+      return false;
+    };
+    const cond = store.add({ url: `${watchUrl}?cond`, title: "Priced page", intervalMinutes: 30 });
+    if (cond) {
+      body = PAGE_AFTER; // 24.99, out of stock
+      store.setCondition(cond.id, "the price is under 15");
+      const notifiedBefore = ctx.monitor.notified.length;
+      ctx.monitor.checkNow(win.profile, cond.id);
+      const notYet = await settle(cond.id, (w) => w.conditionMet === false);
+      check("condition: not met yet, no notification", notYet && ctx.monitor.notified.length === notifiedBefore && store.get(cond.id)?.lastResult === "ok", store.get(cond.id));
+
+      body = PAGE_AFTER.replace("Price 24.99", "Price 9.99");
+      ctx.monitor.checkNow(win.profile, cond.id);
+      const met = await settle(cond.id, (w) => w.conditionMet === true);
+      const shownNote = ctx.monitor.notified.at(-1);
+      check(
+        "condition: becoming true notifies once",
+        met && ctx.monitor.notified.length === notifiedBefore + 1 && shownNote?.title === "Now true: the price is under 15" && shownNote.body === "Price: 9.99",
+        { met, note: shownNote, watch: store.get(cond.id) },
+      );
+
+      body = PAGE_AFTER.replace("Price 24.99", "Price 8.99");
+      ctx.monitor.checkNow(win.profile, cond.id);
+      const still = await settle(cond.id, (w) => w.conditionDetail === "Price: 8.99");
+      check("condition: staying true does not notify again", still && ctx.monitor.notified.length === notifiedBefore + 1, store.get(cond.id)?.conditionDetail);
+
+      // The manager edits a condition in place (and it is checked right away).
+      const manager = win.createTab("corvus://watches/", { activate: true });
+      const mwc = manager.view.webContents;
+      const listed = await poll(mwc, "[...document.querySelectorAll('.watch-condition-state.met')].some((e) => e.innerText.includes('Price: 8.99'))", 9000);
+      const conditionInput = "[...document.querySelectorAll('.watch-row')].find((r) => r.innerText.includes('Priced page')).querySelector('.watch-condition input')";
+      await mwc.executeJavaScript(`(() => {
+        const input = ${conditionInput};
+        input.focus();
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'it is back in stock');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`);
+      await sleep(150);
+      await mwc.executeJavaScript(`${conditionInput}.blur()`);
+      const edited = await settle(cond.id, (w) => w.condition === "it is back in stock" && w.conditionMet === false);
+      check("condition: corvus://watches shows and edits it", listed && edited, { listed, watch: store.get(cond.id) });
+      await capture("watches-condition", mwc);
+      win.closeTab(manager.id);
+      store.remove(cond.id);
+    }
   } finally {
     nativeTheme.themeSource = themeBefore;
     ctx.assist.setTestProvider(undefined);

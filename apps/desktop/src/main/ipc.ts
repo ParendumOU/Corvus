@@ -295,6 +295,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "watch.remove": ["watches"],
   "watch.pause": ["watches"],
   "watch.setInterval": ["watches"],
+  "watch.setCondition": ["watches"],
   "watch.checkNow": ["watches"],
   "watch.open": ["watches"],
   "watch.acknowledge": ["watches"],
@@ -565,13 +566,14 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     },
     "clipboard.write": (_c, text) => clipboard.writeText(str(text, "text", 16384)),
     "watch.list": (c) => ctx.monitor.storeFor(c.profile).views(),
-    "watch.add": (c, url, interval) => {
+    "watch.add": (c, url, interval, condition) => {
       const u = str(url, "url", 2048);
       if (!isWatchableUrl(u)) throw new IpcError("Only public http(s) pages can be watched");
       const store = ctx.monitor.storeFor(c.profile);
       const minutes = interval === undefined ? ctx.settings.get().monitor.defaultIntervalMinutes : clampInterval(num(interval, "interval"));
       const watch = store.add({ url: u, title: hostOf(u), intervalMinutes: minutes });
       if (!watch) throw new IpcError("The maximum number of watched pages has been reached");
+      if (typeof condition === "string" && condition.trim()) store.setCondition(watch.id, str(condition, "condition", 1000));
       ctx.monitor.checkNow(c.profile, watch.id);
       return store.views();
     },
@@ -585,6 +587,12 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     },
     "watch.setInterval": (c, id, minutes) => {
       ctx.monitor.storeFor(c.profile).setInterval(str(id, "id"), num(minutes, "interval"));
+      return ctx.monitor.storeFor(c.profile).views();
+    },
+    "watch.setCondition": (c, id, condition) => {
+      const watchId = str(id, "id");
+      ctx.monitor.storeFor(c.profile).setCondition(watchId, str(condition ?? "", "condition", 1000));
+      ctx.monitor.checkNow(c.profile, watchId);
       return ctx.monitor.storeFor(c.profile).views();
     },
     "watch.checkNow": (c, id) => {

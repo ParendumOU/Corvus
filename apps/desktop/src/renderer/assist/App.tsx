@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { AgentActivityView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
+import { MAX_COMPARE_TABS, type CompareCandidate } from "../../shared/compare";
 import type { AssistAgentStep, AssistAgentView } from "../../shared/assist-agent";
 import type { FlowView } from "../../shared/flow-ipc";
 import { editOf } from "../../shared/workflow";
@@ -11,7 +12,9 @@ import {
   AssistMark,
   GlyphBroom,
   GlyphClose,
+  GlyphCompare,
   GlyphPause,
+  GlyphPen,
   GlyphPlay,
   GlyphPlug,
   GlyphSend,
@@ -129,6 +132,7 @@ function AssistPane({ state }: { state: AssistPanelState }) {
           </button>
         </div>
       )}
+      {tab.comparePicker && <ComparePicker key={tab.comparePicker.map((c) => c.tabId).join()} candidates={tab.comparePicker} />}
       <div className="thread" ref={listRef}>
         {tab.messages.length === 0 ? (
           <Intro tab={tab} />
@@ -310,6 +314,89 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
     );
   }
 
+  if (m.kind === "compare") {
+    const c = m.comparison;
+    return (
+      <article className="msg compare">
+        <div className="msg-label">
+          <GlyphCompare size={14} /> {m.prompt}
+        </div>
+        {streaming && <Streaming />}
+        {c && (
+          <>
+            <div className="compare-scroll">
+              <table className="compare-table">
+                <thead>
+                  <tr>
+                    <th />
+                    {c.pages.map((p) => (
+                      <th key={p.tabId}>
+                        <button className="compare-page" title={`Show “${p.title}”`} onClick={() => void api().call("assist.showTab", p.tabId)}>
+                          <Favicon url={p.url} {...(p.faviconUrl ? { src: p.faviconUrl } : {})} />
+                          <span>{p.title || hostOf(p.url)}</span>
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {c.rows.map((r, i) => (
+                    <tr key={i}>
+                      <th scope="row">{r.label}</th>
+                      {r.values.map((v, j) => (
+                        <td key={j}>{v}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {c.verdict ? <p className="compare-verdict">{c.verdict}</p> : null}
+            <div className="write-actions">
+              <button className="btn small" onClick={() => void api().call("assist.copyComparison", m.id)}>
+                Copy table
+              </button>
+            </div>
+          </>
+        )}
+        {failed}
+        <Usage m={m} />
+      </article>
+    );
+  }
+
+  if (m.kind === "write") {
+    const w = m.write;
+    return (
+      <article className="msg write">
+        <div className="msg-label">
+          <GlyphPen size={14} /> {m.prompt}
+          {w?.site ? <span className="read-time">{w.site}</span> : null}
+        </div>
+        {m.text ? <div className="write-text">{m.text}</div> : null}
+        {streaming && <Streaming />}
+        {m.status === "done" && w && (
+          <div className="write-actions">
+            {w.inserted ? (
+              <span className="muted small">Inserted into the field.</span>
+            ) : w.gone ? (
+              <span className="muted small">That field is no longer on the page: copy the text instead.</span>
+            ) : (
+              <button className="btn small primary" title="Put this text in the field" onClick={() => void api().call("assist.insertWrite", m.id)}>
+                Insert into the field
+              </button>
+            )}
+            <button className="btn small" onClick={() => void api().call("assist.copyText", m.id)}>
+              Copy
+            </button>
+          </div>
+        )}
+        {failed}
+        <Usage m={m} />
+      </article>
+    );
+  }
+
   if (m.kind === "translate-page") {
     const [done, total] = m.text.split("/").map(Number);
     return (
@@ -393,6 +480,58 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
   );
 }
 
+/** "Compare tabs": tick 2 to 6 of the window's pages and say what matters. */
+function ComparePicker({ candidates }: { candidates: CompareCandidate[] }) {
+  const [checked, setChecked] = useState(() => new Set(candidates.filter((c) => c.checked).map((c) => c.tabId)));
+  const [focus, setFocus] = useState("");
+  const toggle = (id: string): void =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else if (next.size < MAX_COMPARE_TABS) next.add(id);
+      return next;
+    });
+  const compare = (): void => {
+    const ids = candidates.filter((c) => checked.has(c.tabId)).map((c) => c.tabId);
+    if (ids.length >= 2) void api().call("assist.compare", ids, focus.trim());
+  };
+  return (
+    <div className="compare-picker">
+      <div className="msg-label">
+        <GlyphCompare size={14} /> Compare tabs
+        <span className="read-time">
+          {checked.size} of up to {MAX_COMPARE_TABS}
+        </span>
+      </div>
+      <div className="compare-list">
+        {candidates.map((c) => (
+          <label key={c.tabId} className="compare-item">
+            <input type="checkbox" checked={checked.has(c.tabId)} disabled={!checked.has(c.tabId) && checked.size >= MAX_COMPARE_TABS} onChange={() => toggle(c.tabId)} />
+            <Favicon url={c.url} {...(c.faviconUrl ? { src: c.faviconUrl } : {})} />
+            <span className="grow">{c.title || hostOf(c.url)}</span>
+          </label>
+        ))}
+      </div>
+      <input
+        className="compare-focus"
+        placeholder="What matters? E.g. price, battery life, weight"
+        value={focus}
+        maxLength={600}
+        onChange={(e) => setFocus(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && compare()}
+      />
+      <div className="write-actions">
+        <button className="btn small primary" disabled={checked.size < 2} onClick={compare}>
+          Compare {checked.size} tabs
+        </button>
+        <button className="btn small" onClick={() => void api().call("assist.closeCompare")}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Steps shown before the older ones fold into "N earlier steps". */
 const VISIBLE_STEPS = 6;
 
@@ -471,13 +610,14 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
     el.style.height = `${Math.min(140, el.scrollHeight)}px`;
   }, [value]);
 
-  const usable = tab.readable || tab.canAct;
+  const writing = tab.writing;
+  const usable = tab.readable || tab.canAct || writing !== null;
   const send = useCallback(() => {
     const q = value.trim();
     if (!q || tab.busy || !usable) return;
-    void api().call("assist.ask", q);
+    void api().call(writing ? "assist.write" : "assist.ask", q);
     setValue("");
-  }, [value, tab.busy, usable]);
+  }, [value, tab.busy, usable, writing]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -486,17 +626,39 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
     }
   };
 
+  const placeholder = writing
+    ? "What should Corvus write in the field? E.g. a polite reply that says yes"
+    : tab.canAct
+      ? tab.readable
+        ? "Ask about this page or tell Corvus what to do"
+        : "Tell Corvus what to do"
+      : tab.readable
+        ? "Ask about this page"
+        : "Open a web page to ask about it";
   return (
-    <div className="composer">
+    <>
+      {writing && (
+        <div className="write-target">
+          <GlyphPen size={14} />
+          <span className="grow">
+            Writing in a field on <strong>{writing.site || "this page"}</strong>
+            {writing.excerpt ? <span className="muted"> · “{writing.excerpt}”</span> : null}
+          </span>
+          <button className="icon-btn" title="Cancel" onClick={() => void api().call("assist.cancelWrite")}>
+            <GlyphClose size={14} />
+          </button>
+        </div>
+      )}
+      <div className="composer">
       <textarea
         ref={ref}
         rows={1}
         value={value}
         disabled={!usable}
-        placeholder={tab.canAct ? (tab.readable ? "Ask about this page or tell Corvus what to do" : "Tell Corvus what to do") : tab.readable ? "Ask about this page" : "Open a web page to ask about it"}
+        placeholder={placeholder}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKey}
-        maxLength={tab.canAct ? 2000 : 600}
+        maxLength={tab.canAct || writing ? 2000 : 600}
       />
       {tab.busy ? (
         <button className="send stop" title="Stop" onClick={() => void api().call("assist.cancel")}>
@@ -507,7 +669,8 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
           <GlyphSend size={16} />
         </button>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

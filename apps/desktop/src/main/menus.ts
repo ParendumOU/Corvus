@@ -1,6 +1,7 @@
 import { Menu, app, clipboard, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { childrenOf } from "../shared/bookmark-tree";
+import { WRITE_ACTIONS, writeActionLabel, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { searchUrl } from "../shared/omnibox";
@@ -200,6 +201,11 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       ...(groupId ? [{ label: "Remove from group", click: () => win.ungroupTabs([tabId]) }] : []),
       { type: "separator" },
       ...splitItems(win, tabId, splitTargets),
+      {
+        label: "Compare tabs with Corvus AI…",
+        enabled: win.listTabs().filter((t) => /^https?:/.test(t.url)).length >= 2,
+        click: () => ctx.assist.openCompare(win, tabId),
+      },
       { type: "separator" },
       { label: "Reload", click: () => win.reload(tabId) },
       { label: "Sleep to save memory", enabled: tabId !== win.activeTab()?.id && /^https?:/.test(tab.url), click: () => win.sleepTab(tabId) },
@@ -360,6 +366,19 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       { label: `Save ${noun} as…`, enabled: isWebUrl(src), click: () => ctx.downloads.saveAs(wc, src) },
       { label: `Copy ${noun} address`, click: () => clipboard.writeText(src) },
     );
+    sep();
+  }
+  // Writing help in a page's text fields (never password fields: their text never leaves the page).
+  if (params.isEditable && params.formControlType !== "input-password" && /^https?:/i.test(wc.getURL()) && !tab.agentControlled) {
+    const write = (action: WriteAction): void => void ctx.assist.writeInField(win, tab, action);
+    items.push({
+      label: "Write with Corvus AI",
+      submenu: [
+        ...WRITE_ACTIONS.map(({ action }) => ({ label: writeActionLabel(action, ctx.assist.languageName()), click: () => write(action) })),
+        { type: "separator" },
+        { label: "Write…", click: () => write("custom") },
+      ],
+    });
     sep();
   }
   if (params.isEditable) {

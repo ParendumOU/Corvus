@@ -53,6 +53,23 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
     "assist.translateMore": (w) => ctx.assist.activeAction(w, "translate-more"),
     "assist.restorePage": (w) => ctx.assist.restorePage(w),
     "assist.cancel": (w) => ctx.assist.cancel(w),
+    "assist.write": (w, request) => {
+      const r = text(request, "request", 2000).trim();
+      if (r) ctx.assist.writeRequest(w, r);
+    },
+    "assist.cancelWrite": (w) => ctx.assist.cancelWrite(w),
+    "assist.insertWrite": (w, id) => ctx.assist.insertWrite(w, text(id, "message", 128)),
+    "assist.copyText": (w, id) => ctx.assist.copyText(w, text(id, "message", 128)),
+    "assist.compare": (w, tabIds, focus) => {
+      if (!Array.isArray(tabIds) || tabIds.length > 50) throw new IpcError("Invalid tabs");
+      void ctx.assist.compareTabs(
+        w,
+        tabIds.map((id) => text(id, "tab", 128)),
+        text(focus ?? "", "focus", 600).trim(),
+      );
+    },
+    "assist.closeCompare": (w) => ctx.assist.closeCompare(w),
+    "assist.copyComparison": (w, id) => ctx.assist.copyComparison(w, text(id, "message", 128)),
     "assist.clear": (w) => ctx.assist.clear(w),
     "assist.jumpToSection": (w, index) => {
       if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index > 1000) throw new IpcError("Invalid section");

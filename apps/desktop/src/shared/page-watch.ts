@@ -28,9 +28,29 @@ export interface Watch {
   changeSummary: string;
   /** True when a change was detected that the user has not acknowledged yet (drives the badge). */
   unseen: boolean;
+  /**
+   * "Notify me when…", in the user's words ("the price is under 150 €"): the AI checks it whenever
+   * the page changes, and only its becoming true notifies. None = notify on every change.
+   */
+  condition?: string;
+  /** Whether the condition held at the last check (null/absent = not known yet). */
+  conditionMet?: boolean | null;
+  /** What on the page decided it ("Price: 139 €"), or why it could not be checked. */
+  conditionDetail?: string;
 }
 
 export const MIN_INTERVAL_MINUTES = 5;
+export const CONDITION_CHARS = 300;
+
+/** A condition as stored: whitespace collapsed and capped; "" means none. */
+export function cleanCondition(raw: unknown): string {
+  return typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, CONDITION_CHARS) : "";
+}
+
+/** A condition notifies when it becomes true, not again while it stays true. */
+export function conditionNotifies(previous: boolean | null | undefined, met: boolean): boolean {
+  return met && previous !== true;
+}
 export const BASELINE_CHARS = 8000;
 export const SUMMARY_CHARS = 280;
 export const DEFAULT_MAX_CONCURRENT = 3;
@@ -53,6 +73,8 @@ export interface SyncedWatch {
   intervalMinutes: number;
   paused: boolean;
   createdAt: number;
+  /** "Notify me when…" is the user's intent too, so it travels with the watch. */
+  condition?: string;
 }
 
 export function toSyncedWatch(w: Watch): SyncedWatch {
@@ -63,6 +85,7 @@ export function toSyncedWatch(w: Watch): SyncedWatch {
     intervalMinutes: w.intervalMinutes,
     paused: w.paused,
     createdAt: w.createdAt,
+    ...(w.condition ? { condition: w.condition } : {}),
   };
 }
 
@@ -74,7 +97,8 @@ export function isSyncedWatch(value: unknown): value is SyncedWatch {
     typeof v.intervalMinutes === "number" &&
     typeof v.paused === "boolean" &&
     typeof v.createdAt === "number" &&
-    (v.faviconUrl === undefined || typeof v.faviconUrl === "string")
+    (v.faviconUrl === undefined || typeof v.faviconUrl === "string") &&
+    (v.condition === undefined || typeof v.condition === "string")
   );
 }
 

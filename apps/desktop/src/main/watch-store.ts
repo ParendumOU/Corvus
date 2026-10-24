@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { clampInterval, toSyncedWatch, type SyncedWatch, type Watch, type WatchResult } from "../shared/page-watch";
+import { clampInterval, cleanCondition, toSyncedWatch, type SyncedWatch, type Watch, type WatchResult } from "../shared/page-watch";
 import type { WatchView } from "../shared/watch-ipc";
 import { JsonFile } from "./json-file";
 
@@ -29,6 +29,9 @@ function revive(raw: unknown): Watch[] {
     baseline: typeof w.baseline === "string" ? w.baseline : "",
     changeSummary: typeof w.changeSummary === "string" ? w.changeSummary : "",
     unseen: w.unseen === true,
+    ...(cleanCondition(w.condition) ? { condition: cleanCondition(w.condition) } : {}),
+    ...(typeof w.conditionMet === "boolean" ? { conditionMet: w.conditionMet } : {}),
+    ...(typeof w.conditionDetail === "string" ? { conditionDetail: w.conditionDetail.slice(0, 200) } : {}),
   }));
 }
 
@@ -80,6 +83,9 @@ export class WatchStore {
       ...(w.lastError ? { lastError: w.lastError } : {}),
       changeSummary: w.changeSummary,
       unseen: w.unseen,
+      ...(w.condition ? { condition: w.condition } : {}),
+      ...(typeof w.conditionMet === "boolean" ? { conditionMet: w.conditionMet } : {}),
+      ...(w.conditionDetail ? { conditionDetail: w.conditionDetail } : {}),
     }));
   }
 
@@ -137,6 +143,19 @@ export class WatchStore {
     this.update(id, { intervalMinutes: clampInterval(minutes) });
   }
 
+  /** Sets or clears ("") the "Notify me when…" condition; its state starts over. */
+  setCondition(id: string, condition: string): void {
+    const list = this.file.get();
+    const clean = cleanCondition(condition);
+    this.commit(
+      list.map((w) => {
+        if (w.id !== id) return w;
+        const { condition: _c, conditionMet: _m, conditionDetail: _d, ...rest } = w;
+        return clean ? { ...rest, condition: clean } : rest;
+      }),
+    );
+  }
+
   acknowledge(id?: string): void {
     const list = this.file.get();
     this.commit(list.map((w) => (w.unseen && (id === undefined || w.id === id) ? { ...w, unseen: false } : w)));
@@ -175,12 +194,19 @@ export class WatchStore {
       }
       const existing = byUrl.get(url);
       if (existing) {
+        const condition = cleanCondition(def.condition);
+        const { condition: before, conditionMet, conditionDetail, ...rest } = existing;
+        // A condition changed on another device starts over here.
+        const same = (before ?? "") === condition;
         const next: Watch = {
-          ...existing,
+          ...rest,
           title: def.title,
           ...(def.faviconUrl ? { faviconUrl: def.faviconUrl } : {}),
           intervalMinutes: clampInterval(def.intervalMinutes),
           paused: def.paused,
+          ...(condition ? { condition } : {}),
+          ...(condition && same && conditionMet !== undefined ? { conditionMet } : {}),
+          ...(condition && same && conditionDetail ? { conditionDetail } : {}),
         };
         if (JSON.stringify(next) !== JSON.stringify(existing)) {
           byUrl.set(url, next);
@@ -202,6 +228,7 @@ export class WatchStore {
           baseline: "",
           changeSummary: "",
           unseen: false,
+          ...(cleanCondition(def.condition) ? { condition: cleanCondition(def.condition) } : {}),
         });
         dirty = true;
       }

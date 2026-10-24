@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.9.0
+
+### Corvus Assist
+- **Write with Corvus AI in any text field**: right-click a page's text field to fix spelling and
+  grammar, make the text shorter or longer, more formal or friendlier, translate it, or choose
+  "Write…" and say what to write. The text appears in the Assist panel and goes into the field only
+  when you click "Insert into the field" (Ctrl+Z undoes it). Password, one-time-code and card fields
+  are never read.
+- **Compare tabs**: "Compare tabs with Corvus AI…" in a tab's menu lets you pick two to six of the
+  window's pages and say what matters ("battery and price"). Corvus reads each one, even tabs that
+  are asleep, and answers with a table, one column per page, and a verdict. "Copy table" copies it
+  as Markdown.
+
+### Browser
+- **Watched pages that notify on a condition**: give a watch in corvus://watches a condition in your
+  own words ("the price is under 150 €", "it is back in stock") and Corvus tells you only when it
+  comes true, with the fact that decided it, instead of on every change.
+
 ## v0.8.0
 
 ### Browser

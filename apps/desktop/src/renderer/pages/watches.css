@@ -110,3 +110,30 @@
 .empty p {
   max-width: 420px;
 }
+
+/* "Notify me when…": the condition, then whether it holds. */
+.watch-condition {
+  margin-top: 8px;
+}
+.watch-condition-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.watch-condition-row .watch-summary-label {
+  margin: 0;
+  white-space: nowrap;
+}
+.watch-condition-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.watch-condition-state {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.watch-condition-state.met {
+  color: var(--ok, #188038);
+  font-weight: 600;
+}
