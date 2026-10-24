@@ -28,6 +28,7 @@ import {
   AdblockButton,
   AdblockPopover,
   SharePopover,
+  CopiedLinksChip,
   DownloadsBubble,
   DownloadsButton,
   PermissionPrompt,
@@ -231,6 +232,7 @@ export function App() {
               state={state.adblock}
               onOpen={(rect) => setPopover({ kind: "adblock", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })}
             />
+            <CopiedLinksChip count={state.copiedLinks} />
             <DownloadsButton
               summary={state.downloads}
               onOpen={(rect) => setPopover({ kind: "downloads", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })}

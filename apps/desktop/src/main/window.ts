@@ -135,6 +135,8 @@ export interface OpenTabOptions {
   faviconUrl?: string;
   /** Open it in this container of the profile (ignored for corvus:// pages and unknown containers). */
   containerId?: string;
+  /** Chromium's options for a window.open page (see setWindowOpenHandler): the tab hosts that page. */
+  windowOpen?: Electron.BrowserWindowConstructorOptions;
 }
 
 export interface WindowOpenOptions {
@@ -466,6 +468,7 @@ export class BrowserWindowCtl {
       find: active?.find ? { ...active.find } : null,
       zoomPercent: active && !active.view.webContents.isDestroyed() ? zoomPercent(active.view.webContents.getZoomFactor()) : 100,
       downloads: this.ctx.downloads.summary(this.profile),
+      copiedLinks: this.ctx.grabber.copiedLinks(),
       adblock: this.profile.adblock.barState(active && !active.view.webContents.isDestroyed() ? active.view.webContents : null),
       readerable: active ? this.ctx.reader.isReaderable(active) : false,
       translate: this.ctx.translate.barState(active),
@@ -653,10 +656,15 @@ export class BrowserWindowCtl {
     return this.tabs.size;
   }
 
-  /** A hidden page view for a tab, in this window, below the chrome UI (in its container's session). */
-  private newTabView(url: string, containerId?: string): WebContentsView {
+  /**
+   * A hidden page view for a tab, in this window, below the chrome UI (in its container's session).
+   * `windowOpen` carries the page Chromium made for a window.open call, which the view then hosts.
+   */
+  private newTabView(url: string, containerId?: string, windowOpen?: Electron.BrowserWindowConstructorOptions): WebContentsView {
     const view = new WebContentsView({
+      ...windowOpen,
       webPreferences: {
+        ...windowOpen?.webPreferences,
         session: containerId ? this.profile.containerSession(containerId) : this.profile.session,
         preload: paths.internalPreload,
         sandbox: true,
@@ -678,10 +686,11 @@ export class BrowserWindowCtl {
 
   createTab(url: string, opts: OpenTabOptions = {}): TabRuntime {
     const id = nextId("t");
-    url = pdfViewerRedirect(this.ctx, opts.agent === true, url) ?? url;
+    const opened = opts.windowOpen;
+    if (!opened) url = pdfViewerRedirect(this.ctx, opts.agent === true, url) ?? url;
     // A container tab can start on the New Tab page; other corvus:// pages stay in the profile session.
     const containerId = opts.containerId && (!isInternalUrl(url) || isNewTabUrl(url)) && this.profile.containers.get(opts.containerId) ? opts.containerId : undefined;
-    const view = this.newTabView(url, containerId);
+    const view = this.newTabView(url, containerId, opened);
 
     const lazy = opts.lazy === true && opts.activate === false;
     const tab: TabRuntime = {
@@ -712,7 +721,8 @@ export class BrowserWindowCtl {
       { id, pinned: opts.pinned === true, ...(groupId ? { groupId } : {}), ...(opener ? { openerId: opener.id } : {}) },
       { ...(index !== undefined ? { index } : {}), activate },
     );
-    if (!lazy) {
+    // A page opened by window.open loads itself (and its opener may still write to or navigate it).
+    if (!lazy && !opened) {
       view.webContents.loadURL(url).catch(() => {
         // Load failures surface through did-fail-load.
       });
@@ -881,10 +891,21 @@ export class BrowserWindowCtl {
       // Pages opened by an agent-driven tab stay agent-driven (badge, permission and download rules).
       // So do pages opened from a container tab: they share its cookies.
       const container = tab.containerId ? { containerId: tab.containerId } : {};
-      if (tab.agentControlled) {
-        this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id, agent: true, ...container });
-        return { action: "deny" };
-      }
+      // A new tab hosts the page Chromium creates, so window.open returns it to the opener as in any
+      // browser: pages that open "" and then navigate or write into it (window.open("", "_blank"))
+      // would otherwise be left with null and an empty tab. Form posts into a new tab keep their body.
+      const inTab = (): Electron.WindowOpenHandlerResponse => ({
+        action: "allow",
+        createWindow: (options) =>
+          this.createTab(url, {
+            activate: disposition !== "background-tab",
+            openerId: tab.id,
+            ...(tab.agentControlled ? { agent: true } : {}),
+            ...container,
+            windowOpen: options,
+          }).view.webContents,
+      });
+      if (tab.agentControlled) return inTab();
       if (disposition === "new-window") {
         return {
           action: "allow",
@@ -895,8 +916,7 @@ export class BrowserWindowCtl {
           },
         };
       }
-      this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id, ...container });
-      return { action: "deny" };
+      return inTab();
     });
     // Sign-in popups ("Continue with Google") are windows of their own: same UA rule as tabs. The
     // first load started before this event, so a popup that opens on a sign-in host loads again.

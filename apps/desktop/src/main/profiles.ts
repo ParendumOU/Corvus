@@ -1,4 +1,4 @@
-import { session as electronSession, type Session } from "electron";
+import { app, session as electronSession, type Session } from "electron";
 import type { Profile, ProfileId } from "@corvus/shared";
 import { AdblockController } from "./adblock";
 import { AnnotationStore } from "./annotation-store";
@@ -19,11 +19,59 @@ import { SiteProfileStore } from "./site-profile-store";
 import type { SecretCipher } from "./settings-store";
 import { SiteSettingsStore } from "./site-settings";
 import { BookmarkStore, HistoryStore } from "./stores";
-import { chromeUserAgent, electronUserAgent, type UserAgents } from "./user-agent";
+import { chromeUserAgent, clientHintHeaders, electronUserAgent, type ClientHints, type UserAgents } from "./user-agent";
 import { WorkspaceStore } from "./workspace-store";
 
 /** What a profile runtime needs from the window layer (implemented by WindowManager). */
 export type ProfileDelegate = ExtensionWindowDelegate & PermissionHost;
+
+let installedUserAgents: UserAgents | null = null;
+
+/**
+ * Makes the Chrome UA Chromium's own default (app.userAgentFallback) rather than a per-session
+ * override: an override drops the UA client hints (Sec-CH-UA headers) from every request, which no
+ * real Chromium does, and requests outside the overridden sessions (favicons, the default session)
+ * still went out with Electron's UA. Call before any session exists; both UAs come from Electron's.
+ */
+export function installUserAgents(): UserAgents {
+  if (!installedUserAgents) {
+    const native = app.userAgentFallback;
+    installedUserAgents = { chrome: chromeUserAgent(native), electron: electronUserAgent(native) };
+    app.userAgentFallback = installedUserAgents.chrome;
+  }
+  return installedUserAgents;
+}
+
+/**
+ * Adds the client hints Electron leaves out of navigations (see clientHintHeaders), with the exact
+ * values its own subresource requests carry once one has been seen. Returns a switch, since the
+ * listener costs extensions their request filtering (see ExtensionHost.filtersRequests).
+ */
+function clientHints(ses: Session): (on: boolean) => void {
+  let hints: ClientHints = clientHintHeaders(Number(process.versions.chrome.split(".")[0]), process.platform);
+  let installed = false;
+  return (on) => {
+    if (on === installed) return;
+    installed = on;
+    if (!on) {
+      ses.webRequest.onBeforeSendHeaders(null);
+      return;
+    }
+    ses.webRequest.onBeforeSendHeaders({ urls: ["https://*/*"] }, (details, callback) => {
+      const headers = details.requestHeaders;
+      const seen = headers["sec-ch-ua"];
+      if (seen) {
+        hints = { "sec-ch-ua": seen, "sec-ch-ua-mobile": headers["sec-ch-ua-mobile"] ?? hints["sec-ch-ua-mobile"], "sec-ch-ua-platform": headers["sec-ch-ua-platform"] ?? hints["sec-ch-ua-platform"] };
+        callback({ requestHeaders: headers });
+      } else if (details.resourceType === "mainFrame" || details.resourceType === "subFrame") {
+        // First, where Chromium puts them on its own navigations.
+        callback({ requestHeaders: { ...hints, ...headers } });
+      } else {
+        callback({ requestHeaders: headers });
+      }
+    });
+  };
+}
 
 /** Everything that exists once per profile: session partition, stores and extensions. */
 export class ProfileRuntime {
@@ -63,9 +111,9 @@ export class ProfileRuntime {
   ) {
     this.partition = ProfileManager.partition(profile.id);
     this.session = electronSession.fromPartition(this.partition);
-    const native = this.session.getUserAgent();
-    this.userAgents = { chrome: chromeUserAgent(native), electron: electronUserAgent(native) };
-    this.session.setUserAgent(this.userAgents.chrome);
+    this.userAgents = installUserAgents();
+    const setClientHints = clientHints(this.session);
+    setClientHints(true);
     handleInternalProtocol(this.session);
     this.siteSettings = new SiteSettingsStore(dataDir);
     this.permissions = new PermissionManager(this.siteSettings, delegate);
@@ -87,6 +135,12 @@ export class ProfileRuntime {
     this.extensions = new ExtensionHost(profile.id, this.session, dataDir, delegate);
     this.adblock = new AdblockController(dataDir);
     this.containers = new ContainerStore(dataDir);
+    // Extensions that filter requests keep doing it unless the built-in blocker, whose own
+    // listeners already take that from them, is on.
+    const syncClientHints = (): void => setClientHints(this.adblock.settings().enabled || !this.extensions.filtersRequests());
+    syncClientHints();
+    this.adblock.onChange(syncClientHints);
+    this.extensions.onChange(syncClientHints);
   }
 
   /**
@@ -98,7 +152,7 @@ export class ProfileRuntime {
     const known = this.containerSessions.get(containerId);
     if (known) return known;
     const ses = electronSession.fromPartition(containerPartition(this.partition, containerId));
-    ses.setUserAgent(this.userAgents.chrome);
+    clientHints(ses)(true);
     handleInternalProtocol(ses);
     this.permissions.install(ses);
     this.containerSessions.set(containerId, ses);

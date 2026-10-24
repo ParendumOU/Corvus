@@ -317,7 +317,7 @@ function ApprovalBanner({ s, api, run }: { s: ScheduleView; api: Api; run: (p: P
         <strong>Approval needed</strong>
         <div>{a.reason || `The agent wants to run “${a.tool}”.`}</div>
         {a.summary && <div className="muted small mono">{a.summary}</div>}
-        {a.handoff && <div className="muted small">This needs a secret or a human check — handle it in the tab, then approve.</div>}
+        {a.handoff && <div className="muted small">This needs a secret — handle it in the tab, then approve.</div>}
       </div>
       <div className="sched-approval-actions">
         <button className="btn small primary" onClick={() => run(api.call("schedule.approve", s.id, "approve"))}>

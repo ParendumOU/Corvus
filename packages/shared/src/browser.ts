@@ -75,7 +75,10 @@ export interface PageSnapshot {
   elements: SnapshotElement[];
   truncated: boolean;
   viewport?: Viewport;
-  /** Human-verification challenge detected on the page: hand it to the user (request_user_action). */
+  /**
+   * Human-verification challenge detected on the page. The agent solves it with the normal tools and
+   * calls ask_user only if it cannot (see challengeGuidance in @corvus/shared).
+   */
   challenge?: ChallengeInfo;
   /** An open JavaScript dialog blocks the page until handled. */
   dialog?: DialogInfo;

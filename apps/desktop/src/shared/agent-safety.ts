@@ -2,8 +2,9 @@
  * Safety classification for Command Bar agent actions. Pure so it can be unit-tested. A short
  * allow-list of read-only actions runs without asking; anything that submits a form, logs in or
  * otherwise commits a change is "risky" and needs the user's approval (when the "ask before risky
- * actions" setting is on). CAPTCHAs are never automated, and secrets are never typed by the agent:
- * the loop hands those back to the user.
+ * actions" setting is on). Secrets are never typed by the agent: the loop hands those back to the
+ * user. CAPTCHAs are different: the agent solves them with the visual tools, so acting inside a
+ * CAPTCHA widget is allowed; it becomes a handoff only when the runner reports that solving failed.
  *
  * Some actions always ask, whatever the "ask before risky actions" setting says (`alwaysAsk`):
  * - anything that spends money (a click on "Buy now", "Place order", "Pagar", "Kinnita tellimus",
@@ -55,6 +56,8 @@ export interface ActionRisk {
   alwaysAsk?: boolean;
   /** The action spends money (always asks; a scheduled run never auto-approves it). */
   spend?: boolean;
+  /** The action is inside a CAPTCHA / human-verification widget: allowed, solving it is the task. */
+  challenge?: boolean;
 }
 
 const SAFE: ActionRisk = { risky: false, handoff: false, reason: "" };
@@ -172,7 +175,8 @@ function pointLabel(input: unknown): string {
  * - press_key Enter/Space activates the focused control or submits its form, classified like a
  *   click on it or a type with submit;
  * - type_text into a password, one-time-code or card field is handed to the person;
- * - a CAPTCHA widget is always handed to the person, never clicked;
+ * - a CAPTCHA widget is allowed: solving it with the visual tools is the intended path, so the gate
+ *   marks it (challenge: true) instead of blocking it;
  * - when Corvus cannot read the target at all, a click or activation always asks.
  * hover_at and scroll_at only move the pointer or the page and never ask.
  */
@@ -181,7 +185,7 @@ export function classifyPointAction(tool: string, input: unknown, target: PointT
   const press = tool === "press_key" ? parseKey(str(input, "key"), (input as { modifiers?: unknown } | null)?.modifiers) : null;
   const ctx = (t: PointTarget): SpendContext => ({ role: t.role, url: t.url, ...(t.form ? { form: t.form } : {}) });
   const unreadable: ActionRisk = { risky: true, handoff: false, alwaysAsk: true, reason: `Acts${pointLabel(input)} on something Corvus cannot read.` };
-  if (target?.captcha) return { risky: true, handoff: true, reason: "This is a CAPTCHA or human check. Hand it to the person; never solve it." };
+  if (target?.captcha) return { risky: false, handoff: false, challenge: true, reason: "Acts inside a CAPTCHA or human check to solve it." };
 
   if (tool === "click_at" || (press && isActivationKey(press))) {
     if (!target) return unreadable;
@@ -206,7 +210,10 @@ export function classifyPointAction(tool: string, input: unknown, target: PointT
   return classifyAction(tool, input);
 }
 
-/** Whether a snapshot's detected challenge (CAPTCHA etc.) must be handed to the user. */
-export function isChallengeHandoff(kind: string | undefined): boolean {
+/** Whether a snapshot reports a human-verification challenge the agent must address. */
+export function isChallengeDetected(kind: string | undefined): boolean {
   return kind !== undefined && kind.length > 0;
 }
+
+/** @deprecated The agent now solves challenges; use isChallengeDetected. */
+export const isChallengeHandoff = isChallengeDetected;

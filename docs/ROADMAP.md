@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-24 · current release: **v0.12.0** (Windows + Linux, unsigned) · Corvus for mobile **0.2.0** (Android preview)
+Last updated: 2026-10-24 · current release: **v0.13.0** (Windows + Linux, unsigned) · Corvus for mobile **0.2.0** (Android preview)
 
 ---
 
@@ -66,7 +66,9 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 **For agents (MCP)**
 - [x] Local MCP server, full browser toolset (visual + semantic control, forms, extract,
       dialogs, screenshots), three access levels (read-only / standard / full)
-- [x] Human handoff for CAPTCHAs (never solved automatically) and for 2FA, except codes the user
+- [x] CAPTCHA solving by the agent (checkbox, tile grids with the visual tools) with human handoff
+      after two failed attempts or when the check needs a phone number or e-mail code; 2FA stays with
+      the user, except codes the user
       opted in per login: `fill_totp` / `fill_login` fill them by reference after an approval prompt
 - [x] Claude Code plugin with zero-config discovery (`~/.corvus/mcp.json` + bundled bridge)
 - [x] WebScope workbench (scope-gated, Burp-style), also exposed to agents:
@@ -105,6 +107,11 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [ ] Sync conflict resolution UI
 - [ ] Sync command-bar history
 
+**Downloads & switching**
+- [~] Download manager: link grabber, package queue, parallel connections, checksums, and joining and extracting split archives with their password (v0.13.0); next, "Download with AI"
+- [ ] Default browser: register for web links and files, ask once per launch while it is not
+- [ ] Import from Chrome, Edge, Brave, Opera, Vivaldi and Firefox: bookmarks, history, sessions and tab groups, cookies where they can be read
+
 **Automation (M5)**
 - [ ] WebScope depth: active checks opt-in, match/replace rules UI, session export/import
 - [ ] Per-tool audit log + rate limits surfaced in UI
@@ -131,8 +138,9 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - **Agent actions are gated**: risky steps (forms, logins) need human approval while "Ask before
   risky actions" is on. Spending money (a "Buy now", "Place order" or "Pagar" click, Enter in a
   checkout or payment form) always asks, even with it off, in scheduled runs and saved workflows,
-  and for MCP clients at every access level (a native Allow once / Deny dialog). CAPTCHAs are
-  never solved: they go to the human, and so do card and password fields. 2FA codes go to the
+  and for MCP clients at every access level (a native Allow once / Deny dialog). CAPTCHAs are solved
+  by the agent when they do not pass on their own, and go to the human after two failures or when
+  they ask for a phone number or e-mail code; card and password fields still go to the human. 2FA codes go to the
   human too, unless the user opted that login in (global setting plus per-login switch, both off
   by default); then Corvus fills the code itself after an approval prompt and the agent never
   sees it.

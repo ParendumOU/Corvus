@@ -226,6 +226,21 @@ export const DNR_DEFAULTS_CHANNEL = "corvus:dnr-default-rulesets";
 /** Main-world global (removed again by the worker preload) that carries Corvus extension API calls. */
 export const EXTENSION_API_BRIDGE = "__corvusExtensionApi";
 
+const REQUEST_FILTER_PERMISSIONS: ReadonlySet<string> = new Set([
+  "declarativeNetRequest",
+  "declarativeNetRequestWithHostAccess",
+  "webRequest",
+  "webRequestBlocking",
+]);
+
+/**
+ * Whether the extension filters network requests. A session with any webRequest listener of its
+ * own skips Chromium's extension request proxy, so these extensions stop filtering there.
+ */
+export function filtersRequests(manifest: ManifestLike): boolean {
+  return apiPermissions(manifest).some((p) => REQUEST_FILTER_PERMISSIONS.has(p));
+}
+
 /** Static rulesets the manifest enables by default. */
 export function defaultRulesets(manifest: ManifestLike): string[] {
   const dnr = manifest.declarative_net_request as { rule_resources?: unknown } | undefined;

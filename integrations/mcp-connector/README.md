@@ -49,6 +49,16 @@ As a plugin (includes a skill that teaches Claude the tools and a `/corvus-statu
 /plugin install corvus@corvus-mcp
 ```
 
+Keep it up to date on its own: Claude Code updates marketplaces it does not ship with only when you
+turn that on. In `/plugin`, open **Marketplaces**, choose **corvus-mcp** and **Enable auto-update**;
+or add `"autoUpdate": true` to its entry in `~/.claude/settings.json`:
+
+```json
+"extraKnownMarketplaces": {
+  "corvus-mcp": { "source": { "source": "github", "repo": "ParendumOU/Corvus-MCP" }, "autoUpdate": true }
+}
+```
+
 Or as a plain MCP server:
 
 ```sh
@@ -280,8 +290,11 @@ Corvus decides what agents may do, in **Settings > AI agents (MCP)**:
   opted in.
 
 Tabs an agent is driving show an **AI** badge, an on-screen cursor and an activity timeline, and
-you can pause agents at any time. CAPTCHAs are always handed to you and never solved
-automatically. Two-factor prompts are handed to you too, unless you let agents use the 2FA code of
+you can pause agents at any time. CAPTCHAs are solved by the agent when Corvus does not pass them on
+its own (it clicks the checkbox and works through tile grids with the screenshot and coordinate
+tools); after two failed attempts, or when the check asks for a phone number or e-mail code, it hands
+the check back to you. Two-factor prompts are handed to you too, unless you let
+agents use the 2FA code of
 a specific saved login: then Corvus fills the code itself after you approve each use, and the
 agent never sees it. Anything that spends money (a "Buy now", "Place order" or "Pay" click, a
 submit on a checkout or payment page, a workflow step that pays) shows an **Allow once / Deny**

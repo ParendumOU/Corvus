@@ -97,7 +97,7 @@ for (const dir of roots) {
   if (packages.has(key)) continue;
   const texts = fs
     .readdirSync(dir)
-    .filter((f) => /^(licen[cs]e|copying|notice)([.-].*)?$/i.test(f) && fs.statSync(path.join(dir, f)).isFile())
+    .filter((f) => /^(unrar)?(licen[cs]e|copying|notice)([.-].*)?$/i.test(f) && fs.statSync(path.join(dir, f)).isFile())
     .sort()
     .map((f) => ({ file: f, text: fs.readFileSync(path.join(dir, f), "utf8").slice(0, MAX_TEXT).trim() }));
   const repo = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url;

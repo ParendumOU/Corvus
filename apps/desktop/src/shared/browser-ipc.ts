@@ -3,6 +3,8 @@
  * Merged into ChromeRpc / InternalRpc / WindowState in ./ipc.ts.
  */
 import type { DownloadAction, DownloadRecord } from "./downloads";
+import type { QueueAction, QueueView } from "./download-queue";
+import type { GrabbedPackage } from "./link-grabber";
 import type { PermissionDecision, PermissionKind, SitePermissionEntry } from "./permissions";
 import type { PhoneShare } from "./phone-share";
 import type { SettingsView } from "./settings";
@@ -49,6 +51,8 @@ export interface BrowserWindowExtras {
   find: FindState | null;
   zoomPercent: number;
   downloads: DownloadsSummary;
+  /** Download links in the text just copied (the link grabber chip), 0 when none. */
+  copiedLinks: number;
 }
 
 export interface SitePermissionView {
@@ -81,6 +85,9 @@ export interface BrowserChromeRpc {
   "zoom.step"(delta: 1 | -1 | 0): void;
   "downloads.action"(id: string, action: DownloadAction): void;
   "downloads.openPage"(): void;
+  /** The copied-links chip: put them in the link grabber and open it, or dismiss them. */
+  "grabber.grabCopied"(): number;
+  "grabber.dismissCopied"(): void;
   /** "Send to your phone": sends the page to the linked Telegram chat. */
   "share.telegram"(url: string, title: string): void;
   "share.copy"(url: string): void;
@@ -91,6 +98,21 @@ export interface BrowserInternalRpc {
   "downloads.act"(id: string, action: DownloadAction): void;
   "downloads.clear"(): void;
   "downloads.chooseDirectory"(): SettingsView | null;
+  "grabber.list"(): GrabbedPackage[];
+  /** Adds the download links in pasted text; returns how many were new. */
+  "grabber.addText"(text: string): number;
+  "grabber.remove"(ids: string[]): void;
+  "grabber.clear"(): void;
+  /** Starts packages or links (by id) and takes them out of the grabber; returns how many started. */
+  "grabber.download"(ids: string[]): number;
+  "queue.list"(): QueueView;
+  /** Pause, resume, retry or remove a package (every file) or one file. */
+  "queue.act"(id: string, action: QueueAction): void;
+  /** Moves a package up (-1) or down (1) in the queue. */
+  "queue.move"(id: string, delta: number): void;
+  "queue.clearDone"(): void;
+  /** Extracts a finished package's archives now, trying the password first when one is given. */
+  "queue.extract"(id: string, password?: string): void;
   "sitePermissions.list"(): SitePermissionEntry[];
   "sitePermissions.set"(origin: string, kind: PermissionKind, decision: PermissionDecision | null): SitePermissionEntry[];
   "sitePermissions.reset"(origin: string): SitePermissionEntry[];

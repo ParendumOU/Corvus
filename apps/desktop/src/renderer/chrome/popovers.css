@@ -213,6 +213,38 @@
 .downloads-btn {
   position: relative;
 }
+.copied-links-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.copied-links-chip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.copied-links-main {
+  padding: 0 4px 0 10px;
+}
+.copied-links-close {
+  padding: 0 8px 0 4px;
+  opacity: 0.7;
+}
+.copied-links-chip button:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
 .downloads-btn.active {
   color: var(--accent);
 }

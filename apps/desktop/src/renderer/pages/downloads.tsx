@@ -9,6 +9,8 @@ import {
 import { errorMessage, internalApi } from "../common/api";
 import { IconAgent, IconClose, IconFile, IconFolder, IconPause, IconPlay, IconReload, IconTrash, IconWarning } from "../common/icons";
 import { dayLabel, formatTime, hostOf } from "../common/ui";
+import { GrabberView } from "./downloads-grabber";
+import { QueueSection } from "./downloads-queue";
 import "./downloads.css";
 import { PageShell, mount } from "./shell";
 
@@ -21,7 +23,45 @@ const ICON_ACTIONS: Partial<Record<DownloadAction, { title: string; icon: ReactN
   remove: { title: "Remove from list", icon: <IconTrash size={15} /> },
 };
 
+type View = "downloads" | "grabber";
+
 function DownloadsPage() {
+  const [view, setView] = useState<View>(location.hash === "#grabber" ? "grabber" : "downloads");
+  useEffect(() => {
+    const onHash = (): void => setView(location.hash === "#grabber" ? "grabber" : "downloads");
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const tabs = (
+    <div className="segmented" role="tablist">
+      {(["downloads", "grabber"] as const).map((v) => (
+        <button
+          key={v}
+          role="tab"
+          aria-selected={view === v}
+          className={view === v ? "on" : ""}
+          data-view={v}
+          onClick={() => {
+            history.replaceState(null, "", v === "grabber" ? "#grabber" : "#");
+            setView(v);
+          }}
+        >
+          {v === "grabber" ? "Link grabber" : "Downloads"}
+        </button>
+      ))}
+    </div>
+  );
+  if (view === "grabber") {
+    return (
+      <PageShell title="Downloads" active="downloads" toolbar={tabs}>
+        <GrabberView />
+      </PageShell>
+    );
+  }
+  return <DownloadsList tabs={tabs} />;
+}
+
+function DownloadsList({ tabs }: { tabs: ReactNode }) {
   const api = internalApi();
   const [list, setList] = useState<DownloadRecord[] | null>(null);
   const [query, setQuery] = useState("");
@@ -61,6 +101,7 @@ function DownloadsPage() {
       active="downloads"
       toolbar={
         <>
+          {tabs}
           <input className="input" placeholder="Search downloads" value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="btn small" disabled={!list || list.length === 0} onClick={() => void api.call("downloads.clear").then(load)}>
             Clear all
@@ -69,6 +110,7 @@ function DownloadsPage() {
       }
     >
       {error && <div className="notice error">{error}</div>}
+      <QueueSection />
       {list && shown.length === 0 ? (
         <div className="card">
           <div className="empty">{q ? "No downloads match your search." : "Files you download will appear here."}</div>

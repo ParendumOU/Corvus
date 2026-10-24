@@ -136,15 +136,16 @@ describe("snapshot tool artifact", () => {
     }
   });
 
-  it("flags a human-verification challenge and never solves it", async () => {
+  it("flags a human-verification challenge and tells the agent to solve it", async () => {
     const h = await startHarness({ accessLevel: "read", rateLimit: false }, controller(CAPTCHA_URL));
     try {
       const client = await h.connect();
       const res = await call(client, "snapshot", {});
       expect(textOf(res)).toContain("challenge_detected: recaptcha");
+      expect(textOf(res)).toContain("click_at");
       expect(textOf(res)).toContain("request_user_action");
       expect(artifact(res).challenge).toMatchObject({ kind: "recaptcha" });
-      expect(h.controller.inputs.length, "no input dispatched").toBe(0);
+      expect(h.controller.inputs.length, "no input dispatched by a read-only snapshot").toBe(0);
     } finally {
       await h.close();
     }

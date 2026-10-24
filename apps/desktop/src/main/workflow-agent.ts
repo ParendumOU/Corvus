@@ -58,7 +58,7 @@ const READ_TOOL: AgentTool = {
 const RUN_TOOL: AgentTool = {
   name: "run_workflow",
   description:
-    "Run a saved workflow in the agent tab in one call, filling its parameters. Each step still goes through the approval gate. If a step's target no longer matches, it stops and tells you which step broke so you can continue with the normal tools.",
+    "Run a saved workflow in the agent tab in one call, filling its parameters. Each step still goes through the approval gate. If a CAPTCHA blocks a step, solve it with the normal tools and continue. If a step's target no longer matches, it stops and tells you which step broke so you can continue with the normal tools.",
   inputSchema: {
     type: "object",
     properties: {

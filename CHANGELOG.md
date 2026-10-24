@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.13.0
+
+### Downloads
+- **Link grabber**: right-click a tab and choose **Grab download links**, or paste a whole post in
+  corvus://downloads → Link grabber. Corvus keeps the links to files, to file hosters and to the
+  volumes of split archives, groups the volumes of one archive into a package in order
+  (`.part1.rar`, `.r00`, `.7z.001`, `.z01`, `.001`), and keeps the archive password written next to
+  them ("Password: …", "Contraseña: …"). With **Settings → Downloads → Offer copied download links**
+  on, links you copy show up as a button in the toolbar.
+- **Download queue**: packages download into their own folder, a few files at a time and at most
+  two per site, through your own session (sites you are signed in to work). Pause, resume, retry,
+  remove and reorder; a paused or interrupted file resumes where it stopped, failures retry on
+  their own, and the queue survives a restart. corvus://downloads shows each package's progress,
+  speed and time left.
+- **Parallel connections**: a file of 16 MB or more on a server that supports it downloads over up
+  to four connections at once (Settings → Downloads, 1 to 8), and each part resumes where it
+  stopped after a pause, a failure or a restart.
+- **Checksums**: when a package is complete, files listed in its `.sfv`, `.md5`, `.sha1` or
+  `.sha256` are checked; a file that does not match is marked failed with both hashes, and
+  retrying downloads it again from the start.
+- **Extracting archives**: when a package is complete, Corvus joins split files (`.001`, `.002`, …)
+  and extracts RAR, 7z and ZIP archives, multi-part ones too, into the package's folder, in the
+  background. It tries the password found next to the links, then the package and archive names,
+  then your list in **Settings → Downloads → Archive passwords**; when none opens it, the package
+  asks you for one, and a password you type that works is added to the list. Optionally, the
+  archives are deleted once extracted (**Delete archives after extracting**).
+
+### Browser
+- **Menus in Spanish**: the app, tab, group, profile, bookmarks and page menus follow the
+  interface language.
+- **Sites behind Cloudflare**: Corvus sends one consistent browser identity on every request
+  (Chromium's user agent and client hints on navigations too), so sites stop challenging every
+  visit and accept you once you pass the check. With the built-in blocker off, an installed
+  extension that blocks requests (such as uBlock Origin Lite) keeps blocking; navigations then go
+  out without the client hints.
+- **window.open**: pages that open a tab and then write into it or post a form to it now work, as
+  in any browser.
+- **Easier tab closing**: the tab close button is twice as big.
+
+### Claude Code plugin
+- The connector's guide explains how to turn on auto-update for the Corvus marketplace, so the
+  plugin updates on its own.
+
 ## v0.12.0
 
 ### Reading list

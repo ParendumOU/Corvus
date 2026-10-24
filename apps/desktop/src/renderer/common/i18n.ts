@@ -1,5 +1,5 @@
 import type { UiLanguage } from "../../shared/settings";
-import { ES } from "./i18n-es";
+import { translate } from "../../shared/i18n-es";
 
 /**
  * Translations for Corvus's own pages. English text is the key: `t("Show bookmarks bar")` returns
@@ -24,6 +24,5 @@ export function setUiLanguage(next: UiLanguage): void {
 }
 
 export function t(text: string, vars?: Record<string, string | number>): string {
-  const out = language === "es" ? (ES[text] ?? text) : text;
-  return vars ? out.replace(/\{(\w+)\}/g, (match, key: string) => (key in vars ? String(vars[key]) : match)) : out;
+  return translate(language, text, vars);
 }

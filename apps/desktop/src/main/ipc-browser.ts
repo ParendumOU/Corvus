@@ -25,6 +25,10 @@ const str = (value: unknown, name: string, max = 2048): string => {
   if (typeof value !== "string" || value.length > max) throw new IpcError(`Invalid ${name}`);
   return value;
 };
+const ids = (value: unknown): string[] => {
+  if (!Array.isArray(value) || value.length > 5000) throw new IpcError("Invalid ids");
+  return value.map((v) => str(v, "id", 64));
+};
 const kind = (value: unknown): PermissionKind => {
   if (!isPermissionKind(value)) throw new IpcError("Invalid permission");
   return value;
@@ -62,6 +66,8 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
     },
     "downloads.action": (w, id, a) => ctx.downloads.act(w.profile, str(id, "download"), action(a)),
     "downloads.openPage": (w) => w.openSingleton("corvus://downloads/"),
+    "grabber.grabCopied": (w) => ctx.grabber.grabCopied(w),
+    "grabber.dismissCopied": () => ctx.grabber.dismissCopied(),
     "share.telegram": (_w, url, title) => {
       const u = str(url, "url", 8192);
       if (!/^https?:\/\//i.test(u)) throw new IpcError("Only web pages can be sent");
@@ -76,6 +82,16 @@ export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, read
   "downloads.act": ["downloads"],
   "downloads.clear": ["downloads"],
   "downloads.chooseDirectory": ["settings"],
+  "grabber.list": ["downloads"],
+  "grabber.addText": ["downloads"],
+  "grabber.remove": ["downloads"],
+  "grabber.clear": ["downloads"],
+  "grabber.download": ["downloads"],
+  "queue.list": ["downloads"],
+  "queue.act": ["downloads"],
+  "queue.move": ["downloads"],
+  "queue.clearDone": ["downloads"],
+  "queue.extract": ["downloads"],
   "sitePermissions.list": ["settings"],
   "sitePermissions.set": ["settings"],
   "sitePermissions.reset": ["settings"],
@@ -86,6 +102,22 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
     "downloads.list": (c) => ctx.downloads.list(c.profile),
     "downloads.act": (c, id, a) => ctx.downloads.act(c.profile, str(id, "download"), action(a)),
     "downloads.clear": (c) => ctx.downloads.clear(c.profile),
+    "grabber.list": (c) => ctx.grabber.list(c.profile),
+    "grabber.addText": (c, text) => ctx.grabber.addText(c.profile, str(text, "text", 200_000), "pasted"),
+    "grabber.remove": (c, list) => ctx.grabber.remove(c.profile, ids(list)),
+    "grabber.clear": (c) => ctx.grabber.clear(c.profile),
+    "grabber.download": (c, list) => {
+      if (!c.window) throw new IpcError("No browser window");
+      return ctx.grabber.download(c.window, ids(list));
+    },
+    "queue.list": (c) => ctx.queue.list(c.profile),
+    "queue.act": (c, id, a) => {
+      if (a !== "pause" && a !== "resume" && a !== "retry" && a !== "remove") throw new IpcError("Invalid queue action");
+      ctx.queue.act(c.profile, str(id, "id", 64), a);
+    },
+    "queue.move": (c, id, delta) => ctx.queue.move(c.profile, str(id, "id", 64), delta === -1 ? -1 : 1),
+    "queue.clearDone": (c) => ctx.queue.clearDone(c.profile),
+    "queue.extract": (c, id, password) => ctx.queue.extract(c.profile, str(id, "id", 64), password === undefined || password === null ? undefined : str(password, "password", 200)),
     "downloads.chooseDirectory": async (c) => {
       const options: Electron.OpenDialogOptions = {
         title: "Choose a download folder",

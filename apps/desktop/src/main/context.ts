@@ -10,6 +10,8 @@ import type { TabSleeper } from "./tab-sleeper";
 import type { AutofillService } from "./autofill-service";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
+import type { DownloadQueue } from "./download-queue";
+import type { LinkGrabber } from "./link-grabber";
 import type { FlowService } from "./flow-service";
 import type { KeePassService } from "./keepass-service";
 import type { SecretFillGuard } from "./secret-fill-guard";
@@ -43,6 +45,10 @@ export interface AppContext {
   sync: SyncService;
   updater: UpdateService;
   downloads: DownloadManager;
+  /** Download links collected from pages and copied text, waiting to be downloaded. */
+  grabber: LinkGrabber;
+  /** Corvus's own download queue (packages from the link grabber). */
+  queue: DownloadQueue;
   sessionRestore: SessionRestore;
   assist: AssistService;
   /** Page translation from the address bar. */

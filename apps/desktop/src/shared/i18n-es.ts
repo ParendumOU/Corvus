@@ -1,6 +1,9 @@
+import type { UiLanguage } from "./settings";
+
 /**
- * Spanish (Spain) strings for Corvus pages, keyed by their English text (see i18n.ts).
- * test/i18n.test.ts fails when a t("…") on a translated page has no entry here.
+ * Spanish (Spain) strings for Corvus's pages and native menus, keyed by their English text (see
+ * renderer/common/i18n.ts and main/menu-i18n.ts). test/i18n.test.ts fails when a t("…") on a
+ * translated page, or a menu label, has no entry here.
  */
 export const ES: Record<string, string> = {
   // ------------------------------------------------------------------ page menu and titles
@@ -166,14 +169,25 @@ export const ES: Record<string, string> = {
   "Use default": "Usar la predeterminada",
   "Ask where to save each file before downloading": "Preguntar dónde guardar cada archivo antes de descargarlo",
   "Ask where to save each file": "Preguntar dónde guardar cada archivo",
+  "Offer copied download links": "Ofrecer los enlaces de descarga copiados",
+  "When text you copy has download links, a button in the toolbar adds them to the link grabber. Corvus reads the clipboard every second or so while this is on.":
+    "Cuando copias texto con enlaces de descarga, un botón en la barra los añade al capturador de enlaces. Mientras esté activado, Corvus lee el portapapeles más o menos cada segundo.",
+  "Extract archives when a package finishes": "Extraer los archivos comprimidos al terminar un paquete",
+  "Joins split files and extracts RAR, 7z and ZIP archives, multi-part ones too, into the package's folder. Passwords are tried in order: the ones found next to the links, the package name, then your list below.":
+    "Une los archivos troceados y extrae los RAR, 7z y ZIP, también los de varias partes, en la carpeta del paquete. Las contraseñas se prueban en orden: las encontradas junto a los enlaces, el nombre del paquete y después tu lista de abajo.",
+  "Delete archives after extracting": "Borrar los archivos comprimidos después de extraerlos",
+  "Only once an archive extracted without errors.": "Solo cuando un archivo se ha extraído sin errores.",
+  "Archive passwords": "Contraseñas de archivos comprimidos",
+  "One per line. A password you type for a package is added here when it works.":
+    "Una por línea. La contraseña que escribas para un paquete se añade aquí si funciona.",
 
   // ------------------------------------------------------------------ passwords
   "Saved logins, 2FA codes and KeePass databases are managed on the":
     "Los inicios de sesión guardados, los códigos 2FA y las bases de datos de KeePass se gestionan en la página",
   "page.": ".",
   "Let AI agents use logins you opt in": "Dejar que los agentes de IA usen los inicios de sesión que elijas",
-  "The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are always handed back to you.":
-    "El agente de la barra de comandos y los clientes MCP con acceso completo pueden iniciar sesión y rellenar códigos 2FA, pero solo en los inicios de sesión que elijas uno a uno y solo después de que apruebes cada uso. Nunca ven la contraseña ni el código. Desactivado por defecto; los CAPTCHA siempre te los devuelve a ti.",
+  "The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are solved by the agent when Corvus does not pass them, and handed back to you after two failed attempts.":
+    "El agente de la barra de comandos y los clientes MCP con acceso completo pueden iniciar sesión y rellenar códigos 2FA, pero solo en los inicios de sesión que elijas uno a uno y solo después de que apruebes cada uso. Nunca ven la contraseña ni el código. Desactivado por defecto; los CAPTCHA los resuelve el agente cuando Corvus no los supera, y te los devuelve tras dos intentos fallidos.",
   "Lock KeePass databases after": "Bloquear las bases de datos de KeePass tras",
   "Minutes without keyboard or mouse activity. 0 keeps them unlocked until you lock them or quit.":
     "Minutos sin actividad de teclado o ratón. Con 0 siguen desbloqueadas hasta que las bloquees o cierres Corvus.",
@@ -411,8 +425,8 @@ export const ES: Record<string, string> = {
   "Max steps": "Máximo de pasos",
   "Most tool actions one task may take before it stops.": "Número máximo de acciones que puede hacer una tarea antes de detenerse.",
   "Ask before risky actions": "Preguntar antes de acciones arriesgadas",
-  "When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and CAPTCHAs and card or password fields are always handed back to you.":
-    "Si está activado, Corvus pregunta antes de que el agente envíe un formulario, inicie sesión o dé otro paso arriesgado. Si está desactivado, el agente trabaja solo, pero todo lo que gasta dinero, los inicios de sesión guardados y los códigos 2FA te siguen preguntando cada vez, y los CAPTCHA y los campos de tarjeta o contraseña siempre te los devuelve a ti.",
+  "When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and card or password fields are always handed back to you. CAPTCHAs are solved by the agent and handed back only if it cannot finish.":
+    "Si está activado, Corvus pregunta antes de que el agente envíe un formulario, inicie sesión o dé otro paso arriesgado. Si está desactivado, el agente trabaja solo, pero todo lo que gasta dinero, los inicios de sesión guardados y los códigos 2FA te siguen preguntando cada vez, y los campos de tarjeta o contraseña siempre te los devuelve a ti. Los CAPTCHA los resuelve el agente y solo te los devuelve si no puede terminarlos.",
   "Learn from runs (site memory)": "Aprender de las ejecuciones (memoria de sitios)",
   "After a successful run, Corvus keeps a few small hints per site (which buttons and fields worked, URL shapes, cookie banners) so later tasks there take fewer steps. Never typed values or passwords. Learning is per device; what is learned syncs end to end when Site memory sync is on. See and forget them on the Workflows page.":
     "Tras una ejecución correcta, Corvus guarda unas pocas pistas por sitio (qué botones y campos funcionaron, la forma de las URL, los avisos de cookies) para que las tareas siguientes allí necesiten menos pasos. Nunca valores escritos ni contraseñas. El aprendizaje es por dispositivo; lo aprendido se sincroniza cifrado de extremo a extremo si la sincronización de la memoria de sitios está activada. Puedes verlas y olvidarlas en la página Flujos de trabajo.",
@@ -736,4 +750,116 @@ export const ES: Record<string, string> = {
   "Unread on a site": "No leídos en un sitio",
   "The unread count of a site you are signed in to (X to start; change the address in its settings). Asks before reading with your session.":
     "El número de no leídos de un sitio en el que tienes la sesión iniciada (para empezar, X; cambia la dirección en sus ajustes). Pregunta antes de leer con tu sesión.",
+  // ------------------------------------------------------------------ native menus (main/menus.ts)
+  "New tab": "Nueva pestaña",
+  "New window": "Nueva ventana",
+  "New container tab": "Nueva pestaña en contenedor",
+  "No container": "Sin contenedor",
+  "Manage containers…": "Gestionar contenedores…",
+  "Bookmarks manager": "Gestor de marcadores",
+  "Corvus Assist": "Corvus Assist",
+  "Organize tabs": "Organizar pestañas",
+  "Workspaces…": "Espacios de trabajo…",
+  "Stop recording & review…": "Detener grabación y revisar…",
+  "Record a new flow": "Grabar un flujo nuevo",
+  "Agent activity": "Actividad de los agentes",
+  "WebScope (security workbench)": "WebScope (banco de pruebas de seguridad)",
+  "Find…": "Buscar…",
+  "Zoom ({percent}%)": "Zoom ({percent} %)",
+  "Zoom in": "Ampliar",
+  "Zoom out": "Reducir",
+  "Print…": "Imprimir…",
+  "Developer tools": "Herramientas para desarrolladores",
+  "Check for updates…": "Buscar actualizaciones…",
+  "Exit": "Salir",
+  "Signed in as {name}": "Sesión iniciada como {name}",
+  "New window for this profile": "Nueva ventana con este perfil",
+  "Add or manage profiles…": "Añadir o gestionar perfiles…",
+  "Untitled tab": "Pestaña sin título",
+  "Add to split": "Añadir a la vista dividida",
+  "Remove from split": "Quitar de la vista dividida",
+  "Split with": "Dividir con",
+  "Exit split": "Salir de la vista dividida",
+  "New tab to the right": "Nueva pestaña a la derecha",
+  "Add tab to new group": "Añadir pestaña a un grupo nuevo",
+  "Add tab to group": "Añadir pestaña al grupo",
+  "Unnamed {color} group": "Grupo {color} sin nombre",
+  "Remove from group": "Quitar del grupo",
+  "Compare tabs with Corvus AI…": "Comparar pestañas con Corvus AI…",
+  "Reload": "Recargar",
+  "Sleep to save memory": "Dormir para ahorrar memoria",
+  "Duplicate": "Duplicar",
+  "Send to your phone…": "Enviar al móvil…",
+  "Grab download links": "Capturar enlaces de descarga",
+  "Reopen in container": "Reabrir en contenedor",
+  "Pin": "Fijar",
+  "Unpin": "Dejar de fijar",
+  "Mute site": "Silenciar sitio",
+  "Unmute site": "Activar sonido del sitio",
+  "Watch this page for changes": "Vigilar cambios en esta página",
+  "Close other tabs": "Cerrar las demás pestañas",
+  "Close tabs to the right": "Cerrar las pestañas de la derecha",
+  "Reopen closed tab": "Reabrir pestaña cerrada",
+  "Edit group…": "Editar grupo…",
+  "Expand group": "Expandir grupo",
+  "Collapse group": "Contraer grupo",
+  "New tab in group": "Nueva pestaña en el grupo",
+  "Update workspace “{name}”": "Actualizar el espacio de trabajo «{name}»",
+  "Save group as workspace": "Guardar grupo como espacio de trabajo",
+  "Ungroup": "Desagrupar",
+  "Close group": "Cerrar grupo",
+  "(empty)": "(vacío)",
+  "Untitled": "Sin título",
+  "Open all ({count})": "Abrir todos ({count})",
+  "Open in new tab": "Abrir en una pestaña nueva",
+  "Copy link": "Copiar enlace",
+  "Open folder": "Abrir carpeta",
+  "Edit in bookmarks manager": "Editar en el gestor de marcadores",
+  "No spelling suggestions": "No hay sugerencias ortográficas",
+  "Add to dictionary": "Añadir al diccionario",
+  "Open link in new tab": "Abrir enlace en una pestaña nueva",
+  "Open link in new window": "Abrir enlace en una ventana nueva",
+  "Open link in container tab": "Abrir enlace en una pestaña con contenedor",
+  "Save link as…": "Guardar enlace como…",
+  "Copy link address": "Copiar dirección del enlace",
+  "Send link to your phone…": "Enviar enlace al móvil…",
+  "Copy link text": "Copiar texto del enlace",
+  "Open image in new tab": "Abrir imagen en una pestaña nueva",
+  "Save image as…": "Guardar imagen como…",
+  "Copy image": "Copiar imagen",
+  "Copy image address": "Copiar dirección de la imagen",
+  "Open video in new tab": "Abrir vídeo en una pestaña nueva",
+  "Open audio in new tab": "Abrir audio en una pestaña nueva",
+  "Save video as…": "Guardar vídeo como…",
+  "Save audio as…": "Guardar audio como…",
+  "Copy video address": "Copiar dirección del vídeo",
+  "Copy audio address": "Copiar dirección del audio",
+  "Write with Corvus AI": "Escribir con Corvus AI",
+  "Fix spelling and grammar": "Corregir ortografía y gramática",
+  "Make it shorter": "Hacerlo más corto",
+  "Make it longer": "Hacerlo más largo",
+  "Make it more formal": "Hacerlo más formal",
+  "Make it friendlier": "Hacerlo más cercano",
+  "Translate": "Traducir",
+  "Translate into {language}": "Traducir a {language}",
+  "Write…": "Escribir…",
+  "Redo": "Rehacer",
+  "Cut": "Cortar",
+  "Paste": "Pegar",
+  "Select all": "Seleccionar todo",
+  "Search Corvus for “{text}”": "Buscar «{text}» con Corvus",
+  "Explain with Corvus Assist": "Explicar con Corvus Assist",
+  "Translate with Corvus Assist": "Traducir con Corvus Assist",
+  "Back": "Atrás",
+  "Forward": "Adelante",
+  "Summarize this page": "Resumir esta página",
+  "Translate this page": "Traducir esta página",
+  "Hide this element…": "Ocultar este elemento…",
+  "Inspect": "Inspeccionar",
 };
+
+/** `text` in `language` (English text when it has no translation), with `{name}` placeholders filled from `vars`. */
+export function translate(language: UiLanguage, text: string, vars?: Record<string, string | number>): string {
+  const out = language === "es" ? (ES[text] ?? text) : text;
+  return vars ? out.replace(/\{(\w+)\}/g, (match, key: string) => (key in vars ? String(vars[key]) : match)) : out;
+}

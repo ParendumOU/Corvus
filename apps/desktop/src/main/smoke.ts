@@ -28,6 +28,7 @@ import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credent
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { runPhoneSmoke } from "./smoke-phone";
+import { runGrabberSmoke } from "./smoke-grabber";
 import { runProfileTransferSmoke } from "./smoke-profile-transfer";
 import { runPdfSmoke } from "./smoke-pdf";
 import { runReaderSmoke } from "./smoke-reader";
@@ -218,6 +219,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runFeaturesSmoke(ctx, { win, check, capture });
     await runLocalModelsSmoke(ctx, { win, check, capture });
     await runPhoneSmoke(ctx, { url, win, check, capture });
+    await runGrabberSmoke(ctx, { win, check, capture });
     await runProfileTransferSmoke(ctx, { win, check, capture });
     await runReaderSmoke(ctx, { win, check, capture });
     await runPdfSmoke(ctx, { win, check, capture });

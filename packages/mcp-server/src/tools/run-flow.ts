@@ -37,7 +37,7 @@ export function registerRunFlowTools(ctx: ToolContext): void {
     "run_flow",
     {
       description:
-        "List saved workflows (optionally for one host), read a workflow's steps, or run one with parameter values. Runs keep the approval gate (steps that spend money always ask the user); secrets are never stored or typed unattended.",
+        "List saved workflows (optionally for one host), read a workflow's steps, or run one with parameter values. Runs keep the approval gate (steps that spend money always ask the user); secrets are never stored or typed unattended. If a CAPTCHA blocks a step, solve it with the normal tools, then continue the workflow.",
       inputSchema: {
         action: z.enum(["list", "read", "run"]).default("list"),
         flow: z.string().min(1).max(200).optional().describe("Workflow name or id; required for read and run"),

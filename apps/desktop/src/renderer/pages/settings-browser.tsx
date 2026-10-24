@@ -89,6 +89,9 @@ export function MemorySection({ view, update }: Props) {
 export function DownloadsSection({ view, update, setView }: Props & { setView: (v: SettingsView) => void }) {
   const d = view.settings.downloads;
   const [error, setError] = useState<string | null>(null);
+  const saved = d.archivePasswords.join("\n");
+  const [passwords, setPasswords] = useState(saved);
+  useEffect(() => setPasswords(saved), [saved]);
   return (
     <Section id="downloads" title={t("Downloads")} description={t("Programs requested by AI-agent tabs are always held back until you keep them.")}>
       <Row label={t("Location")} hint={d.directory ? undefined : "Your system Downloads folder."}>
@@ -113,6 +116,30 @@ export function DownloadsSection({ view, update, setView }: Props & { setView: (
       </Row>
       <Row label={t("Ask where to save each file before downloading")}>
         <Toggle label={t("Ask where to save each file")} checked={d.askWhereToSave} onChange={(v) => update({ downloads: { askWhereToSave: v } })} />
+      </Row>
+      <Row label={t("Offer copied download links")} hint={t("When text you copy has download links, a button in the toolbar adds them to the link grabber. Corvus reads the clipboard every second or so while this is on.")}>
+        <Toggle label={t("Offer copied download links")} checked={d.watchClipboard} onChange={(v) => update({ downloads: { watchClipboard: v } })} />
+      </Row>
+      <Row
+        label={t("Extract archives when a package finishes")}
+        hint={t("Joins split files and extracts RAR, 7z and ZIP archives, multi-part ones too, into the package's folder. Passwords are tried in order: the ones found next to the links, the package name, then your list below.")}
+      >
+        <Toggle label={t("Extract archives when a package finishes")} checked={d.extractArchives} onChange={(v) => update({ downloads: { extractArchives: v } })} />
+      </Row>
+      <Row label={t("Delete archives after extracting")} hint={t("Only once an archive extracted without errors.")}>
+        <Toggle label={t("Delete archives after extracting")} checked={d.deleteArchives} onChange={(v) => update({ downloads: { deleteArchives: v } })} />
+      </Row>
+      <Row label={t("Archive passwords")} hint={t("One per line. A password you type for a package is added here when it works.")}>
+        <textarea
+          className="input mono"
+          rows={4}
+          value={passwords}
+          spellCheck={false}
+          data-archive-passwords
+          style={{ width: 320, height: "auto", padding: "8px 10px", resize: "vertical" }}
+          onChange={(e) => setPasswords(e.target.value)}
+          onBlur={() => passwords !== d.archivePasswords.join("\n") && update({ downloads: { archivePasswords: passwords.split("\n") } })}
+        />
       </Row>
       {error && <div className="notice error">{error}</div>}
     </Section>

@@ -678,7 +678,7 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
     >
       <Row
         label={t("Let AI agents use logins you opt in")}
-        hint={t("The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are always handed back to you.")}
+        hint={t("The Command Bar agent and Full-access MCP clients may sign in and fill 2FA codes, but only for logins you opt in one by one, and only after you approve each use. They never see the password or the code. Off by default; CAPTCHAs are solved by the agent when Corvus does not pass them, and handed back to you after two failed attempts.")}
       >
         <Toggle label={t("Let AI agents use logins you opt in")} checked={pw.agentAccess} onChange={(v) => update({ passwords: { agentAccess: v } })} />
       </Row>
@@ -719,7 +719,7 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       </Row>
       <Row
         label={t("Ask before risky actions")}
-        hint={t("When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and CAPTCHAs and card or password fields are always handed back to you.")}
+        hint={t("When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and card or password fields are always handed back to you. CAPTCHAs are solved by the agent and handed back only if it cannot finish.")}
       >
         <Toggle label={t("Ask before risky actions")} checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
       </Row>

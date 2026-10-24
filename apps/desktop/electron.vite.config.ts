@@ -47,10 +47,12 @@ export default defineConfig({
           index: resolve(import.meta.dirname, "src/main/index.ts"),
           // The filter list parser runs as its own utility process.
           "adblock-parser": resolve(import.meta.dirname, "src/main/adblock-parser.ts"),
+          // So does the archive extractor (7-Zip).
+          "archive-worker": resolve(import.meta.dirname, "src/main/archive-worker.ts"),
         },
         // Keep the Ghostery adblocker external: it resolves its content-script preload from disk at
-        // runtime (require.resolve), which bundling would break.
-        external: [/^@ghostery\//, /^tldts/],
+        // runtime (require.resolve), which bundling would break. 7-Zip loads its .wasm next to itself.
+        external: [/^@ghostery\//, /^tldts/, /^7z-wasm/],
       },
     },
   },

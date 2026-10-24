@@ -43,7 +43,9 @@ first launch.
   downloads and save as PDF)
 - Tabs an agent is driving get an **AI** badge, an on-screen cursor and an activity timeline;
   you can pause agents at any time
-- CAPTCHAs are always handed to you and never solved automatically. Two-factor prompts are handed
+- CAPTCHAs are solved by the agent when Corvus does not pass them on its own: it clicks the checkbox and
+  works through tile grids with the screenshot and coordinate tools, and hands the check to you after two
+  failed attempts or when it asks for a phone number or e-mail code. Two-factor prompts are handed
   to you too, unless you let agents use the 2FA code of a specific saved login: then Corvus fills
   the code itself after you approve, and the agent never sees it
 - Off by default; local only unless you turn on remote access, which always needs a bearer token
@@ -118,6 +120,8 @@ The Corvus source code is licensed under the [Mozilla Public License 2.0](LICENS
 
 The installers and the packaged app are a combined work that includes
 [electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell), which Corvus
-uses under GPL-3.0, so the binaries are distributed under GPL-3.0. The complete corresponding source
-is this repository: https://github.com/ParendumOU/Corvus. Every build ships the licences of its
+uses under GPL-3.0, so the binaries are distributed under GPL-3.0. They also include 7-Zip compiled
+to WebAssembly ([7z-wasm](https://github.com/use-strict/7z-wasm), GNU LGPL), whose RAR decoder comes
+with the unRAR restriction: it may not be used to develop a RAR-compatible archiver. The complete
+corresponding source is this repository: https://github.com/ParendumOU/Corvus. Every build ships the licences of its
 third-party packages in THIRD_PARTY_NOTICES.md (Settings > Updates > Third-party software).

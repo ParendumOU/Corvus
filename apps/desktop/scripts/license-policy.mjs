@@ -30,6 +30,12 @@ export const ACCEPTED_COPYLEFT = {
     declared: "GPL-3.0-only OR LicenseRef-Patron",
     reason: "Dual licensed GPL-3.0 or the author's Patron License; Corvus uses it under GPL-3.0.",
   },
+  "7z-wasm@1.2.0": {
+    license: "LGPL-2.1-or-later",
+    declared: "SEE LICENSE IN License.txt (GNU LGPL + unRAR restriction)",
+    reason:
+      "7-Zip compiled to WebAssembly, used unmodified as a separate module to extract downloaded archives. Its RAR decoder comes from unRAR, whose code may not be used to develop a RAR (WinRAR) compatible archiver.",
+  },
 };
 
 /** The accepted-copyleft entry for an exact package version, or null. */

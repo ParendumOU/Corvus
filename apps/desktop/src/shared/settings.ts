@@ -1,4 +1,5 @@
 import { ACCESS_LEVELS, type AccessLevel, type AIProviderKind, type LocalModelApi, type RetrieverKind } from "@corvus/shared";
+import { cleanPasswords } from "./archives";
 
 export type { AccessLevel } from "@corvus/shared";
 
@@ -106,6 +107,18 @@ export interface Settings {
     /** Absolute folder; empty string = the OS Downloads folder. */
     directory: string;
     askWhereToSave: boolean;
+    /** Offer the download links in copied text (a toolbar chip). Off by default: it reads the clipboard. */
+    watchClipboard: boolean;
+    /** Files Corvus's download queue fetches at once (1-10). */
+    maxParallel: number;
+    /** Connections per large file when the server serves byte ranges (1-8). */
+    segments: number;
+    /** Extract archives (and join split files) when every file of a package is in. */
+    extractArchives: boolean;
+    /** Delete an archive's files once it is extracted. */
+    deleteArchives: boolean;
+    /** Archive passwords to try after the ones found next to the links. */
+    archivePasswords: string[];
   };
   webscope: {
     /** Security workbench: captures your own browser traffic for authorized testing. Off by default. */
@@ -239,7 +252,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true },
     passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [] },
-    downloads: { directory: "", askWhereToSave: false },
+    downloads: { directory: "", askWhereToSave: false, watchClipboard: false, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60 },
     media: { autoPictureInPicture: true },
@@ -301,6 +314,9 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   if (!["horizontal", "vertical"].includes(merged.appearance.tabLayout)) merged.appearance.tabLayout = base.appearance.tabLayout;
   if (!["system", "light", "dark"].includes(merged.appearance.theme)) merged.appearance.theme = base.appearance.theme;
   if (!["system", "en", "es"].includes(merged.appearance.language)) merged.appearance.language = base.appearance.language;
+  merged.downloads.maxParallel = Math.max(1, Math.min(10, Math.round(merged.downloads.maxParallel) || 3));
+  merged.downloads.segments = Math.max(1, Math.min(8, Math.round(merged.downloads.segments) || 4));
+  merged.downloads.archivePasswords = cleanPasswords(merged.downloads.archivePasswords);
   merged.memory.sleepAfterMinutes = Math.max(5, Math.min(1440, Math.round(merged.memory.sleepAfterMinutes) || 60));
   if (merged.translate.targetLanguage !== "" &&!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(merged.translate.targetLanguage)) {
     merged.translate.targetLanguage = base.translate.targetLanguage;

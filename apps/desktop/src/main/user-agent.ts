@@ -8,9 +8,12 @@ export interface UserAgents {
   electron: string;
 }
 
-/** Strip the Electron and app tokens so sites (and the Chrome Web Store) see a regular Chrome UA. */
+/**
+ * Strip the Electron and app tokens so sites (and the Chrome Web Store) see a regular Chrome UA,
+ * with the version reduced to its major number ("Chrome/152.0.0.0") like every Chromium sends it.
+ */
 export function chromeUserAgent(ua: string): string {
-  return ua.replace(/\s(?:Electron|Corvus|corvus|@corvus\/desktop)\/\S+/g, "");
+  return ua.replace(/\s(?:Electron|Corvus|corvus|@corvus\/desktop)\/\S+/g, "").replace(/Chrome\/(\d+)\.[\d.]+/, "Chrome/$1.0.0.0");
 }
 
 /** Electron's default UA minus the app token, which would identify Corvus and its version. */
@@ -77,4 +80,25 @@ export function followSignInUserAgent(wc: WebContents, agents: UserAgents): void
     const ua = userAgentFor(details.url, agents);
     if (currentUserAgent(wc, agents) !== ua) restart(details.url, ua);
   });
+}
+
+export type ClientHints = Record<"sec-ch-ua" | "sec-ch-ua-mobile" | "sec-ch-ua-platform", string>;
+
+/**
+ * The low-entropy UA client hints Chromium sends with secure requests, worked out like Chromium's
+ * own brand list (GREASE brand, version and order seeded by the major version). Electron sends them
+ * on subresource requests but not on navigations (electron/electron#34762), and a navigation
+ * without them beside subresources with them is a mismatch sites can see.
+ */
+export function clientHintHeaders(major: number, platform: NodeJS.Platform): ClientHints {
+  const chars = [" ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"];
+  const versions = ["8", "99", "24"];
+  const grease = `"Not${chars[major % 11]}A${chars[(major + 1) % 11]}Brand";v="${versions[major % 3]}"`;
+  const chromium = `"Chromium";v="${major}"`;
+  const name = platform === "win32" ? "Windows" : platform === "darwin" ? "macOS" : "Linux";
+  return {
+    "sec-ch-ua": (major % 2 === 0 ? [grease, chromium] : [chromium, grease]).join(", "),
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": `"${name}"`,
+  };
 }

@@ -1,5 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { AgentInput, Capture, ChallengeInfo } from "@corvus/shared";
+import { challengeGuidance, type AgentInput, type Capture, type ChallengeInfo } from "@corvus/shared";
 import { z } from "zod";
 import { compactJson } from "../content.js";
 import { coord, defined, need, OK, optionalTabId, ref, type ToolContext } from "./types.js";
@@ -10,10 +10,7 @@ const modifiers = z.array(z.enum(MODIFIERS)).max(4).optional().describe("Held mo
 /** Trusted guidance appended when a page shows a human-verification challenge. */
 export function challengeNote(c: ChallengeInfo | undefined | null): string | undefined {
   if (!c) return undefined;
-  return (
-    `challenge_detected: ${c.kind}. A human-verification challenge is on this page. ` +
-    "Do not click or solve it; call request_user_action so the user completes it, then continue."
-  );
+  return challengeGuidance(c.kind, c.detail, "request_user_action");
 }
 
 function captureMeta(id: string, shot: Capture): string {

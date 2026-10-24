@@ -579,6 +579,10 @@ export const WORKFLOW_PROMPT_LEAD = [
   "its id and parameter values instead of planning each step yourself (each step still goes through the",
   "approval gate), or call read_workflow to inspect and adapt it. If a workflow stops at a step whose",
   "target no longer matches, continue the task from there with the normal tools.",
+  "If a step hits a CAPTCHA or human check, solve it with the normal tools (click the checkbox, wait,",
+  "then screenshot plus click_at on the tiles it asks for and press Verify), then resume the remaining",
+  "steps or finish them yourself. Retry once; after two failures, call ask_user so the person finishes",
+  "the check, then continue.",
 ].join("\n");
 
 /** The block appended to the agent's system prompt for the site at `url`, or "" when none match. */

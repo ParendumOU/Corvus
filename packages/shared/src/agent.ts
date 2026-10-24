@@ -25,9 +25,14 @@ export interface Viewport {
 /** [x, y, width, height] in CSS pixels of the top-level viewport. */
 export type BBox = [number, number, number, number];
 
-export type ChallengeKind = "recaptcha" | "hcaptcha" | "turnstile" | "arkose" | "datadome" | "interstitial";
+export type ChallengeKind = "recaptcha" | "hcaptcha" | "turnstile" | "arkose" | "geetest" | "datadome" | "interstitial";
 
-/** A human-verification challenge on the page. Agents must hand these to the user, never solve them. */
+/**
+ * A human-verification challenge on the page. The agent attempts it with the normal tools (click the
+ * checkbox, solve tile grids with screenshot + coordinates, verify) and hands it to the person only
+ * after two failed attempts or when it asks for a phone number, an e-mail code or another account
+ * factor. See challengeGuidance().
+ */
 export interface ChallengeInfo {
   kind: ChallengeKind;
   detail: string;

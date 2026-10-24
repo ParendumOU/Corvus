@@ -20,12 +20,14 @@ import { PasswordCheckupService } from "./password-checkup";
 import { TelegramLink } from "./telegram-link";
 import { SecretFillGuard } from "./secret-fill-guard";
 import { DownloadManager } from "./downloads";
+import { DownloadQueue } from "./download-queue";
+import { LinkGrabber } from "./link-grabber";
 import { ExtensionWindowBridge } from "./extension-windows";
 import { registerIpc } from "./ipc";
 import { McpService } from "./mcp-service";
 import { PageMonitor } from "./page-monitor";
 import { ProfileManager } from "./profile-manager";
-import { ProfileRegistry } from "./profiles";
+import { ProfileRegistry, installUserAgents } from "./profiles";
 import { ReaderService } from "./reader-service";
 import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setNewTabRoutes } from "./protocol";
 import { NewTabService } from "./newtab-service";
@@ -35,7 +37,8 @@ import { SearchService } from "./search-service";
 import { SemanticSearchService } from "./semantic-search-service";
 import { SessionRestore } from "./session-restore";
 import { restorePlan } from "../shared/session-state";
-import { resolveUiLanguage } from "../shared/settings";
+import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
+import { setMenuLanguage } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
 import type { BrowserWindowCtl } from "./window";
 import { runSmokeTest } from "./smoke";
@@ -47,6 +50,8 @@ import { WindowManager } from "./window-manager";
 
 registerInternalScheme();
 app.setName("Corvus");
+// Before any session exists, so every request (tabs, favicons, the default session) shares one UA.
+installUserAgents();
 
 // The smoke test also serves its pages as a non-local site (the ad blocker never touches loopback)
 // and a stand-in YouTube watch page (video features key on youtube.com).
@@ -106,7 +111,9 @@ async function main(): Promise<void> {
   const crashReporter = new CrashReporter(userData, () => settings.get().crashReports.saveLogs);
   installCrashHandlers(crashReporter);
   nativeTheme.themeSource = settings.get().appearance.theme;
-  setInternalPageLanguage(() => resolveUiLanguage(settings.get().appearance.language, app.getLocale()));
+  const uiLanguage = (): UiLanguage => resolveUiLanguage(settings.get().appearance.language, app.getLocale());
+  setInternalPageLanguage(uiLanguage);
+  setMenuLanguage(uiLanguage);
   const profiles = new ProfileRegistry(new ProfileManager(path.join(userData, "Profiles")), safeStorage);
 
   const ctx = { settings, profiles } as AppContext;
@@ -129,7 +136,7 @@ async function main(): Promise<void> {
   setNewTabRoutes({
     widget: (s, id, tone) => {
       const runtime = profiles.bySession(s);
-      return runtime ? ctx.newtab.widgetDoc(runtime, id, resolveUiLanguage(settings.get().appearance.language, app.getLocale()), tone) : null;
+      return runtime ? ctx.newtab.widgetDoc(runtime, id, uiLanguage(), tone) : null;
     },
     media: (s, file) => {
       const runtime = profiles.bySession(s);
@@ -148,6 +155,8 @@ async function main(): Promise<void> {
   ctx.updater = new UpdateService(ctx);
   ctx.sync = new SyncService(ctx, safeStorage, process.env.CORVUS_SYNC_URL || "http://localhost:8797");
   ctx.downloads = new DownloadManager(ctx);
+  ctx.grabber = new LinkGrabber(ctx);
+  ctx.queue = new DownloadQueue(ctx);
   ctx.sessionRestore = new SessionRestore(ctx, userData);
   ctx.adblock = new AdblockService(userData, (profileId) => {
     for (const win of ctx.windows.forProfile(profileId)) {
@@ -157,6 +166,7 @@ async function main(): Promise<void> {
   });
   profiles.setDelegate(new ExtensionWindowBridge(ctx));
   profiles.onCreated((runtime) => ctx.downloads.attach(runtime));
+  profiles.onCreated((runtime) => ctx.queue.attach(runtime));
   profiles.onCreated((runtime) => ctx.adblock.attach(runtime.session, runtime.adblock, runtime.profile.id));
   // Container tabs get downloads and the ad blocker like the profile's own tabs.
   profiles.onCreated((runtime) =>
@@ -228,6 +238,8 @@ async function main(): Promise<void> {
     ctx.sync.stop();
     ctx.sessionRestore.quitting();
     ctx.downloads.flush();
+    ctx.grabber.stop();
+    ctx.queue.flush();
     profiles.flush();
     settings.flush();
     ctx.webscope.stop();
@@ -255,6 +267,7 @@ async function main(): Promise<void> {
   ctx.sync.start();
   ctx.monitor.start();
   ctx.telegram.start();
+  ctx.grabber.start();
   ctx.tabSleeper.start();
   ctx.updater.startupCheck();
 

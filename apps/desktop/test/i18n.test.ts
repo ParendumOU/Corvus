@@ -2,8 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { ES } from "../src/renderer/common/i18n-es";
+import { ES } from "../src/shared/i18n-es";
 import { setUiLanguage, t } from "../src/renderer/common/i18n";
+import { WRITE_ACTIONS } from "../src/shared/inline-write";
 import { PERMISSION_LABELS } from "../src/shared/permissions";
 import { resolveUiLanguage } from "../src/shared/settings";
 
@@ -18,6 +19,13 @@ const unquote = (body: string): string => JSON.parse(`"${body}"`) as string;
 function tLiterals(src: string): string[] {
   return [...src.matchAll(/\bt\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!));
 }
+
+const MENUS = readFileSync(fileURLToPath(new URL("../src/main/menus.ts", import.meta.url)), "utf8");
+/** Labels the native menus translate with tr("…"), plus the inline-write actions they list. */
+const menuLabels = (): string[] => [
+  ...[...MENUS.matchAll(/\btr\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!)),
+  ...WRITE_ACTIONS.map((a) => a.label),
+];
 
 describe("UI language", () => {
   afterEach(() => setUiLanguage("en"));
@@ -42,6 +50,15 @@ describe("UI language", () => {
   it("has a Spanish string for every translated text on the settings pages and the page menu", () => {
     const missing = TRANSLATED.flatMap((file) => tLiterals(source(file)).filter((text) => !(text in ES)).map((text) => `${file}: ${text}`));
     expect(missing).toEqual([]);
+  });
+
+  it("has a Spanish string for every native menu label", () => {
+    expect(menuLabels().length).toBeGreaterThan(90);
+    expect(menuLabels().filter((text) => !(text in ES))).toEqual([]);
+  });
+
+  it("leaves no plain English label in the native menus", () => {
+    expect([...MENUS.matchAll(/label: ["`][^"`]*["`]/g)].map((m) => m[0])).toEqual([]);
   });
 
   it("has Spanish page titles and permission names", () => {
@@ -74,7 +91,7 @@ describe("UI language", () => {
   });
 
   it("has no Spanish strings left behind by removed texts", () => {
-    const used = new Set(TRANSLATED.flatMap((file) => tLiterals(source(file))));
+    const used = new Set([...TRANSLATED.flatMap((file) => tLiterals(source(file))), ...menuLabels()]);
     const titles = readdirSync(PAGES)
       .filter((f) => f.endsWith(".tsx"))
       .flatMap((f) => [...source(f).matchAll(/<PageShell[^>]*?title="([^"]+)"/gs)].map((m) => m[1]!));

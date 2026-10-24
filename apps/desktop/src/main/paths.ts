@@ -12,6 +12,8 @@ export const paths = {
   adblockScriptletsPreload: path.join(here, "../preload/adblock-scriptlets.cjs"),
   /** Entry of the filter list parser utility process (built next to index.js). */
   adblockParser: path.join(here, "adblock-parser.js"),
+  /** Entry of the archive extractor utility process (7-Zip for downloaded packages). */
+  archiveWorker: path.join(here, "archive-worker.js"),
   rendererDir: path.join(here, "../renderer"),
   icon: path.join(here, "../../build/icon.png"),
 };

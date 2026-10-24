@@ -95,8 +95,8 @@ describe("classifyPointAction (spend gate for coordinates and keys)", () => {
     expect(classifyPointAction("click_at", { x: 1, y: 1 }, t({ role: "link", tag: "a", name: "Reviews" })).risky).toBe(false);
   });
 
-  it("hands CAPTCHAs to the person and asks for payment frames and unreadable targets", () => {
-    expect(classifyPointAction("click_at", {}, t({ role: "frame", frame: "www.google.com", captcha: true })).handoff).toBe(true);
+  it("lets the agent act inside a CAPTCHA so it can solve it, and asks for payment frames and unreadable targets", () => {
+    expect(classifyPointAction("click_at", {}, t({ role: "frame", frame: "www.google.com", captcha: true }))).toMatchObject({ risky: false, handoff: false, challenge: true });
     expect(classifyPointAction("click_at", {}, t({ role: "frame", frame: "js.stripe.com", payFrame: true }))).toMatchObject({ alwaysAsk: true, spend: true });
     expect(classifyPointAction("click_at", { x: 5, y: 6 }, null)).toMatchObject({ risky: true, alwaysAsk: true });
     expect(classifyAction("click_at", { x: 5, y: 6 })).toMatchObject({ risky: true, alwaysAsk: true });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   compareVersions,
   defaultRulesets,
+  filtersRequests,
   hostPatterns,
   localizeManifestString,
   parseExtensionId,
@@ -86,5 +87,12 @@ describe("manifest helpers", () => {
         declarative_net_request: { rule_resources: [{ id: "a", enabled: true, path: "a.json" }, { id: "b", enabled: false, path: "b.json" }] },
       }),
     ).toEqual(["a"]);
+  });
+
+  it("tells which extensions filter requests", () => {
+    expect(filtersRequests({ manifest_version: 3, permissions: ["storage", "declarativeNetRequest"] })).toBe(true);
+    expect(filtersRequests({ manifest_version: 3, permissions: ["declarativeNetRequestWithHostAccess"] })).toBe(true);
+    expect(filtersRequests({ manifest_version: 2, permissions: ["webRequest", "webRequestBlocking", "<all_urls>"] })).toBe(true);
+    expect(filtersRequests({ manifest_version: 3, permissions: ["tabs", "storage"], host_permissions: ["<all_urls>"] })).toBe(false);
   });
 });

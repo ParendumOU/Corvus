@@ -54,3 +54,73 @@
   background: var(--accent-soft);
   vertical-align: middle;
 }
+
+/* Link grabber */
+.grab-add textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+}
+.grab-add .inline {
+  margin-top: 8px;
+  gap: 12px;
+}
+.grab-all {
+  margin: 4px 0 12px;
+  gap: 8px;
+}
+.grab-package,
+.queue-package {
+  margin-bottom: 12px;
+}
+.grab-add {
+  padding: 14px 20px;
+  margin-bottom: 12px;
+}
+.grab-head {
+  padding: 14px 20px 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.grab-head .title {
+  font-weight: 600;
+}
+.grab-password {
+  margin-left: 8px;
+  font-family: var(--mono, monospace);
+}
+.grab-link .title {
+  word-break: break-all;
+}
+
+/* Download queue */
+.queue-section {
+  margin-bottom: 16px;
+}
+.queue-head {
+  margin: 4px 0 8px;
+  gap: 12px;
+}
+.queue-item.failed .sub {
+  color: var(--danger);
+}
+.queue-item.done .title {
+  color: var(--text-2);
+}
+.queue-extraction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.queue-extraction.failed {
+  color: var(--danger);
+}
+.queue-extraction .input {
+  width: 200px;
+}

@@ -19,6 +19,7 @@ import {
   DNR_DEFAULTS_CHANNEL,
   compareVersions,
   defaultRulesets,
+  filtersRequests,
   hostPatterns,
   localizeManifestString,
   parseExtensionId,
@@ -419,6 +420,11 @@ export class ExtensionHost {
   info(id: string): ExtensionInfo | null {
     const entry = this.find(id);
     return entry ? this.describe(entry) : null;
+  }
+
+  /** Whether a loaded extension filters requests (declarativeNetRequest, webRequest). */
+  filtersRequests(): boolean {
+    return this.session.extensions.getAllExtensions().some((ext) => filtersRequests(ext.manifest as Manifest));
   }
 
   /** Enabled extensions for the toolbar and the extensions menu. */

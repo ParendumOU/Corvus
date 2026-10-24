@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fuzzyScore, looksLikeTask, parseCommandInput, rankActions, type PaletteAction } from "../src/shared/command-bar";
-import { classifyAction, isChallengeHandoff } from "../src/shared/agent-safety";
+import { classifyAction, classifyPointAction, isChallengeDetected } from "../src/shared/agent-safety";
 
 describe("fuzzyScore", () => {
   it("returns a score only for subsequence matches", () => {
@@ -120,8 +120,21 @@ describe("classifyAction", () => {
     expect(risk.handoff).toBe(true);
   });
 
-  it("detects a challenge handoff", () => {
-    expect(isChallengeHandoff("recaptcha")).toBe(true);
-    expect(isChallengeHandoff(undefined)).toBe(false);
+  it("detects a challenge on the page", () => {
+    expect(isChallengeDetected("recaptcha")).toBe(true);
+    expect(isChallengeDetected(undefined)).toBe(false);
+  });
+
+  it("lets the agent act inside a CAPTCHA widget so it can solve it", () => {
+    const risk = classifyPointAction("click_at", { x: 40, y: 40 }, {
+      url: "https://example.com",
+      role: "checkbox",
+      name: "I'm not a robot",
+      tag: "input",
+      captcha: true,
+    });
+    expect(risk.handoff).toBe(false);
+    expect(risk.risky).toBe(false);
+    expect(risk.challenge).toBe(true);
   });
 });

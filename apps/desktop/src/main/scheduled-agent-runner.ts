@@ -319,8 +319,9 @@ export class ScheduledAgentRunner {
       if (decision === "stop") throw new AgentStopError("stopped by user");
       if (decision === "skip") return { content: "The user skipped this action. Choose a different approach or finish." };
     }
-    // Secrets/CAPTCHAs are never performed unattended, even if the risky gate was approved.
-    if (risk.handoff) return { content: "This needs a secret or a human check. Call ask_user instead of doing it yourself." };
+    // Secrets are never performed unattended, even if the risky gate was approved. CAPTCHAs are not
+    // a handoff here: the agent solves them with the visual tools like any other challenge.
+    if (risk.handoff) return { content: "This needs a secret. Call ask_user instead of doing it yourself." };
 
     if (signal.aborted) throw new AgentStopError("aborted");
     const at = Date.now();

@@ -22,6 +22,7 @@ import {
   IconPlus,
   IconReload,
   IconShield,
+  IconSparkle,
   IconTrash,
   IconWarning,
 } from "../common/icons";
@@ -293,6 +294,23 @@ function DownloadRow({ d }: { d: DownloadRecord }) {
         })}
       </div>
     </li>
+  );
+}
+
+/** Download links in the text just copied: one click puts them in the link grabber. */
+export function CopiedLinksChip({ count }: { count: number }) {
+  const api = chromeApi();
+  if (count <= 0) return null;
+  return (
+    <span className="copied-links-chip">
+      <button className="copied-links-main" title="Download links copied: add them to the link grabber" onClick={() => void api.call("grabber.grabCopied")}>
+        <IconSparkle size={14} />
+        {count === 1 ? "1 link" : `${count} links`}
+      </button>
+      <button className="copied-links-close" title="Dismiss" aria-label="Dismiss copied links" onClick={() => void api.call("grabber.dismissCopied")}>
+        <IconClose size={12} />
+      </button>
+    </span>
   );
 }
 

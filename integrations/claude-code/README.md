@@ -12,6 +12,10 @@ In Claude Code:
 /plugin install corvus@corvus
 ```
 
+To get new versions without updating by hand, turn on auto-update for the marketplace: in
+`/plugin`, open **Marketplaces**, choose it and **Enable auto-update** (or set `"autoUpdate": true`
+on its entry under `extraKnownMarketplaces` in `~/.claude/settings.json`).
+
 That's it: when Claude first needs the browser, the plugin uses Corvus if it is already running,
 or starts it (a normal, visible window) and turns on its MCP server. Approve the client the first
 time it connects. No token to copy. You can also turn the server on yourself in **Settings → AI
@@ -45,7 +49,8 @@ any time.
 
 - The `corvus` MCP server (via the bundled bridge).
 - A `corvus-browser` skill that teaches Claude when and how to use the tools, the token-cheap
-  snapshot-first workflow, human handoff for CAPTCHAs (never solved automatically) and for 2FA
+  snapshot-first workflow, CAPTCHA solving with the visual tools (checkbox, tile grids) and human
+  handoff when it fails or for 2FA
   (except codes the user opted in, which Corvus fills by reference after approval), the dialog
   Corvus shows before anything that spends money, and the untrusted-content rules.
 - A `/corvus-status` command to check the connection.

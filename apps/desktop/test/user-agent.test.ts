@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { WebContents } from "electron";
 import { describe, expect, it } from "vitest";
-import { chromeUserAgent, electronUserAgent, followSignInUserAgent, userAgentFor } from "../src/main/user-agent";
+import { chromeUserAgent, clientHintHeaders, electronUserAgent, followSignInUserAgent, userAgentFor } from "../src/main/user-agent";
 
 const NATIVE =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) corvus/0.3.3 Chrome/142.0.7444.59 Electron/44.1.0 Safari/537.36";
@@ -46,6 +46,12 @@ describe("sign-in user agent", () => {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.7444.59 Electron/44.1.0 Safari/537.36",
     );
     expect(AGENTS.chrome).not.toContain("Electron/");
+  });
+
+  it("reduces the Chrome UA's version to its major number, like Chromium does", () => {
+    expect(AGENTS.chrome).toBe(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+    );
   });
 
   it("gives only Google's sign-in host the Electron UA", () => {
@@ -102,5 +108,18 @@ describe("sign-in user agent", () => {
     fake.go("https://example.com/", { initiator: undefined });
     await tick();
     expect(fake.loads).toEqual([{ url: "https://example.com/", userAgent: AGENTS.chrome }]);
+  });
+});
+
+describe("navigation client hints", () => {
+  it("match what Chromium itself sends for its version", () => {
+    // Seen on Electron 44 (Chromium 152) subresource requests, and the GREASE brand of Chrome 156.
+    expect(clientHintHeaders(152, "win32")).toEqual({
+      "sec-ch-ua": '"Not?A_Brand";v="24", "Chromium";v="152"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Windows"',
+    });
+    expect(clientHintHeaders(156, "darwin")["sec-ch-ua"]).toContain('"Not:A-Brand";v="8"');
+    expect(clientHintHeaders(156, "darwin")["sec-ch-ua-platform"]).toBe('"macOS"');
   });
 });

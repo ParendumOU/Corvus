@@ -58,21 +58,31 @@ use won't appear:
 - `upload_file` (Full) sets a file input from a local path the user gave you.
 - `pdf` (Full) saves the current page to the Downloads folder.
 
-## Human handoff — challenges, 2FA, payments
+## CAPTCHAs and human checks
 
-When a page shows a CAPTCHA, a "verify you are human" check, a 2FA prompt, or asks to confirm a
-payment, **do not try to solve or bypass it.** Snapshots and screenshots flag these as
-`challenge_detected`. Call `request_user_action` with a clear message ("Please solve the CAPTCHA
-on this page, then click Done") — it shows the user a banner and waits for them. Continue only
-after they finish. There are no CAPTCHA-solving tools and you must not simulate clicks to defeat
-these checks.
+Corvus is a real browser with the user's session, so most challenges pass on their own. When one still
+appears, **solve it yourself** — snapshots and screenshots flag it as `challenge_detected`:
+
+1. Click the checkbox or widget once (`click_at` its center), then wait for it to settle.
+2. Re-read the page (`page_snapshot`) and take a screenshot. If it shows an image or tile grid, read
+   the prompt, click the centers of exactly the cells it asks for with `click_at`, then click Verify.
+3. Re-read after each attempt and retry once on a new grid. Do not reload the page or resubmit the
+   form to "reset" it — that usually triggers a harder challenge.
+4. Give up after two failed attempts, or immediately if it asks for a phone number, an e-mail code,
+   an ID document or another account factor. Then call `request_user_action` with a clear message
+   ("The CAPTCHA on this page needs you — please finish it, then click Done") and wait. Continue
+   only after the user finishes.
+
+2FA prompts and payment confirmations are always the user's: hand those over with
+`request_user_action` without trying to solve them.
 
 **Saved logins and 2FA codes (Full access only).** If the user turned on "Let AI agents use
 logins you opt in" in Corvus and opted a login in, `fill_login` fills its username and password
 and `fill_totp` fills its current 2FA code into the field `ref`. Corvus asks the user to approve
 each use and fills the value itself: the result only says it was filled, and you never see the
 password or the code. If the result says the login or code is not available, or the user
-declined, call `request_user_action` instead. CAPTCHAs are never covered: always hand them over.
+declined, call `request_user_action` instead. A CAPTCHA around a login is solved as described
+above; 2FA prompts are not.
 
 **Spending money always asks the user, at every access level.** A `click`, a `type` with
 `submit`, a `fill_fields` submit or a `run_flow` step that spends money ("Buy now", "Place order",

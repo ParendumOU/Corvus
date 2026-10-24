@@ -1,6 +1,6 @@
 {
   "name": "@corvus/desktop",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "license": "MPL-2.0",
   "private": true,
   "description": "Corvus desktop browser shell (Electron).",
@@ -22,6 +22,7 @@
     "dist:mac": "pnpm run build && electron-builder --mac"
   },
   "dependencies": {
+    "7z-wasm": "1.2.0",
     "@ghostery/adblocker-electron": "2.20.1",
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0",

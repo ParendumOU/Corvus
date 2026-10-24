@@ -257,7 +257,7 @@ function Tab({
       {tab.agentControlled && <span className="ai-badge">AI</span>}
       {!tab.pinned && (
         <button className="tab-close" title="Close tab" onMouseDown={(e) => e.stopPropagation()} onClick={close}>
-          <IconClose size={12} />
+          <IconClose size={24} />
         </button>
       )}
     </div>
@@ -441,7 +441,7 @@ function VTab({
       {tab.agentControlled && <span className="ai-badge">AI</span>}
       {!tab.pinned && (
         <button className="tab-close" title="Close tab" onMouseDown={(e) => e.stopPropagation()} onClick={close}>
-          <IconClose size={12} />
+          <IconClose size={24} />
         </button>
       )}
     </div>

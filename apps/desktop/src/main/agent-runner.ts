@@ -505,7 +505,7 @@ export class AgentRunner {
       }
     }
     if (risk.handoff) {
-      return { content: "This needs a secret or a human check. Call ask_user instead of doing it yourself." };
+      return { content: "This needs a secret. Call ask_user instead of doing it yourself." };
     }
 
     await this.waitWhilePaused(run, signal);
