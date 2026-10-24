@@ -1,6 +1,6 @@
 {
   "name": "@corvus/sync-server",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "MPL-2.0",
   "private": true,
   "description": "Self-hostable Corvus sync server. Stores only ciphertext.",

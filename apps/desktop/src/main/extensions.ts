@@ -337,16 +337,18 @@ export class ExtensionHost {
     });
   }
 
+  // Container tabs run in sessions of their own, where the profile's extensions do not exist.
+
   addTab(webContents: WebContents, window: BaseWindow): void {
-    this.api.addTab(webContents, window);
+    if (webContents.session === this.session) this.api.addTab(webContents, window);
   }
 
   selectTab(webContents: WebContents): void {
-    this.api.selectTab(webContents);
+    if (webContents.session === this.session) this.api.selectTab(webContents);
   }
 
   getContextMenuItems(webContents: WebContents, params: Electron.ContextMenuParams): Electron.MenuItem[] {
-    return this.api.getContextMenuItems(webContents, params);
+    return webContents.session === this.session ? this.api.getContextMenuItems(webContents, params) : [];
   }
 
   // ------------------------------------------------------------------ inventory

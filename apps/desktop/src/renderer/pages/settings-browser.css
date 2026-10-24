@@ -32,3 +32,23 @@
 .startup-mode button {
   white-space: nowrap;
 }
+.container-row {
+  align-items: center;
+  gap: 10px;
+}
+.container-row .input.grow {
+  flex: 1;
+  min-width: 0;
+}
+.container-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c-light);
+  flex: none;
+}
+@media (prefers-color-scheme: dark) {
+  .container-dot {
+    background: var(--c-dark);
+  }
+}

@@ -8,6 +8,7 @@
 import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
+import type { Container, TabContainer } from "./containers";
 import type { AnnotationLibraryRpc } from "./annotations-ipc";
 import type { AgentRunsInternalEvent, AgentRunsInternalRpc } from "./agent-run-ipc";
 import type { AssistChromeCommand, AssistChromeRpc, AssistWindowExtras } from "./assist-ipc";
@@ -48,6 +49,10 @@ export interface TabView extends Tab {
   sleeping?: boolean;
   /** Memory of the page's renderer process, in KB (shared by the tabs of one site). */
   memoryKB?: number;
+  /** One of the panes of the window's split (shown together when any of them is active). */
+  inSplit?: boolean;
+  /** The container it runs in (its own cookies and site data). */
+  container?: TabContainer;
 }
 
 export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, CommandBarWindowExtras {
@@ -353,6 +358,11 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "adblock.setEnabled"(enabled: boolean): AdblockView;
   "adblock.removeAllowed"(host: string): AdblockView;
   "adblock.removeForgetSite"(site: string): AdblockView;
+  "containers.list"(): Container[];
+  "containers.add"(name: string, color: GroupColor): Container[];
+  "containers.update"(id: string, patch: { name?: string; color?: GroupColor }): Container[];
+  /** Removes a container: its tabs close and its cookies and site data are deleted. */
+  "containers.remove"(id: string): Container[];
   "adblock.update"(): AdblockView;
   "adblock.setOptions"(patch: Partial<AdblockOptions>): AdblockView;
   /** Replaces the profile's own filter list (one rule per line). */

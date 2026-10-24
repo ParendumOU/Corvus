@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { app, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
+import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { countBookmarks, isImportedFolder, parseBookmarkFile, type ImportedNode } from "../shared/bookmark-import";
 import type { BookmarkImportResult } from "../shared/ipc";
@@ -281,6 +282,10 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "adblock.setEnabled": ["settings", "welcome"],
   "adblock.removeAllowed": ["settings"],
   "adblock.removeForgetSite": ["settings"],
+  "containers.list": ["settings"],
+  "containers.add": ["settings"],
+  "containers.update": ["settings"],
+  "containers.remove": ["settings"],
   "adblock.update": ["settings"],
   "adblock.setOptions": ["settings"],
   "adblock.setUserFilters": ["settings"],
@@ -518,6 +523,27 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "adblock.removeAllowed": (c, host) => {
       c.profile.adblock.removeAllowed(str(host, "host", 256));
       return c.profile.adblock.view(ctx.adblock.listsInfo());
+    },
+    "containers.list": (c) => c.profile.containers.list(),
+    "containers.add": (c, name, color) => {
+      c.profile.containers.add(str(name, "name", 200), str(color, "color", 20) as GroupColor);
+      return c.profile.containers.list();
+    },
+    "containers.update": (c, id, patch) => {
+      const p = (patch ?? {}) as Record<string, unknown>;
+      c.profile.containers.update(str(id, "id", 64), {
+        ...(typeof p.name === "string" ? { name: str(p.name, "name", 200) } : {}),
+        ...(typeof p.color === "string" ? { color: p.color as GroupColor } : {}),
+      });
+      return c.profile.containers.list();
+    },
+    "containers.remove": async (c, id) => {
+      const containerId = str(id, "id", 64);
+      if (!c.profile.containers.get(containerId)) return c.profile.containers.list();
+      for (const win of ctx.windows.forProfile(c.profile.profile.id)) win.closeContainerTabs(containerId);
+      c.profile.containers.remove(containerId);
+      await c.profile.clearContainer(containerId);
+      return c.profile.containers.list();
     },
     "adblock.removeForgetSite": (c, site) => {
       c.profile.adblock.setForgetOnClose(str(site, "site", 256), false);

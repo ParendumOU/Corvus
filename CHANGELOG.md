@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.8.0
+
+### Browser
+- **Containers**: tabs in a container keep their own cookies and site data, so you can be signed
+  in to two accounts of one site, or keep shopping and banking apart from everything else.
+  Personal, Work, Shopping and Banking are there to start with (Settings > Containers adds,
+  renames, recolours and removes them). Open one from the menu (New container tab), a link's menu
+  (Open link in container tab) or a tab's menu (Reopen in container); pages a container tab opens
+  stay in it. A container tab shows a line in the container's colour under its icon and the
+  container's name in the address bar. Extensions do not run in container tabs.
+- **Split view of up to four tabs**: two side by side, one beside two stacked, or a 2x2 grid,
+  with both dividers to drag. "Add to split" and "Remove from split" are in a tab's menu.
+- **A split waits while you look elsewhere**: showing a tab outside the split no longer ends it;
+  showing any of its tabs brings the whole split back.
+- **Automatic picture-in-picture**: when you switch away from a tab whose video is playing with
+  sound, the video keeps playing in a small floating window, and returns to the page when you
+  come back. Settings > Media turns it off.
+
 ## v0.7.0
 
 ### Privacy

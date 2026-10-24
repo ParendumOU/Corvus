@@ -11,10 +11,19 @@ import { formatMemory } from "../../shared/tab-sleep";
 /** A tab's hover text: its title, then who drives it, whether it sleeps, or what memory it uses. */
 function tabTooltip(tab: TabView): string {
   const lines = [tab.title || tab.url];
+  if (tab.container) lines.push(`Container: ${tab.container.name}`);
+  if (tab.inSplit) lines.push("In split view: shows with the other tabs of the split");
   if (tab.agentControlled) lines.push("Controlled by an AI agent");
   if (tab.sleeping) lines.push("Sleeping to save memory: it wakes up where it was");
   else if (tab.memoryKB) lines.push(`Memory: ${formatMemory(tab.memoryKB)}`);
   return lines.join("\n");
+}
+
+/** A container tab's coloured line under its icon. */
+function ContainerMark({ tab }: { tab: TabView }) {
+  if (!tab.container) return null;
+  const hex = GROUP_COLOR_HEX[tab.container.color];
+  return <span className="tab-container-mark" style={{ "--c-light": hex.light, "--c-dark": hex.dark } as CSSProperties} />;
 }
 
 const TAB_MIME = "application/x-corvus-tab";
@@ -210,6 +219,7 @@ function Tab({
     color ? "grouped" : "",
     tab.agentControlled ? "agent" : "",
     tab.sleeping ? "sleeping" : "",
+    tab.inSplit ? "in-split" : "",
     hint ? `drop-${hint}` : "",
   ].join(" ");
 
@@ -238,7 +248,10 @@ function Tab({
         void api.call("ui.tabMenu", tab.id, e.clientX, e.clientY);
       }}
     >
-      <span className="tab-icon">{tab.loading ? <span className="spinner" /> : <Favicon url={tab.url} src={tab.faviconUrl} />}</span>
+      <span className="tab-icon">
+        {tab.loading ? <span className="spinner" /> : <Favicon url={tab.url} src={tab.faviconUrl} />}
+        <ContainerMark tab={tab} />
+      </span>
       {!tab.pinned && <span className="tab-title">{tab.title || tab.url}</span>}
       {tab.audible && <IconVolume size={14} className="tab-audio" />}
       {tab.agentControlled && <span className="ai-badge">AI</span>}
@@ -391,6 +404,7 @@ function VTab({
     grouped ? "grouped" : "",
     tab.agentControlled ? "agent" : "",
     tab.sleeping ? "sleeping" : "",
+    tab.inSplit ? "in-split" : "",
     hint ? `drop-${hint}` : "",
   ].join(" ");
   return (
@@ -418,7 +432,10 @@ function VTab({
         void api.call("ui.tabMenu", tab.id, e.clientX, e.clientY);
       }}
     >
-      <span className="tab-icon">{tab.loading ? <span className="spinner" /> : <Favicon url={tab.url} src={tab.faviconUrl} />}</span>
+      <span className="tab-icon">
+        {tab.loading ? <span className="spinner" /> : <Favicon url={tab.url} src={tab.faviconUrl} />}
+        <ContainerMark tab={tab} />
+      </span>
       {!tab.pinned && <span className="v-tab-title">{tab.title || tab.url}</span>}
       {tab.audible && <IconVolume size={13} className="tab-audio" />}
       {tab.agentControlled && <span className="ai-badge">AI</span>}

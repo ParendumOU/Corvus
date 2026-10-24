@@ -11,6 +11,8 @@ export interface SessionTab {
   title: string;
   pinned: boolean;
   groupId?: string;
+  /** Container the tab was in (its own cookies and site data). */
+  containerId?: string;
   /** Icon the tab showed, so a restored tab that is not loaded yet still shows its site icon. */
   faviconUrl?: string;
 }
@@ -48,6 +50,7 @@ export interface SessionSnapshot {
 
 const MAX_WINDOWS = 50;
 const MAX_TABS = 500;
+const CONTAINER_ID_RE = /^[a-z0-9-]{1,40}$/;
 
 /** Pages worth reopening: web pages, local files, extension pages and internal pages. */
 export function isRestorableUrl(url: string): boolean {
@@ -61,7 +64,7 @@ export interface LiveWindow {
   profileId: string;
   bounds?: SessionBounds;
   maximized: boolean;
-  tabs: Array<{ url: string; title: string; pinned: boolean; groupId?: string; faviconUrl?: string; active: boolean }>;
+  tabs: Array<{ url: string; title: string; pinned: boolean; groupId?: string; faviconUrl?: string; containerId?: string; active: boolean }>;
   groups: TabGroup[];
 }
 
@@ -74,12 +77,13 @@ export function serializeWindow(win: LiveWindow): SessionWindow | null {
     .filter((g) => usedGroups.has(g.id))
     .map(({ id, title, color, collapsed, workspaceId }) => ({ id, title, color, collapsed, ...(workspaceId ? { workspaceId } : {}) }));
   const known = new Set(groups.map((g) => g.id));
-  const tabs = kept.map(({ url, title, pinned, groupId, faviconUrl }) => ({
+  const tabs = kept.map(({ url, title, pinned, groupId, faviconUrl, containerId }) => ({
     url,
     title,
     pinned,
     ...(groupId && known.has(groupId) && !pinned ? { groupId } : {}),
     ...(isFaviconUrl(faviconUrl, MAX_SAVED_FAVICON_URL) ? { faviconUrl } : {}),
+    ...(containerId && CONTAINER_ID_RE.test(containerId) ? { containerId } : {}),
   }));
   const activeIndex = Math.max(0, kept.findIndex((t) => t.active));
   return {
@@ -133,6 +137,7 @@ function reviveWindow(raw: unknown): SessionWindow | null {
       const pinned = t.pinned === true;
       const groupId = typeof t.groupId === "string" && groupIds.has(t.groupId) && !pinned ? t.groupId : undefined;
       const faviconUrl = isFaviconUrl(t.faviconUrl, MAX_SAVED_FAVICON_URL) ? t.faviconUrl : undefined;
+      const containerId = typeof t.containerId === "string" && CONTAINER_ID_RE.test(t.containerId) ? t.containerId : undefined;
       return [
         {
           url: t.url,
@@ -140,6 +145,7 @@ function reviveWindow(raw: unknown): SessionWindow | null {
           pinned,
           ...(groupId ? { groupId } : {}),
           ...(faviconUrl ? { faviconUrl } : {}),
+          ...(containerId ? { containerId } : {}),
         },
       ];
     });

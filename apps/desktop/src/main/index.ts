@@ -156,6 +156,21 @@ async function main(): Promise<void> {
   profiles.setDelegate(new ExtensionWindowBridge(ctx));
   profiles.onCreated((runtime) => ctx.downloads.attach(runtime));
   profiles.onCreated((runtime) => ctx.adblock.attach(runtime.session, runtime.adblock, runtime.profile.id));
+  // Container tabs get downloads and the ad blocker like the profile's own tabs.
+  profiles.onCreated((runtime) =>
+    runtime.onContainerSession((ses) => {
+      ctx.downloads.attachSession(runtime, ses);
+      ctx.adblock.attach(ses, runtime.adblock, runtime.profile.id);
+    }),
+  );
+  profiles.onCreated((runtime) =>
+    runtime.containers.onChange(() => {
+      for (const win of ctx.windows.forProfile(runtime.profile.id)) {
+        win.pushState();
+        win.notifyInternalPages({ type: "settings-changed" }, ["settings"]);
+      }
+    }),
+  );
   profiles.onCreated((runtime) => ctx.monitor.attach(runtime));
   profiles.onCreated((runtime) => ctx.semanticSearch.attach(runtime));
   profiles.onCreated((runtime) => ctx.scheduledAgents.attach(runtime));

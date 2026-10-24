@@ -232,7 +232,7 @@ export function App() {
             />
             <WatchesButton watches={state.watches} onOpen={() => void api.call("tabs.openUrl", "corvus://watches/", "new-tab")} />
             <WorkspacesButton onOpen={(rect) => setPopover({ kind: "workspaces", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })} />
-            {state.split && (
+            {state.split?.shown && (
               <button className="icon-btn split-exit-btn on" title="Exit split view" aria-pressed onClick={() => void api.call("split.exit")}>
                 <IconClose size={16} />
               </button>

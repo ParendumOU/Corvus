@@ -1,10 +1,53 @@
 import { Menu, app, clipboard, type MenuItemConstructorOptions } from "electron";
-import type { Bookmark, GroupId, TabId } from "@corvus/shared";
+import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { childrenOf } from "../shared/bookmark-tree";
+import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { searchUrl } from "../shared/omnibox";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
+
+/** One item per container of the profile (with "No container" first when `none` is given). */
+function containerItems(win: BrowserWindowCtl, open: (containerId: string | null) => void, opts: { none?: boolean; except?: string | null } = {}): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = win.profile.containers
+    .list()
+    .filter((c) => c.id !== opts.except)
+    .map((c) => ({ label: c.name, click: () => open(c.id) }));
+  if (opts.none && opts.except !== null) items.unshift({ label: "No container", click: () => open(null) }, { type: "separator" });
+  items.push({ type: "separator" }, { label: "Manage containers…", click: () => win.openSingleton("corvus://settings/#containers") });
+  return items;
+}
+
+/**
+ * Split items of a tab's menu: "Split with" another tab, or for a split of up to four panes "Add
+ * to split" / "Remove from split", and "Exit split".
+ */
+function splitItems(win: BrowserWindowCtl, tabId: TabId, others: Tab[]): MenuItemConstructorOptions[] {
+  const panes = win.splitPanes();
+  const inSplit = panes.includes(tabId);
+  const label = (t: Tab): string => (t.title || t.url || "Untitled tab").slice(0, 60);
+  const items: MenuItemConstructorOptions[] = [];
+  if (inSplit) {
+    const outside = others.filter((t) => !panes.includes(t.id));
+    items.push(
+      {
+        label: "Add to split",
+        enabled: outside.length > 0 && panes.length < MAX_PANES,
+        submenu: outside.map((t) => ({ label: label(t), click: () => win.addToSplit(t.id) })),
+      },
+      { label: "Remove from split", click: () => win.removeFromSplit(tabId) },
+    );
+  } else {
+    items.push({
+      label: "Split with",
+      enabled: others.length > 0,
+      submenu: others.map((t) => ({ label: label(t), click: () => win.enterSplit(tabId, t.id) })),
+    });
+    if (panes.length > 0 && panes.length < MAX_PANES) items.push({ label: "Add to split", click: () => win.addToSplit(tabId) });
+  }
+  if (panes.length > 0) items.push({ label: "Exit split", click: () => win.exitSplit() });
+  return items;
+}
 
 function popup(win: BrowserWindowCtl, template: MenuItemConstructorOptions[], x?: number, y?: number): void {
   Menu.buildFromTemplate(template).popup({
@@ -33,6 +76,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
     [
       { label: "New tab", accelerator: `${mod}+T`, click: () => win.runCommand({ type: "new-tab" }) },
       { label: "New window", accelerator: `${mod}+N`, click: () => win.runCommand({ type: "new-window" }) },
+      { label: "New container tab", submenu: containerItems(win, (id) => void win.openInContainer(NEW_TAB_URL, id)) },
       { type: "separator" },
       { label: "History", accelerator: `${mod}+H`, click: () => win.openSingleton("corvus://history/") },
       { label: "Bookmarks manager", click: () => win.openSingleton("corvus://bookmarks/") },
@@ -155,19 +199,16 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
         : []),
       ...(groupId ? [{ label: "Remove from group", click: () => win.ungroupTabs([tabId]) }] : []),
       { type: "separator" },
-      {
-        label: "Split with",
-        enabled: splitTargets.length > 0,
-        submenu: splitTargets.map((t) => ({
-          label: (t.title || t.url || "Untitled tab").slice(0, 60),
-          click: () => win.enterSplit(tabId, t.id),
-        })),
-      },
-      ...(win.isSplit() ? [{ label: "Exit split", click: () => win.exitSplit() }] : []),
+      ...splitItems(win, tabId, splitTargets),
       { type: "separator" },
       { label: "Reload", click: () => win.reload(tabId) },
       { label: "Sleep to save memory", enabled: tabId !== win.activeTab()?.id && /^https?:/.test(tab.url), click: () => win.sleepTab(tabId) },
       { label: "Duplicate", click: () => win.duplicate(tabId) },
+      {
+        label: "Reopen in container",
+        enabled: /^https?:/.test(tab.pendingUrl ?? tab.url),
+        submenu: containerItems(win, (id) => void win.reopenInContainer(tabId, id), { none: true, except: tab.containerId ?? null }),
+      },
       { label: pinned ? "Unpin" : "Pin", click: () => win.pin(tabId, !pinned) },
       {
         label: tab.view.webContents.isAudioMuted() ? "Unmute site" : "Mute site",
@@ -266,9 +307,14 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   const sep = (): void => {
     if (items.length > 0 && items[items.length - 1]?.type !== "separator") items.push({ type: "separator" });
   };
-  // Tabs opened from an agent-driven tab stay agent-driven.
+  // Tabs opened from an agent-driven tab stay agent-driven, and from a container tab in its container.
   const openInTab = (url: string): void => {
-    win.createTab(url, { activate: false, openerId: tab.id, ...(tab.agentControlled ? { agent: true } : {}) });
+    win.createTab(url, {
+      activate: false,
+      openerId: tab.id,
+      ...(tab.agentControlled ? { agent: true } : {}),
+      ...(tab.containerId ? { containerId: tab.containerId } : {}),
+    });
   };
 
   if (params.misspelledWord && params.isEditable) {
@@ -284,6 +330,11 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
     items.push(
       { label: "Open link in new tab", click: () => openInTab(link) },
       { label: "Open link in new window", enabled: !tab.agentControlled, click: () => win.openInNewWindow(link) },
+      {
+        label: "Open link in container tab",
+        enabled: !tab.agentControlled && /^https?:/i.test(link),
+        submenu: containerItems(win, (id) => void win.openInContainer(link, id, tab.id), { none: true, except: tab.containerId ?? null }),
+      },
       { type: "separator" },
       { label: "Save link as…", enabled: isWebUrl(link), click: () => ctx.downloads.saveAs(wc, link) },
       { label: "Copy link address", click: () => clipboard.writeText(link) },

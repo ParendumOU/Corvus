@@ -1,5 +1,5 @@
 /**
- * Split view (two tabs tiled side by side) — pure geometry and the contracts shared between the
+ * Split view (two to four tabs tiled live) — pure geometry and the contracts shared between the
  * main process, the divider preload and the chrome UI. No Electron imports, so it unit-tests freely.
  */
 import type { TabId } from "@corvus/shared";
@@ -59,13 +59,59 @@ export function insetPage(cell: Rect, border = FOCUS_BORDER): Rect {
   };
 }
 
+/** Most tabs one split tiles: two side by side, one beside two stacked, or a 2×2 grid. */
+export const MAX_PANES = 4;
+
+/** "x": the vertical divider between columns; "y": the horizontal one between rows. */
+export type SplitAxis = "x" | "y";
+
+export interface GridGeometry {
+  /** One cell per pane, in pane order: left, right (2); left, top right, bottom right (3); row by row (4). */
+  cells: Rect[];
+  dividers: Array<{ axis: SplitAxis; rect: Rect }>;
+}
+
+/** Splits `cell` into a top and a bottom cell with a horizontal divider gap between them. */
+function splitRows(cell: Rect, ratioY: number): { top: Rect; divider: Rect; bottom: Rect } {
+  const avail = Math.max(0, cell.height - DIVIDER_WIDTH);
+  const topH = Math.round(avail * clampRatio(ratioY));
+  return {
+    top: { x: cell.x, y: cell.y, width: cell.width, height: topH },
+    divider: { x: cell.x, y: cell.y + topH, width: cell.width, height: DIVIDER_WIDTH },
+    bottom: { x: cell.x, y: cell.y + topH + DIVIDER_WIDTH, width: cell.width, height: Math.max(0, avail - topH) },
+  };
+}
+
+/**
+ * Tiles `content` for 2 to 4 panes. `ratioX` is the left column's share of the width; `ratioY`
+ * the top row's share of the height (the right column with 3 panes, both columns with 4).
+ */
+export function computeGridGeometry(content: Rect, panes: number, ratioX: number, ratioY: number): GridGeometry {
+  const n = Math.max(2, Math.min(MAX_PANES, Math.floor(panes)));
+  const cols = computeSplitGeometry(content, ratioX);
+  const vertical = { axis: "x" as const, rect: cols.divider };
+  if (n === 2) return { cells: [cols.leftCell, cols.rightCell], dividers: [vertical] };
+  const right = splitRows(cols.rightCell, ratioY);
+  if (n === 3) return { cells: [cols.leftCell, right.top, right.bottom], dividers: [vertical, { axis: "y", rect: right.divider }] };
+  const left = splitRows(cols.leftCell, ratioY);
+  // One horizontal divider across the whole width: both rows move together.
+  const horizontal = { axis: "y" as const, rect: { x: content.x, y: left.divider.y, width: content.width, height: DIVIDER_WIDTH } };
+  return { cells: [left.top, right.top, left.bottom, right.bottom], dividers: [vertical, horizontal] };
+}
+
 export type SplitDividerMessage = { phase: "start" } | { phase: "move"; fraction: number } | { phase: "end" };
 
-/** Snapshot of the active split, exposed to the chrome UI through WindowState. */
+/** Snapshot of the window's split, exposed to the chrome UI through WindowState. */
 export interface SplitState {
-  leftTabId: TabId;
-  rightTabId: TabId;
-  /** Which pane currently takes keyboard/omnibox input. Always one of the two above. */
-  focusedTabId: TabId;
+  /** Tabs tiled in the split, in pane order (2 to 4). */
+  paneIds: TabId[];
+  /** The pane taking keyboard/omnibox input; null while another tab is shown and the split waits. */
+  focusedTabId: TabId | null;
   ratio: number;
+  ratioY: number;
+  /**
+   * On screen now. Showing a tab outside the split keeps the split for later: showing any of its
+   * panes again brings the whole split back.
+   */
+  shown: boolean;
 }

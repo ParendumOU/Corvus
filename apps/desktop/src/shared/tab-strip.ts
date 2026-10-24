@@ -341,6 +341,7 @@ export interface ClosedTab {
   index: number;
   groupId?: GroupId;
   pinned: boolean;
+  containerId?: string;
 }
 
 export function pushClosed(stack: ClosedTab[], entry: ClosedTab, max = 25): ClosedTab[] {

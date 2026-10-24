@@ -129,12 +129,43 @@ body,
 }
 
 .tab-icon {
+  position: relative;
   display: inline-flex;
   width: 16px;
   height: 16px;
   align-items: center;
   justify-content: center;
   flex: none;
+}
+/* A pane of the window's split: a small two-pane badge on its icon. */
+.in-split .tab-icon::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  width: 9px;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent 40%, var(--accent) 40%, var(--accent) 60%, transparent 60%), var(--toolbar);
+  pointer-events: none;
+}
+/* A container tab: a line in the container's colour under its icon. */
+.tab-container-mark {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  bottom: -5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--c-light);
+  pointer-events: none;
+}
+@media (prefers-color-scheme: dark) {
+  .tab-container-mark {
+    background: var(--c-dark);
+  }
 }
 
 .tab-title {
@@ -429,6 +460,25 @@ body,
   color: var(--text-2);
   font-size: 12px;
   flex: none;
+}
+.omni-container {
+  --c: var(--c-light);
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+  color: var(--c);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+}
+@media (prefers-color-scheme: dark) {
+  .omni-container {
+    --c: var(--c-dark);
+  }
 }
 .omni-chip.warn {
   color: var(--danger);

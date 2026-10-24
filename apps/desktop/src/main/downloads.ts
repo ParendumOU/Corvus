@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { app, shell, type DownloadItem, type WebContents } from "electron";
+import { app, shell, type DownloadItem, type Session, type WebContents } from "electron";
 import type { ProfileId } from "@corvus/shared";
 import type { DownloadsSummary } from "../shared/browser-ipc";
 import {
@@ -56,6 +56,11 @@ export class DownloadManager {
     const file = JsonFile.load(path.join(runtime.dataDir, "downloads.json"), () => [], reviveDownloads, 1000);
     this.profiles.set(id, { runtime, file, sessionIds: new Set(), notifyTimer: null });
     runtime.session.on("will-download", (event, item, wc) => this.onWillDownload(runtime, event, item, wc));
+  }
+
+  /** Downloads from a container tab of the profile land in the profile's list like any other. */
+  attachSession(runtime: ProfileRuntime, session: Session): void {
+    session.on("will-download", (event, item, wc) => this.onWillDownload(runtime, event, item, wc));
   }
 
   /** Download a URL from a tab, always asking where to save (context menu "Save … as"). */

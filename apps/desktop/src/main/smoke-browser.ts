@@ -9,7 +9,7 @@ import { reviveSession } from "../shared/session-state";
 import type { AppContext } from "./context";
 import { parseLists } from "./adblock-lists";
 import { SiteSettingsStore } from "./site-settings";
-import type { BrowserWindowCtl } from "./window";
+import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 const FIND_PAGE = `<!doctype html><html><head><title>Find</title></head><body>
 <h1>Find smoke</h1><p>needle one</p><p>needle two</p><p>a NEEDLE three</p><p>needles four</p><div>needle five</div>
@@ -437,6 +437,8 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
     maxMainGapMs: maxGap,
   });
 
+  await containerSmoke(ctx, win, { site, url, check, capture, chromeHas });
+
   const adblockSettings = win.createTab("corvus://settings/#adblock");
   await sleep(1500);
   check("settings adblock section", (await adblockSettings.view.webContents.executeJavaScript("Boolean(document.querySelector('#adblock'))")) === true);
@@ -478,4 +480,97 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
     restored?.close();
     await sleep(300);
   }
+}
+
+/**
+ * Containers: a container tab has its own cookies (neither side sees the other's), pages it opens
+ * stay in it, it keeps its container through sleep and session save, the ad blocker works in it,
+ * the strip and address bar mark it, and removing a container deletes its data.
+ */
+async function containerSmoke(
+  ctx: AppContext,
+  win: BrowserWindowCtl,
+  h: { site: string; url: string; check: SmokeHelpers["check"]; capture: SmokeHelpers["capture"]; chromeHas: (selector: string) => Promise<unknown> },
+): Promise<void> {
+  const { site, url, check, capture, chromeHas } = h;
+  const profile = win.profile;
+  const cookieOf = (tabWc: WebContents): Promise<string> => tabWc.executeJavaScript("document.cookie") as Promise<string>;
+
+  const plain = win.createTab(`${site}picker`);
+  await waitForLoad(plain.view.webContents);
+  await plain.view.webContents.executeJavaScript("document.cookie = 'jar=main; max-age=3600; path=/'; true");
+  const work = win.openInContainer(`${site}picker`, "work");
+  const workWc = work.view.webContents;
+  await waitForLoad(workWc);
+  await workWc.executeJavaScript("document.cookie = 'jar=work; max-age=3600; path=/'; true");
+  const jars = { plain: await cookieOf(plain.view.webContents), work: await cookieOf(workWc) };
+  check(
+    "containers: a container tab has its own session and cookies",
+    work.containerId === "work" && workWc.session !== profile.session && ctx.profiles.bySession(workWc.session) === profile && jars.plain === "jar=main" && jars.work === "jar=work",
+    jars,
+  );
+
+  win.activate(work.id);
+  await sleep(400);
+  const tabState = win.state().tabs.find((t) => t.id === work.id);
+  const marked = { strip: await chromeHas(".tab-container-mark"), omnibox: await chromeHas(".omni-container"), name: tabState?.container?.name };
+  check("containers: the tab strip and address bar mark a container tab", marked.strip === true && marked.omnibox === true && marked.name === "Work", marked);
+  await capture("container-tab", win.chrome.webContents);
+
+  // Pages it opens stay in the container.
+  const before = new Set(win.listTabs().map((t) => t.id));
+  await workWc.executeJavaScript(`window.open(${JSON.stringify(`${site}picker?child`)}, "_blank"); true`, true);
+  let child: TabRuntime | undefined;
+  for (let i = 0; i < 30 && !child; i += 1) {
+    await sleep(100);
+    child = win.tabRuntimes().find((t) => !before.has(t.id));
+  }
+  if (child) await waitForLoad(child.view.webContents);
+  check("containers: a page opened from a container tab stays in it", child?.containerId === "work" && (child ? await cookieOf(child.view.webContents) : "") === "jar=work", {
+    containerId: child?.containerId,
+  });
+  if (child) win.closeTab(child.id);
+
+  // The ad blocker filters container tabs too.
+  win.activate(work.id);
+  win.loadUrl(work.id, `${url}ads`);
+  await waitForLoad(workWc);
+  let blocked = 0;
+  for (let i = 0; i < 40 && blocked === 0; i += 1) {
+    await sleep(100);
+    blocked = win.state().adblock.blocked;
+  }
+  check("containers: the ad blocker works in a container tab", blocked > 0, win.state().adblock);
+  win.loadUrl(work.id, `${site}picker`);
+  await waitForLoad(workWc);
+
+  // Asleep and awake again, and in the saved session, it is still in its container.
+  win.activate(plain.id);
+  await sleep(200);
+  const slept = win.sleepTab(work.id);
+  win.activate(work.id);
+  await waitForLoad(work.view.webContents);
+  await sleep(300);
+  const woke = { slept, containerId: work.containerId, jar: await cookieOf(work.view.webContents) };
+  const savedTab = win.sessionWindow()?.tabs.find((t) => t.url.startsWith(site) && t.containerId === "work");
+  check("containers: a container tab keeps its container through sleep and session save", slept && woke.jar === "jar=work" && savedTab !== undefined, woke);
+
+  // Removing a container closes its tabs and deletes its data.
+  const temp = profile.containers.add("Smoke temp", "red");
+  const tempTab = win.openInContainer(`${site}picker`, temp.id);
+  await waitForLoad(tempTab.view.webContents);
+  await tempTab.view.webContents.executeJavaScript("document.cookie = 'jar=temp; max-age=3600; path=/'; true");
+  const tempSession = tempTab.view.webContents.session;
+  for (const w of ctx.windows.forProfile(profile.profile.id)) w.closeContainerTabs(temp.id);
+  profile.containers.remove(temp.id);
+  await profile.clearContainer(temp.id);
+  const left = await tempSession.cookies.get({});
+  check("containers: removing a container closes its tabs and deletes its cookies", !win.getTab(tempTab.id) && left.length === 0, { left: left.length });
+
+  const settings = win.createTab("corvus://settings/#containers");
+  await sleep(1500);
+  const rows = (await settings.view.webContents.executeJavaScript("document.querySelectorAll('#containers .container-row').length")) as number;
+  check("containers: settings lists the containers", rows === profile.containers.list().length && rows >= 4, rows);
+  await capture("settings-containers", settings.view.webContents);
+  win.closeTabs([settings.id, work.id, plain.id]);
 }

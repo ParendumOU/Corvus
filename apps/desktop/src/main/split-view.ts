@@ -1,19 +1,22 @@
 import { ipcMain, View, WebContentsView, type WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import {
+  MAX_PANES,
   SPLIT_DIVIDER_CHANNEL,
   clampRatio,
-  computeSplitGeometry,
+  computeGridGeometry,
   insetPage,
   type Rect,
+  type SplitAxis,
   type SplitDividerMessage,
 } from "../shared/split";
 
-/** Empty document; the split preload builds the divider's visuals and drag handling. */
-const DIVIDER_URL = `data:text/html,${encodeURIComponent('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')}`;
+/** Empty document; the split preload builds the divider's visuals and drag handling (axis in the hash). */
+const dividerUrl = (axis: SplitAxis): string =>
+  `data:text/html,${encodeURIComponent('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>')}#${axis}`;
 
-/** Maps each divider helper view's webContents to its session so the shared IPC handler can route drags. */
-const sessions = new Map<WebContents, SplitSession>();
+/** Maps each divider helper view's webContents to its session and axis so the shared IPC handler can route drags. */
+const dividers = new Map<WebContents, { session: SplitSession; axis: SplitAxis }>();
 
 let registered = false;
 
@@ -22,12 +25,12 @@ export function registerSplitIpc(): void {
   if (registered) return;
   registered = true;
   ipcMain.on(SPLIT_DIVIDER_CHANNEL, (event, raw) => {
-    const session = sessions.get(event.sender);
-    if (!session) return;
+    const target = dividers.get(event.sender);
+    if (!target) return;
     const message = raw as SplitDividerMessage;
-    if (message?.phase === "start") session.beginResize();
-    else if (message?.phase === "move" && typeof message.fraction === "number") session.applyResize(message.fraction);
-    else if (message?.phase === "end") session.endResize();
+    if (message?.phase === "start") target.session.beginResize(target.axis);
+    else if (message?.phase === "move" && typeof message.fraction === "number") target.session.applyResize(target.axis, message.fraction);
+    else if (message?.phase === "end") target.session.endResize();
   });
 }
 
@@ -40,80 +43,120 @@ export interface SplitSessionOptions {
 }
 
 /**
- * Owns the two auxiliary views of a split: the accent focus ring (a cheap renderer-less View behind
- * the focused pane) and the draggable divider (a thin helper WebContentsView). The two page views
- * themselves stay owned by the window; this session only positions them via `layout`.
+ * Owns the auxiliary views of a split: the accent focus ring (a cheap renderer-less View behind
+ * the focused pane) and one draggable divider per axis (thin helper WebContentsViews). The page
+ * views themselves stay owned by the window; this session only positions them via `layout`.
  */
 export class SplitSession {
   ratio = 0.5;
+  ratioY = 0.5;
   private readonly frame: View;
-  private readonly divider: WebContentsView;
-  private resizing = false;
+  private readonly dividerViews: Record<SplitAxis, WebContentsView>;
+  private resizing: SplitAxis | null = null;
 
   constructor(
     private readonly contentView: View,
-    readonly left: TabId,
-    readonly right: TabId,
+    private paneIds: TabId[],
     private readonly opts: SplitSessionOptions,
   ) {
     this.frame = new View();
     this.frame.setBackgroundColor(opts.accent);
     this.frame.setBorderRadius(4);
     this.frame.setVisible(false);
-
-    this.divider = new WebContentsView({
-      webPreferences: { preload: opts.preload, sandbox: true, contextIsolation: true, nodeIntegration: false },
-    });
-    this.divider.setBackgroundColor("#00000000");
-    this.divider.setVisible(false);
-
-    // Below the pages (index 0): the ring shows around the focused page, the divider sits in the gap.
+    // Below the pages (index 0): the ring shows around the focused page, the dividers sit in the gaps.
     this.contentView.addChildView(this.frame, 0);
-    this.contentView.addChildView(this.divider, 0);
-    sessions.set(this.divider.webContents, this);
-    void this.divider.webContents.loadURL(DIVIDER_URL);
+    const divider = (axis: SplitAxis): WebContentsView => {
+      const view = new WebContentsView({
+        webPreferences: { preload: opts.preload, sandbox: true, contextIsolation: true, nodeIntegration: false },
+      });
+      view.setBackgroundColor("#00000000");
+      view.setVisible(false);
+      this.contentView.addChildView(view, 0);
+      dividers.set(view.webContents, { session: this, axis });
+      void view.webContents.loadURL(dividerUrl(axis));
+      return view;
+    };
+    this.dividerViews = { x: divider("x"), y: divider("y") };
+  }
+
+  /** The tiled tabs, in pane order. */
+  get panes(): readonly TabId[] {
+    return this.paneIds;
+  }
+
+  has(id: TabId): boolean {
+    return this.paneIds.includes(id);
+  }
+
+  /** Adds a pane (at most four); false when it is already there or the split is full. */
+  add(id: TabId): boolean {
+    if (this.has(id) || this.paneIds.length >= MAX_PANES) return false;
+    this.paneIds = [...this.paneIds, id];
+    return true;
+  }
+
+  /** Removes a pane; the panes left keep their order. */
+  remove(id: TabId): void {
+    this.paneIds = this.paneIds.filter((p) => p !== id);
   }
 
   setTheme(accent: string): void {
     this.frame.setBackgroundColor(accent);
   }
 
-  /** Position both pages, the focus ring and the divider inside `content`. */
-  layout(content: Rect, focusedId: TabId | null, leftView?: WebContentsView, rightView?: WebContentsView): void {
-    const geom = computeSplitGeometry(content, this.ratio);
-    if (leftView && !leftView.webContents.isDestroyed()) leftView.setBounds(insetPage(geom.leftCell));
-    if (rightView && !rightView.webContents.isDestroyed()) rightView.setBounds(insetPage(geom.rightCell));
-    const focusCell = focusedId === this.right ? geom.rightCell : geom.leftCell;
-    this.frame.setBounds(focusCell);
+  /** Position the pages, the focus ring and the dividers inside `content`. */
+  layout(content: Rect, focusedId: TabId | null, views: ReadonlyArray<WebContentsView | undefined>): void {
+    const geom = computeGridGeometry(content, this.paneIds.length, this.ratio, this.ratioY);
+    geom.cells.forEach((cell, i) => {
+      const view = views[i];
+      if (view && !view.webContents.isDestroyed()) view.setBounds(insetPage(cell));
+    });
+    const focusCell = geom.cells[Math.max(0, this.paneIds.indexOf(focusedId ?? ""))] ?? geom.cells[0];
+    if (focusCell) this.frame.setBounds(focusCell);
     this.frame.setVisible(true);
-    // During a drag the divider is expanded over the whole content area so it keeps receiving the
-    // pointer events even as the cursor passes over the page views (per-view mouse passthrough does
-    // not exist in Electron). Otherwise it is the thin strip in the gap.
-    this.divider.setBounds(this.resizing ? content : geom.divider);
-    this.divider.setVisible(true);
+    for (const axis of ["x", "y"] as const) {
+      const view = this.dividerViews[axis];
+      const divider = geom.dividers.find((d) => d.axis === axis);
+      // During a drag the divider is expanded over the whole content area so it keeps receiving the
+      // pointer events even as the cursor passes over the page views (per-view mouse passthrough does
+      // not exist in Electron). Otherwise it is the thin strip in its gap.
+      if (divider) view.setBounds(this.resizing === axis ? content : divider.rect);
+      view.setVisible(divider !== undefined);
+    }
   }
 
-  beginResize(): void {
-    this.resizing = true;
-    this.contentView.addChildView(this.divider); // raise above the pages to capture the drag
+  /** Another tab is shown: the split waits, out of sight, for one of its panes to come back. */
+  hide(): void {
+    this.frame.setVisible(false);
+    this.dividerViews.x.setVisible(false);
+    this.dividerViews.y.setVisible(false);
+  }
+
+  beginResize(axis: SplitAxis): void {
+    this.resizing = axis;
+    this.contentView.addChildView(this.dividerViews[axis]); // raise above the pages to capture the drag
     this.opts.onRelayout();
   }
 
-  applyResize(fraction: number): void {
-    this.ratio = clampRatio(fraction);
+  applyResize(axis: SplitAxis, fraction: number): void {
+    if (axis === "x") this.ratio = clampRatio(fraction);
+    else this.ratioY = clampRatio(fraction);
     this.opts.onRelayout();
   }
 
   endResize(): void {
-    this.resizing = false;
-    this.contentView.addChildView(this.divider, 0); // tuck back below the pages / chrome
+    const axis = this.resizing;
+    this.resizing = null;
+    if (axis) this.contentView.addChildView(this.dividerViews[axis], 0); // tuck back below the pages / chrome
     this.opts.onRelayout();
   }
 
   dispose(): void {
-    sessions.delete(this.divider.webContents);
-    this.contentView.removeChildView(this.divider);
     this.contentView.removeChildView(this.frame);
-    if (!this.divider.webContents.isDestroyed()) this.divider.webContents.close();
+    for (const view of Object.values(this.dividerViews)) {
+      dividers.delete(view.webContents);
+      this.contentView.removeChildView(view);
+      if (!view.webContents.isDestroyed()) view.webContents.close();
+    }
   }
 }

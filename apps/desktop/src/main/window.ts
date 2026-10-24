@@ -5,6 +5,7 @@ import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
+import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
@@ -114,6 +115,10 @@ export interface TabRuntime {
   asleep?: { entries: Electron.NavigationEntry[]; index: number };
   /** When it was last on screen (epoch ms). */
   lastShownAt?: number;
+  /** Container the tab runs in (its own cookies and site data); none = the profile's session. */
+  containerId?: string;
+  /** Its video was floated (picture-in-picture) when the tab was left; it returns when shown. */
+  autoPip?: boolean;
 }
 
 export interface OpenTabOptions {
@@ -128,6 +133,8 @@ export interface OpenTabOptions {
   title?: string;
   /** Icon a lazy tab shows until it loads and its page reports its own (last known site icon). */
   faviconUrl?: string;
+  /** Open it in this container of the profile (ignored for corvus:// pages and unknown containers). */
+  containerId?: string;
 }
 
 export interface WindowOpenOptions {
@@ -307,14 +314,15 @@ export class BrowserWindowCtl {
     this.sidePanel?.setBounds({ x: width - side - panel, y: top, width: panel, height: Math.max(0, height - top) });
     const content = { x: left, y: top, width: Math.max(0, width - left - side - panel), height: Math.max(0, height - top) };
     const active = this.activeTab();
-    if (this.splitSession) {
-      this.splitSession.layout(
+    if (this.splitShown()) {
+      const split = this.splitSession!;
+      split.layout(
         content,
         this.strip.activeId,
-        this.tabs.get(this.splitSession.left)?.view,
-        this.tabs.get(this.splitSession.right)?.view,
+        split.panes.map((id) => this.tabs.get(id)?.view),
       );
     } else {
+      this.splitSession?.hide();
       active?.view.setBounds(content);
     }
     this.ctx.assist.layout(this, { x: width - side, y: top, width: side, height: content.height }, content);
@@ -368,18 +376,17 @@ export class BrowserWindowCtl {
 
   private syncActive(focusContent: boolean): void {
     const activeId = this.strip.activeId;
-    // Activating a tab that is not part of the current split collapses back to a single pane.
-    if (this.splitSession && activeId && activeId !== this.splitSession.left && activeId !== this.splitSession.right) {
-      this.teardownSplit();
-    }
+    // A tab outside the split shows on its own; the split waits until one of its panes is shown again.
     const visible = this.visibleTabIds();
     const now = Date.now();
+    const autoPip = this.ctx.settings.get().media.autoPictureInPicture;
     for (const id of this.shownTabIds) {
       if (visible.includes(id)) continue;
       const tab = this.tabs.get(id);
       if (!tab) continue;
       tab.view.setVisible(false);
       tab.lastShownAt = now;
+      if (shouldAutoPip({ audible: tab.audible, url: tab.url, enabled: autoPip })) void this.enterAutoPip(tab);
     }
     for (const id of visible) {
       const tab = this.tabs.get(id);
@@ -388,6 +395,7 @@ export class BrowserWindowCtl {
       if (this.shownTabIds.includes(id)) continue;
       tab.view.setVisible(true);
       if (tab.pendingUrl) this.loadPending(tab);
+      if (tab.autoPip) void this.exitAutoPip(tab);
     }
     this.shownTabIds = visible;
     if (this.activeShown !== activeId) {
@@ -405,9 +413,30 @@ export class BrowserWindowCtl {
     this.layout();
   }
 
-  /** Page views that must be visible: the two panes in a split, otherwise just the active tab. */
+  /**
+   * Leaving a tab that plays sound floats its video (picture-in-picture). The switch is the user's
+   * gesture, so the request runs with one, in an isolated world the page's scripts cannot reach.
+   */
+  private async enterAutoPip(tab: TabRuntime): Promise<void> {
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return;
+    const result = (await wc.executeJavaScriptInIsolatedWorld(PIP_WORLD_ID, [{ code: PIP_ENTER_SCRIPT }], true).catch(() => "failed")) as PipEnterResult;
+    if (result !== "entered") return;
+    tab.autoPip = true;
+    // Back on the tab before the video floated: bring it straight back.
+    if (this.shownTabIds.includes(tab.id)) void this.exitAutoPip(tab);
+  }
+
+  /** Back on a tab whose video Corvus floated: the video returns to the page. */
+  private async exitAutoPip(tab: TabRuntime): Promise<void> {
+    tab.autoPip = false;
+    const wc = tab.view.webContents;
+    if (!wc.isDestroyed()) await wc.executeJavaScriptInIsolatedWorld(PIP_WORLD_ID, [{ code: PIP_EXIT_SCRIPT }]).catch(() => undefined);
+  }
+
+  /** Page views that must be visible: the panes of a split one of whose tabs is active, otherwise just the active tab. */
   private visibleTabIds(): TabId[] {
-    if (this.splitSession) return [this.splitSession.left, this.splitSession.right];
+    if (this.splitShown()) return [...this.splitSession!.panes];
     return this.strip.activeId ? [this.strip.activeId] : [];
   }
 
@@ -477,8 +506,11 @@ export class BrowserWindowCtl {
     const history = tab.view.webContents.navigationHistory;
     const pid = tab.pendingUrl ? 0 : tab.view.webContents.getOSProcessId();
     const memoryKB = pid ? this.processMemory.get(pid) : undefined;
+    const container = tab.containerId ? this.profile.containers.get(tab.containerId) : undefined;
     return {
       ...this.toTab(tab),
+      ...(container ? { container } : {}),
+      ...(this.splitSession?.has(tab.id) ? { inSplit: true } : {}),
       canGoBack: history.canGoBack(),
       canGoForward: history.canGoForward(),
       webContentsId: tab.view.webContents.id,
@@ -621,11 +653,11 @@ export class BrowserWindowCtl {
     return this.tabs.size;
   }
 
-  /** A hidden page view for a tab, in this window, below the chrome UI. */
-  private newTabView(url: string): WebContentsView {
+  /** A hidden page view for a tab, in this window, below the chrome UI (in its container's session). */
+  private newTabView(url: string, containerId?: string): WebContentsView {
     const view = new WebContentsView({
       webPreferences: {
-        session: this.profile.session,
+        session: containerId ? this.profile.containerSession(containerId) : this.profile.session,
         preload: paths.internalPreload,
         sandbox: true,
         contextIsolation: true,
@@ -647,10 +679,13 @@ export class BrowserWindowCtl {
   createTab(url: string, opts: OpenTabOptions = {}): TabRuntime {
     const id = nextId("t");
     url = pdfViewerRedirect(this.ctx, opts.agent === true, url) ?? url;
-    const view = this.newTabView(url);
+    // A container tab can start on the New Tab page; other corvus:// pages stay in the profile session.
+    const containerId = opts.containerId && (!isInternalUrl(url) || isNewTabUrl(url)) && this.profile.containers.get(opts.containerId) ? opts.containerId : undefined;
+    const view = this.newTabView(url, containerId);
 
     const lazy = opts.lazy === true && opts.activate === false;
     const tab: TabRuntime = {
+      ...(containerId ? { containerId } : {}),
       id,
       view,
       url,
@@ -844,8 +879,10 @@ export class BrowserWindowCtl {
     wc.setWindowOpenHandler(({ url, disposition }) => {
       if (isInternalUrl(url) && !isInternalUrl(wc.getURL())) return { action: "deny" };
       // Pages opened by an agent-driven tab stay agent-driven (badge, permission and download rules).
+      // So do pages opened from a container tab: they share its cookies.
+      const container = tab.containerId ? { containerId: tab.containerId } : {};
       if (tab.agentControlled) {
-        this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id, agent: true });
+        this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id, agent: true, ...container });
         return { action: "deny" };
       }
       if (disposition === "new-window") {
@@ -854,11 +891,11 @@ export class BrowserWindowCtl {
           overrideBrowserWindowOptions: {
             autoHideMenuBar: true,
             backgroundColor: pageBaseColor(url, nativeTheme.shouldUseDarkColors),
-            webPreferences: { session: this.profile.session, sandbox: true, contextIsolation: true, nodeIntegration: false, ...this.siteFeatures() },
+            webPreferences: { session: wc.session, sandbox: true, contextIsolation: true, nodeIntegration: false, ...this.siteFeatures() },
           },
         };
       }
-      this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id });
+      this.createTab(url, { activate: disposition !== "background-tab", openerId: tab.id, ...container });
       return { action: "deny" };
     });
     // Sign-in popups ("Continue with Google") are windows of their own: same UA rule as tabs. The
@@ -890,13 +927,32 @@ export class BrowserWindowCtl {
     return this.splitSession !== null;
   }
 
-  /** Tile two tabs side by side. `primaryId` becomes the focused pane (omnibox/nav target). */
+  /** The window has a split and one of its panes is the active tab, so the split is on screen. */
+  private splitShown(): boolean {
+    const active = this.strip.activeId;
+    return this.splitSession !== null && active !== null && this.splitSession.has(active);
+  }
+
+  /** The tabs of this window's split, in pane order (empty without one). */
+  splitPanes(): readonly TabId[] {
+    return this.splitSession?.panes ?? [];
+  }
+
+  /**
+   * "Split with": tiles `primaryId` (focused) with `secondaryId`. When `primaryId` is already in
+   * the split, `secondaryId` joins it as another pane (up to four); otherwise a new split replaces
+   * the old one.
+   */
   enterSplit(primaryId: TabId, secondaryId: TabId): void {
     if (this.disposed || primaryId === secondaryId) return;
     if (!this.tabs.has(primaryId) || !this.tabs.has(secondaryId)) return;
+    if (this.splitSession?.has(primaryId)) {
+      this.addToSplit(secondaryId);
+      return;
+    }
     this.teardownSplit();
     this.strip = activateTab(this.strip, primaryId);
-    this.splitSession = new SplitSession(this.win.contentView, primaryId, secondaryId, {
+    this.splitSession = new SplitSession(this.win.contentView, [primaryId, secondaryId], {
       dark: nativeTheme.shouldUseDarkColors,
       accent: this.splitAccent(),
       preload: paths.splitPreload,
@@ -906,10 +962,33 @@ export class BrowserWindowCtl {
     this.pushState();
   }
 
-  /** Move focus to a pane of the active split (makes it the omnibox/keyboard target). */
+  /** Adds a tab to the split as another pane (two side by side, then 1 + 2, then a 2×2 grid). */
+  addToSplit(id: TabId): void {
+    if (!this.splitSession || !this.tabs.has(id) || !this.splitSession.add(id)) return;
+    this.strip = activateTab(this.strip, id);
+    this.syncActive(true);
+    this.pushState();
+  }
+
+  /** Takes a tab out of the split; with one pane left the split ends. */
+  removeFromSplit(id: TabId): void {
+    const split = this.splitSession;
+    if (!split?.has(id)) return;
+    if (split.panes.length <= 2) {
+      this.exitSplit();
+      return;
+    }
+    const wasActive = this.strip.activeId === id;
+    split.remove(id);
+    // The tab leaves the screen; the first pane takes over when it was the focused one.
+    if (wasActive && split.panes[0]) this.strip = activateTab(this.strip, split.panes[0]);
+    this.syncActive(true);
+    this.pushState();
+  }
+
+  /** Move focus to a pane of the split (makes it the omnibox/keyboard target). */
   focusSplitPane(id: TabId): void {
-    if (!this.splitSession) return;
-    if (id !== this.splitSession.left && id !== this.splitSession.right) return;
+    if (!this.splitSession?.has(id)) return;
     if (id === this.strip.activeId) return;
     this.activate(id);
   }
@@ -928,18 +1007,22 @@ export class BrowserWindowCtl {
 
   private splitState(): SplitState | null {
     const s = this.splitSession;
-    if (!s || !this.strip.activeId) return null;
-    return { leftTabId: s.left, rightTabId: s.right, focusedTabId: this.strip.activeId, ratio: s.ratio };
+    if (!s) return null;
+    const shown = this.splitShown();
+    return { paneIds: [...s.panes], focusedTabId: shown ? this.strip.activeId : null, ratio: s.ratio, ratioY: s.ratioY, shown };
   }
 
   closeTab(id: TabId): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
-    // Closing either pane of a split collapses it to the surviving tab, kept active.
-    if (this.splitSession && (id === this.splitSession.left || id === this.splitSession.right)) {
-      const survivor = id === this.splitSession.left ? this.splitSession.right : this.splitSession.left;
-      this.teardownSplit();
-      if (this.strip.activeId === id) this.strip = activateTab(this.strip, survivor);
+    // Closing a pane of a split leaves the other panes tiled; with one left, the split ends and the
+    // survivor stays on screen when the closed pane was.
+    const split = this.splitSession;
+    if (split?.has(id)) {
+      split.remove(id);
+      const survivor = split.panes[0];
+      if (split.panes.length < 2) this.teardownSplit();
+      if (this.strip.activeId === id && survivor) this.strip = activateTab(this.strip, survivor);
     }
     const entry = this.strip.tabs.find((t) => t.id === id);
     if (!isNewTabUrl(tab.url)) {
@@ -949,6 +1032,7 @@ export class BrowserWindowCtl {
         index: indexOfTab(this.strip, id),
         ...(entry?.groupId ? { groupId: entry.groupId } : {}),
         pinned: entry?.pinned ?? false,
+        ...(tab.containerId ? { containerId: tab.containerId } : {}),
       });
     }
     this.clearUnresponsive(tab);
@@ -960,9 +1044,11 @@ export class BrowserWindowCtl {
     this.ctx.annotations.forgetTab(id);
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);
-    // A site set to be forgotten loses its cookies and data once no tab of the profile shows it.
-    const openUrls = this.ctx.windows.forProfile(this.profile.profile.id).flatMap((w) => w.tabRuntimes().map((t) => t.url));
-    void this.ctx.adblock.onTabClosed(this.profile.session, tab.url, openUrls);
+    // A site set to be forgotten loses its cookies and data once no tab of its session shows it.
+    const sameSession = (t: TabRuntime): boolean => (t.containerId ?? "") === (tab.containerId ?? "");
+    const openUrls = this.ctx.windows.forProfile(this.profile.profile.id).flatMap((w) => w.tabRuntimes().filter(sameSession).map((t) => t.url));
+    const tabSession = tab.containerId ? this.profile.containerSession(tab.containerId) : this.profile.session;
+    void this.ctx.adblock.onTabClosed(tabSession, tab.url, openUrls);
     this.shownTabIds = this.shownTabIds.filter((t) => t !== id);
     if (this.activeShown === id) this.activeShown = null;
     this.win.contentView.removeChildView(tab.view);
@@ -996,7 +1082,12 @@ export class BrowserWindowCtl {
     if (!entry) return undefined;
     this.closedTabs = this.closedTabs.filter((_, i) => i !== index);
     const groupId = entry.groupId && this.strip.groups.some((g) => g.id === entry.groupId) ? entry.groupId : undefined;
-    return this.createTab(entry.url, { index: entry.index, pinned: entry.pinned, ...(groupId ? { groupId } : {}) });
+    return this.createTab(entry.url, {
+      index: entry.index,
+      pinned: entry.pinned,
+      ...(groupId ? { groupId } : {}),
+      ...(entry.containerId ? { containerId: entry.containerId } : {}),
+    });
   }
 
   private loadPending(tab: TabRuntime): void {
@@ -1040,7 +1131,7 @@ export class BrowserWindowCtl {
     this.ctx.reader.forgetTab(id);
     this.win.contentView.removeChildView(old);
     wc.close();
-    tab.view = this.newTabView(tab.url);
+    tab.view = this.newTabView(tab.url, tab.containerId);
     tab.asleep = { entries, index };
     tab.pendingUrl = tab.url;
     tab.loading = false;
@@ -1207,7 +1298,34 @@ export class BrowserWindowCtl {
 
   duplicate(id: TabId): void {
     const tab = this.tabs.get(id);
-    if (tab) this.createTab(tab.url, { index: indexOfTab(this.strip, id) + 1, ...(this.groupOf(id) ? { groupId: this.groupOf(id) } : {}) });
+    if (tab) {
+      this.createTab(tab.url, {
+        index: indexOfTab(this.strip, id) + 1,
+        ...(this.groupOf(id) ? { groupId: this.groupOf(id) } : {}),
+        ...(tab.containerId ? { containerId: tab.containerId } : {}),
+      });
+    }
+  }
+
+  /** Opens `url` in a new tab in a container (null: none), next to `openerId` when given. */
+  openInContainer(url: string, containerId: string | null, openerId?: TabId): TabRuntime {
+    return this.createTab(url, { ...(openerId ? { openerId } : {}), ...(containerId ? { containerId } : {}) });
+  }
+
+  /** "Reopen in container": the tab's page again, in a new tab in that container, right after it. */
+  reopenInContainer(id: TabId, containerId: string | null): TabRuntime | undefined {
+    const tab = this.tabs.get(id);
+    if (!tab || (tab.containerId ?? null) === containerId) return undefined;
+    return this.createTab(tab.pendingUrl ?? tab.url, {
+      index: indexOfTab(this.strip, id) + 1,
+      ...(this.groupOf(id) ? { groupId: this.groupOf(id) } : {}),
+      ...(containerId ? { containerId } : {}),
+    });
+  }
+
+  /** Closes this window's tabs in a container (it is being removed). */
+  closeContainerTabs(containerId: string): void {
+    this.closeTabs([...this.tabs.values()].filter((t) => t.containerId === containerId).map((t) => t.id));
   }
 
   groupOf(id: TabId): GroupId | undefined {
@@ -1552,6 +1670,7 @@ export class BrowserWindowCtl {
             pinned: entry.pinned,
             ...(entry.groupId ? { groupId: entry.groupId } : {}),
             ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}),
+            ...(tab.containerId ? { containerId: tab.containerId } : {}),
             active: entry.id === this.strip.activeId,
           },
         ];
@@ -1568,11 +1687,20 @@ export class BrowserWindowCtl {
     // Background tabs do not load until shown: give them their saved icon, or the last one history
     // knows for the page or site (sessions saved before icons were persisted), not the placeholder.
     const known = this.profile.history.faviconsFor(saved.tabs.filter((t) => !t.faviconUrl).map((t) => t.url));
-    if (activeTab) ids[saved.activeIndex] = this.createTab(activeTab.url, { pinned: activeTab.pinned, title: activeTab.title }).id;
+    const containerOf = (t: { containerId?: string }): { containerId?: string } => (t.containerId ? { containerId: t.containerId } : {});
+    if (activeTab) ids[saved.activeIndex] = this.createTab(activeTab.url, { pinned: activeTab.pinned, title: activeTab.title, ...containerOf(activeTab) }).id;
     saved.tabs.forEach((t, i) => {
       if (i === saved.activeIndex) return;
       const faviconUrl = t.faviconUrl ?? known.get(t.url);
-      ids[i] = this.createTab(t.url, { activate: false, index: i, pinned: t.pinned, lazy: true, title: t.title, ...(faviconUrl ? { faviconUrl } : {}) }).id;
+      ids[i] = this.createTab(t.url, {
+        activate: false,
+        index: i,
+        pinned: t.pinned,
+        lazy: true,
+        title: t.title,
+        ...(faviconUrl ? { faviconUrl } : {}),
+        ...containerOf(t),
+      }).id;
     });
     const activeId = ids[saved.activeIndex];
     for (const g of saved.groups) {

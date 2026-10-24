@@ -1,7 +1,7 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import type { CredentialMatch } from "../../shared/credentials";
 import type { AutofillBarState } from "../../shared/credentials-ipc";
-import type { TabView } from "../../shared/ipc";
+import { GROUP_COLOR_HEX, type TabView } from "../../shared/ipc";
 import { isNewTabUrl } from "../../shared/internal-urls";
 import { displayUrl, searchQueryOf } from "../../shared/omnibox";
 import type { Suggestion } from "../../shared/suggest";
@@ -303,6 +303,15 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             >
               <IconLock size={16} />
             </button>
+          )}
+          {tab?.container && !focused && (
+            <span
+              className="omni-container"
+              title={`This tab is in the “${tab.container.name}” container: its own cookies and site data`}
+              style={{ "--c-light": GROUP_COLOR_HEX[tab.container.color].light, "--c-dark": GROUP_COLOR_HEX[tab.container.color].dark } as CSSProperties}
+            >
+              {tab.container.name}
+            </span>
           )}
           {tab && zoomPercent !== 100 && !focused && (
             <button

@@ -18,6 +18,7 @@ export const SYNCED_SETTINGS = [
   "ai.localApi",
   "ai.retriever",
   "ai.answerLanguage",
+  "media.autoPictureInPicture",
   "translate.offer",
   "translate.targetLanguage",
   "ai.maxOutputTokens",

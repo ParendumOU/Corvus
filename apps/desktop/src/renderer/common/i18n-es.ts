@@ -212,6 +212,30 @@ export const ES: Record<string, string> = {
   "Sites that read your canvas, graphics card, audio stack or CPU count to recognise you get slightly different values on each site and each session. Sites you allow below are left alone.":
     "Los sitios que leen tu canvas, tu tarjeta gráfica, tu audio o tu número de núcleos para reconocerte reciben valores ligeramente distintos en cada sitio y cada sesión. Los sitios que permitas abajo no se tocan.",
   "Sites forgotten on close": "Sitios que se olvidan al cerrarlos",
+  Media: "Multimedia",
+  "Picture-in-picture when you switch tabs": "Imagen en imagen al cambiar de pestaña",
+  "A video playing with sound keeps playing in a small floating window when you go to another tab, and returns to its page when you come back.":
+    "Un vídeo que suena sigue reproduciéndose en una ventana flotante pequeña cuando vas a otra pestaña, y vuelve a su página cuando regresas.",
+  Containers: "Contenedores",
+  "Tabs in a container keep their own cookies and site data, so you can be signed in to two accounts of one site, or keep shopping and banking apart from everything else. Open one from the menu (New container tab), a link's menu or a tab's menu (Reopen in container). Extensions do not run in container tabs.":
+    "Las pestañas de un contenedor tienen sus propias cookies y datos de sitios, así que puedes tener dos cuentas abiertas en un mismo sitio, o separar las compras y el banco de todo lo demás. Abre uno desde el menú (Nueva pestaña de contenedor), el menú de un enlace o el de una pestaña (Reabrir en contenedor). Las extensiones no funcionan en las pestañas de contenedor.",
+  "No containers yet": "Aún no hay contenedores",
+  "Add one below.": "Añade uno abajo.",
+  "New container": "Nuevo contenedor",
+  Add: "Añadir",
+  "Container name": "Nombre del contenedor",
+  Colour: "Color",
+  "Remove the “{name}” container? Its tabs close and its cookies and site data are deleted.":
+    "¿Quitar el contenedor «{name}»? Sus pestañas se cierran y se borran sus cookies y datos de sitios.",
+  Blue: "Azul",
+  Turquoise: "Turquesa",
+  Green: "Verde",
+  Yellow: "Amarillo",
+  Orange: "Naranja",
+  Red: "Rojo",
+  Pink: "Rosa",
+  Purple: "Morado",
+  Grey: "Gris",
   "Their cookies and stored data are deleted when you close their last tab (chosen from the shield in the address bar).":
     "Sus cookies y datos guardados se borran al cerrar su última pestaña (se eligen desde el escudo de la barra de direcciones).",
   "My filters": "Mis filtros",

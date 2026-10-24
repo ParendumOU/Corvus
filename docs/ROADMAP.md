@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-24 · current release: **v0.7.0** (Windows + Linux, unsigned)
+Last updated: 2026-10-24 · current release: **v0.8.0** (Windows + Linux, unsigned)
 
 ---
 

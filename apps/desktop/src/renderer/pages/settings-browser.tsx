@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import type { GroupColor } from "@corvus/shared";
+import { CONTAINER_COLORS, type Container } from "../../shared/containers";
+import { GROUP_COLOR_HEX } from "../../shared/ipc";
 import { PERMISSION_LABELS, type PermissionDecision, type PermissionKind, type SitePermissionEntry } from "../../shared/permissions";
 import type { SettingsPatch, SettingsView, StartupMode } from "../../shared/settings";
 import { errorMessage, internalApi } from "../common/api";
@@ -33,6 +36,23 @@ export function StartupSection({ view, update }: Props) {
 }
 
 const SLEEP_AFTER_MINUTES = [15, 30, 60, 120, 240];
+
+export function MediaSection({ view, update }: Props) {
+  return (
+    <Section id="media" title={t("Media")}>
+      <Row
+        label={t("Picture-in-picture when you switch tabs")}
+        hint={t("A video playing with sound keeps playing in a small floating window when you go to another tab, and returns to its page when you come back.")}
+      >
+        <Toggle
+          label={t("Picture-in-picture when you switch tabs")}
+          checked={view.settings.media.autoPictureInPicture}
+          onChange={(v) => update({ media: { autoPictureInPicture: v } })}
+        />
+      </Row>
+    </Section>
+  );
+}
 
 export function MemorySection({ view, update }: Props) {
   const m = view.settings.memory;
@@ -143,6 +163,128 @@ export function SitePermissionsSection() {
           ))}
         </div>
       ))}
+      {error && <div className="notice error">{error}</div>}
+    </Section>
+  );
+}
+
+/** A container colour's name, in the interface language. */
+function colorName(c: GroupColor): string {
+  const names: Record<GroupColor, string> = {
+    blue: t("Blue"),
+    cyan: t("Turquoise"),
+    green: t("Green"),
+    yellow: t("Yellow"),
+    orange: t("Orange"),
+    red: t("Red"),
+    pink: t("Pink"),
+    purple: t("Purple"),
+    grey: t("Grey"),
+  };
+  return names[c];
+}
+
+/** One container: its colour, an editable name and "Remove". */
+function ContainerRow({ container, run }: { container: Container; run: (p: Promise<Container[]>) => void }) {
+  const api = internalApi();
+  const [name, setName] = useState(container.name);
+  useEffect(() => setName(container.name), [container.name]);
+  const save = (): void => {
+    if (name.trim() && name.trim() !== container.name) run(api.call("containers.update", container.id, { name }));
+    else setName(container.name);
+  };
+  const remove = (): void => {
+    if (!window.confirm(t("Remove the “{name}” container? Its tabs close and its cookies and site data are deleted.", { name: container.name }))) return;
+    run(api.call("containers.remove", container.id));
+  };
+  return (
+    <div className="list-row container-row">
+      <span className="container-dot" style={{ "--c-light": GROUP_COLOR_HEX[container.color].light, "--c-dark": GROUP_COLOR_HEX[container.color].dark } as CSSProperties} />
+      <input
+        className="input grow"
+        aria-label={t("Container name")}
+        value={name}
+        maxLength={40}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      />
+      <select
+        className="input"
+        aria-label={t("Colour")}
+        value={container.color}
+        onChange={(e) => run(api.call("containers.update", container.id, { color: e.target.value as GroupColor }))}
+      >
+        {CONTAINER_COLORS.map((c) => (
+          <option key={c} value={c}>
+            {colorName(c)}
+          </option>
+        ))}
+      </select>
+      <button className="btn small ghost danger" title={t("Remove")} onClick={remove}>
+        <IconTrash size={13} />
+        {t("Remove")}
+      </button>
+    </div>
+  );
+}
+
+export function ContainersSection() {
+  const api = internalApi();
+  const [containers, setContainers] = useState<Container[] | null>(null);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const reload = useCallback(() => void api.call("containers.list").then(setContainers), [api]);
+  useEffect(() => {
+    reload();
+    return api.onEvent((e) => {
+      if (e.type === "settings-changed") reload();
+    });
+  }, [api, reload]);
+
+  const run = (p: Promise<Container[]>): void => {
+    setError(null);
+    p.then(setContainers).catch((e: unknown) => setError(errorMessage(e)));
+  };
+  const add = (): void => {
+    if (!name.trim()) return;
+    const used = new Set(containers?.map((c) => c.color));
+    const color = CONTAINER_COLORS.find((c) => !used.has(c)) ?? "grey";
+    run(api.call("containers.add", name, color));
+    setName("");
+  };
+
+  return (
+    <Section
+      id="containers"
+      title={t("Containers")}
+      description={t("Tabs in a container keep their own cookies and site data, so you can be signed in to two accounts of one site, or keep shopping and banking apart from everything else. Open one from the menu (New container tab), a link's menu or a tab's menu (Reopen in container). Extensions do not run in container tabs.")}
+    >
+      {containers && containers.length === 0 && (
+        <Row label={t("No containers yet")}>
+          <span className="muted">{t("Add one below.")}</span>
+        </Row>
+      )}
+      {containers && containers.length > 0 && (
+        <div className="list">
+          {containers.map((c) => (
+            <ContainerRow key={c.id} container={c} run={run} />
+          ))}
+        </div>
+      )}
+      <Row label={t("New container")}>
+        <input
+          className="input"
+          placeholder={t("Name")}
+          value={name}
+          maxLength={40}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
+        <button className="btn small" disabled={!name.trim()} onClick={add}>
+          {t("Add")}
+        </button>
+      </Row>
       {error && <div className="notice error">{error}</div>}
     </Section>
   );

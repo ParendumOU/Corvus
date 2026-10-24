@@ -19,6 +19,7 @@ import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
 import { runChromeUiSmoke } from "./smoke-chrome-ui";
 import { runSleepSmoke } from "./smoke-sleep";
+import { runMediaSmoke, serveMediaSmokeRoute } from "./smoke-media";
 import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
@@ -71,6 +72,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveBrowserSmokeRoute(req, res)) return;
     if (serveCredentialsSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
+    if (serveMediaSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
     if (serveSignInSmokeRoute(req, res)) return;
     const path = (req.url ?? "/").split("?")[0];
@@ -200,6 +202,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runNewTabSmoke(ctx, { url, win, check, capture });
     await runChromeUiSmoke(ctx, { url, win, check, capture });
     await runSleepSmoke(ctx, { url, win, check });
+    await runMediaSmoke(ctx, { url, win, check, capture });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();

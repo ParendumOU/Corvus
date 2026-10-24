@@ -119,6 +119,10 @@ export interface Settings {
     /** Minutes a tab stays in the background before it sleeps. */
     sleepAfterMinutes: number;
   };
+  media: {
+    /** Float a video that is playing with sound when you switch to another tab. On by default. */
+    autoPictureInPicture: boolean;
+  };
   translate: {
     /** Offer to translate pages written in another language (a button in the address bar). */
     offer: boolean;
@@ -229,6 +233,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     downloads: { directory: "", askWhereToSave: false },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60 },
+    media: { autoPictureInPicture: true },
     translate: { offer: true, targetLanguage: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },
