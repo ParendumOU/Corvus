@@ -217,6 +217,7 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
         enabled: /^https?:/.test(tab.url),
         click: () => void ctx.grabber.grabTab(win, tabId).then(() => win.openSingleton("corvus://downloads/#grabber")),
       },
+      { label: tr("Download with AI"), enabled: /^https?:/.test(tab.url), click: () => ctx.grabber.downloadPageWithAi(win, tabId) },
       {
         label: tr("Reopen in container"),
         enabled: /^https?:/.test(tab.pendingUrl ?? tab.url),

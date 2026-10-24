@@ -35,6 +35,7 @@ function packageStatus(pkg: QueuePackageView): string {
   if (pkg.speed > 0) parts.push(`${formatBytes(pkg.speed)}/s`);
   if (pkg.eta !== null) parts.push(`${duration(pkg.eta)} left`);
   if (p.failed > 0) parts.push(`${p.failed} failed`);
+  if (pkg.addedBy) parts.push(`added by ${pkg.addedBy === "Corvus" ? "Corvus's agent" : pkg.addedBy}`);
   return parts.join(" · ");
 }
 

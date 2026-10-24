@@ -1,6 +1,6 @@
 import { BaseWindow, View, WebContentsView, nativeTheme, screen, type Input, type WebContents } from "electron";
 import type { GroupColor, GroupId, Tab, TabGroup, TabId } from "@corvus/shared";
-import { hostFromUrl } from "../shared/adblock";
+import { hostFromUrl, isYouTubeHost } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
@@ -469,6 +469,7 @@ export class BrowserWindowCtl {
       zoomPercent: active && !active.view.webContents.isDestroyed() ? zoomPercent(active.view.webContents.getZoomFactor()) : 100,
       downloads: this.ctx.downloads.summary(this.profile),
       copiedLinks: this.ctx.grabber.copiedLinks(),
+      defaultBrowserOffer: this.ctx.defaultBrowser.offerFor(this),
       adblock: this.profile.adblock.barState(active && !active.view.webContents.isDestroyed() ? active.view.webContents : null),
       readerable: active ? this.ctx.reader.isReaderable(active) : false,
       translate: this.ctx.translate.barState(active),
@@ -482,6 +483,14 @@ export class BrowserWindowCtl {
 
   setAdblockEnabled(enabled: boolean): void {
     this.profile.adblock.setEnabled(enabled);
+    this.pushState();
+  }
+
+  /** The shield's "Remove them again": YouTube leaves the skip-ads fallback, and a YouTube tab reloads. */
+  endYouTubeFallback(): void {
+    this.profile.adblock.setYouTubeFallbackUntil(0);
+    const tab = this.activeTab();
+    if (tab && isYouTubeHost(hostFromUrl(tab.url) ?? "")) this.reload(tab.id);
     this.pushState();
   }
 

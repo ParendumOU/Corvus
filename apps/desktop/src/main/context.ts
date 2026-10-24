@@ -10,6 +10,8 @@ import type { TabSleeper } from "./tab-sleeper";
 import type { AutofillService } from "./autofill-service";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
+import type { DefaultBrowser } from "./default-browser";
+import type { BrowserImport } from "./browser-import";
 import type { DownloadQueue } from "./download-queue";
 import type { LinkGrabber } from "./link-grabber";
 import type { FlowService } from "./flow-service";
@@ -47,8 +49,12 @@ export interface AppContext {
   downloads: DownloadManager;
   /** Download links collected from pages and copied text, waiting to be downloaded. */
   grabber: LinkGrabber;
+  /** Corvus as the default browser: status, "Make default", and the once-per-launch offer. */
+  defaultBrowser: DefaultBrowser;
   /** Corvus's own download queue (packages from the link grabber). */
   queue: DownloadQueue;
+  /** Bookmarks and history from the other browsers installed here. */
+  browserImport: BrowserImport;
   sessionRestore: SessionRestore;
   assist: AssistService;
   /** Page translation from the address bar. */

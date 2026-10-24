@@ -36,6 +36,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   artifactName: Corvus-Setup-${version}.${ext}
+  # Uninstall removes the Default apps registration (src/shared/default-browser.ts).
+  include: build/installer.nsh
 portable:
   artifactName: Corvus-Portable-${version}.${ext}
 linux:
@@ -48,10 +50,15 @@ linux:
   maintainer: Parendum <info@parendum.com>
   synopsis: AI-native browser that is also an MCP server
   description: Corvus is a desktop browser whose search box is answered by an AI search engine and that AI agents can drive over MCP.
+  # Keep in sync with LINUX_MIME_TYPES in src/shared/default-browser.ts.
   mimeTypes:
     - x-scheme-handler/http
     - x-scheme-handler/https
     - text/html
+    - application/xhtml+xml
+    - image/svg+xml
+    - image/webp
+    - application/pdf
 deb:
   artifactName: corvus_${version}_${arch}.${ext}
 appImage:
@@ -61,6 +68,13 @@ mac:
   icon: build/icon.png
   category: public.app-category.productivity
   hardenedRuntime: true
+  # Web files Corvus can open from Finder ("Open With" and as the default).
+  extendInfo:
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Web document
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes: [public.html, public.xhtml, public.svg-image, org.webmproject.webp, com.adobe.pdf]
 dmg:
   artifactName: Corvus-${version}.${ext}
 # Self-update feed (electron-updater): GitHub Releases of the public ParendumOU/Corvus repo.

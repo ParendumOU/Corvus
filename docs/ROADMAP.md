@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-24 · current release: **v0.13.0** (Windows + Linux, unsigned) · Corvus for mobile **0.2.0** (Android preview)
+Last updated: 2026-10-24 · current release: **v0.14.0** (Windows + Linux, unsigned) · Corvus for mobile **0.2.0** (Android preview)
 
 ---
 
@@ -108,9 +108,9 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [ ] Sync command-bar history
 
 **Downloads & switching**
-- [~] Download manager: link grabber, package queue, parallel connections, checksums, and joining and extracting split archives with their password (v0.13.0); next, "Download with AI"
-- [ ] Default browser: register for web links and files, ask once per launch while it is not
-- [ ] Import from Chrome, Edge, Brave, Opera, Vivaldi and Firefox: bookmarks, history, sessions and tab groups, cookies where they can be read
+- [x] Download manager: link grabber, package queue, parallel connections, checksums, and joining and extracting split archives with their password (v0.13.0); "Download with AI" and the `download_queue` MCP tools
+- [x] Default browser: register for web links and files, ask once per launch while it is not (v0.14.0)
+- [~] Import from Chrome, Edge, Brave, Opera, Vivaldi and Firefox: bookmarks, history, open tabs with their groups, and passwords from a CSV (Settings > Import, welcome); next, the installed-extensions list and cookies where they can be read
 
 **Automation (M5)**
 - [ ] WebScope depth: active checks opt-in, match/replace rules UI, session export/import

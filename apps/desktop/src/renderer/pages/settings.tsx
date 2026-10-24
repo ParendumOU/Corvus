@@ -9,7 +9,7 @@ import { setUiLanguage, t } from "../common/i18n";
 import { IconCopy, IconTrash } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
 import { SyncSection } from "./settings-sync";
-import { ContainersSection, DownloadsSection, MediaSection, MemorySection, PhoneSection, SitePermissionsSection, StartupSection } from "./settings-browser";
+import { ContainersSection, DefaultBrowserSection, DownloadsSection, ImportSection, MediaSection, MemorySection, PhoneSection, SitePermissionsSection, StartupSection } from "./settings-browser";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 
@@ -1352,10 +1352,12 @@ function SettingsPage() {
           <PdfSection view={view} update={update} />
           <SemanticSearchSection view={view} update={update} />
           <StartupSection view={view} update={update} />
+          <DefaultBrowserSection view={view} update={update} />
           <MemorySection view={view} update={update} />
           <MediaSection view={view} update={update} />
           <PhoneSection view={view} update={update} />
           <DownloadsSection view={view} update={update} setView={setView} />
+          <ImportSection />
           <PasswordsSection view={view} update={update} />
           <SitePermissionsSection />
           <AdblockSection />

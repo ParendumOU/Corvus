@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { Menu, app, dialog, nativeTheme, safeStorage, session } from "electron";
 import { ElectronChromeExtensions } from "electron-chrome-extensions";
 import { AdblockService } from "./adblock";
@@ -19,8 +21,10 @@ import { KeePassService } from "./keepass-service";
 import { PasswordCheckupService } from "./password-checkup";
 import { TelegramLink } from "./telegram-link";
 import { SecretFillGuard } from "./secret-fill-guard";
+import { DefaultBrowser } from "./default-browser";
 import { DownloadManager } from "./downloads";
 import { DownloadQueue } from "./download-queue";
+import { BrowserImport } from "./browser-import";
 import { LinkGrabber } from "./link-grabber";
 import { ExtensionWindowBridge } from "./extension-windows";
 import { registerIpc } from "./ipc";
@@ -37,6 +41,7 @@ import { SearchService } from "./search-service";
 import { SemanticSearchService } from "./semantic-search-service";
 import { SessionRestore } from "./session-restore";
 import { restorePlan } from "../shared/session-state";
+import { launchTargets } from "../shared/default-browser";
 import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
 import { setMenuLanguage } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
@@ -65,8 +70,40 @@ const userDataOverride = process.env.CORVUS_USER_DATA;
 if (userDataOverride) app.setPath("userData", path.resolve(userDataOverride));
 else if (!app.isPackaged) app.setPath("userData", path.join(app.getPath("appData"), "Corvus Dev"));
 
-function urlsFromArgv(argv: string[]): string[] {
-  return argv.slice(1).filter((arg) => /^https?:\/\//i.test(arg));
+/** The links and web files a launch asks for (relative paths from the folder it was started in). */
+function urlsFromArgv(argv: string[], cwd = process.cwd()): string[] {
+  const resolve = (p: string): string => path.resolve(cwd, p);
+  return launchTargets(
+    argv,
+    (p) => {
+      try {
+        return fs.statSync(resolve(p)).isFile();
+      } catch {
+        return false;
+      }
+    },
+    (p) => pathToFileURL(resolve(p)).href,
+  );
+}
+
+/** Opens links in the focused window, or a new one, and brings it to the front. */
+function openUrls(ctx: AppContext, urls: string[]): void {
+  const win = ctx.windows.focused() ?? ctx.windows.all()[0];
+  if (!win) {
+    ctx.windows.open(ctx.profiles.manager.lastUsed, urls);
+    return;
+  }
+  for (const url of urls) win.createTab(url);
+  if (win.win.isMinimized()) win.win.restore();
+  win.win.focus();
+}
+
+/** macOS hands links and files over in events, from before the app is ready: kept until a window is. */
+const pendingSystemOpens: string[] = [];
+let systemOpen: ((urls: string[]) => void) | null = null;
+function openFromSystem(urls: string[]): void {
+  if (systemOpen) systemOpen(urls);
+  else pendingSystemOpens.push(...urls);
 }
 
 function setApplicationMenu(): void {
@@ -157,6 +194,8 @@ async function main(): Promise<void> {
   ctx.downloads = new DownloadManager(ctx);
   ctx.grabber = new LinkGrabber(ctx);
   ctx.queue = new DownloadQueue(ctx);
+  ctx.browserImport = new BrowserImport();
+  ctx.defaultBrowser = new DefaultBrowser(ctx);
   ctx.sessionRestore = new SessionRestore(ctx, userData);
   ctx.adblock = new AdblockService(userData, (profileId) => {
     for (const win of ctx.windows.forProfile(profileId)) {
@@ -218,17 +257,9 @@ async function main(): Promise<void> {
     ctx.windows.broadcastState();
   });
 
-  app.on("second-instance", (_event, argv) => {
+  app.on("second-instance", (_event, argv, workingDirectory) => {
     ctx.mcp.enableFromArgv(argv);
-    const urls = urlsFromArgv(argv);
-    const win = ctx.windows.focused();
-    if (!win) {
-      ctx.windows.open(profiles.manager.lastUsed, urls);
-      return;
-    }
-    for (const url of urls) win.createTab(url);
-    if (win.win.isMinimized()) win.win.restore();
-    win.win.focus();
+    openUrls(ctx, urlsFromArgv(argv, workingDirectory));
   });
   app.on("activate", () => {
     if (ctx.windows.all().length === 0) ctx.windows.open(profiles.manager.lastUsed);
@@ -255,9 +286,14 @@ async function main(): Promise<void> {
   const first = restored[0];
   if (first) for (const url of startUrls) first.createTab(url);
   else ctx.windows.open(profiles.manager.lastUsed, startUrls);
-  if (!settings.get().onboarding.completed && process.env.CORVUS_SMOKE_TEST !== "1" && process.env.CORVUS_CAPTURE !== "1") {
+  systemOpen = (urls) => openUrls(ctx, urls);
+  if (pendingSystemOpens.length > 0) openUrls(ctx, pendingSystemOpens.splice(0));
+  const automated = process.env.CORVUS_SMOKE_TEST === "1" || process.env.CORVUS_CAPTURE === "1";
+  if (!settings.get().onboarding.completed && !automated) {
     const win = ctx.windows.focused() ?? ctx.windows.all()[0];
     win?.createTab("corvus://welcome/", { activate: true });
+  } else if (!automated) {
+    void ctx.defaultBrowser.startup(ctx.windows.focused() ?? ctx.windows.all()[0]);
   }
   ctx.sessionRestore.start();
   ctx.webscope.apply();
@@ -278,6 +314,14 @@ async function main(): Promise<void> {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) openFromSystem([url]);
+  });
+  app.on("open-file", (event, file) => {
+    event.preventDefault();
+    openFromSystem(urlsFromArgv(["", file]));
+  });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });

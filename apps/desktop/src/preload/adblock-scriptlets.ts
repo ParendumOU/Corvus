@@ -7,15 +7,17 @@ import { ipcRenderer, webFrame } from "electron";
 import { ADBLOCK_SCRIPTLETS_CHANNEL, ADBLOCK_YOUTUBE_LOOP_CHANNEL, PlaybackLoopDetector, type ScriptletsAnswer } from "../shared/adblock";
 
 // Type-checked with the Node project (no DOM lib); declare the globals it reads.
-declare const location: { href: string; protocol: string; reload(): void };
+declare const location: { href: string; protocol: string; pathname: string; search: string; reload(): void };
 declare const document: { querySelector(selector: string): { src: string; currentTime: number } | null; visibilityState: string };
 
 function watchYouTubePlayer(): void {
   const detector = new PlaybackLoopDetector();
   const timer = setInterval(() => {
-    const video = document.querySelector("#movie_player video.html5-main-video");
-    if (!video || document.visibilityState !== "visible") return;
-    if (!detector.sample(video.src, video.currentTime, Date.now())) return;
+    if (document.visibilityState !== "visible") return;
+    // Only the watch page's own player: previews on other pages can borrow #movie_player.
+    const videoId = location.pathname === "/watch" ? (new URLSearchParams(location.search).get("v") ?? "") : "";
+    const video = videoId ? document.querySelector("ytd-watch-flexy #movie_player video.html5-main-video") : null;
+    if (!detector.sample(video ? videoId : "", video?.src ?? "", video?.currentTime ?? 0, Date.now())) return;
     clearInterval(timer);
     void ipcRenderer.invoke(ADBLOCK_YOUTUBE_LOOP_CHANNEL).then(
       (switched: unknown) => switched === true && location.reload(),

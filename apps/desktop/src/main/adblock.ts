@@ -14,7 +14,9 @@ import {
   stripTrackingParams,
   type AdblockOptions,
   YOUTUBE_AD_SKIPPER,
+  YOUTUBE_FALLBACK_MS,
   bundleScriptlets,
+  liveYouTubeFallback,
   decodeDataUrl,
   isYouTubeHost,
   normalizeUserFilters,
@@ -69,8 +71,6 @@ const COSMETIC_MUTATION_CHANNEL = "@ghostery/adblocker/is-mutation-observer-enab
 
 const STATS_THROTTLE_MS = 500;
 const STAND_IN_TTL_MS = 60_000;
-/** How long YouTube stays in the fallback before the lists get another try. */
-const YOUTUBE_FALLBACK_MS = 24 * 3_600_000;
 
 /** DOM features the cosmetic preload reports as a page changes (only these are read). */
 interface CosmeticUpdate {
@@ -136,7 +136,7 @@ export class AdblockController {
           fingerprinting: data.fingerprinting !== false,
           userFilters: Array.isArray(data.userFilters) ? normalizeUserFilters(data.userFilters.filter((l): l is string => typeof l === "string")) : [],
           forgetOnClose: reviveAdblockSettings({ allowed: data.forgetOnClose }).allowed,
-          ...(typeof until === "number" && until > Date.now() ? { youtubeFallbackUntil: until } : {}),
+          ...(liveYouTubeFallback(until, Date.now()) !== null ? { youtubeFallbackUntil: until as number } : {}),
         };
       },
       300,

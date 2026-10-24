@@ -1,0 +1,80 @@
+/* Import from other browsers (Settings > Import and the welcome wizard) */
+.import-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 20px 4px;
+}
+.import-pad {
+  margin: 4px 20px;
+}
+.import-passwords {
+  padding: 10px 20px 18px;
+}
+.import-passwords-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.import-passwords-head .grow {
+  flex: 1;
+}
+.import-passwords-head .title {
+  font-weight: 600;
+}
+.import-passwords-head .sub {
+  color: var(--text-2);
+  font-size: 12px;
+  max-width: 64ch;
+}
+.import-passwords .notice {
+  margin-top: 8px;
+}
+.import-source {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px 14px;
+}
+.import-source-name {
+  padding: 8px 0 0;
+  font-weight: 600;
+}
+.import-profile {
+  padding: 10px 0;
+}
+.import-profile + .import-profile {
+  border-top: 1px solid var(--border-soft, var(--border));
+}
+.import-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.import-profile-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.import-profile-head .title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.import-profile-head .sub {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.import-kinds {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.import-kinds .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.import-profile .notice {
+  margin-top: 8px;
+}

@@ -2,6 +2,7 @@ import { registerCookieTools } from "./cookies.js";
 import { registerCredentialTools } from "./credentials.js";
 import { registerDevtoolsTools } from "./devtools.js";
 import { registerDownloadTools } from "./download.js";
+import { registerDownloadQueueTools } from "./download-queue.js";
 import { registerExtractTools } from "./extract.js";
 import { registerFillFieldsTools } from "./fill-fields.js";
 import { registerFullTools } from "./full.js";
@@ -47,6 +48,7 @@ export function registerAgentTools(ctx: ToolContext): void {
   registerCookieTools(ctx);
   registerFillFieldsTools(ctx);
   registerDownloadTools(ctx);
+  registerDownloadQueueTools(ctx);
   registerCredentialTools(ctx);
   registerNewTabTools(ctx);
 }

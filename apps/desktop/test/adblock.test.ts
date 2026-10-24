@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   BlockedCounts,
   PlaybackLoopDetector,
+  YOUTUBE_FALLBACK_MS,
+  liveYouTubeFallback,
   YOUTUBE_AD_SKIPPER,
   addAllowed,
   bundleScriptlets,
@@ -98,15 +100,36 @@ describe("YouTube", () => {
 
   it("recognizes the restart loop, not a person skipping videos or a video that plays", () => {
     const loop = new PlaybackLoopDetector();
-    const hits = Array.from({ length: 7 }, (_, i) => loop.sample(`blob:${i}`, 0, i * 1000));
+    const hits = Array.from({ length: 7 }, (_, i) => loop.sample("dQw4w9WgXcQ", `blob:${i}`, 0, i * 1000));
     expect(hits).toEqual([false, false, false, false, false, true, true]);
 
     const skipping = new PlaybackLoopDetector();
-    expect(Array.from({ length: 6 }, (_, i) => skipping.sample(`blob:${i}`, 0, i * 4000)).some(Boolean)).toBe(false);
+    expect(Array.from({ length: 6 }, (_, i) => skipping.sample("dQw4w9WgXcQ", `blob:${i}`, 0, i * 4000)).some(Boolean)).toBe(false);
 
     const playing = new PlaybackLoopDetector();
-    expect(Array.from({ length: 8 }, (_, i) => playing.sample(`blob:${i}`, i % 2 ? 5 : 0, i * 1000)).some(Boolean)).toBe(false);
-    expect(Array.from({ length: 8 }, (_, i) => playing.sample("blob:same", 0, 10_000 + i * 1000)).some(Boolean)).toBe(false);
+    expect(Array.from({ length: 8 }, (_, i) => playing.sample("dQw4w9WgXcQ", `blob:${i}`, i % 2 ? 5 : 0, i * 1000)).some(Boolean)).toBe(false);
+    expect(Array.from({ length: 8 }, (_, i) => playing.sample("dQw4w9WgXcQ", "blob:same", 0, 10_000 + i * 1000)).some(Boolean)).toBe(false);
+  });
+
+  it("keeps a stored YouTube fallback only while it runs and no longer than two hours", () => {
+    const now = 1_000_000_000;
+    expect(YOUTUBE_FALLBACK_MS).toBe(2 * 3_600_000);
+    expect(liveYouTubeFallback(now + 3_600_000, now)).toBe(now + 3_600_000);
+    expect(liveYouTubeFallback(now - 1, now)).toBeNull();
+    expect(liveYouTubeFallback(0, now)).toBeNull();
+    expect(liveYouTubeFallback(now + 23 * 3_600_000, now)).toBeNull();
+    expect(liveYouTubeFallback("soon", now)).toBeNull();
+  });
+
+  it("does not take previews or Shorts, which start a different video each time, for the loop", () => {
+    const previews = new PlaybackLoopDetector();
+    expect(Array.from({ length: 10 }, (_, i) => previews.sample(`video${i}`, `blob:${i}`, 0, i * 1000)).some(Boolean)).toBe(false);
+    const offWatchPage = new PlaybackLoopDetector();
+    expect(Array.from({ length: 10 }, (_, i) => offWatchPage.sample("", `blob:${i}`, 0, i * 1000)).some(Boolean)).toBe(false);
+    // Moving to another video starts the count again.
+    const moved = new PlaybackLoopDetector();
+    const hits = Array.from({ length: 10 }, (_, i) => moved.sample(i < 4 ? "first" : "second", `blob:${i}`, 0, i * 1000));
+    expect(hits.indexOf(true)).toBe(9);
   });
 
   it("plays an ad that reaches the player muted at top speed, skips it, then restores the video", () => {

@@ -146,6 +146,7 @@ const OPTIONAL_CAPABILITIES = [
   "describeTarget",
   "confirmSpend",
   "newtab",
+  "downloadQueue",
   "evaluate",
 ] as const;
 

@@ -182,14 +182,14 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
   }
 }
 
-interface McpSession {
+export interface McpSession {
   tools(): Promise<string[]>;
   tool(name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }>;
   close(): Promise<void>;
 }
 
 /** A bare Streamable HTTP MCP client (fetch + SSE parsing), enough for a few tool calls. */
-async function openMcpSession(endpoint: string, token: string, clientName: string): Promise<McpSession> {
+export async function openMcpSession(endpoint: string, token: string, clientName: string): Promise<McpSession> {
   let session = "";
   let protocol = "";
   let seq = 0;

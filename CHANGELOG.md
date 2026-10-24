@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.14.0
+
+### Browser
+- **Default browser**: while Corvus is not your default browser, a bar under the toolbar offers
+  **Make default** once per launch (**Not now**, **Don't ask again**), and **Settings → Default
+  browser** shows where it stands. On Windows, Corvus adds itself to Default apps for links, web
+  pages and PDFs and opens Default apps on Corvus, where you choose **Set default**; the
+  uninstaller removes it. On Linux it sets itself with xdg-settings; on macOS the system asks you.
+- **Open files with Corvus**: web pages (.html, .htm, .xhtml, .shtml), SVG and WebP images and PDFs
+  you open from your files, and links from other apps, open in Corvus (PDFs in its viewer).
+- **Import from another browser**: **Settings → Import** (and the welcome screen) finds Chrome, Edge,
+  Brave, Vivaldi, Opera, Opera GX, Chromium and Firefox on this computer, lists each profile with
+  how many bookmarks, history pages and open tabs it holds, and brings the kinds you pick into
+  Corvus: bookmarks keep their folders, history merges with yours, and each open window becomes a
+  workspace with its pinned tabs and tab groups. The other browser's files are only read, from
+  copies, never changed.
+- **Passwords from a CSV**: export your logins to a CSV in the other browser and pick it under
+  **Settings → Import**; Corvus adds the ones it does not already have to its password manager. The
+  file is plain text, so delete it when you are done.
+
+### Downloads
+- **Download with AI**: in corvus://downloads → Link grabber, **With AI** on a package; **AI** on the
+  copied-links button in the toolbar; or right-click a tab and choose **Download with AI**. Corvus's
+  agent opens the file-host pages and mirrors, uses their free download buttons, and hands the real
+  file links (every volume of a split archive, with the archive password) to the download queue.
+  The Command Bar always shows you the list of files first, and nothing downloads until you
+  approve it. Programs are never downloaded for an agent.
+- **When a file host needs you**: if a host shows a CAPTCHA, asks you to sign in or offers the file
+  only to premium accounts, the agent stops on that file and asks you to deal with it in its tab;
+  when you click Done it carries on with the rest. If Corvus is in the background, a notification
+  tells you.
+- **Who added it**: packages an AI agent queued say so in the queue.
+
+### AI agents (MCP)
+- **Download queue tools** (Full access): `download_queue` lists packages with their progress,
+  checksums and extraction; `download_queue_add` queues files by direct link with a package name
+  and password, after you allow it in a browser dialog; `download_queue_control` pauses, resumes,
+  retries, removes or extracts a package or file. A file the server names as a program fails
+  instead of downloading.
+
+### Ad blocker
+- **YouTube ads stay out**: hover previews on the home page and swiping Shorts could be taken for
+  YouTube refusing to play without its ads, which made Corvus skip YouTube's ads for 24 hours
+  instead of removing them. Only a real playback loop on a video's page counts now, the fallback
+  lasts 2 hours, one left by 0.13.0 is dropped, and the shield on YouTube has **Remove them again**.
+  The ad skipper also finds YouTube's newer skip buttons.
+
+### Search
+- The rating circle next to each result kept its shape while rating instead of stretching into an
+  oval.
+
 ## v0.13.0
 
 ### Downloads

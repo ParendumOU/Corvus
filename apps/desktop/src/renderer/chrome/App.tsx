@@ -29,6 +29,7 @@ import {
   AdblockPopover,
   SharePopover,
   CopiedLinksChip,
+  DefaultBrowserBar,
   DownloadsBubble,
   DownloadsButton,
   PermissionPrompt,
@@ -284,6 +285,7 @@ export function App() {
         </div>
         {vertical && tabStrip}
         {state.showBookmarksBar && !vertical && <BookmarksBar state={state} />}
+        {state.defaultBrowserOffer && <DefaultBrowserBar />}
         {state.find && active && (
           <FindBar key={active.id} find={state.find} focusToken={findFocus} focusHandled={findFocusHandled} />
         )}

@@ -68,6 +68,11 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
     "downloads.openPage": (w) => w.openSingleton("corvus://downloads/"),
     "grabber.grabCopied": (w) => ctx.grabber.grabCopied(w),
     "grabber.dismissCopied": () => ctx.grabber.dismissCopied(),
+    "defaultBrowser.answer": (w, choice) => {
+      if (choice !== "make" && choice !== "later" && choice !== "never") throw new IpcError("Invalid answer");
+      return ctx.defaultBrowser.answer(w, choice);
+    },
+    "grabber.downloadCopiedWithAi": (w) => ctx.grabber.downloadCopiedWithAi(w),
     "share.telegram": (_w, url, title) => {
       const u = str(url, "url", 8192);
       if (!/^https?:\/\//i.test(u)) throw new IpcError("Only web pages can be sent");
@@ -87,6 +92,10 @@ export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, read
   "grabber.remove": ["downloads"],
   "grabber.clear": ["downloads"],
   "grabber.download": ["downloads"],
+  "grabber.downloadWithAi": ["downloads"],
+  "defaultBrowser.status": ["settings"],
+  "defaultBrowser.make": ["settings"],
+  "defaultBrowser.unregister": ["settings"],
   "queue.list": ["downloads"],
   "queue.act": ["downloads"],
   "queue.move": ["downloads"],
@@ -109,6 +118,19 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
     "grabber.download": (c, list) => {
       if (!c.window) throw new IpcError("No browser window");
       return ctx.grabber.download(c.window, ids(list));
+    },
+    "grabber.downloadWithAi": (c, list) => {
+      if (!c.window) throw new IpcError("No browser window");
+      return ctx.grabber.downloadWithAi(c.window, ids(list));
+    },
+    "defaultBrowser.status": () => ctx.defaultBrowser.status(),
+    "defaultBrowser.make": async () => {
+      const result = await ctx.defaultBrowser.makeDefault();
+      return { result, status: await ctx.defaultBrowser.status() };
+    },
+    "defaultBrowser.unregister": async () => {
+      await ctx.defaultBrowser.unregister();
+      return ctx.defaultBrowser.status();
     },
     "queue.list": (c) => ctx.queue.list(c.profile),
     "queue.act": (c, id, a) => {

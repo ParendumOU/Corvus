@@ -231,6 +231,23 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
     await waitFor(wc, "document.querySelector('.answer.done') && document.querySelectorAll('.result .meter[data-score]').length === 8");
     const firstAi = await wc.executeJavaScript("document.querySelector('.result')?.dataset.rank");
     check("search re-ranks by AI score", firstAi === "3", firstAi);
+    // The meter stays a circle while it rates too (a shared page style once stretched it into an oval).
+    const meters = (await wc.executeJavaScript(`(() => {
+      const result = document.querySelector('.results .result');
+      if (!result) return null;
+      const pending = document.createElement('div');
+      pending.className = 'meter unscored pending';
+      result.prepend(pending);
+      const size = (m) => (m ? [m.offsetWidth, m.offsetHeight] : null);
+      const out = { pending: size(pending), rated: size(document.querySelector('.result .meter[data-score]')) };
+      pending.remove();
+      return out;
+    })()`)) as { pending: [number, number] | null; rated: [number, number] | null } | null;
+    check(
+      "search: the rating meter is round while rating and once rated",
+      meters?.pending?.[0] === 40 && meters.pending[1] === 40 && meters.rated?.[0] === 40 && meters.rated[1] === 40,
+      meters,
+    );
     const structure = await wc.executeJavaScript(`({
       points: document.querySelectorAll('.key-points li').length,
       chips: document.querySelectorAll('.answer .cite').length,

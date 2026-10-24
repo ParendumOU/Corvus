@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { GroupColor } from "@corvus/shared";
 import { CONTAINER_COLORS, type Container } from "../../shared/containers";
+import type { DefaultBrowserView, MakeDefaultResult } from "../../shared/browser-ipc";
 import type { TelegramStatus } from "../../shared/phone-share";
 import { GROUP_COLOR_HEX } from "../../shared/ipc";
 import { PERMISSION_LABELS, type PermissionDecision, type PermissionKind, type SitePermissionEntry } from "../../shared/permissions";
@@ -11,9 +12,22 @@ import { IconTrash } from "../common/icons";
 import { PermissionIcon, displayOrigin } from "../common/permission-icon";
 import { Toggle } from "../common/ui";
 import "./settings-browser.css";
+import { BrowserImportPanel } from "./settings-import";
 import { Row, Section } from "./shell";
 
 type Props = { view: SettingsView; update: (p: SettingsPatch) => void };
+
+export function ImportSection() {
+  return (
+    <Section
+      id="import"
+      title={t("Import from another browser")}
+      description={t("Bring bookmarks, history and open tabs over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.")}
+    >
+      <BrowserImportPanel />
+    </Section>
+  );
+}
 
 export function StartupSection({ view, update }: Props) {
   const mode = view.settings.startup.mode;
@@ -32,6 +46,70 @@ export function StartupSection({ view, update }: Props) {
           ))}
         </div>
       </Row>
+    </Section>
+  );
+}
+
+function makeDefaultResult(result: MakeDefaultResult): string {
+  switch (result) {
+    case "default":
+      return t("Corvus is now your default browser.");
+    case "asked":
+      return t("Your system asks you to confirm: choose Corvus.");
+    case "settings-opened":
+      return t("Default apps is open on Corvus: choose Set default.");
+    case "failed":
+      return t("Corvus could not change it. Choose Corvus as the web browser in your system settings.");
+  }
+}
+
+export function DefaultBrowserSection({ view, update }: Props) {
+  const api = internalApi();
+  const [status, setStatus] = useState<DefaultBrowserView | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void api.call("defaultBrowser.status").then(setStatus);
+  }, [api]);
+  const run = (call: Promise<void>): void => {
+    setError(null);
+    call.catch((e: unknown) => setError(errorMessage(e)));
+  };
+  const make = (): void =>
+    run(
+      api.call("defaultBrowser.make").then(({ result, status: next }) => {
+        setStatus(next);
+        setNotice(makeDefaultResult(result));
+      }),
+    );
+  const state = !status ? "" : !status.supported ? t("This copy of Corvus cannot change the default browser (a development build, or no xdg-settings on this system).") : status.isDefault ? t("Corvus is your default browser.") : t("Corvus is not your default browser.");
+  return (
+    <Section
+      id="default-browser"
+      title={t("Default browser")}
+      description={t("Links you open in other apps, and web pages, SVG and WebP images and PDFs you open from your files, open in your default browser.")}
+    >
+      <Row label={state || t("Checking…")}>
+        {status?.supported && !status.isDefault && (
+          <button className="btn small primary" data-make-default onClick={make}>
+            {t("Make default")}
+          </button>
+        )}
+        {status?.registered && (
+          <button className="btn small ghost" onClick={() => run(api.call("defaultBrowser.unregister").then(setStatus))}>
+            {t("Remove from Default apps")}
+          </button>
+        )}
+      </Row>
+      <Row label={t("Ask at startup while Corvus is not the default")}>
+        <Toggle
+          label={t("Ask at startup while Corvus is not the default")}
+          checked={view.settings.startup.askDefaultBrowser}
+          onChange={(v) => update({ startup: { askDefaultBrowser: v } })}
+        />
+      </Row>
+      {notice && <div className="notice">{notice}</div>}
+      {error && <div className="notice error">{error}</div>}
     </Section>
   );
 }

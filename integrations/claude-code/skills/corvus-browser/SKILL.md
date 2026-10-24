@@ -29,7 +29,8 @@ use won't appear:
   `click`/`type_text`/`hover`/`scroll_at`, `click_at`/`double_click_at`/`right_click_at`/`hover_at`/`drag`,
   `press_keys`, `fill_form`, `select_option`, `check`, `focus`, `handle_dialog`, `set_viewport`,
   `zoom`, group tabs, `request_user_action`.
-- **Full** — also `evaluate` (run JavaScript in the page), `upload_file`, `pdf`, `downloads_list`.
+- **Full** — also `evaluate` (run JavaScript in the page), `upload_file`, `pdf`, `downloads_list`,
+  and the download queue: `download_queue`, `download_queue_add`, `download_queue_control`.
 
 ## Core workflow
 
@@ -57,6 +58,14 @@ use won't appear:
 - `handle_dialog` answers `alert`/`confirm`/`prompt`/`beforeunload`.
 - `upload_file` (Full) sets a file input from a local path the user gave you.
 - `pdf` (Full) saves the current page to the Downloads folder.
+- `download_queue_add` (Full) hands files to Corvus's download queue: direct links (every volume of
+  a split archive), a package name and the archive password if the page gives one. The user
+  approves the list in the browser first, and programs are never queued. The queue downloads a few
+  files at a time, resumes, checks `.sfv`/`.md5` lists and extracts archives once a package is
+  complete. Follow it with `download_queue`; pause, resume, retry, remove or extract with
+  `download_queue_control`. On a file host, use its free download button to reach the direct link;
+  if it asks for a sign-in or a premium account, or shows a CAPTCHA, call `request_user_action`
+  for that file and go on with the others.
 
 ## CAPTCHAs and human checks
 

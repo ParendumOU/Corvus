@@ -764,10 +764,10 @@ body {
 .meter.mid {
   --tone: var(--warning);
 }
-.meter.empty {
+.meter.unscored {
   background: var(--surface-2);
 }
-.meter.empty.pending {
+.meter.unscored.pending {
   background: conic-gradient(var(--accent) 0 70deg, var(--surface-2) 0);
   animation: spin 1.1s linear infinite;
 }
@@ -1145,7 +1145,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .answer.streaming::before,
   .answer.streaming .answer-mark,
-  .meter.empty.pending,
+  .meter.unscored.pending,
   .skeleton-lines span,
   .ai-summary.placeholder {
     animation: none;

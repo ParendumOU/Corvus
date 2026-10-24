@@ -97,6 +97,10 @@ export function summarizeArgs(tool: string, args: unknown): string {
       return shortUrl(s("url"));
     case "evaluate":
       return cut(s("expression"), 40);
+    case "queue_downloads": {
+      const n = Array.isArray(a.links) ? a.links.length : 0;
+      return `${n} ${n === 1 ? "file" : "files"}${s("packageName") ? ` as ${JSON.stringify(cut(s("packageName"), 24))}` : ""}`;
+    }
     default: {
       const keys = Object.keys(a).filter((k) => k !== "tabId");
       if (keys.length === 0) return "";

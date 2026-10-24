@@ -22,24 +22,39 @@ export function isYouTubeHost(host: string): boolean {
   return /(^|\.)(youtube\.com|youtube-nocookie\.com)$/i.test(host);
 }
 
+/** How long YouTube stays in the skip-ads fallback before the lists get another try. */
+export const YOUTUBE_FALLBACK_MS = 2 * 3_600_000;
+
+/**
+ * A stored fallback end that still applies, or null: in the future, and no longer than one fallback
+ * (earlier versions set 24 h, with a detector that also fired on previews and Shorts).
+ */
+export function liveYouTubeFallback(until: unknown, now: number): number | null {
+  return typeof until === "number" && until > now && until - now <= YOUTUBE_FALLBACK_MS ? until : null;
+}
+
 /**
  * Recognizes the loop YouTube puts a player in when it insists on the ads an ad blocker removed:
- * the player restarts the video (a new media source each time) about once a second without ever
- * playing a second of it, while "Experiencing interruptions?" shows. Fed one sample of the main
- * video per second; a person skipping between videos never restarts this often.
+ * the watch page's player restarts the same video (a new media source each time) about once a
+ * second without ever playing a second of it, while "Experiencing interruptions?" shows. Fed one
+ * sample per second with the video being watched (its `v=` id, or "" off a watch page). Previews
+ * on the home page and Shorts swiping start many videos quickly, but never the same one: they do
+ * not count, and neither does a person skipping between videos.
  */
 export class PlaybackLoopDetector {
   private readonly starts: Array<{ src: string; at: number }> = [];
+  private videoId = "";
 
   constructor(
     private readonly restarts = 6,
     private readonly windowMs = 15_000,
   ) {}
 
-  sample(src: string, currentTime: number, now: number): boolean {
-    if (currentTime >= 1) {
+  sample(videoId: string, src: string, currentTime: number, now: number): boolean {
+    if (!videoId || videoId !== this.videoId || currentTime >= 1) {
+      this.videoId = videoId;
       this.starts.length = 0;
-      return false;
+      if (!videoId || currentTime >= 1) return false;
     }
     if (src && this.starts[this.starts.length - 1]?.src !== src) this.starts.push({ src, at: now });
     while (this.starts.length > 0 && now - this.starts[0]!.at > this.windowMs) this.starts.shift();
@@ -55,7 +70,7 @@ export class PlaybackLoopDetector {
  */
 export const YOUTUBE_AD_SKIPPER = `(function () {
   var saved = new WeakMap();
-  var SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button';
+  var SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button, .ytp-skip-ad button, button[id^="skip-button"], .ytp-ad-skip-button-container button';
   function tick() {
     var player = document.getElementById('movie_player');
     if (!player) return;

@@ -3,8 +3,10 @@ import path from "node:path";
 import { app, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
-import { countBookmarks, isImportedFolder, parseBookmarkFile, type ImportedNode } from "../shared/bookmark-import";
-import type { BookmarkImportResult } from "../shared/ipc";
+import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
+import { IMPORT_KINDS, type ImportKind } from "../shared/browser-import";
+import { parsePasswordCsv } from "../shared/password-import";
+import type { BookmarkImportResult, PasswordImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
 import { internalPageOf, type InternalPage } from "../shared/internal-urls";
 import { clampInterval, isWatchableUrl } from "../shared/page-watch";
@@ -38,29 +40,10 @@ import {
   showTabMenu,
 } from "./menus";
 import type { ProfileRuntime } from "./profiles";
-import type { BookmarkStore } from "./stores";
 import { registerSplitIpc } from "./split-view";
 import type { BrowserWindowCtl } from "./window";
 
 class IpcError extends Error {}
-
-const MAX_IMPORTED_BOOKMARKS = 5000;
-
-/** Recreate an imported bookmark tree under `parentId`, counting leaves and folders added. */
-function createImportedTree(store: BookmarkStore, parentId: string, nodes: ImportedNode[], counts: { imported: number; folders: number }): void {
-  for (const node of nodes) {
-    if (counts.imported >= MAX_IMPORTED_BOOKMARKS) return;
-    if (isImportedFolder(node)) {
-      if (countBookmarks(node.children) === 0) continue;
-      const folder = store.create({ parentId, kind: "folder", title: node.title || "Imported" });
-      counts.folders++;
-      createImportedTree(store, folder.id, node.children, counts);
-    } else if (/^(https?|ftp|file|corvus):/i.test(node.url)) {
-      store.create({ parentId, kind: "bookmark", title: node.title || node.url, url: node.url });
-      counts.imported++;
-    }
-  }
-}
 
 const str = (value: unknown, name: string, max = 8192): string => {
   if (typeof value !== "string" || value.length > max) throw new IpcError(`Invalid ${name}`);
@@ -162,6 +145,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "extensions.menu": (w, id, x, y) => showExtensionMenu(w, str(id, "id"), num(x, "x"), num(y, "y")),
     "adblock.setEnabled": (w, enabled) => w.setAdblockEnabled(enabled === true),
     "adblock.pauseSite": (w, paused) => w.pauseAdblockSite(paused === true),
+    "adblock.youtubeBlockAgain": (w) => w.endYouTubeFallback(),
     "adblock.forgetOnClose": (w, forget) => w.forgetSiteOnClose(forget === true),
     "adblock.pickElement": (w) => {
       const tab = w.activeTab();
@@ -335,6 +319,9 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "onboarding.state": ["settings", "welcome"],
   "onboarding.complete": ["settings", "welcome"],
   "onboarding.importBookmarks": ["welcome"],
+  "import.scan": ["settings", "welcome"],
+  "import.run": ["settings", "welcome"],
+  "import.passwordCsv": ["settings", "welcome"],
 };
 
 function scheduleInput(value: unknown): ScheduleInput {
@@ -723,6 +710,37 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       ctx.settings.update({ onboarding: { completed: true } });
       return { completed: true };
     },
+    "import.scan": () => ctx.browserImport.scan(),
+    "import.passwordCsv": async (c): Promise<PasswordImportResult> => {
+      const options: Electron.OpenDialogOptions = {
+        title: "Import passwords from a CSV file",
+        properties: ["openFile"],
+        filters: [
+          { name: "Password export (CSV)", extensions: ["csv"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+      };
+      const parent = c.window?.win;
+      const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      const file = picked.filePaths[0];
+      if (picked.canceled || !file) return { imported: 0, duplicates: 0, skipped: 0, canceled: true };
+      const { logins, skipped } = parsePasswordCsv(await fs.readFile(file, "utf8"));
+      let imported = 0;
+      let duplicates = 0;
+      for (const login of logins) {
+        if (c.profile.credentials.findByLogin(login.origin, login.username)) {
+          duplicates++;
+          continue;
+        }
+        c.profile.credentials.add({ origin: login.origin, username: login.username, password: login.password });
+        imported++;
+      }
+      return { imported, duplicates, skipped, canceled: false };
+    },
+    "import.run": (c, sourceId, profileDir, kinds) => {
+      if (!Array.isArray(kinds) || kinds.some((k) => !IMPORT_KINDS.includes(k as ImportKind))) throw new IpcError("Invalid import kinds");
+      return ctx.browserImport.run(c.profile, str(sourceId, "browser", 64), str(profileDir, "profile", 1024), kinds as ImportKind[]);
+    },
     "onboarding.importBookmarks": async (c): Promise<BookmarkImportResult> => {
       const options: Electron.OpenDialogOptions = {
         title: "Import bookmarks",
@@ -740,9 +758,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const content = await fs.readFile(file, "utf8");
       const tree = parseBookmarkFile(base, content);
       if (countBookmarks(tree) === 0) return { imported: 0, folders: 0, canceled: false, source: base };
-      const container = c.profile.bookmarks.create({ parentId: OTHER_FOLDER_ID, kind: "folder", title: `Imported from ${base}`.slice(0, 120) });
-      const counts = { imported: 0, folders: 0 };
-      createImportedTree(c.profile.bookmarks, container.id, tree, counts);
+      const counts = c.profile.bookmarks.importTree(OTHER_FOLDER_ID, `Imported from ${base}`, tree);
       return { imported: counts.imported, folders: counts.folders, canceled: false, source: base };
     },
   };

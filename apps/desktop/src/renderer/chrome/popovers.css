@@ -237,6 +237,10 @@
 .copied-links-main {
   padding: 0 4px 0 10px;
 }
+.copied-links-ai {
+  padding: 0 6px;
+  border-left: 1px solid color-mix(in srgb, currentColor 25%, transparent) !important;
+}
 .copied-links-close {
   padding: 0 8px 0 4px;
   opacity: 0.7;
@@ -368,6 +372,19 @@
 
 /* ------------------------------------------------------------- find bar */
 
+.default-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.default-browser-bar .grow {
+  flex: 1;
+}
 .find-bar {
   display: flex;
   justify-content: flex-end;

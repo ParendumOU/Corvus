@@ -13,6 +13,7 @@
  *   itself, by reference.
  */
 import { isSpendClick, isSpendSubmit, spendHost, type SpendContext } from "@corvus/shared";
+import { filenameOf } from "./link-grabber";
 import { isActivationKey, parseKey } from "./visual-input";
 
 export type { SpendContext } from "@corvus/shared";
@@ -71,6 +72,16 @@ function clip(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
 
+/** "Downloads 3 files into "Movie": Movie.part1.rar, Movie.part2.rar, Movie.part3.rar." */
+function queueReason(input: unknown): string {
+  const links = (input as { links?: unknown } | null)?.links;
+  const list = Array.isArray(links) ? links.filter((l): l is string => typeof l === "string") : [];
+  const names = list.slice(0, 5).map((l) => filenameOf(l) || l);
+  const more = list.length > 5 ? ` and ${list.length - 5} more` : "";
+  const into = str(input, "packageName") ? ` into "${clip(str(input, "packageName"), 60)}"` : "";
+  return `Downloads ${list.length} ${list.length === 1 ? "file" : "files"}${into} with the download queue: ${clip(names.join(", "), 240)}${more}.`;
+}
+
 function spendSubmitReason(field: string, ctx: SpendContext): string {
   const into = field ? ` in "${clip(field)}"` : "";
   if (ctx.form?.submitName && isSpendClick(ctx.form.submitName, { role: ctx.form.submitRole || "button", ...(ctx.url ? { url: ctx.url } : {}) })) {
@@ -104,6 +115,8 @@ export function classifyAction(tool: string, input: unknown, elementName = "", c
       return { risky: true, handoff: false, alwaysAsk: true, reason: "Signs in with a saved login. The agent never sees the password." };
     case "fill_totp":
       return { risky: true, handoff: false, alwaysAsk: true, reason: "Fills a 2FA code. The agent never sees the code." };
+    case "queue_downloads":
+      return { risky: true, handoff: false, alwaysAsk: true, reason: queueReason(input) };
     case "click":
       if (isSpendClick(elementName, ctx)) return { risky: true, handoff: false, alwaysAsk: true, spend: true, reason: `Spends money: clicks "${clip(elementName)}".` };
       if (RISKY_NAME.test(elementName)) return { risky: true, handoff: false, reason: `Clicks "${elementName}".` };

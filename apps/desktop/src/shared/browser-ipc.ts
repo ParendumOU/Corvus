@@ -53,7 +53,28 @@ export interface BrowserWindowExtras {
   downloads: DownloadsSummary;
   /** Download links in the text just copied (the link grabber chip), 0 when none. */
   copiedLinks: number;
+  /** This launch's "Corvus is not your default browser" bar is shown in this window. */
+  defaultBrowserOffer: boolean;
 }
+
+/** Whether Corvus is the default browser here, and whether this system lets Corvus ask. */
+export interface DefaultBrowserView {
+  /** False in development builds and where the system has no way to set it (e.g. no xdg-settings). */
+  supported: boolean;
+  isDefault: boolean;
+  platform: string;
+  /** Windows: Corvus is listed in Default apps. */
+  registered?: boolean;
+}
+
+/**
+ * What "Make default" did: "default" (Linux sets it), "asked" (macOS asks the person),
+ * "settings-opened" (Windows Default apps opened on Corvus), or "failed".
+ */
+export type MakeDefaultResult = "default" | "asked" | "settings-opened" | "failed";
+
+/** The default-browser bar's buttons. */
+export type DefaultBrowserAnswer = "make" | "later" | "never";
 
 export interface SitePermissionView {
   kind: PermissionKind;
@@ -88,6 +109,10 @@ export interface BrowserChromeRpc {
   /** The copied-links chip: put them in the link grabber and open it, or dismiss them. */
   "grabber.grabCopied"(): number;
   "grabber.dismissCopied"(): void;
+  /** The default-browser bar: Make default, Not now, Don't ask again. */
+  "defaultBrowser.answer"(choice: DefaultBrowserAnswer): MakeDefaultResult | null;
+  /** The chip's "AI" button: Corvus's agent finds and queues the copied links' files. */
+  "grabber.downloadCopiedWithAi"(): boolean;
   /** "Send to your phone": sends the page to the linked Telegram chat. */
   "share.telegram"(url: string, title: string): void;
   "share.copy"(url: string): void;
@@ -105,6 +130,13 @@ export interface BrowserInternalRpc {
   "grabber.clear"(): void;
   /** Starts packages or links (by id) and takes them out of the grabber; returns how many started. */
   "grabber.download"(ids: string[]): number;
+  /** "Download with AI": Corvus's agent finds the real files of these packages or links and queues them. */
+  "grabber.downloadWithAi"(ids: string[]): boolean;
+  "defaultBrowser.status"(): DefaultBrowserView;
+  /** Makes Corvus the default as far as this system allows; returns what happened and the new status. */
+  "defaultBrowser.make"(): { result: MakeDefaultResult; status: DefaultBrowserView };
+  /** Windows: removes Corvus from Default apps. */
+  "defaultBrowser.unregister"(): DefaultBrowserView;
   "queue.list"(): QueueView;
   /** Pause, resume, retry or remove a package (every file) or one file. */
   "queue.act"(id: string, action: QueueAction): void;

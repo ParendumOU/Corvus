@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { clipboard } from "electron";
 import type { ProfileId } from "@corvus/shared";
+import { downloadAiTask } from "../shared/download-ai";
 import { buildPackages, downloadLinksIn, mergePackages, type GrabbedPackage } from "../shared/link-grabber";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
@@ -114,6 +115,50 @@ export class LinkGrabber {
     started += this.ctx.queue.addGrabbed(win.profile, chosen);
     if (chosen.length > 0) this.remove(win.profile, ids);
     return started;
+  }
+
+  /**
+   * "Download with AI": Corvus's agent goes through these packages' or links' pages (file hosts,
+   * mirrors), finds the real files and queues them after the person approves the list. They leave
+   * the grabber once the run starts. Without a model set up, the Command Bar says why and nothing
+   * is taken out.
+   */
+  downloadWithAi(win: BrowserWindowCtl, ids: readonly string[]): boolean {
+    const pick = new Set(ids);
+    const chosen = this.list(win.profile)
+      .map((pkg) => ({ pkg, links: pkg.links.filter((l) => pick.has(pkg.id) || pick.has(l.id)) }))
+      .filter((c) => c.links.length > 0);
+    if (chosen.length === 0) return false;
+    const task = downloadAiTask({
+      links: chosen.flatMap((c) => c.links.map((l) => l.url)),
+      passwords: [...new Set(chosen.flatMap((c) => c.pkg.passwords))],
+      ...(chosen.length === 1 ? { packageName: chosen[0]!.pkg.name } : {}),
+    });
+    return this.startAi(win, task, () => this.remove(win.profile, ids));
+  }
+
+  /** "Download with AI" on the copied-links chip. */
+  downloadCopiedWithAi(win: BrowserWindowCtl): boolean {
+    const copied = this.copied;
+    if (!copied) return false;
+    return this.startAi(win, downloadAiTask({ text: copied.text }), () => {
+      this.copied = null;
+      this.pushChrome();
+    });
+  }
+
+  /** "Download with AI" on a tab: the agent works out what the page offers. */
+  downloadPageWithAi(win: BrowserWindowCtl, tabId: string): boolean {
+    const tab = win.getTab(tabId);
+    if (!tab || !/^https?:/i.test(tab.url)) return false;
+    return this.startAi(win, downloadAiTask({ pageUrl: tab.url }), () => undefined);
+  }
+
+  private startAi(win: BrowserWindowCtl, task: string, started: () => void): boolean {
+    const ready = this.ctx.agentRunner.unavailableReason() === null;
+    this.ctx.agentRunner.startVisible(win, task);
+    if (ready) started();
+    return ready;
   }
 
   /** How many download links the copied text has (the toolbar chip), 0 when none. */

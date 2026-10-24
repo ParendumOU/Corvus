@@ -297,6 +297,25 @@ function DownloadRow({ d }: { d: DownloadRecord }) {
   );
 }
 
+/** Once per launch while Corvus is not the default browser: Make default, Not now, Don't ask again. */
+export function DefaultBrowserBar() {
+  const api = chromeApi();
+  return (
+    <div className="default-browser-bar" role="status" data-default-browser-bar>
+      <span className="grow">Corvus is not your default browser.</span>
+      <button className="btn small primary" data-default-browser="make" onClick={() => void api.call("defaultBrowser.answer", "make")}>
+        Make default
+      </button>
+      <button className="btn small ghost" data-default-browser="later" onClick={() => void api.call("defaultBrowser.answer", "later")}>
+        Not now
+      </button>
+      <button className="btn small ghost" data-default-browser="never" onClick={() => void api.call("defaultBrowser.answer", "never")}>
+        Don't ask again
+      </button>
+    </div>
+  );
+}
+
 /** Download links in the text just copied: one click puts them in the link grabber. */
 export function CopiedLinksChip({ count }: { count: number }) {
   const api = chromeApi();
@@ -306,6 +325,10 @@ export function CopiedLinksChip({ count }: { count: number }) {
       <button className="copied-links-main" title="Download links copied: add them to the link grabber" onClick={() => void api.call("grabber.grabCopied")}>
         <IconSparkle size={14} />
         {count === 1 ? "1 link" : `${count} links`}
+      </button>
+      <button className="copied-links-ai" title="Download with AI: Corvus finds the real files behind these links and queues them" onClick={() => void api.call("grabber.downloadCopiedWithAi")}>
+        <IconAgent size={13} />
+        AI
       </button>
       <button className="copied-links-close" title="Dismiss" aria-label="Dismiss copied links" onClick={() => void api.call("grabber.dismissCopied")}>
         <IconClose size={12} />
@@ -594,7 +617,12 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
         <input type="checkbox" checked={state.enabled} onChange={(e) => void api.call("adblock.setEnabled", e.target.checked)} />
       </label>
       {state.skippingYouTubeAds && (
-        <div className="shield-stats muted small">YouTube stops playing when its ads are removed, so for now Corvus skips them instead.</div>
+        <div className="shield-stats muted small" data-youtube-fallback>
+          YouTube stopped playing when its ads were removed, so for a couple of hours Corvus skips them instead.
+          <button className="btn small ghost" data-youtube-block-again onClick={() => void api.call("adblock.youtubeBlockAgain")}>
+            Remove them again
+          </button>
+        </div>
       )}
       <div className="shield-stats muted small">{state.total} requests blocked this session</div>
       <div className="popover-actions">

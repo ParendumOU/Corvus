@@ -5,6 +5,7 @@
  * Each side uses a single RPC channel; the main process validates the sender and the method.
  * Web content never gets either API.
  */
+import type { ImportKind, ImportResult, ImportScan } from "./browser-import";
 import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
@@ -142,6 +143,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "extensions.menu"(id: string, x: number, y: number): void;
   "adblock.setEnabled"(enabled: boolean): void;
   "adblock.pauseSite"(paused: boolean): void;
+  /** The shield on YouTube while ads are being skipped: remove them again. */
+  "adblock.youtubeBlockAgain"(): void;
   /** The shield's "Forget this site when I close it", for the active tab's site. */
   "adblock.forgetOnClose"(forget: boolean): void;
   /** "Hide an element" from the shield: the picker runs in the active tab's page. */
@@ -406,6 +409,21 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "onboarding.complete"(): OnboardingState;
   /** First-run wizard: pick a bookmarks export file (any browser's HTML, or Chrome/Edge JSON) and import it. */
   "onboarding.importBookmarks"(): BookmarkImportResult;
+  /** Other browsers installed for this user, their profiles and what each holds. */
+  "import.scan"(): ImportScan;
+  /** Imports the chosen kinds of one browser profile into this Corvus profile. */
+  "import.run"(sourceId: string, profileDir: string, kinds: ImportKind[]): ImportResult;
+  /** Pick a password CSV the user exported from another browser and import the logins. */
+  "import.passwordCsv"(): PasswordImportResult;
+}
+
+export interface PasswordImportResult {
+  imported: number;
+  /** Logins already saved (same site and username). */
+  duplicates: number;
+  /** Rows with no usable site or password. */
+  skipped: number;
+  canceled: boolean;
 }
 
 export interface OnboardingState {

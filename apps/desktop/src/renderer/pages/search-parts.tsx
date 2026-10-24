@@ -167,7 +167,7 @@ export function AnswerBlock(p: AnswerProps) {
 /** AI relevance as a ring that fills to the score out of 10; a shimmering ring while it is rated. */
 export function Meter({ rating, pending }: { rating?: ResultRating; pending: boolean }) {
   if (!rating) {
-    return <div className={`meter empty ${pending ? "pending" : ""}`} aria-hidden="true" title={pending ? "Rating…" : "Not rated"} />;
+    return <div className={`meter unscored ${pending ? "pending" : ""}`} aria-hidden="true" title={pending ? "Rating…" : "Not rated"} />;
   }
   const tone = rating.score >= 8 ? "hi" : rating.score >= 5 ? "mid" : "lo";
   return (
@@ -284,7 +284,7 @@ export function ResultSkeleton({ count = 4 }: { count?: number }) {
     <div className="results" aria-hidden="true">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="result skeleton">
-          <div className="meter empty pending" />
+          <div className="meter unscored pending" />
           <div className="skeleton-lines">
             <span />
             <span />

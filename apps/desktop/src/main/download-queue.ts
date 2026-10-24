@@ -32,8 +32,10 @@ import {
   type QueueView,
 } from "../shared/download-queue";
 import { archiveSets, cleanPasswords, passwordCandidates, type ArchiveSet } from "../shared/archives";
-import { uniqueFilename } from "../shared/downloads";
+import { agentPackages, describeAgentLinks, parseAgentDownloadRequest, splitAgentLinks, type AgentDownloadRequest } from "../shared/download-ai";
+import { isExecutableFilename, uniqueFilename } from "../shared/downloads";
 import type { GrabbedPackage } from "../shared/link-grabber";
+import { askNativeApproval, type NativeApproval } from "./approval-dialog";
 import { SevenZipProcess, extractArchive } from "./archive-extractor";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
@@ -49,6 +51,18 @@ interface Running {
   abort: AbortController;
   meter: SpeedMeter;
   profileId: ProfileId;
+}
+
+/** A failure retrying cannot fix (the download stops at once). */
+class FatalDownloadError extends Error {}
+
+/** What an AI agent's queued downloads became. */
+export interface AgentQueueResult {
+  packages: Array<{ id: string; name: string; files: number }>;
+  /** Programs (by address) an agent may not queue. */
+  refused: string[];
+  /** Links already in the queue. */
+  known: number;
 }
 
 function revive(raw: unknown): QueuePackage[] {
@@ -95,6 +109,8 @@ export class DownloadQueue {
   /** Package extractions, one after another. */
   private extractions: Promise<void> = Promise.resolve();
   private extractor: SevenZipProcess | null = null;
+  /** Smoke tests answer the "AI agent wants to download" dialog. */
+  private testApprover: ((approval: NativeApproval) => boolean) | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -133,16 +149,101 @@ export class DownloadQueue {
 
   /** Queues grabbed packages (file links); returns how many files were queued. */
   addGrabbed(runtime: ProfileRuntime, grabbed: readonly GrabbedPackage[]): number {
-    const entry = this.entry(runtime);
+    return this.enqueue(this.entry(runtime), grabbed).reduce((n, p) => n + p.items.length, 0);
+  }
+
+  /** Adds packages, leaving out links already queued; returns the packages added. */
+  private enqueue(entry: ProfileQueue, grabbed: readonly GrabbedPackage[], addedBy?: string): QueuePackage[] {
     const dir = this.ctx.downloads.directory();
     const added = grabbed.map((g) => queueFromGrabbed(g, dir, path.join)).filter((p) => p.items.length > 0);
-    if (added.length === 0) return 0;
+    if (added.length === 0) return [];
     const known = new Set(entry.file.get().flatMap((p) => p.items.map((i) => i.url)));
-    const fresh = added.map((p) => ({ ...p, items: p.items.filter((i) => !known.has(i.url)) })).filter((p) => p.items.length > 0);
+    const fresh = added
+      .map((p) => ({ ...p, items: p.items.filter((i) => !known.has(i.url)), ...(addedBy ? { addedBy } : {}) }))
+      .filter((p) => p.items.length > 0);
+    if (fresh.length === 0) return [];
     entry.file.set([...entry.file.get(), ...fresh]);
     this.pump(entry);
     this.notify(entry);
-    return fresh.reduce((n, p) => n + p.items.length, 0);
+    return fresh;
+  }
+
+  /**
+   * Queues the files an AI agent found, after the person approved them (the Command Bar's run panel
+   * asks for queue_downloads; agent() asks MCP clients' requests in a dialog). Programs are never
+   * queued for an agent.
+   */
+  addAgentLinks(runtime: ProfileRuntime, request: AgentDownloadRequest, client: string, source: string): AgentQueueResult {
+    const { allowed, refused } = splitAgentLinks(request.links);
+    if (allowed.length === 0) return { packages: [], refused, known: 0 };
+    const grabbed = agentPackages({ ...request, links: allowed }, { source, now: Date.now(), newId: () => crypto.randomUUID() });
+    const added = this.enqueue(this.entry(runtime), grabbed, client);
+    const files = added.reduce((n, p) => n + p.items.length, 0);
+    return { packages: added.map((p) => ({ id: p.id, name: p.name, files: p.items.length })), refused, known: allowed.length - files };
+  }
+
+  /** Smoke tests answer the approval dialog; null restores it. */
+  setTestApprover(approver: ((approval: NativeApproval) => boolean) | null): void {
+    this.testApprover = approver;
+  }
+
+  /**
+   * The download_queue MCP tools: "list", "add" (asks the person in a dialog first) and "control"
+   * (pause, resume, retry, remove or extract a package or file). Returns JSON text.
+   */
+  async agent(runtime: ProfileRuntime, request: Record<string, unknown>, client: string): Promise<string> {
+    const action = request.action;
+    if (action === "list") return JSON.stringify(this.agentView(runtime));
+    if (action === "add") {
+      const parsed = parseAgentDownloadRequest(request);
+      const { allowed, refused } = splitAgentLinks(parsed.links);
+      if (allowed.length === 0) throw new Error(`Corvus does not download programs for AI agents (${refused.length} refused). The person can download them from the page.`);
+      const count = `${allowed.length} ${allowed.length === 1 ? "file" : "files"}`;
+      const approval: NativeApproval = {
+        allow: "Download",
+        title: "AI agent wants to download files",
+        message: `Let “${client}” download ${count}${parsed.packageName ? ` into “${parsed.packageName}”` : ""} with Corvus's download queue?`,
+        detail: `${describeAgentLinks(allowed)}\n\nThey go to ${this.ctx.downloads.directory()}.`,
+      };
+      const ok = this.testApprover ? this.testApprover(approval) : await askNativeApproval(this.ctx, approval);
+      if (!ok) throw new Error("The user declined these downloads.");
+      return JSON.stringify(this.addAgentLinks(runtime, { ...parsed, links: allowed }, client, `mcp:${client}`));
+    }
+    if (action === "control") {
+      const id = typeof request.id === "string" ? request.id : "";
+      const op = request.op;
+      const found = this.entry(runtime).file.get().find((p) => p.id === id || p.items.some((i) => i.id === id));
+      if (!found) throw new Error(`No package or file ${JSON.stringify(id)} in the queue. Call download_queue to see the ids.`);
+      if (op === "extract") this.extract(runtime, found.id, typeof request.password === "string" ? request.password : undefined);
+      else if (op === "pause" || op === "resume" || op === "retry" || op === "remove") this.act(runtime, id, op);
+      else throw new Error("op must be pause, resume, retry, remove or extract");
+      return JSON.stringify(this.agentView(runtime).filter((p) => p.id === found.id));
+    }
+    throw new Error("action must be list, add or control");
+  }
+
+  /** The queue as agents see it: ids, states and progress. */
+  private agentView(runtime: ProfileRuntime) {
+    return this.list(runtime).packages.map((p) => ({
+      id: p.id,
+      name: p.name,
+      folder: p.dir,
+      ...(p.addedBy ? { addedBy: p.addedBy } : {}),
+      files: p.items.map((i) => ({
+        id: i.id,
+        name: i.filename,
+        state: i.state,
+        received: i.receivedBytes,
+        total: i.totalBytes,
+        ...(i.error ? { error: i.error } : {}),
+        ...(i.checked ? { checksum: i.checked } : {}),
+      })),
+      ...(p.extraction
+        ? { extraction: { state: p.extraction.state, files: p.extraction.archives.reduce((n, a) => n + (a.files ?? 0), 0), ...(p.extraction.error ? { error: p.extraction.error } : {}) } }
+        : {}),
+      ...(p.speed ? { bytesPerSecond: p.speed } : {}),
+      ...(p.eta !== null ? { secondsLeft: p.eta } : {}),
+    }));
   }
 
   act(runtime: ProfileRuntime, id: string, action: QueueAction): void {
@@ -230,7 +331,7 @@ export class DownloadQueue {
       if (current && current.state === "running") {
         const attempts = current.attempts + 1;
         const message = abort.signal.aborted ? "Stopped" : err instanceof Error ? err.message : String(err);
-        if (attempts < MAX_ATTEMPTS && !abort.signal.aborted) {
+        if (attempts < MAX_ATTEMPTS && !abort.signal.aborted && !(err instanceof FatalDownloadError)) {
           this.update(entry, itemId, { state: "paused", attempts, error: message });
           // Retry after a short wait (longer each time), from where it stopped.
           setTimeout(() => {
@@ -269,6 +370,10 @@ export class DownloadQueue {
     const ranged = res.status === 206;
     if (!savePath) {
       const name = filenameFromDisposition(res.headers.get("content-disposition")) ?? item.filename;
+      if (pkg.addedBy && isExecutableFilename(name)) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new FatalDownloadError(`${name} is a program: Corvus does not download programs for AI agents`);
+      }
       const taken = (n: string): boolean => this.reserved.has(path.join(pkg.dir, n)) || fs.existsSync(path.join(pkg.dir, n)) || fs.existsSync(path.join(pkg.dir, `${n}.part`));
       savePath = path.join(pkg.dir, uniqueFilename(name, taken));
       this.reserved.add(savePath);

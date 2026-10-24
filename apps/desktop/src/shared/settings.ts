@@ -170,6 +170,8 @@ export interface Settings {
   startup: {
     /** "restore" = continue where you left off, "newtab" = open a new tab page. */
     mode: StartupMode;
+    /** Offer "Make default" once per launch while Corvus is not the default browser. */
+    askDefaultBrowser: boolean;
   };
   update: {
     /** Check the update feed on startup and surface anything available. */
@@ -260,7 +262,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     translate: { offer: true, targetLanguage: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },
-    startup: { mode: "restore" },
+    startup: { mode: "restore", askDefaultBrowser: true },
     update: {
       autoCheck: true,
       channel: env.CORVUS_UPDATE_CHANNEL === "beta" ? "beta" : "stable",

@@ -22,6 +22,7 @@ import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry
 import type { AppContext } from "./context";
 import { agentScreenshot, clickAt, describeFocused, describePoint, hoverAt, pressKey, scrollAt, typeText } from "./visual-input";
 import { claudeCliEnv } from "../shared/settings";
+import { parseAgentDownloadRequest } from "../shared/download-ai";
 import { NEWTAB_GUIDE } from "@corvus/mcp-server";
 
 export const PER_TURN_TOKENS = 1536;
@@ -280,14 +281,40 @@ const NEWTAB_TOOLS: AgentTool[] = [
 const NEWTAB_PROMPT =
   "To build or change the user's New Tab page (widgets, a dashboard, its background), call newtab_layout and then newtab_change; no tab is needed.";
 
+/** Corvus's download queue: the agent hands it the files it found (the person approves the list). */
+const DOWNLOAD_TOOLS: AgentTool[] = [
+  {
+    name: "queue_downloads",
+    description:
+      "Download files with Corvus's download queue (several at a time, resumable; archives are extracted when complete). Pass the files' direct links, every volume of a split archive, a package name and the archive password if the page gives one. The person approves the list first. Programs are not downloaded.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        links: { type: "array", items: { type: "string" } },
+        packageName: { type: "string" },
+        password: { type: "string" },
+      },
+      required: ["links"],
+    },
+  },
+];
+
+export const DOWNLOAD_PROMPT = [
+  "To download files for the person, find each file's direct link and call queue_downloads once per package.",
+  "On a file-host page, use its free download button and wait out any countdown; the direct link is where the final",
+  "download button points. Prefer mirrors that need no account, and give every volume of a split archive. If a file",
+  "host shows a CAPTCHA or human check, asks you to sign in, or offers the file only to premium accounts, do not try",
+  "to get past it: call ask_user naming the file and the host, so the person can do it in that tab, then go on.",
+].join("\n");
+
 /**
  * The interactive agent's tools and prompt (Command Bar and Assist): the browser tools, the visual
- * tools, the New Tab tools, and the credential tools when Settings allows them. `system` replaces
- * the base prompt.
+ * tools, the New Tab tools, the download queue, and the credential tools when Settings allows them.
+ * `system` replaces the base prompt.
  */
 export function agentToolset(credentials: boolean, system: string = AGENT_SYSTEM): { tools: AgentTool[]; system: string } {
-  const tools = [...TOOLS, ...VISUAL_TOOLS, ...NEWTAB_TOOLS, ...(credentials ? CREDENTIAL_AGENT_TOOLS : [])];
-  return { tools, system: [system, VISUAL_PROMPT, NEWTAB_PROMPT, ...(credentials ? [CREDENTIAL_PROMPT] : [])].join("\n") };
+  const tools = [...TOOLS, ...VISUAL_TOOLS, ...NEWTAB_TOOLS, ...DOWNLOAD_TOOLS, ...(credentials ? CREDENTIAL_AGENT_TOOLS : [])];
+  return { tools, system: [system, VISUAL_PROMPT, NEWTAB_PROMPT, DOWNLOAD_PROMPT, ...(credentials ? [CREDENTIAL_PROMPT] : [])].join("\n") };
 }
 
 /**
@@ -315,6 +342,7 @@ export const AGENT_TOOL_ACCESS: Record<string, AccessLevel> = {
   type_text: "standard",
   newtab_layout: "read",
   newtab_change: "standard",
+  queue_downloads: "standard",
   // Saved secrets: only at full, so a site profile capped at standard or read never offers them.
   fill_login: "full",
   fill_totp: "full",
@@ -450,7 +478,7 @@ export async function runAgentTool(
 ): Promise<AgentToolResult> {
   const c = ctx.controller;
   const tabId = state.tabId;
-  if (!tabId && name !== "web_search" && name !== "list_tabs" && name !== "open_tab" && !name.startsWith("newtab_")) throw new Error("No agent tab is open yet.");
+  if (!tabId && name !== "web_search" && name !== "list_tabs" && name !== "open_tab" && name !== "queue_downloads" && !name.startsWith("newtab_")) throw new Error("No agent tab is open yet.");
   switch (name) {
     case "page_snapshot": {
       const snap = await c.snapshot(tabId!, { maxChars: Math.min(Math.max(num(input, "maxChars", SNAPSHOT_CHARS), 200), 12000) });
@@ -545,9 +573,24 @@ export async function runAgentTool(
       return { content: `${ctx.newtab.agent(ctx.windows.target().profile, { action: "get" }, "Corvus agent")}\n\n${NEWTAB_GUIDE}` };
     case "newtab_change":
       return { content: ctx.newtab.agent(ctx.windows.target().profile, (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>, "Corvus agent") };
+    case "queue_downloads":
+      return queueDownloadsTool(ctx, state, input);
     default:
       throw new Error(`Unknown tool ${name}`);
   }
+}
+
+/** queue_downloads: the run panel already asked the person (always), so the files go straight in. */
+function queueDownloadsTool(ctx: AppContext, state: ToolRunState, input: unknown): AgentToolResult {
+  const request = parseAgentDownloadRequest(input);
+  const profile = (state.tabId ? ctx.windows.findTab(state.tabId)?.window.profile : undefined) ?? ctx.windows.target().profile;
+  const result = ctx.queue.addAgentLinks(profile, request, "Corvus", state.lastUrl ?? "Corvus agent");
+  const lines: string[] = [];
+  for (const p of result.packages) lines.push(`Queued ${p.files} ${p.files === 1 ? "file" : "files"} as "${p.name}" (package ${p.id}).`);
+  if (result.known > 0) lines.push(`${result.known} already in the queue.`);
+  if (result.refused.length > 0) lines.push(`Not queued (programs are never downloaded for an agent): ${result.refused.join(", ")}`);
+  if (lines.length === 0) lines.push("Nothing was queued.");
+  return { content: lines.join("\n"), ...(result.packages.length === 0 && result.known === 0 ? { isError: true } : {}) };
 }
 
 async function waitTool(ctx: AppContext, tabId: TabId, input: unknown, signal: AbortSignal): Promise<string> {

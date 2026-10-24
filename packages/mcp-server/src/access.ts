@@ -44,6 +44,10 @@ const FULL_TOOLS = new Set([
   "cookies",
   "fill_fields",
   "download",
+  // Corvus's download queue (adding asks the user in the browser; never programs).
+  "download_queue",
+  "download_queue_add",
+  "download_queue_control",
   // Saved logins and 2FA codes by reference (user opt-in + per-use approval in the browser).
   "fill_login",
   "fill_totp",

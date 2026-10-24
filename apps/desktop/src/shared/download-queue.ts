@@ -69,6 +69,8 @@ export interface QueuePackage {
   addedAt: number;
   items: QueueItem[];
   extraction?: PackageExtraction;
+  /** The AI agent that queued it ("Corvus" for the Command Bar agent, or an MCP client's name). */
+  addedBy?: string;
 }
 
 export interface QueueLimits {

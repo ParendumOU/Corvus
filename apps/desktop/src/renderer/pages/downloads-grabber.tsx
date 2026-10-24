@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import type { GrabbedLink, GrabbedPackage } from "../../shared/link-grabber";
 import { errorMessage, internalApi } from "../common/api";
-import { IconClose, IconDownload, IconTrash } from "../common/icons";
+import { IconAgent, IconClose, IconDownload, IconTrash } from "../common/icons";
 import { hostOf } from "../common/ui";
+
+type GrabberCall = "grabber.download" | "grabber.downloadWithAi" | "grabber.remove";
 
 function kindLabel(link: GrabbedLink): string {
   if (link.part !== undefined) return `part ${link.part}`;
   return link.kind === "hoster" ? "file host page" : "file";
 }
 
-function PackageCard({ pkg, act }: { pkg: GrabbedPackage; act: (call: "grabber.download" | "grabber.remove", ids: string[]) => void }) {
+function PackageCard({ pkg, act }: { pkg: GrabbedPackage; act: (call: GrabberCall, ids: string[]) => void }) {
   const source = pkg.source === "clipboard" || pkg.source === "pasted" ? `from ${pkg.source === "clipboard" ? "copied" : "pasted"} text` : `from ${hostOf(pkg.source)}`;
   return (
     <div className="card grab-package" data-package={pkg.name}>
@@ -28,6 +30,14 @@ function PackageCard({ pkg, act }: { pkg: GrabbedPackage; act: (call: "grabber.d
         <div className="actions">
           <button className="btn small" data-grab-download={pkg.name} onClick={() => act("grabber.download", [pkg.id])}>
             <IconDownload size={14} /> Download
+          </button>
+          <button
+            className="btn small"
+            data-grab-ai={pkg.name}
+            title="Corvus's agent goes through the file-host pages and mirrors, finds the real files and queues them once you approve"
+            onClick={() => act("grabber.downloadWithAi", [pkg.id])}
+          >
+            <IconAgent size={14} /> With AI
           </button>
           <button className="icon-btn" title="Remove package" onClick={() => act("grabber.remove", [pkg.id])}>
             <IconTrash size={15} />
@@ -72,12 +82,13 @@ export function GrabberView() {
     });
   }, [api, load]);
 
-  const act = (call: "grabber.download" | "grabber.remove", ids: string[]): void => {
+  const act = (call: GrabberCall, ids: string[]): void => {
     setError(null);
     api
       .call(call, ids)
       .then((started) => {
         if (call === "grabber.download") setNotice(started === 1 ? "1 download started." : `${started} downloads started.`);
+        if (call === "grabber.downloadWithAi" && started) setNotice("Corvus's agent is looking for the files. Approve the list in the Command Bar to start them.");
         load();
       })
       .catch((e: unknown) => setError(errorMessage(e)));

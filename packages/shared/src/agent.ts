@@ -276,6 +276,12 @@ export interface AgentCapabilities {
    * resulting layout as JSON text. `client` is who asked, shown on what it made.
    */
   newtab?(request: Record<string, unknown>, client: string): Promise<string>;
+  /**
+   * Corvus's download queue (the download_queue* tools). `request.action` is list | add | control;
+   * "add" asks the person in the browser first and never queues programs. Returns JSON text.
+   * `client` is who asked, shown on the packages it adds.
+   */
+  downloadQueue?(request: Record<string, unknown>, client: string): Promise<string>;
   /** Cookies the tab's current site can read. Scoped to that origin — never another site's cookies. */
   cookies?(id: TabId): Promise<CookieInfo[]>;
   /** Removes every cookie named `name` set for the tab's current site. Returns how many were removed. */

@@ -362,6 +362,10 @@ export class Controller implements BrowserController {
     return this.ctx.newtab.agent(this.ctx.windows.target().profile, request, client);
   }
 
+  async downloadQueue(request: Record<string, unknown>, client: string): Promise<string> {
+    return this.ctx.queue.agent(this.ctx.windows.target().profile, request, client);
+  }
+
   async cookies(id: TabId): Promise<CookieInfo[]> {
     const { wc } = this.readable(id);
     const url = wc.getURL();

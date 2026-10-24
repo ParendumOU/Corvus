@@ -612,6 +612,16 @@ export class MockBrowserController implements BrowserController {
     return JSON.stringify({ widgets: [{ id: "clock-1", type: "clock" }], background: { kind: "default" } });
   }
 
+  /** Download-queue requests the download_queue* tools sent, with the client that sent them. */
+  downloadQueueRequests: Array<{ request: Record<string, unknown>; client: string }> = [];
+
+  async downloadQueue(request: Record<string, unknown>, client: string): Promise<string> {
+    this.downloadQueueRequests.push({ request, client });
+    if (request.action === "control" && request.id === "missing") throw new Error('No package or file "missing" in the queue.');
+    if (request.action === "add") return JSON.stringify({ packages: [{ id: "p1", name: request.packageName ?? "Movie", files: (request.links as string[]).length }], refused: [], known: 0 });
+    return JSON.stringify([{ id: "p1", name: "Movie", files: [{ id: "f1", name: "Movie.part1.rar", state: "running" }] }]);
+  }
+
   async clearCookie(id: TabId, name: string): Promise<{ removed: number }> {
     this.record("clearCookie", id, name);
     const host = this.hostOf(id);

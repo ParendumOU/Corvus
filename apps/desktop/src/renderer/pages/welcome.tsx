@@ -5,6 +5,7 @@ import type { SettingsPatch, SettingsView, ThemeSource } from "../../shared/sett
 import { errorMessage, internalApi } from "../common/api";
 import { CorvusMark } from "../common/icons";
 import "./welcome.css";
+import { BrowserImportPanel } from "./settings-import";
 import { mount } from "./shell";
 
 const STEP_TITLES = ["AI provider", "Sync", "Import", "Preferences"] as const;
@@ -287,10 +288,13 @@ function ImportStep() {
   return (
     <div className="wz-step">
       <p className="wz-lead">
-        Bring your bookmarks over from another browser. In that browser choose <strong>Export bookmarks to HTML</strong> (Chrome, Edge, Firefox, Safari and Brave
-        all have it), then pick the file here. A Chrome/Edge <code>Bookmarks</code> file works too.
+        Bring your bookmarks and history over from another browser on this computer. Its files are only read, never changed; if it is open, close it first.
       </p>
-      <button className="btn small primary" disabled={busy} onClick={run}>
+      <BrowserImportPanel />
+      <p className="wz-hint">
+        Using a browser from another computer? Export its bookmarks to HTML there (Chrome, Edge, Firefox, Safari and Brave all can) and pick the file here.
+      </p>
+      <button className="btn small" disabled={busy} onClick={run}>
         {busy ? "Importing…" : "Choose a bookmarks file…"}
       </button>
       {result && !result.canceled && (
@@ -301,9 +305,6 @@ function ImportStep() {
         </div>
       )}
       {error && <div className="wz-notice error">{error}</div>}
-      <p className="wz-hint">
-        History isn’t imported: browsers keep it in a locked database that can’t be read cleanly from an exported file. You can skip this step.
-      </p>
     </div>
   );
 }

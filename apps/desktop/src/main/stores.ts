@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { Bookmark } from "@corvus/shared";
 import { JsonFile } from "./json-file";
+import { countBookmarks, isImportedFolder, type ImportedNode } from "../shared/bookmark-import";
 import {
   BAR_FOLDER_ID,
   ROOT_IDS,
@@ -56,9 +57,38 @@ function reviveBookmarks(raw: unknown): Bookmark[] {
   return ensureRoots(Array.isArray(raw) ? raw.filter(isBookmark) : [], Date.now());
 }
 
+/** Most bookmarks one import adds. */
+export const MAX_IMPORTED_BOOKMARKS = 5000;
+
 export class BookmarkStore {
   private readonly file: JsonFile<Bookmark[]>;
   readonly changes = new Emitter();
+
+  /**
+   * Recreates an imported bookmark tree (a file, another browser) in a new folder under
+   * `parentId`, leaving out empty folders and addresses that are not pages. Returns what was added.
+   */
+  importTree(parentId: string, title: string, nodes: readonly ImportedNode[]): { imported: number; folders: number } {
+    const counts = { imported: 0, folders: 0 };
+    if (countBookmarks([...nodes]) === 0) return counts;
+    const walk = (parent: string, list: readonly ImportedNode[]): void => {
+      for (const node of list) {
+        if (counts.imported >= MAX_IMPORTED_BOOKMARKS) return;
+        if (isImportedFolder(node)) {
+          if (countBookmarks(node.children) === 0) continue;
+          const folder = this.create({ parentId: parent, kind: "folder", title: node.title || "Imported" });
+          counts.folders++;
+          walk(folder.id, node.children);
+        } else if (/^(https?|ftp|file|corvus):/i.test(node.url)) {
+          this.create({ parentId: parent, kind: "bookmark", title: node.title || node.url, url: node.url });
+          counts.imported++;
+        }
+      }
+    };
+    const container = this.create({ parentId, kind: "folder", title: title.slice(0, 120) });
+    walk(container.id, nodes);
+    return counts;
+  }
 
   constructor(dir: string) {
     this.file = JsonFile.load(path.join(dir, "bookmarks.json"), () => defaultTree(Date.now()), reviveBookmarks);
@@ -202,6 +232,25 @@ export class HistoryStore {
     this.file.set([]);
     this.changes.emit();
     for (const l of this.removeListeners) l("all");
+  }
+
+  /**
+   * Adds history from another browser, merged per address the way sync merges it (the later visit
+   * and the larger visit count win), so importing twice changes nothing. Returns how many it read.
+   */
+  importEntries(entries: readonly SyncedHistoryEntry[]): number {
+    if (entries.length === 0) return 0;
+    const before = this.file.get();
+    const next = applySyncedHistory(
+      before,
+      entries.map((entry) => ({ url: entry.url, entry })),
+      () => crypto.randomUUID(),
+    );
+    if (next !== before) {
+      this.file.set(next);
+      this.changes.emit();
+    }
+    return entries.length;
   }
 
   top(limit: number): HistoryRecord[] {

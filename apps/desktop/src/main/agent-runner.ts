@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { Notification } from "electron";
 import {
   AgentStopError,
   runAgent,
@@ -256,6 +257,17 @@ export class AgentRunner {
     void this.drive(win, run, provider);
   }
 
+  /** Why an agent run cannot start (no model set up), or null when it can. */
+  unavailableReason(): string | null {
+    return this.provider() ? null : (this.setupReason() ?? "Agent mode is not available.");
+  }
+
+  /** A run Corvus starts for the person (such as "Download with AI"), shown in the window's Command Bar. */
+  startVisible(win: BrowserWindowCtl, task: string): void {
+    win.sendCommand({ type: "open-command-palette" });
+    this.start(win, task);
+  }
+
   private blankRun(task: string, seededTask: string): Run {
     return {
       id: crypto.randomUUID(),
@@ -489,7 +501,9 @@ export class AgentRunner {
 
     const risk = await classifyToolCall(this.ctx, run, name, input);
     if (name === "ask_user") {
-      const decision = await this.requestApproval(win, run, name, input, { handoff: true, reason: argStr(input, "message") || "The agent needs your help to continue." }, signal);
+      const reason = argStr(input, "message") || "The agent needs your help to continue.";
+      this.notifyHandoff(win, reason);
+      const decision = await this.requestApproval(win, run, name, input, { handoff: true, reason }, signal);
       run.steps = run.steps.map((s) => (s.id === findRunningId(run, name) ? { ...s, status: decision === "approve" ? "ok" : "skipped" } : s));
       if (decision === "stop") throw new AgentStopError("stopped by user");
       return { content: decision === "approve" ? "The user handled it and asked you to continue." : "The user skipped this; continue without it." };
@@ -628,6 +642,18 @@ export class AgentRunner {
       run.status = "awaiting-approval";
       this.push(win, run);
     });
+  }
+
+  /** A handoff while Corvus is in the background: a notification that brings the window back. */
+  private notifyHandoff(win: BrowserWindowCtl, reason: string): void {
+    if (win.win.isDestroyed() || win.win.isFocused() || !Notification.isSupported()) return;
+    const n = new Notification({ title: "Corvus needs you to continue", body: reason.slice(0, 200) });
+    n.on("click", () => {
+      if (win.win.isDestroyed()) return;
+      win.win.show();
+      win.win.focus();
+    });
+    n.show();
   }
 
   private async waitWhilePaused(run: Run, signal: AbortSignal): Promise<void> {
