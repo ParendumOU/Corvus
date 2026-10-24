@@ -1,6 +1,6 @@
 {
   "name": "@corvus/mcp-server",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "license": "MPL-2.0",
   "description": "Corvus MCP server: exposes the browser to AI agents over Streamable HTTP on 127.0.0.1, plus a stdio bridge.",
   "type": "module",

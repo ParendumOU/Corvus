@@ -9,7 +9,9 @@ import {
   isReadingItem,
   isSyncedWatch,
   linkOnlyReadingItem,
+  newAsk,
   withReadState,
+  type AskRecord,
   type Bookmark,
   type DeviceInfo,
   type PairingInfo,
@@ -25,12 +27,14 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { myAsks } from '@/lib/asks';
 import { dataStore } from '@/lib/data-store';
 import { historyList } from '@/lib/history';
 import { bookmarkList, nextPosition, readingList } from '@/lib/library';
 import { watchFor, watchList, type WatchView } from '@/lib/watches';
 import { Replica, computerTabs, type ComputerTabs } from '@/lib/replica';
-import { outbox } from '@/lib/send';
+import { inbox, outbox } from '@/lib/send';
+import { t } from './i18n';
 
 const PAIRING_KEY = 'corvus.pairing';
 const SYNC_STATE_PREFIX = 'corvus-sync/';
@@ -119,12 +123,16 @@ export interface ChainView {
   tabs: ComputerTabs[];
   /** Pages sent from this phone that are still waiting to be opened. */
   outbox: SentTabRecord[];
+  /** Pages a computer sent to this phone, not opened yet. */
+  inbox: SentTabRecord[];
   bookmarks: Bookmark[];
   reading: ReadingItem[];
   /** History of every device, most recent first. */
   history: SyncedHistoryEntry[];
   /** Watched pages, with what the computers last saw. */
   watches: WatchView[];
+  /** Questions this phone asked, newest first, with what their computer answered so far. */
+  asks: AskRecord[];
 }
 
 async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView> {
@@ -135,10 +143,12 @@ async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView>
     self,
     tabs: computerTabs(await replica.records('open_tabs'), devices, self),
     outbox: outbox(await replica.records('sent_tabs'), self),
+    inbox: inbox(await replica.records('sent_tabs'), self),
     bookmarks: bookmarkList(await replica.records('bookmarks')),
     reading: readingList(await replica.records('reading')),
     history: historyList(await replica.records('history')),
     watches: watchList(await replica.records('watches'), await replica.records('watch_status'), devices),
+    asks: myAsks(await replica.records('asks'), self),
   };
 }
 
@@ -200,7 +210,7 @@ export async function refreshView(pairing: Pairing): Promise<ChainView> {
   return view(pairing, devices);
 }
 
-const OLD_SERVER = 'Your sync server does not support sending pages yet: update it to the latest Corvus sync server.';
+const oldServer = (): string => t('Your sync server does not support sending pages yet: update it to the latest Corvus sync server.');
 
 /** Sends a page to one of the chain's computers, which opens it on its next sync. */
 export async function sendPage(pairing: Pairing, page: Pick<SentTab, 'url' | 'title' | 'to'>): Promise<SentTabRecord> {
@@ -208,12 +218,31 @@ export async function sendPage(pairing: Pairing, page: Pick<SentTab, 'url' | 'ti
   const id = Crypto.randomUUID();
   const payload: SentTab = { ...page, fromId: await client.getDeviceId(), from: pairing.deviceName, sentAt: Date.now() };
   await client.push([{ collection: 'sent_tabs', id, payload, deleted: false }]);
-  if (client.unsupported().has('sent_tabs')) throw new Error(OLD_SERVER);
+  if (client.unsupported().has('sent_tabs')) throw new Error(oldServer());
   await replicaFor(pairing).put('sent_tabs', id, payload);
   return { id, ...payload };
 }
 
-/** Takes back a page its computer has not opened yet. */
+const oldServerAsks = (): string => t('Your sync server does not support questions yet: update it to the latest Corvus sync server.');
+
+/** Asks one of the chain's computers a question; it answers with its AI search while Corvus runs there. */
+export async function askComputer(pairing: Pairing, question: string, to: string): Promise<AskRecord> {
+  const client = clientFor(pairing);
+  const id = Crypto.randomUUID();
+  const payload = newAsk(question, to, await client.getDeviceId(), pairing.deviceName, Date.now());
+  await client.push([{ collection: 'asks', id, payload, deleted: false }]);
+  if (client.unsupported().has('asks')) throw new Error(oldServerAsks());
+  await replicaFor(pairing).put('asks', id, payload);
+  return { id, ...payload };
+}
+
+/** Takes a question off the list (and stops its answer if a computer is still writing it). */
+export async function removeAsk(pairing: Pairing, id: string): Promise<void> {
+  await clientFor(pairing).push([{ collection: 'asks', id, payload: null, deleted: true }]);
+  await replicaFor(pairing).put('asks', id, null);
+}
+
+/** Takes back a page its computer has not opened yet, or drops one sent here once it is opened. */
 export async function cancelSent(pairing: Pairing, id: string): Promise<void> {
   await clientFor(pairing).push([{ collection: 'sent_tabs', id, payload: null, deleted: true }]);
   await replicaFor(pairing).put('sent_tabs', id, null);

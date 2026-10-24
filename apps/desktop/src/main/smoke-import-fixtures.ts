@@ -107,6 +107,60 @@ export function writeBrowserFixtures(root: string): DataRoots {
   history.close();
   fs.mkdirSync(path.join(chrome, "Default", "Sessions"), { recursive: true });
   fs.writeFileSync(path.join(chrome, "Default", "Sessions", "Session_13400000000000000"), chromiumSessionFile());
+  // Extensions: two from the Web Store (one named through its locale messages), and a component,
+  // one from Microsoft's store, a theme, one installed with the browser and an uninstall leftover,
+  // which are not offered.
+  const extension = (id: string, version: string, manifest: Record<string, unknown>, messages?: Record<string, { message: string }>): void => {
+    const dir = path.join(chrome, "Default", "Extensions", id, version);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify({ manifest_version: 3, version: version.split("_")[0], ...manifest }));
+    if (messages) {
+      fs.mkdirSync(path.join(dir, "_locales", "en"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "_locales", "en", "messages.json"), JSON.stringify(messages));
+    }
+  };
+  const store = "https://clients2.google.com/service/update2/crx";
+  extension("eimadpbcbfnmbkopoojfekhnkhdbieeh", "4.9.1_0", { name: "__MSG_extName__", default_locale: "en", update_url: store }, { extname: { message: "Night Mode" } });
+  extension("ddkjiahejlhfcafbddmgiahcphecmpfh", "2025.1_0", { name: "uBlock Origin Lite", update_url: store });
+  extension("odfafepnkmbhccpbejgmiehpchacaeak", "1.60_0", { name: "uBlock Origin (Edge)", update_url: "https://edge.microsoft.com/extensionwebstorebase/v1/crx" });
+  extension("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab", "1.0_0", { name: "Dark theme", theme: { colors: {} }, update_url: store });
+  extension("ghbmnnjooekpmoecnnnilnnbdlolhkhi", "1.9_0", { name: "Docs offline", update_url: store });
+  const installed = (id: string, version: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ location: 1, from_webstore: true, path: `${id}/${version}`, ...extra });
+  fs.writeFileSync(
+    path.join(chrome, "Default", "Secure Preferences"),
+    JSON.stringify({
+      extensions: {
+        settings: {
+          eimadpbcbfnmbkopoojfekhnkhdbieeh: installed("eimadpbcbfnmbkopoojfekhnkhdbieeh", "4.9.1_0"),
+          ddkjiahejlhfcafbddmgiahcphecmpfh: installed("ddkjiahejlhfcafbddmgiahcphecmpfh", "2025.1_0"),
+          odfafepnkmbhccpbejgmiehpchacaeak: installed("odfafepnkmbhccpbejgmiehpchacaeak", "1.60_0", { from_webstore: false }),
+          aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab: installed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab", "1.0_0"),
+          ghbmnnjooekpmoecnnnilnnbdlolhkhi: installed("ghbmnnjooekpmoecnnnilnnbdlolhkhi", "1.9_0", { was_installed_by_default: true }),
+          mhjfbmdgcfjbbpaeojofohoefgiehjai: { location: 5, path: "/opt/chrome/resources/pdf", manifest: { name: "Chrome PDF Viewer" } },
+          bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: installed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "3.0_0"),
+        },
+      },
+      protection: { macs: {} },
+    }),
+  );
+  fs.writeFileSync(path.join(chrome, "Default", "Preferences"), JSON.stringify({ extensions: { settings: { eimadpbcbfnmbkopoojfekhnkhdbieeh: { state: 1 } } } }));
+  // Site search (Web Data's keywords): the person's own, an edited built-in and an auto-added one
+  // they turned on are imported; a built-in as it came, an inactive auto-added one, a starter pack
+  // and a policy one are not.
+  const webData = new DatabaseSync(path.join(chrome, "Default", "Web Data"));
+  webData.exec(
+    "CREATE TABLE keywords (id INTEGER PRIMARY KEY, short_name TEXT, keyword TEXT, url TEXT, safe_for_autoreplace INTEGER, prepopulate_id INTEGER, created_by_policy INTEGER, is_active INTEGER, starter_pack_id INTEGER)",
+  );
+  const addKeyword = webData.prepare("INSERT INTO keywords (short_name, keyword, url, safe_for_autoreplace, prepopulate_id, created_by_policy, is_active, starter_pack_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  const google = "{google:baseURL}search?q={searchTerms}&{google:RLZ}{google:originalQueryForSuggestion}ie={inputEncoding}";
+  addKeyword.run("YouTube", "yt", "https://www.youtube.com/results?search_query={searchTerms}", 0, 0, 0, 1, 0);
+  addKeyword.run("Google", "google.com", google, 1, 1, 0, 0, 0);
+  addKeyword.run("Google", "g", google, 0, 1, 0, 0, 0);
+  addKeyword.run("GitHub", "github.com", "https://github.com/search?q={searchTerms}", 1, 0, 0, 2, 0);
+  addKeyword.run("Wikipedia", "wiki", "https://en.wikipedia.org/w/index.php?search={searchTerms}", 1, 0, 0, 1, 0);
+  addKeyword.run("Bookmarks", "@bookmarks", "chrome://bookmarks/?q={searchTerms}", 0, 0, 0, 0, 1);
+  addKeyword.run("Intranet", "in", "https://intranet.example/?q={searchTerms}", 0, 0, 1, 1, 0);
+  webData.close();
   // A second profile with bookmarks only.
   fs.writeFileSync(path.join(chrome, "Profile 1", "Bookmarks"), JSON.stringify({ roots: { bookmark_bar: { type: "folder", name: "Bar", children: [{ type: "url", name: "Work", url: "https://work.example/" }] } } }));
 
@@ -120,12 +174,21 @@ export function writeBrowserFixtures(root: string): DataRoots {
   const places = new DatabaseSync(path.join(profile, "places.sqlite"));
   places.exec(
     "CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER, hidden INTEGER, last_visit_date INTEGER);" +
-      "CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, parent INTEGER, position INTEGER, title TEXT, guid TEXT);",
+      "CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, parent INTEGER, position INTEGER, title TEXT, guid TEXT);" +
+      "CREATE TABLE moz_keywords (id INTEGER PRIMARY KEY, keyword TEXT UNIQUE, place_id INTEGER, post_data TEXT);",
   );
   const addPlace = places.prepare("INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date) VALUES (?, ?, ?, ?, ?, ?)");
   addPlace.run(1, "https://firefox.example/", "Firefox page", 5, 0, (FIXTURE_NOW - 1_800_000) * 1000);
   addPlace.run(2, "https://mdn.example/", "MDN", 0, 0, null);
   addPlace.run(3, "place:sort=8", "Most visited", 0, 1, null);
+  // Bookmark keywords: "bug 123" opens a bug; a POST one and one the MDN engine already has are left out.
+  addPlace.run(4, "https://bugs.example/show_bug.cgi?id=%S", "Bug", 0, 0, null);
+  addPlace.run(5, "https://developer.mozilla.org/search?q=%s", "MDN search", 0, 0, null);
+  addPlace.run(6, "https://post.example/search", "Post search", 0, 0, null);
+  const addFxKeyword = places.prepare("INSERT INTO moz_keywords (keyword, place_id, post_data) VALUES (?, ?, ?)");
+  addFxKeyword.run("bug", 4, null);
+  addFxKeyword.run("mdn", 5, null);
+  addFxKeyword.run("post", 6, "q=%s");
   const addMark = places.prepare("INSERT INTO moz_bookmarks (id, type, fk, parent, position, title, guid) VALUES (?, ?, ?, ?, ?, ?, ?)");
   addMark.run(1, 2, null, 0, 0, "", "root________");
   addMark.run(2, 2, null, 1, 0, "menu", "menu________");
@@ -136,6 +199,42 @@ export function writeBrowserFixtures(root: string): DataRoots {
   addMark.run(12, 1, 1, 11, 0, "Firefox page", "bm12");
   addMark.run(13, 1, 3, 2, 0, "Most visited", "bm13");
   places.close();
+  fs.writeFileSync(
+    path.join(profile, "extensions.json"),
+    JSON.stringify({
+      schemaVersion: 36,
+      addons: [
+        { id: "{a1b2c3d4-0000-4000-8000-000000000001}", type: "extension", location: "app-profile", defaultLocale: { name: "uBlock Origin" } },
+        { id: "{a1b2c3d4-0000-4000-8000-000000000002}", type: "extension", location: "app-system-defaults", isSystem: true, defaultLocale: { name: "Form Autofill" } },
+        { id: "{a1b2c3d4-0000-4000-8000-000000000003}", type: "theme", location: "app-profile", defaultLocale: { name: "Dark" } },
+      ],
+    }),
+  );
+  // Search engines: the person's own with an alias and a site's with its "@" alias are imported; a
+  // built-in engine (no address in the file) and one without an alias are not.
+  fs.writeFileSync(
+    path.join(profile, "search.json.mozlz4"),
+    mozLz4(
+      JSON.stringify({
+        version: 12,
+        engines: [
+          { id: "ddg", _name: "DuckDuckGo", _isConfigEngine: true, _metaData: { alias: "d" } },
+          { id: "u1", _name: "MDN", _loadPath: "[user]", _metaData: { alias: "mdn" }, _urls: [{ template: "https://developer.mozilla.org/search?q={searchTerms}", params: [] }] },
+          {
+            id: "o1",
+            _name: "Wikipedia (es)",
+            _loadPath: "[https]es.wikipedia.org/opensearch.xml",
+            _definedAliases: ["@wikies"],
+            _urls: [
+              { template: "https://es.wikipedia.org/w/api.php?action=opensearch&search={searchTerms}", type: "application/x-suggestions+json" },
+              { template: "https://es.wikipedia.org/w/index.php", type: "text/html", params: [{ name: "search", value: "{searchTerms}" }] },
+            ],
+          },
+          { id: "u2", _name: "No alias", _loadPath: "[user]", _metaData: {}, _urls: [{ template: "https://noalias.example/?q={searchTerms}" }] },
+        ],
+      }),
+    ),
+  );
   fs.mkdirSync(path.join(profile, "sessionstore-backups"), { recursive: true });
   fs.writeFileSync(
     path.join(profile, "sessionstore-backups", "recovery.jsonlz4"),

@@ -3,7 +3,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, webContents } from "electron";
-import { decodePairing, linkOnlyReadingItem, parseDeviceWatchStatus, type SearchEvent } from "@corvus/shared";
+import { decodePairing, linkOnlyReadingItem, newAsk, parseAsk, parseDeviceWatchStatus, type Ask, type SearchEvent } from "@corvus/shared";
 import { createSyncClient } from "@corvus/sync-core";
 import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
@@ -37,7 +37,7 @@ import { runPdfSmoke } from "./smoke-pdf";
 import { runReaderSmoke } from "./smoke-reader";
 import { runExtensionSmoke } from "./smoke-extensions";
 import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
-import { runSearchSmoke } from "./smoke-search";
+import { fakeSearchDeps, runSearchSmoke } from "./smoke-search";
 import { runWebscopeSmoke } from "./smoke-webscope";
 
 const PAGE = `<!doctype html><html><head><title>Smoke</title></head><body>
@@ -336,6 +336,45 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
     deletedOnChain: sentGone,
   });
   for (const tab of sentTabs) win.closeTab(tab.id);
+
+  // "Send to your phone" lists the paired phone and sends the page to it.
+  const phones = ctx.sync.phones(profile);
+  const toPhoneUrl = `${pageUrl}${pageUrl.includes("?") ? "&" : "?"}corvus-to-phone=1`;
+  await ctx.sync.sendTab(profile, phoneId, toPhoneUrl, "Sent to the phone");
+  const onPhone = (await phone.pull()).find((i) => i.collection === "sent_tabs" && !i.deleted && (i.payload as { url?: string } | null)?.url === toPhoneUrl);
+  check(
+    "send to phone: the paired phone is offered and gets the page, addressed to it",
+    phones.some((p) => p.id === phoneId && p.name === "Smoke phone") && (onPhone?.payload as { to?: string } | undefined)?.to === phoneId,
+    { phones, payload: onPhone?.payload ?? null },
+  );
+  if (onPhone) await phone.push([{ collection: "sent_tabs", id: onPhone.id, payload: null, deleted: true }]);
+
+  // A question asked on the phone is answered here with the AI search, streaming onto the chain.
+  ctx.search.setTestDeps(fakeSearchDeps());
+  const askId = "smoke-ask-1";
+  let asked: Ask | null = null;
+  try {
+    await phone.push([{ collection: "asks", id: askId, payload: newAsk("How long do ravens live?", deskId, phoneId, "Smoke phone", Date.now()), deleted: false }]);
+    await ctx.sync.syncNow(profile);
+    const states = new Set<string>();
+    const until = Date.now() + 20_000;
+    while (Date.now() < until && asked?.state !== "done" && asked?.state !== "error") {
+      await new Promise((r) => setTimeout(r, 300));
+      for (const item of await phone.pull()) {
+        if (item.collection !== "asks" || item.id !== askId || item.deleted) continue;
+        asked = parseAsk(item.payload);
+        if (asked) states.add(asked.state);
+      }
+    }
+    check(
+      "ask from the phone: this computer answers with its AI search, with sources, while the phone watches",
+      asked?.state === "done" && asked.answer.length > 20 && asked.sources.length > 0 && asked.answeredBy.length > 0 && states.has("answering"),
+      { state: asked?.state, states: [...states], answer: asked?.answer.slice(0, 120), sources: asked?.sources.length, error: asked?.error },
+    );
+  } finally {
+    ctx.search.setTestDeps(null);
+    await phone.push([{ collection: "asks", id: askId, payload: null, deleted: true }]);
+  }
 
   // A link saved for later on the phone joins the reading list here; read state syncs both ways.
   const laterUrl = `${pageUrl}${pageUrl.includes("?") ? "&" : "?"}corvus-later=1`;

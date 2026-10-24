@@ -658,6 +658,15 @@ export function SharePopover({ share, anchor, onClose }: { share: PhoneShare; an
   const api = chromeApi();
   const [sent, setSent] = useState<"idle" | "sending" | "sent" | string>("idle");
   const [copied, setCopied] = useState(false);
+  const [toPhone, setToPhone] = useState<Record<string, "sending" | "sent" | string>>({});
+  const sendToPhone = (id: string): void => {
+    setToPhone((s) => ({ ...s, [id]: "sending" }));
+    api.call("share.device", id, share.url, share.title).then(
+      () => setToPhone((s) => ({ ...s, [id]: "sent" })),
+      (err: unknown) => setToPhone((s) => ({ ...s, [id]: err instanceof Error ? err.message : String(err) })),
+    );
+  };
+  const phoneError = Object.values(toPhone).find((v) => v !== "sending" && v !== "sent");
   const sendTelegram = (): void => {
     setSent("sending");
     api.call("share.telegram", share.url, share.title).then(
@@ -673,6 +682,22 @@ export function SharePopover({ share, anchor, onClose }: { share: PhoneShare; an
       </div>
       <img className="share-qr" alt={`QR code for ${share.url}`} src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(share.qrSvg)}`} />
       <div className="muted small share-hint">Scan it with your phone's camera to open the page there.</div>
+      {share.phones.length > 0 && (
+        <div className="popover-actions share-phones">
+          {share.phones.map((p) => (
+            <button
+              key={p.id}
+              className="btn small primary"
+              data-share-phone={p.name}
+              disabled={toPhone[p.id] === "sending" || toPhone[p.id] === "sent"}
+              onClick={() => sendToPhone(p.id)}
+            >
+              {toPhone[p.id] === "sent" ? `Sent to ${p.name}` : toPhone[p.id] === "sending" ? "Sending…" : `Send to ${p.name}`}
+            </button>
+          ))}
+        </div>
+      )}
+      {phoneError && <div className="share-error small">{phoneError}</div>}
       <div className="popover-actions">
         <button
           className="btn small"

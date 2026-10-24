@@ -9,6 +9,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { refreshSession, useSession, watch } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
+import { t } from '@/lib/i18n';
 import { ago } from '@/lib/format';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
@@ -17,10 +18,10 @@ import { INTERVAL_CHOICES, describeInterval, type WatchView } from '@/lib/watche
 function ConditionState({ w }: { w: WatchView }) {
   if (!w.condition) return null;
   const met = w.status?.conditionMet;
-  const state = met === true ? 'Yes' : met === false ? 'Not yet' : 'Not known yet';
+  const state = met === true ? t('Yes') : met === false ? t('Not yet') : t('Not known yet');
   return (
     <ThemedText type="small" themeColor="textSecondary" testID={`watch-condition-${w.url}`}>
-      Notify me when {w.condition} · <ThemedText type="smallBold" style={met === true ? styles.met : undefined}>{state}</ThemedText>
+      {t('Notify me when {condition}', { condition: w.condition })} · <ThemedText type="smallBold" style={met === true ? styles.met : undefined}>{state}</ThemedText>
       {w.status?.conditionDetail ? ` (${w.status.conditionDetail})` : ''}
     </ThemedText>
   );
@@ -28,7 +29,11 @@ function ConditionState({ w }: { w: WatchView }) {
 
 function WatchCard({ w }: { w: WatchView }) {
   const s = w.status;
-  const checked = w.paused ? 'Paused' : s?.lastCheckedAt ? `Checked ${ago(s.lastCheckedAt)} by ${s.device}` : 'Not checked yet: a computer with Corvus checks it soon';
+  const checked = w.paused
+    ? t('Paused')
+    : s?.lastCheckedAt
+      ? t('Checked {when} by {computer}', { when: ago(s.lastCheckedAt), computer: s.device })
+      : t('Not checked yet: a computer with Corvus checks it soon');
   return (
     <ThemedView type="backgroundElement" style={styles.card} testID={`watch-${w.url}`}>
       <Pressable accessibilityRole="link" onPress={() => void openInApp(w.url)} onLongPress={() => void openInBrowser(w.url)} style={styles.head}>
@@ -45,13 +50,13 @@ function WatchCard({ w }: { w: WatchView }) {
       <ConditionState w={w} />
       {s?.lastChangedAt ? (
         <ThemedText type="small" testID={`watch-change-${w.url}`}>
-          Changed {ago(s.lastChangedAt)}
+          {t('Changed {when}', { when: ago(s.lastChangedAt) })}
           {s.summary ? `: ${s.summary}` : ''}
         </ThemedText>
       ) : null}
       {s?.result === 'error' && s.error ? (
         <ThemedText type="small" style={styles.error}>
-          Could not check it: {s.error}
+          {t('Could not check it: {error}', { error: s.error })}
         </ThemedText>
       ) : null}
       <ThemedText type="small" themeColor="textSecondary">
@@ -81,7 +86,7 @@ export default function WatchesScreen() {
       setText('');
       setCondition('');
     } catch (err) {
-      setError(`Could not add it: ${err instanceof Error ? err.message : String(err)}`);
+      setError(t('Could not add it: {error}', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setBusy(false);
     }
@@ -95,9 +100,9 @@ export default function WatchesScreen() {
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={session.refreshing} onRefresh={() => void refreshSession()} />}>
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">Watch a page</ThemedText>
+          <ThemedText type="smallBold">{t('Watch a page')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Your computers check it and tell you when it changes, or only when your condition comes true (“the price is under 100”).
+            {t('Your computers check it and tell you when it changes, or only when your condition comes true (“the price is under 100”).')}
           </ThemedText>
           <TextInput
             testID="watch-url"
@@ -115,7 +120,7 @@ export default function WatchesScreen() {
             style={input}
             value={condition}
             onChangeText={setCondition}
-            placeholder="Notify me when… (optional)"
+            placeholder={t('Notify me when… (optional)')}
             placeholderTextColor={theme.textSecondary}
           />
           <View style={styles.chips}>
@@ -133,7 +138,7 @@ export default function WatchesScreen() {
               </Pressable>
             ))}
           </View>
-          <Button label="Watch this page" busy={busy} disabled={!url || busy} onPress={() => void add()} testID="watch-add" />
+          <Button label={t('Watch this page')} busy={busy} disabled={!url || busy} onPress={() => void add()} testID="watch-add" />
           {error && (
             <ThemedText type="small" style={styles.error}>
               {error}
@@ -143,7 +148,7 @@ export default function WatchesScreen() {
 
         {session.watches.length === 0 && (
           <ThemedText type="small" themeColor="textSecondary" style={styles.center} testID="watches-empty">
-            {session.refreshed ? 'No watched pages yet.' : 'Loading…'}
+            {session.refreshed ? t('No watched pages yet.') : t('Loading…')}
           </ThemedText>
         )}
         {session.watches.map((w) => (

@@ -10,6 +10,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { bookmarkPage, saveToReadingList, sendToComputer, useSession, watch } from '@/hooks/use-session';
 import { useSharedText } from '@/hooks/use-shared-text';
 import { useTheme } from '@/hooks/use-theme';
+import { t } from '@/lib/i18n';
 import { tabHost } from '@/lib/replica';
 import { sendTargets } from '@/lib/send';
 
@@ -52,7 +53,7 @@ export default function SendScreen() {
       else if (router.canGoBack()) router.back();
       else router.replace(action === 'send' ? '/' : '/library');
     } catch (err) {
-      setError(`That did not work: ${err instanceof Error ? err.message : String(err)}`);
+      setError(t('That did not work: {error}', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setBusy(null);
     }
@@ -63,9 +64,9 @@ export default function SendScreen() {
       <ThemedView style={styles.container}>
         <View style={styles.content}>
           <ThemedText type="small" themeColor="textSecondary">
-            Pair this phone with your computer first, then share the page again.
+            {t('Pair this phone with your computer first, then share the page again.')}
           </ThemedText>
-          <Button label="Pair with a computer" onPress={() => router.replace('/pair')} testID="send-pair" />
+          <Button label={t('Pair with a computer')} onPress={() => router.replace('/pair')} testID="send-pair" />
         </View>
       </ThemedView>
     );
@@ -75,7 +76,7 @@ export default function SendScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">Page</ThemedText>
+          <ThemedText type="smallBold">{t('Page')}</ThemedText>
           <TextInput
             testID="send-url"
             style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
@@ -90,7 +91,7 @@ export default function SendScreen() {
           />
           {text.trim() !== '' && !url && (
             <ThemedText type="small" style={styles.error}>
-              That is not a web address.
+              {t('That is not a web address.')}
             </ThemedText>
           )}
           <TextInput
@@ -98,19 +99,19 @@ export default function SendScreen() {
             style={[styles.input, styles.title, { color: theme.text, backgroundColor: theme.background }]}
             value={title}
             onChangeText={setTitle}
-            placeholder="Title (optional)"
+            placeholder={t('Title (optional)')}
             placeholderTextColor={theme.textSecondary}
           />
         </ThemedView>
 
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">Send to a computer</ThemedText>
+          <ThemedText type="smallBold">{t('Send to a computer')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            It opens in a new tab there the next time Corvus syncs (within a minute while it is running).
+            {t('It opens in a new tab there the next time Corvus syncs (within a minute while it is running).')}
           </ThemedText>
           {targets.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary" testID="send-no-computer">
-              {session.refreshed ? 'No computer on this sync chain yet.' : 'Loading…'}
+              {session.refreshed ? t('No computer on this sync chain yet.') : t('Loading…')}
             </ThemedText>
           )}
           <View style={styles.chips}>
@@ -132,7 +133,7 @@ export default function SendScreen() {
             })}
           </View>
           <Button
-            label={target ? `Send to ${target.name}` : 'Send'}
+            label={target ? t('Send to {computer}', { computer: target.name }) : t('Send')}
             busy={busy === 'send'}
             disabled={!url || !target || busy !== null}
             onPress={() => void run('send')}
@@ -141,21 +142,21 @@ export default function SendScreen() {
         </ThemedView>
 
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">Keep it</ThemedText>
+          <ThemedText type="smallBold">{t('Keep it')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Saved on every device. For the reading list, a computer with Corvus fetches the article.
+            {t('Saved on every device. For the reading list, a computer with Corvus fetches the article.')}
           </ThemedText>
           <Button
-            label="Save to reading list"
+            label={t('Save to reading list')}
             kind="secondary"
             busy={busy === 'read-later'}
             disabled={!url || busy !== null}
             onPress={() => void run('read-later')}
             testID="send-read-later"
           />
-          <Button label="Bookmark" kind="secondary" busy={busy === 'bookmark'} disabled={!url || busy !== null} onPress={() => void run('bookmark')} testID="send-bookmark" />
+          <Button label={t('Bookmark')} kind="secondary" busy={busy === 'bookmark'} disabled={!url || busy !== null} onPress={() => void run('bookmark')} testID="send-bookmark" />
           <Button
-            label="Watch for changes"
+            label={t('Watch for changes')}
             kind="secondary"
             busy={busy === 'watch'}
             disabled={!url || busy !== null}

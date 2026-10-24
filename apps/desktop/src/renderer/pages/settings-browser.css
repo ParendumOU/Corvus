@@ -52,3 +52,39 @@
     background: var(--c-dark);
   }
 }
+.site-search-row {
+  align-items: center;
+  gap: 10px;
+}
+.site-search-row .grow {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.site-search-keyword {
+  min-width: 48px;
+  font-size: 12px;
+}
+.site-search-name {
+  font-weight: 500;
+}
+.site-search-url {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.site-search-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.site-search-new .input.keyword {
+  width: 90px;
+}
+.site-search-new .input.grow {
+  flex: 1;
+  min-width: 220px;
+}

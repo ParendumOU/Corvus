@@ -78,3 +78,43 @@
 .import-profile .notice {
   margin-top: 8px;
 }
+.import-extensions {
+  margin-top: 8px;
+  font-size: 13px;
+}
+.import-extensions summary {
+  cursor: pointer;
+  color: var(--text-2);
+}
+.import-extensions .sub {
+  color: var(--text-2);
+  font-size: 12px;
+  margin: 6px 0;
+  max-width: 64ch;
+}
+.import-extensions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.import-extensions li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+.import-extensions li .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-extensions li a.btn {
+  text-decoration: none;
+}
+.import-extensions li .notice {
+  flex-basis: 100%;
+  margin-top: 0;
+}

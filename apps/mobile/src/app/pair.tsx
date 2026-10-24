@@ -10,6 +10,7 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { pairPhone } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
+import { t } from '@/lib/i18n';
 import { checkManualPairing, checkPairingCode, phoneDeviceName, type PairingCheck } from '@/lib/pairing';
 
 export default function PairScreen() {
@@ -34,7 +35,7 @@ export default function PairScreen() {
       if (router.canGoBack()) router.back();
       else router.replace('/');
     } catch (err) {
-      setError(`Could not join the sync chain: ${err instanceof Error ? err.message : String(err)}`);
+      setError(t('Could not join the sync chain: {error}', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setBusy(false);
     }
@@ -55,25 +56,24 @@ export default function PairScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ThemedText type="small" themeColor="textSecondary">
-          On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Anyone with that code can read your synced data, so pair
-          only your own phone.
+          {t('On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Anyone with that code can read your synced data, so pair only your own phone.')}
         </ThemedText>
 
         {canScan && (
           <ThemedView type="backgroundElement" style={styles.card}>
-            <ThemedText type="smallBold">Scan the code</ThemedText>
+            <ThemedText type="smallBold">{t('Scan the code')}</ThemedText>
             {permission?.granted ? (
               <CameraView style={styles.camera} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onScanned} />
             ) : (
-              <Button label="Use the camera" kind="secondary" onPress={() => void requestPermission()} />
+              <Button label={t('Use the camera')} kind="secondary" onPress={() => void requestPermission()} />
             )}
           </ThemedView>
         )}
 
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">{canScan ? 'Or enter it by hand' : 'Enter the code'}</ThemedText>
+          <ThemedText type="smallBold">{canScan ? t('Or enter it by hand') : t('Enter the code')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Sync server address
+            {t('Sync server address')}
           </ThemedText>
           <TextInput
             testID="pair-server"
@@ -87,7 +87,7 @@ export default function PairScreen() {
             keyboardType="url"
           />
           <ThemedText type="small" themeColor="textSecondary">
-            Recovery phrase (24 words), or the pairing code
+            {t('Recovery phrase (24 words), or the pairing code')}
           </ThemedText>
           <TextInput
             testID="pair-phrase"
@@ -101,7 +101,7 @@ export default function PairScreen() {
             secureTextEntry={false}
             multiline
           />
-          <Button label="Pair" busy={busy} disabled={!phrase.trim()} onPress={() => void finish(checkManualPairing(server, phrase))} testID="pair-submit" />
+          <Button label={t('Pair')} busy={busy} disabled={!phrase.trim()} onPress={() => void finish(checkManualPairing(server, phrase))} testID="pair-submit" />
         </ThemedView>
 
         {error && (

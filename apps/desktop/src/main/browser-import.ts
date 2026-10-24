@@ -6,15 +6,19 @@ import { countBookmarks, parseChromeJson, type ImportedNode } from "../shared/bo
 import { OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import {
   browserLocations,
+  chromiumExtensionEntries,
   chromiumProfiles,
   chromiumTime,
   firefoxBookmarkTree,
+  firefoxExtensions,
   firefoxProfiles,
   firefoxTime,
   importableHistory,
   isChromiumProfileDir,
+  webStoreExtension,
   type DataRoots,
   type FirefoxBookmarkRow,
+  type ImportExtension,
   type ImportKind,
   type ImportProfile,
   type ImportResult,
@@ -23,6 +27,7 @@ import {
 } from "../shared/browser-import";
 import { MAX_HISTORY_ENTRIES } from "../shared/history-ops";
 import { chromiumSession, decodeMozLz4, firefoxSession, type ImportedWindow } from "../shared/browser-sessions";
+import { chromiumSiteSearches, cleanSiteSearches, firefoxKeyword, firefoxSearchEngines, type SiteSearch } from "../shared/site-search";
 import type { ProfileRuntime } from "./profiles";
 
 type Family = ImportSource["family"];
@@ -84,6 +89,21 @@ const count = (db: DatabaseSync, sql: string): number => Number((db.prepare(sql)
 
 const CHROMIUM_HISTORY_COUNT = "SELECT count(*) AS n FROM urls WHERE hidden = 0 AND (url LIKE 'http://%' OR url LIKE 'https://%')";
 const FIREFOX_BOOKMARK_COUNT = "SELECT count(*) AS n FROM moz_bookmarks b JOIN moz_places p ON p.id = b.fk WHERE b.type = 1 AND (p.url LIKE 'http%' OR p.url LIKE 'ftp%' OR p.url LIKE 'file%')";
+/** Firefox's bookmark keywords ("w" + a bookmarked address with %s); ones that POST are left out. */
+function firefoxKeywords(db: DatabaseSync): SiteSearch[] {
+  try {
+    const found = db
+      .prepare(
+        "SELECT k.keyword AS keyword, p.url AS url, k.post_data AS post, (SELECT b.title FROM moz_bookmarks b WHERE b.fk = p.id AND b.title <> '' LIMIT 1) AS title FROM moz_keywords k JOIN moz_places p ON p.id = k.place_id",
+      )
+      .all() as Array<{ keyword: unknown; url: unknown; post: unknown; title: unknown }>;
+    return found.filter((r) => !r.post).flatMap((r) => firefoxKeyword(r.keyword, r.url, r.title) ?? []);
+  } catch {
+    // An older places.sqlite without moz_keywords.
+    return [];
+  }
+}
+
 const FIREFOX_HISTORY_COUNT = "SELECT count(*) AS n FROM moz_places WHERE visit_count > 0 AND hidden = 0 AND last_visit_date IS NOT NULL AND (url LIKE 'http://%' OR url LIKE 'https://%')";
 
 /**
@@ -119,13 +139,13 @@ export class BrowserImport {
       const profiles = loc.family === "chromium" ? this.chromiumProfiles(loc.dir, loc.singleProfile === true, loc.name) : this.firefoxProfiles(loc.dir);
       if (profiles.length === 0) continue;
       const counted: ImportProfile[] = [];
-      for (const p of profiles) counted.push({ ...p, counts: await this.counts(loc.family, p.path) });
+      for (const p of profiles) counted.push({ ...p, counts: await this.counts(loc.family, p.path), extensions: this.extensions(loc.family, p.path) });
       sources.push({ id: loc.id, name: loc.name, family: loc.family, profiles: counted });
     }
     return { sources };
   }
 
-  private chromiumProfiles(dir: string, single: boolean, browser: string): Array<Omit<ImportProfile, "counts">> {
+  private chromiumProfiles(dir: string, single: boolean, browser: string): Array<Omit<ImportProfile, "counts" | "extensions">> {
     if (single) return exists(path.join(dir, "Bookmarks")) || exists(path.join(dir, "History")) ? [{ dir: "", name: browser, path: dir, isDefault: true }] : [];
     let found: string[] = [];
     try {
@@ -136,12 +156,37 @@ export class BrowserImport {
     return chromiumProfiles(readText(path.join(dir, "Local State")), found).map((p) => ({ ...p, path: path.join(dir, p.dir) }));
   }
 
-  private firefoxProfiles(dir: string): Array<Omit<ImportProfile, "counts">> {
+  private firefoxProfiles(dir: string): Array<Omit<ImportProfile, "counts" | "extensions">> {
     const ini = readText(path.join(dir, "profiles.ini"));
     if (!ini) return [];
     return firefoxProfiles(ini)
       .map((p) => ({ dir: p.path, name: p.name, path: p.relative ? path.join(dir, ...p.path.split("/")) : p.path, isDefault: p.isDefault }))
       .filter((p) => exists(path.join(p.path, "places.sqlite")));
+  }
+
+  /**
+   * Extensions the person installed in a profile: a Chromium profile's Web Store extensions (name
+   * from the installed manifest), a Firefox profile's add-ons by name. Small files, read directly.
+   */
+  private extensions(family: Family, dir: string): ImportExtension[] {
+    if (family === "firefox") return firefoxExtensions(readText(path.join(dir, "extensions.json")));
+    const found: ImportExtension[] = [];
+    for (const entry of chromiumExtensionEntries([readText(path.join(dir, "Preferences")), readText(path.join(dir, "Secure Preferences"))])) {
+      const folder = path.isAbsolute(entry.path) ? entry.path : path.join(dir, "Extensions", ...entry.path.split(/[\\/]/));
+      let manifest: unknown = null;
+      try {
+        manifest = JSON.parse(readText(path.join(folder, "manifest.json")) ?? "null");
+      } catch {
+        manifest = null;
+      }
+      // An entry without its files is a leftover of an uninstall.
+      if (!manifest && !entry.manifest) continue;
+      const locale = ((manifest ?? entry.manifest) as { default_locale?: unknown }).default_locale;
+      const messages = typeof locale === "string" && /^[\w-]+$/.test(locale) ? readText(path.join(folder, "_locales", locale, "messages.json")) : null;
+      const extension = webStoreExtension(entry, manifest, messages);
+      if (extension) found.push(extension);
+    }
+    return found.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   private async counts(family: Family, dir: string): Promise<ImportProfile["counts"]> {
@@ -158,13 +203,42 @@ export class BrowserImport {
         tabs,
         bookmarks: exists(path.join(dir, "Bookmarks")) ? await safe(async () => countBookmarks(parseChromeJson(await fs.promises.readFile(path.join(dir, "Bookmarks"), "utf8")))) : 0,
         history: exists(path.join(dir, "History")) ? await safe(() => withDatabase(path.join(dir, "History"), (db) => count(db, CHROMIUM_HISTORY_COUNT))) : 0,
+        search: exists(path.join(dir, "Web Data")) ? await safe(async () => (await this.searches(family, dir)).length) : 0,
       };
     }
     try {
-      // One copy of places.sqlite serves both counts.
-      return { ...(await withDatabase(path.join(dir, "places.sqlite"), (db) => ({ bookmarks: count(db, FIREFOX_BOOKMARK_COUNT), history: count(db, FIREFOX_HISTORY_COUNT) }))), tabs };
+      // One copy of places.sqlite serves the bookmark, history and keyword counts.
+      const { keywords, ...counts } = await withDatabase(path.join(dir, "places.sqlite"), (db) => ({
+        bookmarks: count(db, FIREFOX_BOOKMARK_COUNT),
+        history: count(db, FIREFOX_HISTORY_COUNT),
+        keywords: firefoxKeywords(db),
+      }));
+      return { ...counts, tabs, search: cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]).length };
     } catch {
-      return { bookmarks: null, history: null, tabs };
+      return { bookmarks: null, history: null, tabs, search: null };
+    }
+  }
+
+  /**
+   * Search shortcuts of a profile: Chromium's own site searches (Web Data), Firefox's engines with
+   * an alias and its bookmark keywords.
+   */
+  private async searches(family: Family, dir: string): Promise<SiteSearch[]> {
+    if (family === "chromium") {
+      const file = path.join(dir, "Web Data");
+      return exists(file) ? withDatabase(file, (db) => chromiumSiteSearches(db.prepare("SELECT * FROM keywords").all() as Array<Record<string, unknown>>)) : [];
+    }
+    const keywords = await withDatabase(path.join(dir, "places.sqlite"), firefoxKeywords);
+    return cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]);
+  }
+
+  /** Firefox's search engines (search.json.mozlz4); none when the file is missing or unreadable. */
+  private async firefoxEngines(dir: string): Promise<SiteSearch[]> {
+    try {
+      const data = new Uint8Array(await fs.promises.readFile(path.join(dir, "search.json.mozlz4")));
+      return firefoxSearchEngines(JSON.parse(decodeMozLz4(data)) as unknown);
+    } catch {
+      return [];
     }
   }
 
@@ -188,6 +262,13 @@ export class BrowserImport {
         result.history = { imported: runtime.history.importEntries(await this.history(source.family, profile.path)) };
       } catch (err) {
         result.errors.history = readError(err, source.name);
+      }
+    }
+    if (kinds.includes("search")) {
+      try {
+        result.search = { imported: runtime.siteSearch.importMany(await this.searches(source.family, profile.path)) };
+      } catch (err) {
+        result.errors.search = readError(err, source.name);
       }
     }
     if (kinds.includes("tabs")) {

@@ -3,8 +3,10 @@
  * exercised end to end against a real sync server in tests.
  */
 import {
+  ASK_ID_RE,
   SENT_TAB_ID_RE,
   isSyncedBookmark,
+  parseAsk,
   parseDeviceWatchStatus,
   parseSentTab,
   type Bookmark,
@@ -344,18 +346,36 @@ export function sentTabsAdapter(records: DeviceRecords): SyncAdapter<unknown> {
   };
 }
 
+/**
+ * Questions asked from the phone (one record per question). Kept verbatim like sent pages; the
+ * computer a question went to answers it in place (SyncService), and the phone deletes it.
+ */
+export function asksAdapter(records: DeviceRecords): SyncAdapter<unknown> {
+  return {
+    list: () => Object.entries(records.all()).map(([id, payload]) => ({ id, payload })),
+    apply: (items) => {
+      for (const item of items) {
+        if (!ASK_ID_RE.test(item.id)) continue;
+        if (item.deleted) records.delete(item.id);
+        else if (parseAsk(item.payload)) records.set(item.id, item.payload);
+      }
+    },
+  };
+}
+
 interface RemoteFile {
   open_tabs: Record<string, unknown>;
   extensions: Record<string, unknown>;
   watch_status: Record<string, unknown>;
   sent_tabs: Record<string, unknown>;
+  asks: Record<string, unknown>;
   dismissedExtensions: string[];
 }
 
-type RemoteCollection = "open_tabs" | "extensions" | "watch_status" | "sent_tabs";
+type RemoteCollection = "open_tabs" | "extensions" | "watch_status" | "sent_tabs" | "asks";
 
 function emptyRemote(): RemoteFile {
-  return { open_tabs: {}, extensions: {}, watch_status: {}, sent_tabs: {}, dismissedExtensions: [] };
+  return { open_tabs: {}, extensions: {}, watch_status: {}, sent_tabs: {}, asks: {}, dismissedExtensions: [] };
 }
 
 function reviveRemote(raw: unknown): RemoteFile {
@@ -367,6 +387,7 @@ function reviveRemote(raw: unknown): RemoteFile {
     extensions: records(raw.extensions, DEVICE_KEY_RE),
     watch_status: records(raw.watch_status, DEVICE_KEY_RE),
     sent_tabs: records(raw.sent_tabs, SENT_TAB_ID_RE),
+    asks: records(raw.asks, ASK_ID_RE),
     dismissedExtensions: Array.isArray(raw.dismissedExtensions) ? raw.dismissedExtensions.filter((x): x is string => typeof x === "string") : [],
   };
 }
@@ -473,5 +494,6 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
       valid: (raw) => parseDeviceWatchStatus(raw) !== null,
     }),
     sent_tabs: sentTabsAdapter(src.remote.records("sent_tabs")),
+    asks: asksAdapter(src.remote.records("asks")),
   };
 }

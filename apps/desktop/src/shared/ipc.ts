@@ -26,6 +26,7 @@ import type { NewTabInternalEvent, NewTabRpc } from "./newtab-ipc";
 import type { ReaderChromeRpc, ReadingLibraryRpc } from "./reader-ipc";
 import type { ScheduleInternalEvent, ScheduleInternalRpc } from "./schedule-ipc";
 import type { SiteProfileInternalEvent, SiteProfileInternalRpc } from "./site-profile-ipc";
+import type { SiteSearch } from "./site-search";
 import type { SemanticSearchChromeRpc, SemanticSearchInternalRpc } from "./semantic-search-ipc";
 import type { PdfRpc } from "./pdf-ipc";
 import type { Suggestion } from "./suggest";
@@ -415,6 +416,13 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "import.run"(sourceId: string, profileDir: string, kinds: ImportKind[]): ImportResult;
   /** Pick a password CSV the user exported from another browser and import the logins. */
   "import.passwordCsv"(): PasswordImportResult;
+  /** Install an extension found in another browser from the Chrome Web Store (the user confirms). */
+  "import.installExtension"(id: string): ExtensionInfo | null;
+  /** Search shortcuts of this profile ("yt cats" in the address bar). */
+  "siteSearch.list"(): SiteSearch[];
+  /** Add a shortcut, or change the one with the same keyword. */
+  "siteSearch.save"(shortcut: SiteSearch): SiteSearch[];
+  "siteSearch.remove"(keyword: string): SiteSearch[];
 }
 
 export interface PasswordImportResult {

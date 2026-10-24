@@ -1,6 +1,7 @@
 /** Omnibox suggestions: the typed intent first, then ranked history and bookmark matches. */
 import type { Bookmark, HistoryEntry } from "@corvus/shared";
 import { classifyOmnibox, intentToUrl } from "./omnibox";
+import { matchSiteSearch, type SiteSearch } from "./site-search";
 
 export interface Suggestion {
   kind: "search" | "url" | "history" | "bookmark";
@@ -39,14 +40,18 @@ export function buildSuggestions(
   history: readonly HistoryEntry[],
   bookmarks: readonly Bookmark[],
   now: number,
+  shortcuts: readonly SiteSearch[] = [],
   limit = 7,
 ): Suggestion[] {
   const input = rawInput.trim();
   if (input.length === 0) return [];
   const lower = input.toLowerCase();
   const intent = classifyOmnibox(input);
-  const first: Suggestion =
-    intent.kind === "url"
+  // A search shortcut's keyword first ("yt cats") searches that site.
+  const site = matchSiteSearch(input, shortcuts);
+  const first: Suggestion = site
+    ? { kind: "search", title: site.terms, url: site.url, detail: `Search ${site.shortcut.name}` }
+    : intent.kind === "url"
       ? { kind: "url", title: intent.url, url: intent.url, detail: "Open address" }
       : { kind: "search", title: intent.query, url: intentToUrl(intent), detail: "Search with Corvus AI" };
 

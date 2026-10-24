@@ -6,16 +6,21 @@ import { BrowserImport } from "../src/main/browser-import";
 import { FIXTURE_NOW, writeBrowserFixtures } from "../src/main/smoke-import-fixtures";
 import type { ProfileRuntime } from "../src/main/profiles";
 import { BookmarkStore, HistoryStore } from "../src/main/stores";
+import { SiteSearchStore } from "../src/main/site-search-store";
 import { WorkspaceStore } from "../src/main/workspace-store";
 import {
   browserLocations,
+  chromiumExtensionEntries,
   chromiumProfiles,
   chromiumTime,
   firefoxBookmarkTree,
+  firefoxExtensions,
   firefoxProfiles,
   firefoxTime,
   importableHistory,
   isChromiumProfileDir,
+  manifestString,
+  webStoreExtension,
 } from "../src/shared/browser-import";
 
 const dirs: string[] = [];
@@ -106,6 +111,66 @@ describe("browser data", () => {
   });
 });
 
+describe("extensions from other browsers", () => {
+  const A = "eimadpbcbfnmbkopoojfekhnkhdbieeh";
+  const B = "ddkjiahejlhfcafbddmgiahcphecmpfh";
+
+  it("reads the person's own installs from Preferences and Secure Preferences", () => {
+    const secure = JSON.stringify({
+      extensions: {
+        settings: {
+          [A]: { location: 1, from_webstore: true, path: `${A}\\1.0_0` },
+          [B]: { location: 4, path: "C:\\dev\\ext" },
+          mhjfbmdgcfjbbpaeojofohoefgiehjai: { location: 5, path: "pdf" },
+          ghbmnnjooekpmoecnnnilnnbdlolhkhi: { location: 1, path: "x/1", was_installed_by_default: true },
+          "not-an-id": { location: 1, path: "y/1" },
+        },
+      },
+    });
+    const prefs = JSON.stringify({ extensions: { settings: { [A]: { state: 1 }, kbfnbcaeplbcioakkpcpgfkobkghlhen: { location: 1, path: "k/1", manifest: { name: "Old" } } } } });
+    expect(chromiumExtensionEntries([prefs, secure, "broken", null])).toEqual([
+      { id: A, path: `${A}\\1.0_0`, fromWebstore: true, manifest: null },
+      { id: "kbfnbcaeplbcioakkpcpgfkobkghlhen", path: "k/1", fromWebstore: false, manifest: { name: "Old" } },
+    ]);
+  });
+
+  it("names extensions through their locale messages", () => {
+    const messages = JSON.stringify({ AppName: { message: " Night Mode " } });
+    expect(manifestString("__MSG_appName__", messages)).toBe("Night Mode");
+    expect(manifestString("__MSG_missing__", messages)).toBe("");
+    expect(manifestString("Plain", null)).toBe("Plain");
+    expect(manifestString(42, null)).toBe("");
+  });
+
+  it("offers only what the Chrome Web Store can install", () => {
+    const entry = { id: A, path: "p", fromWebstore: true, manifest: null };
+    const store = "https://clients2.google.com/service/update2/crx";
+    expect(webStoreExtension(entry, { name: "Night", update_url: store }, null)).toEqual({ id: A, name: "Night" });
+    expect(webStoreExtension(entry, { name: "No update URL" }, null)).toEqual({ id: A, name: "No update URL" });
+    expect(webStoreExtension({ ...entry, fromWebstore: false }, { name: "Side-loaded" }, null)).toBeNull();
+    expect(webStoreExtension(entry, { name: "Edge's", update_url: "https://edge.microsoft.com/extensionwebstorebase/v1/crx" }, null)).toBeNull();
+    expect(webStoreExtension(entry, { name: "Theme", theme: {}, update_url: store }, null)).toBeNull();
+    expect(webStoreExtension(entry, { name: "App", app: { launch: {} }, update_url: store }, null)).toBeNull();
+    expect(webStoreExtension(entry, { name: "__MSG_x__", short_name: "Short", update_url: store }, "{}")).toEqual({ id: A, name: "Short" });
+    expect(webStoreExtension(entry, null, null)).toBeNull();
+  });
+
+  it("lists Firefox's own add-ons by name", () => {
+    const text = JSON.stringify({
+      addons: [
+        { type: "extension", location: "app-profile", defaultLocale: { name: "uBlock Origin" } },
+        { type: "extension", location: "app-profile", defaultLocale: { name: "uBlock Origin" } },
+        { type: "extension", location: "app-system-defaults", isSystem: true, defaultLocale: { name: "Form Autofill" } },
+        { type: "theme", location: "app-profile", defaultLocale: { name: "Dark" } },
+        { type: "extension", location: "app-profile", hidden: true, defaultLocale: { name: "Hidden" } },
+      ],
+    });
+    expect(firefoxExtensions(text)).toEqual([{ id: null, name: "uBlock Origin" }]);
+    expect(firefoxExtensions("nope")).toEqual([]);
+    expect(firefoxExtensions(null)).toEqual([]);
+  });
+});
+
 describe("BrowserImport", () => {
   it("finds the browsers and profiles, counts them, and imports bookmarks and history into Corvus", async () => {
     const roots = writeBrowserFixtures(tempDir());
@@ -116,15 +181,30 @@ describe("BrowserImport", () => {
       {
         id: "chrome",
         profiles: [
-          { dir: "Default", name: "Personal", isDefault: true, counts: { bookmarks: 3, history: 2, tabs: 3 } },
-          { dir: "Profile 1", name: "Work", isDefault: false, counts: { bookmarks: 1, history: 0, tabs: 0 } },
+          { dir: "Default", name: "Personal", isDefault: true, counts: { bookmarks: 3, history: 2, tabs: 3, search: 3 } },
+          { dir: "Profile 1", name: "Work", isDefault: false, counts: { bookmarks: 1, history: 0, tabs: 0, search: 0 } },
         ],
       },
-      { id: "firefox", profiles: [{ dir: "abcd1234.default-release", name: "default-release", isDefault: true, counts: { bookmarks: 2, history: 1, tabs: 1 } }] },
+      { id: "firefox", profiles: [{ dir: "abcd1234.default-release", name: "default-release", isDefault: true, counts: { bookmarks: 2, history: 1, tabs: 1, search: 3 } }] },
+    ]);
+    expect(scan.sources.map((s) => s.profiles.map((p) => p.extensions))).toEqual([
+      [
+        [
+          { id: "eimadpbcbfnmbkopoojfekhnkhdbieeh", name: "Night Mode" },
+          { id: "ddkjiahejlhfcafbddmgiahcphecmpfh", name: "uBlock Origin Lite" },
+        ],
+        [],
+      ],
+      [[{ id: null, name: "uBlock Origin" }]],
     ]);
 
     const data = tempDir();
-    const runtime = { bookmarks: new BookmarkStore(data), history: new HistoryStore(data), workspaces: new WorkspaceStore(data) } as unknown as ProfileRuntime;
+    const runtime = {
+      bookmarks: new BookmarkStore(data),
+      history: new HistoryStore(data),
+      workspaces: new WorkspaceStore(data),
+      siteSearch: new SiteSearchStore(data),
+    } as unknown as ProfileRuntime;
     const chrome = await service.run(runtime, "chrome", "Default", ["bookmarks", "history"]);
     expect(chrome).toEqual({ bookmarks: { imported: 3, folders: 1 }, history: { imported: 2 }, errors: {} });
     const firefox = await service.run(runtime, "firefox", "abcd1234.default-release", ["bookmarks", "history"]);
@@ -151,5 +231,19 @@ describe("BrowserImport", () => {
     ]);
     expect(ws?.groups).toEqual([{ id: "g-7-9", title: "Research", color: "blue", collapsed: false }]);
     expect(await service.run(runtime, "firefox", "abcd1234.default-release", ["tabs"])).toEqual({ tabs: { windows: 1, tabs: 1 }, errors: {} });
+
+    // Search shortcuts: Chrome's own site searches, then Firefox's engines and keywords; a keyword
+    // Corvus already has stays as it is.
+    expect(await service.run(runtime, "chrome", "Default", ["search"])).toEqual({ search: { imported: 3 }, errors: {} });
+    expect(await service.run(runtime, "firefox", "abcd1234.default-release", ["search"])).toEqual({ search: { imported: 3 }, errors: {} });
+    expect(await service.run(runtime, "chrome", "Default", ["search"])).toEqual({ search: { imported: 0 }, errors: {} });
+    expect(runtime.siteSearch.list()).toEqual([
+      { keyword: "yt", name: "YouTube", url: "https://www.youtube.com/results?search_query=%s" },
+      { keyword: "g", name: "Google", url: "https://www.google.com/search?q=%s&ie=UTF-8" },
+      { keyword: "wiki", name: "Wikipedia", url: "https://en.wikipedia.org/w/index.php?search=%s" },
+      { keyword: "mdn", name: "MDN", url: "https://developer.mozilla.org/search?q=%s" },
+      { keyword: "@wikies", name: "Wikipedia (es)", url: "https://es.wikipedia.org/w/index.php?search=%s" },
+      { keyword: "bug", name: "bug", url: "https://bugs.example/show_bug.cgi?id=%s" },
+    ]);
   });
 });

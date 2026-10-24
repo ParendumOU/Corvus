@@ -22,7 +22,8 @@ export type SyncCollection =
   | "workflows"
   | "site_memory"
   | "sent_tabs"
-  | "watch_status";
+  | "watch_status"
+  | "asks";
 
 export interface EncryptedRecord {
   id: string; // random, opaque

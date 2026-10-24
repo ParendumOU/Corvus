@@ -15,8 +15,8 @@ export interface BrowserInfo {
 }
 
 /** What can be imported from a profile (more kinds join as Corvus learns to read them). */
-export type ImportKind = "bookmarks" | "history" | "tabs";
-export const IMPORT_KINDS: readonly ImportKind[] = ["bookmarks", "history", "tabs"];
+export type ImportKind = "bookmarks" | "history" | "tabs" | "search";
+export const IMPORT_KINDS: readonly ImportKind[] = ["bookmarks", "history", "tabs", "search"];
 
 export interface ImportProfile {
   /** Folder name inside the browser's data folder ("Default", "Profile 1", "abcd.default-release"). */
@@ -27,6 +27,17 @@ export interface ImportProfile {
   isDefault: boolean;
   /** How many of each kind it holds (null when it could not be counted). */
   counts: Partial<Record<ImportKind, number | null>>;
+  /** Extensions the person installed there, to add to Corvus one by one. */
+  extensions: ImportExtension[];
+}
+
+/** An extension found in another browser. */
+export interface ImportExtension {
+  /** Chrome Web Store id, or null for an add-on only found by name in the Web Store (Firefox's). */
+  id: string | null;
+  name: string;
+  /** Already installed in this Corvus profile (set by the IPC handler). */
+  installed?: boolean;
 }
 
 export interface ImportSource extends BrowserInfo {
@@ -42,6 +53,8 @@ export interface ImportResult {
   history?: { imported: number };
   /** Open windows saved as Corvus workspaces. */
   tabs?: { windows: number; tabs: number };
+  /** Search shortcuts added (keywords Corvus did not have yet). */
+  search?: { imported: number };
   /** Why a kind could not be read (e.g. the browser keeps its file locked). */
   errors: Partial<Record<ImportKind, string>>;
 }
@@ -217,6 +230,107 @@ export function firefoxBookmarkTree(rows: readonly FirefoxBookmarkRow[], rootIds
     if (id === undefined) continue;
     const nodes = build(id, 0);
     if (nodes.length > 0) out.push({ title, children: nodes });
+  }
+  return out;
+}
+
+export const EXTENSION_ID_RE = /^[a-p]{32}$/;
+
+/** Chromium's Manifest::Location values for extensions the person did not install themselves. */
+const NOT_THEIR_INSTALL = new Set([
+  4, // unpacked (a developer's folder)
+  5, // component
+  7, // policy download
+  8, // command line
+  9, // policy
+  10, // external component
+]);
+
+const WEB_STORE_UPDATE_RE = /^https:\/\/clients2\.google\.com\/service\/update2\/crx/i;
+
+/** An installed extension of a Chromium profile, from extensions.settings of its preferences. */
+export interface ChromiumExtensionEntry {
+  id: string;
+  /** Folder of the installed version: relative to the profile's Extensions folder, or absolute. */
+  path: string;
+  fromWebstore: boolean;
+  /** The manifest kept in the preferences by older Chromium (newer ones only keep it on disk). */
+  manifest: unknown;
+}
+
+/**
+ * The extensions the person installed in a Chromium profile, from its Preferences and Secure
+ * Preferences (newer Chromium keeps extensions.settings in the latter). Components, unpacked
+ * folders, policy and command-line installs, and extensions that came with the browser or the
+ * computer are left out.
+ */
+export function chromiumExtensionEntries(prefs: ReadonlyArray<string | null>): ChromiumExtensionEntry[] {
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const text of prefs) {
+    let settings: unknown;
+    try {
+      settings = (JSON.parse(text ?? "{}") as { extensions?: { settings?: unknown } }).extensions?.settings;
+    } catch {
+      continue;
+    }
+    if (!settings || typeof settings !== "object") continue;
+    for (const [id, entry] of Object.entries(settings as Record<string, unknown>)) {
+      if (EXTENSION_ID_RE.test(id) && entry && typeof entry === "object") merged.set(id, { ...merged.get(id), ...(entry as Record<string, unknown>) });
+    }
+  }
+  const out: ChromiumExtensionEntry[] = [];
+  for (const [id, e] of merged) {
+    if (typeof e.path !== "string" || !e.path) continue;
+    if (typeof e.location === "number" && NOT_THEIR_INSTALL.has(e.location)) continue;
+    if (e.was_installed_by_default === true || e.was_installed_by_oem === true) continue;
+    out.push({ id, path: e.path, fromWebstore: e.from_webstore === true, manifest: e.manifest ?? null });
+  }
+  return out;
+}
+
+/** A manifest string, with "__MSG_name__" looked up in the extension's default-locale messages. */
+export function manifestString(value: unknown, messages: string | null): string {
+  if (typeof value !== "string") return "";
+  const key = /^__MSG_(\w+)__$/.exec(value.trim())?.[1];
+  if (!key) return value.trim();
+  try {
+    const all = JSON.parse(messages ?? "{}") as Record<string, { message?: unknown }>;
+    const found = Object.entries(all).find(([k]) => k.toLowerCase() === key.toLowerCase())?.[1]?.message;
+    return typeof found === "string" ? found.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The Chrome Web Store extension an installed one stands for, or null when Corvus cannot install it
+ * from there: themes and apps, and extensions from another store (Microsoft Edge Add-ons, Opera
+ * add-ons) whose manifest updates from elsewhere.
+ */
+export function webStoreExtension(entry: ChromiumExtensionEntry, manifest: unknown, messages: string | null): ImportExtension | null {
+  const m = (manifest ?? entry.manifest) as Record<string, unknown> | null;
+  if (!m || typeof m !== "object") return null;
+  if (m.theme || m.app) return null;
+  const update = typeof m.update_url === "string" ? m.update_url : "";
+  if (update ? !WEB_STORE_UPDATE_RE.test(update) : !entry.fromWebstore) return null;
+  const name = manifestString(m.name, messages) || manifestString(m.short_name, messages) || entry.id;
+  return { id: entry.id, name: name.slice(0, 200) };
+}
+
+/** Firefox add-ons the person installed (extensions.json), to look up by name in the Web Store. */
+export function firefoxExtensions(text: string | null): ImportExtension[] {
+  let addons: unknown;
+  try {
+    addons = (JSON.parse(text ?? "{}") as { addons?: unknown }).addons;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(addons)) return [];
+  const out: ImportExtension[] = [];
+  for (const a of addons as Array<Record<string, unknown>>) {
+    if (a?.type !== "extension" || a.location !== "app-profile" || a.isSystem === true || a.hidden === true) continue;
+    const name = (a.defaultLocale as { name?: unknown } | undefined)?.name;
+    if (typeof name === "string" && name.trim() && !out.some((e) => e.name === name.trim())) out.push({ id: null, name: name.trim().slice(0, 200) });
   }
   return out;
 }

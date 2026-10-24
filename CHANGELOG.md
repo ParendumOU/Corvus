@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.15.0
+
+### Your phone
+- **Answer questions from Corvus on your phone**: questions asked in Corvus for mobile go to this
+  computer, which answers them with Corvus's AI search and its own AI provider and writes the answer
+  back as it streams in, with its sources and follow-up questions. Settings → Send to your phone →
+  **Answer questions from Corvus on your phone** (on by default, per computer). Corvus has to be
+  open; it looks for new questions every 5 seconds.
+- **Send a page straight to your phone**: "Send to your phone…" in a tab's or a link's menu has a
+  button for each phone paired with this profile's sync. The page shows on the phone's home screen.
+- **Sync server**: the server now accepts questions from the phone (collection `asks`). If you host
+  your own, update it; an older server refuses them and the phone says so.
+
+### Browser
+- **Search shortcuts**: a keyword and a space in the address bar search a site with the rest ("yt
+  cats" searches YouTube); the first suggestion says which site. **Settings → Search shortcuts**
+  adds or removes them; they travel with profile exports.
+- **Import from another browser** brings search shortcuts too (Chromium's own site searches,
+  Firefox's engines with an alias and its bookmark keywords) and lists each profile's extensions:
+  the Chrome Web Store ones with **Add to Corvus**, Firefox's add-ons with a Web Store search.
+
 ## v0.14.0
 
 ### Browser

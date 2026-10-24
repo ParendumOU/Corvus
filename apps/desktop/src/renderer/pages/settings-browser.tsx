@@ -6,6 +6,7 @@ import type { TelegramStatus } from "../../shared/phone-share";
 import { GROUP_COLOR_HEX } from "../../shared/ipc";
 import { PERMISSION_LABELS, type PermissionDecision, type PermissionKind, type SitePermissionEntry } from "../../shared/permissions";
 import type { SettingsPatch, SettingsView, StartupMode } from "../../shared/settings";
+import type { SiteSearch } from "../../shared/site-search";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconTrash } from "../common/icons";
@@ -22,9 +23,78 @@ export function ImportSection() {
     <Section
       id="import"
       title={t("Import from another browser")}
-      description={t("Bring bookmarks, history and open tabs over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.")}
+      description={t("Bring bookmarks, history, open tabs and search shortcuts over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer, and add its extensions. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.")}
     >
       <BrowserImportPanel />
+    </Section>
+  );
+}
+
+/** Search shortcuts: a keyword and a space in the address bar search a site ("yt cats"). */
+export function SiteSearchSection() {
+  const api = internalApi();
+  const [list, setList] = useState<SiteSearch[] | null>(null);
+  const [draft, setDraft] = useState({ keyword: "", name: "", url: "" });
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => void api.call("siteSearch.list").then(setList), [api]);
+
+  const run = (p: Promise<SiteSearch[]>, after?: () => void): void => {
+    setError(null);
+    p.then((l) => {
+      setList(l);
+      after?.();
+    }).catch((e: unknown) => setError(errorMessage(e)));
+  };
+  const ready = draft.keyword.trim() !== "" && draft.url.trim() !== "";
+  const add = (): void => {
+    if (!ready) return;
+    run(api.call("siteSearch.save", { keyword: draft.keyword, name: draft.name.trim() || draft.keyword, url: draft.url }), () => setDraft({ keyword: "", name: "", url: "" }));
+  };
+  const field = (key: keyof typeof draft) => ({
+    value: draft[key],
+    onChange: (e: { target: { value: string } }) => setDraft({ ...draft, [key]: e.target.value }),
+    onKeyDown: (e: { key: string }) => e.key === "Enter" && add(),
+  });
+
+  return (
+    <Section
+      id="site-search"
+      title={t("Search shortcuts")}
+      description={t("Type a shortcut's keyword and a space in the address bar to search that site: “yt cats” searches YouTube for cats. Bring the ones you have in another browser with Import from another browser.")}
+    >
+      {list && list.length === 0 && (
+        <Row label={t("No search shortcuts yet")}>
+          <span className="muted">{t("Add one below.")}</span>
+        </Row>
+      )}
+      {list && list.length > 0 && (
+        <div className="list" data-site-search-list>
+          {list.map((s) => (
+            <div key={s.keyword} className="list-row site-search-row" data-site-search={s.keyword}>
+              <code className="site-search-keyword">{s.keyword}</code>
+              <span className="grow">
+                <span className="site-search-name">{s.name}</span>
+                <span className="muted site-search-url">{s.url}</span>
+              </span>
+              <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("siteSearch.remove", s.keyword))}>
+                <IconTrash size={13} />
+                {t("Remove")}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <Row label={t("New shortcut")}>
+        <div className="site-search-new">
+          <input className="input keyword" placeholder={t("Keyword")} aria-label={t("Keyword")} maxLength={32} {...field("keyword")} />
+          <input className="input" placeholder={t("Name")} aria-label={t("Name")} maxLength={100} {...field("name")} />
+          <input className="input grow" placeholder={t("Address, with %s where the search goes")} aria-label={t("Address")} maxLength={2048} {...field("url")} />
+          <button className="btn small" disabled={!ready} onClick={add}>
+            {t("Add")}
+          </button>
+        </div>
+      </Row>
+      {error && <div className="notice error">{error}</div>}
     </Section>
   );
 }
@@ -461,6 +531,16 @@ export function PhoneSection({ view, update }: Props) {
           checked={view.settings.phone.receiveLinks}
           disabled={!status?.linked}
           onChange={(v) => update({ phone: { receiveLinks: v } })}
+        />
+      </Row>
+      <Row
+        label={t("Answer questions from Corvus on your phone")}
+        hint={t("Questions you ask in the Corvus app on a phone paired with this profile's sync are answered here with Corvus's AI search, using this computer's AI provider, while Corvus is open.")}
+      >
+        <Toggle
+          label={t("Answer questions from Corvus on your phone")}
+          checked={view.settings.phone.answerQuestions}
+          onChange={(v) => update({ phone: { answerQuestions: v } })}
         />
       </Row>
     </Section>

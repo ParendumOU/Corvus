@@ -4,7 +4,7 @@ import { app, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent, type W
 import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
-import { IMPORT_KINDS, type ImportKind } from "../shared/browser-import";
+import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from "../shared/browser-import";
 import { parsePasswordCsv } from "../shared/password-import";
 import type { BookmarkImportResult, PasswordImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
@@ -119,7 +119,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "groups.move": (w, id, toIndex) => w.moveGroup(str(id, "group"), num(toIndex, "index")),
     "groups.newTab": (w, id) => w.newTabInGroup(str(id, "group")),
     "omnibox.suggest": (w, input) =>
-      buildSuggestions(str(input, "input", 2048), w.profile.history.all(), w.profile.bookmarks.list(), Date.now()),
+      buildSuggestions(str(input, "input", 2048), w.profile.history.all(), w.profile.bookmarks.list(), Date.now(), w.profile.siteSearch.list()),
     "bookmarks.toggleActive": (w) => w.toggleBookmark(),
     "translate.toggle": (w) => ctx.translate.toggle(w),
     "bookmarks.addToBar": (w, url, title, index) => {
@@ -322,6 +322,10 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "import.scan": ["settings", "welcome"],
   "import.run": ["settings", "welcome"],
   "import.passwordCsv": ["settings", "welcome"],
+  "import.installExtension": ["settings", "welcome"],
+  "siteSearch.list": ["settings"],
+  "siteSearch.save": ["settings"],
+  "siteSearch.remove": ["settings"],
 };
 
 function scheduleInput(value: unknown): ScheduleInput {
@@ -710,7 +714,20 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       ctx.settings.update({ onboarding: { completed: true } });
       return { completed: true };
     },
-    "import.scan": () => ctx.browserImport.scan(),
+    "import.scan": async (c): Promise<ImportScan> => {
+      const scan = await ctx.browserImport.scan();
+      const installed = new Set(c.profile.extensions.list().map((e) => e.id));
+      for (const p of scan.sources.flatMap((s) => s.profiles)) for (const e of p.extensions) if (e.id) e.installed = installed.has(e.id);
+      return scan;
+    },
+    "import.installExtension": (c, id) => {
+      const extensionId = str(id, "extension", 32);
+      if (!EXTENSION_ID_RE.test(extensionId)) throw new IpcError("Invalid extension id");
+      return c.profile.extensions.installFromStore(extensionId, c.window?.win ?? null);
+    },
+    "siteSearch.list": (c) => c.profile.siteSearch.list(),
+    "siteSearch.save": (c, shortcut) => c.profile.siteSearch.save(shortcut),
+    "siteSearch.remove": (c, keyword) => c.profile.siteSearch.remove(str(keyword, "keyword", 64)),
     "import.passwordCsv": async (c): Promise<PasswordImportResult> => {
       const options: Electron.OpenDialogOptions = {
         title: "Import passwords from a CSV file",

@@ -6,6 +6,11 @@ end-to-end encrypted sync the desktop app uses (the sync server only ever stores
 Built with Expo and Expo Router. It reuses `@corvus/shared` and `@corvus/sync-core` from this
 monorepo.
 
+Tabs from your computers, Ask Corvus (a paired computer answers with its AI search), bookmarks,
+reading list and history, watched pages, pages sent both ways, and notifications. In English and
+Spanish. What each screen does, how it fits with the desktop app, and what iOS still needs:
+[docs/MOBILE.md](../../docs/MOBILE.md).
+
 ## Develop
 
 All installs, checks and builds run in Docker, as for the rest of the repository:

@@ -1,6 +1,7 @@
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { MAX_WATCH_STATUS, encodePairing, reachableFromPhone, sentTabs, type SyncStateStorage } from "@corvus/shared";
+import { MAX_WATCH_STATUS, askList, encodePairing, reachableFromPhone, sentTabs, type DeviceInfo, type SentTab, type SyncCollection, type SyncStateStorage } from "@corvus/shared";
 import { Notification } from "electron";
 import type { CorvusSyncClient, SyncEngine } from "@corvus/sync-core";
 import { extensionSuggestions, webstoreExtensions, type ExtensionSuggestion, type SyncedExtension } from "../shared/extension-suggestions";
@@ -8,6 +9,7 @@ import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncOptions, type Syn
 import { OpenTabsPublisher, collectTabs, parseDeviceTabs, type RemoteDeviceTabs } from "../shared/open-tabs";
 import { toWatchStatus } from "../shared/page-watch";
 import { StampedRecord } from "../shared/stamped-record";
+import { answerAsk } from "./ask-relay";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import { loadOptionalModule } from "./module-loader";
@@ -52,6 +54,12 @@ const CHANGE_DEBOUNCE_MS = 10_000;
 const CHANGE_MAX_WAIT_MS = 60_000;
 /** How often to look for pages sent to this device between full syncs (one cheap request). */
 const INBOX_POLL_MS = 30_000;
+/** How often to look for questions from the phone: someone is waiting for the answer. */
+const ASKS_POLL_MS = 5_000;
+/** A question still marked as being answered after this long lost its computer (Corvus quit). */
+const ASK_STALE_MS = 2 * 60_000;
+/** Questions older than this are left unanswered. */
+const ASK_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 /** How often open tabs, installed extensions and profile metadata are checked for changes. */
 const WATCH_INTERVAL_MS = 3_000;
 const WIPE_CONFIRMATION = "DELETE";
@@ -86,14 +94,14 @@ function metaKey(profile: ProfileRuntime): string {
   return `${profile.profile.name}\u0000${profile.profile.avatar ?? ""}`;
 }
 
-/** Between full syncs, asks the server for new sent pages and runs a sync when there are some. */
-function pollInbox(client: CorvusSyncClient, sync: () => void): () => void {
+/** Between full syncs, asks the server for new records of `collection` and runs a sync when there are some. */
+function pollInbox(client: CorvusSyncClient, collection: SyncCollection, everyMs: number, sync: () => void): () => void {
   let busy = false;
   const timer = setInterval(() => {
     if (busy) return;
     busy = true;
     client
-      .hasNew("sent_tabs")
+      .hasNew(collection)
       .then((fresh) => {
         if (fresh) sync();
       })
@@ -101,7 +109,7 @@ function pollInbox(client: CorvusSyncClient, sync: () => void): () => void {
       .finally(() => {
         busy = false;
       });
-  }, INBOX_POLL_MS);
+  }, everyMs);
   timer.unref();
   return () => clearInterval(timer);
 }
@@ -121,6 +129,10 @@ export class SyncService {
   private readonly errors = new Map<string, string>();
   private readonly filler = new ReadingFiller();
   private readonly memoryPhrases = new Map<string, string>();
+  /** Questions from the phone being answered now (record ids). */
+  private readonly answering = new Set<string>();
+  /** The chain's devices as of the last sync, per profile (for "Send to your phone" without waiting). */
+  private readonly chainDevices = new Map<string, DeviceInfo[]>();
   private watcher: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -352,7 +364,8 @@ export class SyncService {
         this.ctx.monitor.storeFor(profile).onChange(() => scheduler.poke()),
         ...(flows ? [flows.onChange(() => scheduler.poke())] : []),
         ...(memory ? [memory.onChange(() => scheduler.poke())] : []),
-        pollInbox(client, () => scheduler.poke()),
+        pollInbox(client, "sent_tabs", INBOX_POLL_MS, () => scheduler.poke()),
+        pollInbox(client, "asks", ASKS_POLL_MS, () => void scheduler.trigger().catch(() => undefined)),
       ],
     };
     this.runtimes.set(id, rt);
@@ -387,6 +400,12 @@ export class SyncService {
       this.errors.delete(id);
       // Opened pages leave the replica; the next cycle deletes them on the chain.
       if ((await this.openSentTabs(profile)) > 0) this.runtimes.get(id)?.scheduler.poke();
+      this.answerAsks(profile);
+      void this.runtimes
+        .get(id)
+        ?.client.listDevices()
+        .then((list) => this.chainDevices.set(id, list))
+        .catch(() => undefined);
       // Links saved from the phone get their article here (a filled item syncs on the next cycle).
       void this.filler.run(profile.reading);
     } catch (err) {
@@ -424,6 +443,45 @@ export class SyncService {
       n.show();
     }
     return pages.length;
+  }
+
+  /**
+   * Answers the questions the phone sent to this computer with its AI search (ask-relay.ts):
+   * new ones, and ones a computer started but stopped answering (Corvus quit meanwhile). Each answer
+   * streams onto the chain as it comes; the phone deleting a question stops it.
+   */
+  private answerAsks(profile: ProfileRuntime): void {
+    const rt = this.runtimes.get(profile.profile.id);
+    if (!rt || !this.ctx.settings.get().phone.answerQuestions) return;
+    void (async () => {
+      const own = await rt.client.getDeviceId();
+      const records = this.remote(profile).records("asks");
+      const now = Date.now();
+      const pending = askList(
+        records.all(),
+        (a) => a.to === own && now - a.askedAt < ASK_MAX_AGE_MS && (a.state === "waiting" || (a.state === "answering" && now - a.updatedAt > ASK_STALE_MS)),
+      );
+      for (const { id, ...ask } of pending) {
+        if (this.answering.has(id)) continue;
+        this.answering.add(id);
+        void answerAsk(ask, {
+          stream: (question, signal) => this.ctx.search.stream(question, { depth: "quick", signal }),
+          push: async (next) => {
+            const { conflicts } = await rt.client.push([{ collection: "asks", id, payload: next, deleted: false }]);
+            if (conflicts.some((c) => c.collection === "asks" && c.id === id && c.deleted)) {
+              records.delete(id);
+              return false;
+            }
+            records.set(id, next);
+            return true;
+          },
+          deviceName: this.state(profile).get().deviceName,
+          now: Date.now,
+        })
+          .catch(() => undefined)
+          .finally(() => this.answering.delete(id));
+      }
+    })().catch(() => undefined);
   }
 
   private async active(profile: ProfileRuntime): Promise<Runtime> {
@@ -572,12 +630,36 @@ export class SyncService {
     const rt = await this.active(profile);
     try {
       const [list, own] = await Promise.all([rt.client.listDevices(), rt.client.getDeviceId()]);
+      this.chainDevices.set(profile.profile.id, list);
       return list
         .map((d) => ({ ...d, current: d.id === own }))
         .sort((a, b) => Number(b.current) - Number(a.current) || b.lastSeen - a.lastSeen);
     } catch (err) {
       throw new Error(describeError(err, this.state(profile).get().serverUrl));
     }
+  }
+
+  /** The phones on this profile's sync chain, as of the last sync (none while sync is off). */
+  phones(profile: ProfileRuntime): Array<{ id: string; name: string }> {
+    if (!this.state(profile).get().enabled) return [];
+    return (this.chainDevices.get(profile.profile.id) ?? [])
+      .filter((d) => d.platform === "android" || d.platform === "ios")
+      .sort((a, b) => b.lastSeen - a.lastSeen)
+      .map((d) => ({ id: d.id, name: d.name }));
+  }
+
+  /** Sends a page to another device of the chain (a phone shows it and notifies). */
+  async sendTab(profile: ProfileRuntime, to: string, url: string, title: string): Promise<void> {
+    const rt = await this.active(profile);
+    const payload: SentTab = { url, title: title.slice(0, 300), to, fromId: await rt.client.getDeviceId(), from: this.state(profile).get().deviceName, sentAt: Date.now() };
+    const id = crypto.randomUUID();
+    try {
+      await rt.client.push([{ collection: "sent_tabs", id, payload, deleted: false }]);
+    } catch (err) {
+      throw new Error(describeError(err, this.state(profile).get().serverUrl));
+    }
+    if (rt.client.unsupported().has("sent_tabs")) throw new Error("Your sync server does not support sending pages yet: update it to the latest Corvus sync server.");
+    this.remote(profile).records("sent_tabs").set(id, payload);
   }
 
   /** Rename THIS device on the chain. The new name reaches other devices on the next sync cycle. */

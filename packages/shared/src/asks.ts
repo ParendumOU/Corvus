@@ -1,0 +1,112 @@
+/**
+ * Questions asked from the phone and answered by one of the user's computers with its AI search
+ * (sync collection `asks`, one record per question, keyed by a random id). The phone writes the
+ * question; the computer it went to writes the answer into the same record as it streams in, then
+ * once more when it is done. The phone deletes a question to take it off its list.
+ */
+import { SENT_TAB_ID_RE } from "./sent-tabs.js";
+
+export type AskState = "waiting" | "answering" | "done" | "error";
+
+export interface AskSource {
+  title: string;
+  url: string;
+}
+
+export interface Ask {
+  question: string;
+  /** Device id of the computer asked. */
+  to: string;
+  /** Device id and display name of the phone that asked. */
+  fromId: string;
+  from: string;
+  askedAt: number;
+  state: AskState;
+  /** The answer so far, with [n] marks citing `sources` (1-based). */
+  answer: string;
+  sources: AskSource[];
+  /** Questions to ask next, as the search suggests them. */
+  followUps: string[];
+  /** Why the computer could not answer (state "error"). */
+  error: string;
+  /** Name of the computer that answered. */
+  answeredBy: string;
+  updatedAt: number;
+}
+
+export interface AskRecord extends Ask {
+  id: string;
+}
+
+export const ASK_ID_RE = SENT_TAB_ID_RE;
+export const MAX_QUESTION = 1000;
+export const MAX_ANSWER = 20_000;
+export const MAX_ASK_SOURCES = 10;
+const DEVICE_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
+const STATES: readonly AskState[] = ["waiting", "answering", "done", "error"];
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const text = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
+
+function sources(raw: unknown): AskSource[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AskSource[] = [];
+  for (const s of raw) {
+    if (!isObject(s) || typeof s.url !== "string" || !/^https?:\/\//i.test(s.url) || s.url.length > 2048) continue;
+    out.push({ title: text(s.title, 300), url: s.url });
+    if (out.length >= MAX_ASK_SOURCES) break;
+  }
+  return out;
+}
+
+/** Validate a record received from another device; null when it is not a question. */
+export function parseAsk(raw: unknown): Ask | null {
+  if (!isObject(raw) || typeof raw.question !== "string" || !raw.question.trim()) return null;
+  if (typeof raw.to !== "string" || !DEVICE_ID_RE.test(raw.to)) return null;
+  if (typeof raw.fromId !== "string" || !DEVICE_ID_RE.test(raw.fromId)) return null;
+  if (typeof raw.askedAt !== "number" || !Number.isFinite(raw.askedAt)) return null;
+  const state = STATES.includes(raw.state as AskState) ? (raw.state as AskState) : "waiting";
+  return {
+    question: raw.question.trim().slice(0, MAX_QUESTION),
+    to: raw.to,
+    fromId: raw.fromId,
+    from: text(raw.from, 64),
+    askedAt: raw.askedAt,
+    state,
+    answer: text(raw.answer, MAX_ANSWER),
+    sources: sources(raw.sources),
+    followUps: Array.isArray(raw.followUps) ? raw.followUps.filter((q): q is string => typeof q === "string" && q.trim() !== "").slice(0, 5).map((q) => q.slice(0, 300)) : [],
+    error: text(raw.error, 500),
+    answeredBy: text(raw.answeredBy, 64),
+    updatedAt: typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt) ? raw.updatedAt : raw.askedAt,
+  };
+}
+
+/** The valid records of an `asks` replica that match `filter`, newest first. */
+export function askList(records: Record<string, unknown>, filter: (ask: Ask) => boolean): AskRecord[] {
+  const out: AskRecord[] = [];
+  for (const [id, raw] of Object.entries(records)) {
+    if (!ASK_ID_RE.test(id)) continue;
+    const ask = parseAsk(raw);
+    if (ask && filter(ask)) out.push({ id, ...ask });
+  }
+  return out.sort((a, b) => b.askedAt - a.askedAt);
+}
+
+/** A new question from the phone, waiting for its computer. */
+export function newAsk(question: string, to: string, fromId: string, from: string, now: number): Ask {
+  return {
+    question: question.trim().slice(0, MAX_QUESTION),
+    to,
+    fromId,
+    from: from.slice(0, 64),
+    askedAt: now,
+    state: "waiting",
+    answer: "",
+    sources: [],
+    followUps: [],
+    error: "",
+    answeredBy: "",
+    updatedAt: now,
+  };
+}

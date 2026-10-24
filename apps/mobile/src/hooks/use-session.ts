@@ -1,10 +1,13 @@
-import type { Bookmark, DeviceInfo, PairingInfo, ReadingItem, SentTab, SentTabRecord, SyncedHistoryEntry } from '@corvus/shared';
+import type { AskRecord, Bookmark, DeviceInfo, PairingInfo, ReadingItem, SentTab, SentTabRecord, SyncedHistoryEntry } from '@corvus/shared';
 import { useEffect, useSyncExternalStore } from 'react';
 
+import { notifyNew } from '@/lib/notifications';
+import { openInApp } from '@/lib/open-url';
 import type { ComputerTabs } from '@/lib/replica';
 import type { WatchView } from '@/lib/watches';
 import {
   addBookmark,
+  askComputer,
   cachedView,
   cancelSent,
   dropLegacyReplica,
@@ -12,12 +15,14 @@ import {
   markRead,
   pair,
   refreshView,
+  removeAsk,
   saveForLater,
   watchPage,
   sendPage,
   unpair,
   type Pairing,
 } from '@/lib/session';
+import { t } from '@/lib/i18n';
 
 export interface SessionState {
   status: 'loading' | 'unpaired' | 'paired';
@@ -29,6 +34,8 @@ export interface SessionState {
   tabs: ComputerTabs[];
   /** Pages sent from this phone that their computer has not opened yet. */
   outbox: SentTabRecord[];
+  /** Pages a computer sent to this phone, not opened yet. */
+  inbox: SentTabRecord[];
   bookmarks: Bookmark[];
   /** The reading list, unread first. */
   reading: ReadingItem[];
@@ -36,6 +43,8 @@ export interface SessionState {
   history: SyncedHistoryEntry[];
   /** Watched pages, with what the computers last saw. */
   watches: WatchView[];
+  /** Questions this phone asked, newest first. */
+  asks: AskRecord[];
   /** False until the first refresh since the app started has finished (or failed). */
   refreshed: boolean;
   refreshing: boolean;
@@ -47,10 +56,12 @@ const EMPTY: Omit<SessionState, 'status' | 'pairing'> = {
   self: null,
   tabs: [],
   outbox: [],
+  inbox: [],
   bookmarks: [],
   reading: [],
   history: [],
   watches: [],
+  asks: [],
   refreshed: false,
   refreshing: false,
   error: null,
@@ -68,7 +79,7 @@ function message(err: unknown): string {
 }
 
 function paired(): Pairing {
-  if (!state.pairing) throw new Error('This phone is not paired with a computer.');
+  if (!state.pairing) throw new Error(t('This phone is not paired with a computer.'));
   return state.pairing;
 }
 
@@ -83,8 +94,10 @@ export function refreshSession(): Promise<void> {
     try {
       const view = await refreshView(pairing);
       if (state.pairing === pairing) set({ ...view, refreshed: true, refreshing: false });
+      // What the app shows does not need a notification later.
+      void notifyNew(view, false).catch(() => undefined);
     } catch (err) {
-      set({ refreshed: true, refreshing: false, error: `Could not reach the sync server: ${message(err)}` });
+      set({ refreshed: true, refreshing: false, error: t('Could not reach the sync server: {error}', { error: message(err) }) });
     } finally {
       inFlight = null;
     }
@@ -95,7 +108,7 @@ export function refreshSession(): Promise<void> {
 /** Shows what the replica holds after a change this phone made (no network). */
 async function showLocal(pairing: Pairing): Promise<void> {
   const view = await cachedView(pairing, state.devices);
-  if (state.pairing === pairing) set({ tabs: view.tabs, outbox: view.outbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches });
+  if (state.pairing === pairing) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks });
 }
 
 export async function pairPhone(info: PairingInfo, chainId: string, deviceName: string): Promise<void> {
@@ -115,6 +128,32 @@ export async function sendToComputer(page: Pick<SentTab, 'url' | 'title' | 'to'>
   const pairing = paired();
   const sent = await sendPage(pairing, page);
   if (state.pairing === pairing) set({ outbox: [...state.outbox, sent] });
+}
+
+/** Asks a computer of the chain; its answer shows as the computer writes it (see the Ask screen). */
+export async function askQuestion(question: string, to: string): Promise<void> {
+  const pairing = paired();
+  const asked = await askComputer(pairing, question, to);
+  if (state.pairing === pairing) set({ asks: [asked, ...state.asks.filter((a) => a.id !== asked.id)] });
+}
+
+/** Removes a question and its answer from the list. */
+export async function forgetAsk(id: string): Promise<void> {
+  const pairing = state.pairing;
+  if (!pairing) return;
+  await removeAsk(pairing, id);
+  if (state.pairing === pairing) set({ asks: state.asks.filter((a) => a.id !== id) });
+}
+
+/** Opens a page a computer sent to this phone; it then leaves the inbox on every device. */
+export async function openReceived(id: string, url?: string): Promise<void> {
+  const page = state.inbox.find((p) => p.id === id);
+  const target = page?.url ?? url;
+  if (target) await openInApp(target);
+  const pairing = state.pairing;
+  if (!pairing || !page) return;
+  await cancelSent(pairing, id);
+  if (state.pairing === pairing) set({ inbox: state.inbox.filter((p) => p.id !== id) });
 }
 
 /** Takes back a page that is still waiting. */
@@ -161,7 +200,7 @@ async function load(): Promise<void> {
   set({ status: pairing ? 'paired' : 'unpaired', pairing });
   if (!pairing) return;
   const cached = await cachedView(pairing).catch(() => null);
-  if (cached && !state.refreshed) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches });
+  if (cached && !state.refreshed) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks });
   await refreshSession();
 }
 

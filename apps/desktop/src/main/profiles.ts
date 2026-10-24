@@ -21,6 +21,7 @@ import { SiteSettingsStore } from "./site-settings";
 import { BookmarkStore, HistoryStore } from "./stores";
 import { chromeUserAgent, clientHintHeaders, electronUserAgent, type ClientHints, type UserAgents } from "./user-agent";
 import { WorkspaceStore } from "./workspace-store";
+import { SiteSearchStore } from "./site-search-store";
 
 /** What a profile runtime needs from the window layer (implemented by WindowManager). */
 export type ProfileDelegate = ExtensionWindowDelegate & PermissionHost;
@@ -80,6 +81,8 @@ export class ProfileRuntime {
   readonly bookmarks: BookmarkStore;
   readonly history: HistoryStore;
   readonly workspaces: WorkspaceStore;
+  /** Search shortcuts typed in the address bar ("yt cats"). */
+  readonly siteSearch: SiteSearchStore;
   readonly reading: ReadingStore;
   readonly annotations: AnnotationStore;
   readonly agentRuns: AgentRunStore;
@@ -121,6 +124,7 @@ export class ProfileRuntime {
     this.bookmarks = new BookmarkStore(dataDir);
     this.history = new HistoryStore(dataDir);
     this.workspaces = new WorkspaceStore(dataDir);
+    this.siteSearch = new SiteSearchStore(dataDir);
     this.reading = new ReadingStore(dataDir);
     this.annotations = new AnnotationStore(dataDir);
     this.agentRuns = new AgentRunStore(dataDir);
@@ -182,6 +186,7 @@ export class ProfileRuntime {
     this.bookmarks.flush();
     this.history.flush();
     this.workspaces.flush();
+    this.siteSearch.flush();
     this.reading.flush();
     this.annotations.flush();
     this.agentRuns.flush();

@@ -2,25 +2,29 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps, TabListProps }
 import { Pressable, View, StyleSheet } from 'react-native';
 
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { t } from '@/lib/i18n';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
+
+/** Height of the floating tab bar: the screens start below it instead of under it. */
+const TAB_BAR_HEIGHT = Spacing.three * 2 + Spacing.two * 2 + 28;
 
 /** The web build's tab bar (the native one is app-tabs.tsx); used for the browser checks too. */
 export default function AppTabs() {
   return (
     <Tabs>
-      <TabSlot style={{ height: '100%' }} />
+      <TabSlot style={{ height: '100%', paddingTop: TAB_BAR_HEIGHT }} />
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="index" href="/" asChild>
             <TabButton>Corvus</TabButton>
           </TabTrigger>
           <TabTrigger name="library" href="/library" asChild>
-            <TabButton>Library</TabButton>
+            <TabButton>{t('Library')}</TabButton>
           </TabTrigger>
           <TabTrigger name="settings" href="/settings" asChild>
-            <TabButton>Settings</TabButton>
+            <TabButton>{t('Settings')}</TabButton>
           </TabTrigger>
         </CustomTabList>
       </TabList>

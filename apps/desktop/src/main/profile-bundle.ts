@@ -28,6 +28,7 @@ export const BUNDLE_FILES = [
   "schedules.json",
   "site-memory.json",
   "site-profiles.json",
+  "site-search.json",
   "site-settings.json",
   "watches.json",
   "workspaces.json",

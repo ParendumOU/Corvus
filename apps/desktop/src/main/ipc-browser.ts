@@ -78,6 +78,13 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
       if (!/^https?:\/\//i.test(u)) throw new IpcError("Only web pages can be sent");
       return ctx.telegram.send(u, str(title ?? "", "title", 500));
     },
+    "share.device": (w, deviceId, url, title) => {
+      const u = str(url, "url", 8192);
+      if (!/^https?:\/\//i.test(u)) throw new IpcError("Only web pages can be sent");
+      const to = str(deviceId, "device", 64);
+      if (!ctx.sync.phones(w.profile).some((p) => p.id === to)) throw new IpcError("That phone is not paired with this profile");
+      return ctx.sync.sendTab(w.profile, to, u, str(title ?? "", "title", 500));
+    },
     "share.copy": (_w, url) => clipboard.writeText(str(url, "url", 8192)),
   };
 }

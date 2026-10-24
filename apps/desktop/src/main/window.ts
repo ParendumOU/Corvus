@@ -27,6 +27,7 @@ import {
   type InternalPage,
 } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
+import { siteSearchUrl } from "../shared/site-search";
 import { pageBaseColor } from "../shared/page-base";
 import { homePageUrl } from "../shared/settings";
 import { commandForInput, type BrowserCommand } from "../shared/shortcuts";
@@ -1284,7 +1285,8 @@ export class BrowserWindowCtl {
   }
 
   navigateInput(id: TabId, input: string): void {
-    const url = intentToUrl(classifyOmnibox(input));
+    // A search shortcut's keyword first ("yt cats") searches that site.
+    const url = siteSearchUrl(input, this.profile.siteSearch.list()) ?? intentToUrl(classifyOmnibox(input));
     this.loadUrl(id, url);
   }
 
@@ -1355,12 +1357,15 @@ export class BrowserWindowCtl {
     }
   }
 
-  /** "Send to your phone…": the page as a QR code to scan, and to Telegram when a chat is linked. */
+  /**
+   * "Send to your phone…": the page as a QR code to scan, to the phones paired with this profile's
+   * sync, and to Telegram when a chat is linked.
+   */
   async shareToPhone(url: string, title: string): Promise<void> {
     if (!/^https?:\/\//i.test(url)) return;
     const { encodeQR } = await import("qr");
     const qrSvg = encodeQR(url, "svg", { border: 2 });
-    this.sendCommand({ type: "open-share", share: { url, title, qrSvg, telegram: this.ctx.telegram.status().linked } });
+    this.sendCommand({ type: "open-share", share: { url, title, qrSvg, telegram: this.ctx.telegram.status().linked, phones: this.ctx.sync.phones(this.profile) } });
   }
 
   /** Opens `url` in a new tab in a container (null: none), next to `openerId` when given. */

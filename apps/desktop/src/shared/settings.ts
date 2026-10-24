@@ -144,6 +144,8 @@ export interface Settings {
     telegramChatName: string;
     /** Open links the linked chat sends to the bot. */
     receiveLinks: boolean;
+    /** Answer questions asked from Corvus on the phone (sent to this computer) with its AI search. */
+    answerQuestions: boolean;
   };
   translate: {
     /** Offer to translate pages written in another language (a button in the address bar). */
@@ -258,7 +260,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60 },
     media: { autoPictureInPicture: true },
-    phone: { telegramBot: "", telegramChatId: "", telegramChatName: "", receiveLinks: true },
+    phone: { telegramBot: "", telegramChatId: "", telegramChatName: "", receiveLinks: true, answerQuestions: true },
     translate: { offer: true, targetLanguage: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },

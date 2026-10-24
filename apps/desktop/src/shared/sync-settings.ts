@@ -46,6 +46,7 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "phone.telegramChatId": "Linked on this device with its own bot token.",
   "phone.telegramChatName": "Linked on this device with its own bot token.",
   "phone.receiveLinks": "Only one device should open the links a chat sends, or every device would.",
+  "phone.answerQuestions": "Answering uses this computer's AI provider; each computer decides.",
   "ai.claudeCliPath": "Path of an executable on this machine.",
   "ai.claudeAccount": "Which local Claude Code account this machine's CLI runs as.",
   "ai.claudeConfigDir": "Folder on this machine.",

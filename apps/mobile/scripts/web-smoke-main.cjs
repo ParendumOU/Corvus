@@ -241,6 +241,26 @@ async function pairingSmoke(win, base, syncUrl) {
   const gone = await until(win, `!document.querySelector('[data-testid="outbox-${cancelUrl}"]')`, 5000);
   check("send: a page can be taken back before the computer opens it", Boolean(toCancel) && cancelled?.deleted === true && cancelled.id === toCancel.id && gone, cancelled);
 
+  // Sent to this phone: a page from the computer shows on the home screen; opening it takes it off the chain.
+  const phoneId = (await computer.listDevices()).find((d) => d.name === "Phone")?.id;
+  const inboxUrl = `${base}/smoke/for-the-phone`;
+  await computer.push([
+    { collection: "sent_tabs", id: "smoke-to-phone-1", payload: { url: inboxUrl, title: "For the phone", to: phoneId, fromId: deskId, from: "Smoke desktop", sentAt: Date.now() }, deleted: false },
+  ]);
+  await win.loadURL(`${base}/`);
+  const inboxRow = `document.querySelector('[data-testid="inbox-${inboxUrl}"]')?.innerText ?? ''`;
+  const inboxShown = await until(win, `(${inboxRow}).includes("For the phone") && (${inboxRow}).includes("From Smoke desktop")`, 20000);
+  await shot(win, "home-inbox");
+  await win.webContents.executeJavaScript(`window.open = () => null; document.querySelector('[data-testid="inbox-${inboxUrl}"]').click()`);
+  const openedGone = await (async () => {
+    for (const end = Date.now() + 15000; Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
+      if ((await computer.pull()).some((i) => i.collection === "sent_tabs" && i.id === "smoke-to-phone-1" && i.deleted)) return true;
+    }
+    return false;
+  })();
+  const leftInbox = await until(win, `!document.querySelector('[data-testid="inbox-${inboxUrl}"]')`, 5000);
+  check("sent to this phone: a page from the computer shows on the phone, and opening it takes it off the chain", inboxShown && openedGone && leftInbox, await win.webContents.executeJavaScript(inboxRow));
+
   // Library: the computer's bookmarks and reading list, and changes made on the phone.
   const pulledUntil = async (pred) => {
     for (const end = Date.now() + 15000; Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
@@ -325,6 +345,35 @@ async function pairingSmoke(win, base, syncUrl) {
     bookmark?.payload?.parentId === "other" && bookmark.payload.title === "Bookmarked on the phone" && bookmark.payload.kind === "bookmark",
     bookmark?.payload ?? null,
   );
+
+  // Ask Corvus: the question reaches the computer, whose answer shows on the phone as it is written.
+  const question = "How long do ravens live?";
+  await win.loadURL(`${base}/`);
+  await until(win, present("home-ask"), 20000);
+  await tap("home-ask");
+  await until(win, "document.querySelector('[data-testid=ask-submit]')?.innerText.includes('Ask Smoke desktop')", 20000);
+  await typeInto(win, "ask-question", question);
+  await until(win, "document.querySelector('[data-testid=ask-submit]')?.getAttribute('aria-disabled') !== 'true'");
+  await tap("ask-submit");
+  const asked = await pulledUntil((i) => i.collection === "asks" && i.payload?.question === question);
+  const status = `document.querySelector('[data-testid="ask-status-${question}"]')?.innerText ?? ''`;
+  const answerText = `document.querySelector('[data-testid="ask-answer-${question}"]')?.innerText ?? ''`;
+  const waitingShown = await until(win, `(${status}).includes("Waiting for Smoke desktop")`, 10000);
+  check("ask: a question asked on the phone reaches the computer, addressed to it", asked?.payload?.to === deskId && asked.payload.state === "waiting" && waitingShown, asked?.payload ?? null);
+  if (asked) {
+    const answer = { ...asked.payload, state: "answering", answeredBy: "Smoke desktop", answer: "Ravens live 10 to 15 years", sources: [{ title: "Ravens", url: "https://birds.example/raven" }], updatedAt: Date.now() };
+    await computer.push([{ collection: "asks", id: asked.id, payload: answer, deleted: false }]);
+    const partial = await until(win, `(${status}).includes("Smoke desktop is answering") && (${answerText}).includes("10 to 15 years")`, 15000);
+    await computer.push([
+      { collection: "asks", id: asked.id, payload: { ...answer, state: "done", answer: "Ravens live 10 to 15 years in the wild [1].", followUps: ["Do ravens mate for life?"], updatedAt: Date.now() }, deleted: false },
+    ]);
+    const done = await until(win, `(${status}).includes("Answered by Smoke desktop") && (${answerText}).includes("in the wild [1].") && ${present("ask-source-https://birds.example/raven")}`, 15000);
+    await shot(win, "ask");
+    check("ask: the phone shows the answer as the computer writes it, then with its sources", partial && done, await win.webContents.executeJavaScript(answerText));
+    await tap(`ask-remove-${question}`);
+    const removed = await pulledUntil((i) => i.collection === "asks" && i.id === asked.id && i.deleted);
+    check("ask: removing a question takes it off the chain", Boolean(removed) && (await until(win, `!${present(`ask-${question}`)}`, 5000)));
+  }
 
   await win.loadURL(`${base}/settings`);
   const listed = await until(win, "document.querySelector('[data-testid=\"device-Smoke desktop\"]') && document.querySelector('[data-testid=\"device-Phone\"]')?.textContent.includes('(this phone)')", 20000);

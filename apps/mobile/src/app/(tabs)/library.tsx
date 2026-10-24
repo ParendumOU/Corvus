@@ -16,6 +16,7 @@ import { HISTORY_PAGE, groupByDay, searchHistory, timeOfDay } from '@/lib/histor
 import { folderContents, folderPath, searchBookmarks, searchReading } from '@/lib/library';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
+import { t } from '@/lib/i18n';
 
 type Section = 'bookmarks' | 'reading' | 'history';
 
@@ -28,9 +29,9 @@ const PLACEHOLDERS: Record<Section, string> = {
 function Segment({ value, onChange }: { value: Section; onChange: (s: Section) => void }) {
   const theme = useTheme();
   const options: Array<[Section, string]> = [
-    ['bookmarks', 'Bookmarks'],
-    ['reading', 'Reading list'],
-    ['history', 'History'],
+    ['bookmarks', t('Bookmarks')],
+    ['reading', t('Reading list')],
+    ['history', t('History')],
   ];
   return (
     <ThemedView type="backgroundElement" style={styles.segment}>
@@ -57,7 +58,7 @@ function PageRow({ url, title, sub, testID, onOpen, right }: { url: string; titl
     <View style={styles.rowWrap}>
       <Pressable
         accessibilityRole="link"
-        accessibilityHint="Opens the page. Long press to open it in your browser app."
+        accessibilityHint={t('Opens the page. Long press to open it in your browser app.')}
         onPress={() => (onOpen ? onOpen() : void openInApp(url))}
         onLongPress={() => void openInBrowser(url)}
         style={({ pressed }) => [styles.row, pressed && { backgroundColor: theme.backgroundSelected }]}
@@ -103,21 +104,21 @@ function Bookmarks({ bookmarks, query }: { bookmarks: Bookmark[]; query: string 
       <View style={styles.crumbs}>
         <Pressable onPress={() => setFolder(null)} testID="crumb-top">
           <ThemedText type="smallBold" themeColor={folder === null ? 'text' : 'textSecondary'}>
-            Bookmarks
+            {t('Bookmarks')}
           </ThemedText>
         </Pressable>
         {path.map((f) => (
           <Pressable key={f.id} onPress={() => setFolder(f.id)} testID={`crumb-${f.title}`}>
             <ThemedText type="smallBold" themeColor={f.id === folder ? 'text' : 'textSecondary'}>
               {' › '}
-              {f.title || 'Folder'}
+              {f.title || t('Folder')}
             </ThemedText>
           </Pressable>
         ))}
       </View>
       {contents.length === 0 && (
         <ThemedText type="small" themeColor="textSecondary">
-          This folder is empty.
+          {t('This folder is empty.')}
         </ThemedText>
       )}
       {contents.map((b) =>
@@ -127,7 +128,7 @@ function Bookmarks({ bookmarks, query }: { bookmarks: Bookmark[]; query: string 
               ▸
             </ThemedText>
             <ThemedText type="small" style={styles.grow}>
-              {b.title || 'Folder'}
+              {b.title || t('Folder')}
             </ThemedText>
           </Pressable>
         ) : (
@@ -148,9 +149,9 @@ function Reading({ items, query, refreshed }: { items: ReadingItem[]; query: str
   const meta = (item: ReadingItem): string =>
     [
       item.siteName || tabHost(item.url),
-      item.readingMinutes > 0 ? `${item.readingMinutes} min read` : null,
-      `saved ${ago(item.savedAt)}`,
-      item.readAt !== undefined ? 'read' : null,
+      item.readingMinutes > 0 ? t('{n} min read', { n: item.readingMinutes }) : null,
+      t('saved {when}', { when: ago(item.savedAt) }),
+      item.readAt !== undefined ? t('read') : null,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -160,10 +161,10 @@ function Reading({ items, query, refreshed }: { items: ReadingItem[]; query: str
       {shown.length === 0 && (
         <ThemedText type="small" themeColor="textSecondary" testID="reading-empty">
           {query.trim()
-            ? `Nothing in your reading list matches “${query.trim()}”.`
+            ? t('Nothing in your reading list matches “{query}”.', { query: query.trim() })
             : refreshed
-              ? 'Your reading list is empty. Save articles in reader mode on your computer, or share a link to Corvus here.'
-              : 'Loading…'}
+              ? t('Your reading list is empty. Save articles in reader mode on your computer, or share a link to Corvus here.')
+              : t('Loading…')}
         </ThemedText>
       )}
       {shown.map((item) => {
@@ -187,7 +188,7 @@ function Reading({ items, query, refreshed }: { items: ReadingItem[]; query: str
                 hitSlop={8}
                 testID={`reading-toggle-${item.url}`}>
                 <ThemedText type="smallBold" themeColor="textSecondary">
-                  {read ? 'Mark unread' : 'Mark read'}
+                  {read ? t('Mark unread') : t('Mark read')}
                 </ThemedText>
               </Pressable>
             }
@@ -207,7 +208,11 @@ function History({ entries, query, refreshed }: { entries: SyncedHistoryEntry[];
     return (
       <ThemedView type="backgroundElement" style={styles.card}>
         <ThemedText type="small" themeColor="textSecondary" testID="history-empty">
-          {query.trim() ? `Nothing in your history matches “${query.trim()}”.` : refreshed ? 'No history from your computers yet.' : 'Loading…'}
+          {query.trim()
+            ? t('Nothing in your history matches “{query}”.', { query: query.trim() })
+            : refreshed
+              ? t('No history from your computers yet.')
+              : t('Loading…')}
         </ThemedText>
       </ThemedView>
     );
@@ -223,7 +228,7 @@ function History({ entries, query, refreshed }: { entries: SyncedHistoryEntry[];
         </ThemedView>
       ))}
       {matches.length > limit && (
-        <Button label={`Show more (${matches.length - limit} left)`} kind="secondary" onPress={() => setLimit((n) => n + HISTORY_PAGE)} testID="history-more" />
+        <Button label={t('Show more ({n} left)', { n: matches.length - limit })} kind="secondary" onPress={() => setLimit((n) => n + HISTORY_PAGE)} testID="history-more" />
       )}
     </>
   );
@@ -245,15 +250,15 @@ export default function LibraryScreen() {
             session.status === 'paired' ? <RefreshControl refreshing={session.refreshing} onRefresh={() => void refreshSession()} /> : undefined
           }>
           <ThemedText type="subtitle" testID="library-title">
-            Library
+            {t('Library')}
           </ThemedText>
 
           {session.status === 'unpaired' ? (
             <ThemedView type="backgroundElement" style={styles.card}>
               <ThemedText type="small" themeColor="textSecondary">
-                Pair this phone with your computer to see your bookmarks and reading list here.
+                {t('Pair this phone with your computer to see your bookmarks and reading list here.')}
               </ThemedText>
-              <Button label="Pair with a computer" onPress={() => router.push('/pair')} />
+              <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} />
             </ThemedView>
           ) : (
             <>
@@ -263,7 +268,7 @@ export default function LibraryScreen() {
                 style={[styles.search, { color: theme.text, backgroundColor: theme.backgroundElement }]}
                 value={query}
                 onChangeText={setQuery}
-                placeholder={PLACEHOLDERS[section]}
+                placeholder={t(PLACEHOLDERS[section])}
                 placeholderTextColor={theme.textSecondary}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -272,7 +277,7 @@ export default function LibraryScreen() {
               {section === 'bookmarks' && <Bookmarks bookmarks={session.bookmarks} query={query} />}
               {section === 'reading' && <Reading items={session.reading} query={query} refreshed={session.refreshed} />}
               {section === 'history' && <History entries={session.history} query={query} refreshed={session.refreshed} />}
-              <Button label="Save or send a page" kind="secondary" onPress={() => router.push('/send')} testID="library-add" />
+              <Button label={t('Save or send a page')} kind="secondary" onPress={() => router.push('/send')} testID="library-add" />
             </>
           )}
         </ScrollView>

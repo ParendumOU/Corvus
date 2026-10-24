@@ -12,6 +12,8 @@ export interface PhoneShare {
   qrSvg: string;
   /** A Telegram chat is linked, so "Send to Telegram" is offered. */
   telegram: boolean;
+  /** Phones paired with this profile's sync (Corvus for mobile): the page can go straight there. */
+  phones: Array<{ id: string; name: string }>;
 }
 
 /** Telegram link state for Settings. */

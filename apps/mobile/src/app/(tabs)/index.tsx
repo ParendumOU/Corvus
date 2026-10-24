@@ -9,8 +9,9 @@ import { Favicon } from '@/components/favicon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { cancelSending, refreshSession, useSession } from '@/hooks/use-session';
+import { cancelSending, openReceived, refreshSession, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
+import { t } from '@/lib/i18n';
 import { ago } from '@/lib/format';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { filterTabs, tabHost, type ComputerTabs } from '@/lib/replica';
@@ -36,7 +37,7 @@ function TabRow({ tab }: { tab: SyncedTab }) {
   return (
     <Pressable
       accessibilityRole="link"
-      accessibilityHint="Opens the page. Long press to open it in your browser app."
+      accessibilityHint={t('Opens the page. Long press to open it in your browser app.')}
       onPress={() => void openInApp(tab.url)}
       onLongPress={() => void openInBrowser(tab.url)}
       style={({ pressed }) => [styles.tab, pressed && { backgroundColor: theme.backgroundSelected }]}
@@ -47,10 +48,10 @@ function TabRow({ tab }: { tab: SyncedTab }) {
           {tab.title || tab.url}
         </ThemedText>
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-          {tab.pinned ? 'Pinned · ' : ''}
+          {tab.pinned ? `${t('Pinned')} · ` : ''}
           {tab.group ? (
             <ThemedText type="small" style={{ color: GROUP_HEX[tab.group.color] }}>
-              {tab.group.title || 'Group'} ·{' '}
+              {tab.group.title || t('Group')} ·{' '}
             </ThemedText>
           ) : null}
           {tabHost(tab.url)}
@@ -66,7 +67,7 @@ function ComputerCard({ computer }: { computer: ComputerTabs }) {
       <View>
         <ThemedText type="smallBold">{computer.device}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          {computer.tabs.length} {computer.tabs.length === 1 ? 'tab' : 'tabs'} · updated {ago(computer.updatedAt)}
+          {computer.tabs.length === 1 ? t('1 tab') : t('{n} tabs', { n: computer.tabs.length })} · {t('updated {when}', { when: ago(computer.updatedAt) })}
         </ThemedText>
       </View>
       {computer.tabs.map((tab, i) => (
@@ -81,7 +82,7 @@ export default function HomeScreen() {
   const session = useSession();
   const [query, setQuery] = useState('');
   const shown = useMemo(() => filterTabs(session.tabs, query), [session.tabs, query]);
-  const deviceName = (id: string): string => session.devices.find((d) => d.id === id)?.name ?? 'your computer';
+  const deviceName = (id: string): string => session.devices.find((d) => d.id === id)?.name ?? t('your computer');
   const waiting = session.outbox.length > 0;
 
   // While a sent page waits, look every few seconds for its computer to have opened it.
@@ -104,23 +105,48 @@ export default function HomeScreen() {
               Corvus
             </ThemedText>
             <ThemedText themeColor="textSecondary">
-              {session.status === 'paired' ? 'Tabs from your computers' : "Your computer's Corvus, in your pocket."}
+              {session.status === 'paired' ? t('Tabs from your computers') : t("Your computer's Corvus, in your pocket.")}
             </ThemedText>
           </ThemedView>
 
           {session.status === 'unpaired' && (
             <ThemedView type="backgroundElement" style={styles.card} testID="pairing-card">
-              <ThemedText type="smallBold">Not paired with a computer yet</ThemedText>
+              <ThemedText type="smallBold">{t('Not paired with a computer yet')}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Then scan the code here.
+                {t('On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Then scan the code here.')}
               </ThemedText>
-              <Button label="Pair with a computer" onPress={() => router.push('/pair')} testID="home-pair" />
+              <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} testID="home-pair" />
+            </ThemedView>
+          )}
+
+          {session.status === 'paired' && session.inbox.length > 0 && (
+            <ThemedView type="backgroundElement" style={styles.card} testID="inbox">
+              <ThemedText type="smallBold">{t('Sent to this phone')}</ThemedText>
+              {session.inbox.map((page) => (
+                <Pressable
+                  key={page.id}
+                  accessibilityRole="link"
+                  onPress={() => void openReceived(page.id)}
+                  style={({ pressed }) => [styles.tab, pressed && { backgroundColor: theme.backgroundSelected }]}
+                  testID={`inbox-${page.url}`}>
+                  <Favicon url={page.url} />
+                  <View style={styles.tabText}>
+                    <ThemedText type="small" numberOfLines={1}>
+                      {page.title || page.url}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                      {t('From {device}', { device: page.from || t('your computer') })} · {ago(page.sentAt)}
+                    </ThemedText>
+                  </View>
+                </Pressable>
+              ))}
             </ThemedView>
           )}
 
           {session.status === 'paired' && (
             <ThemedView type="backgroundElement" style={styles.card} testID="outbox">
-              <Button label="Send a page to your computer" kind="secondary" onPress={() => router.push('/send')} testID="home-send" />
+              <Button label={t('Ask Corvus')} onPress={() => router.push('/ask')} testID="home-ask" />
+              <Button label={t('Send a page to your computer')} kind="secondary" onPress={() => router.push('/send')} testID="home-send" />
               {session.outbox.map((page) => (
                 <View key={page.id} style={styles.pending} testID={`outbox-${page.url}`}>
                   <View style={styles.tabText}>
@@ -128,12 +154,12 @@ export default function HomeScreen() {
                       {page.title || page.url}
                     </ThemedText>
                     <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                      Waiting for {deviceName(page.to)} to open it · sent {ago(page.sentAt)}
+                      {t('Waiting for {computer} to open it · sent {when}', { computer: deviceName(page.to), when: ago(page.sentAt) })}
                     </ThemedText>
                   </View>
                   <Pressable accessibilityRole="button" onPress={() => void cancelSending(page.id)} hitSlop={8} testID={`outbox-cancel-${page.url}`}>
                     <ThemedText type="smallBold" themeColor="textSecondary">
-                      Cancel
+                      {t('Cancel')}
                     </ThemedText>
                   </Pressable>
                 </View>
@@ -145,11 +171,11 @@ export default function HomeScreen() {
             <Pressable accessibilityRole="button" onPress={() => router.push('/watches')} testID="home-watches">
               <ThemedView type="backgroundElement" style={[styles.card, styles.watchCard]}>
                 <View style={styles.tabText}>
-                  <ThemedText type="smallBold">Watched pages</ThemedText>
+                  <ThemedText type="smallBold">{t('Watched pages')}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     {session.watches.length === 0
-                      ? 'Watch a page for changes or for a price to drop.'
-                      : `${session.watches.length} watched · ${changedRecently(session.watches)} changed in the last day`}
+                      ? t('Watch a page for changes or for a price to drop.')
+                      : t('{n} watched · {changed} changed in the last day', { n: session.watches.length, changed: changedRecently(session.watches) })}
                   </ThemedText>
                 </View>
                 <ThemedText type="smallBold" themeColor="textSecondary">
@@ -165,7 +191,7 @@ export default function HomeScreen() {
               style={[styles.filter, { color: theme.text, backgroundColor: theme.backgroundElement }]}
               value={query}
               onChangeText={setQuery}
-              placeholder="Find a tab"
+              placeholder={t('Find a tab')}
               placeholderTextColor={theme.textSecondary}
               autoCapitalize="none"
               autoCorrect={false}
@@ -177,7 +203,7 @@ export default function HomeScreen() {
 
           {session.status === 'paired' && session.tabs.length > 0 && shown.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
-              No tab matches “{query.trim()}”.
+              {t('No tab matches “{query}”.', { query: query.trim() })}
             </ThemedText>
           )}
 
@@ -185,8 +211,8 @@ export default function HomeScreen() {
             <ThemedView type="backgroundElement" style={styles.card} testID="tabs-empty">
               <ThemedText type="small" themeColor="textSecondary">
                 {session.refreshed
-                  ? 'No open tabs from your computers yet. Corvus shares a computer’s open tabs while Sync is on there; pull down to refresh.'
-                  : 'Loading…'}
+                  ? t('No open tabs from your computers yet. Corvus shares a computer’s open tabs while Sync is on there; pull down to refresh.')
+                  : t('Loading…')}
               </ThemedText>
             </ThemedView>
           )}

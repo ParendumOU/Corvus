@@ -2,25 +2,32 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.parendum.corvus.mobile",
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ]
     },
     "web": {
       "output": "single",
@@ -33,7 +40,7 @@
         {
           "backgroundColor": "#1B1830",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 120
         }
       ],
       "expo-secure-store",
@@ -53,7 +60,9 @@
             "singleShareMimeTypes": ["text/plain"]
           }
         }
-      ]
+      ],
+      ["expo-notifications", { "color": "#5B5BD6", "icon": "./assets/images/notification-icon.png" }],
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": true,

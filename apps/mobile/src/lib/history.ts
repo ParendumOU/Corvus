@@ -1,6 +1,8 @@
 /** Browsing history from every device of the chain, as the phone shows it. */
 import { parseSyncedHistory, type SyncedHistoryEntry } from '@corvus/shared';
 
+import { t } from './i18n';
+
 /** How many entries the history screen shows at a time ("Show more" adds as many). */
 export const HISTORY_PAGE = 200;
 
@@ -36,11 +38,11 @@ const dayStart = (ms: number): number => {
 export function dayLabel(ms: number, now: number = Date.now()): string {
   const start = dayStart(ms);
   const today = dayStart(now);
-  if (start === today) return 'Today';
-  if (start === dayStart(today - 1)) return 'Yesterday';
+  if (start === today) return t('Today');
+  if (start === dayStart(today - 1)) return t('Yesterday');
   const d = new Date(ms);
   const year = d.getFullYear() === new Date(now).getFullYear() ? '' : ` ${d.getFullYear()}`;
-  return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}${year}`;
+  return t('{weekday} {day} {month}', { weekday: t(WEEKDAYS[d.getDay()]!), day: d.getDate(), month: t(MONTHS[d.getMonth()]!) }) + year;
 }
 
 export interface HistoryDay {

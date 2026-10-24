@@ -171,8 +171,8 @@ export const ES: Record<string, string> = {
   "Ask where to save each file": "Preguntar dónde guardar cada archivo",
   "Offer copied download links": "Ofrecer los enlaces de descarga copiados",
   "Import from another browser": "Importar de otro navegador",
-  "Bring bookmarks, history and open tabs over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.":
-    "Trae los favoritos, el historial y las pestañas abiertas de Chrome, Edge, Brave, Vivaldi, Opera o Firefox de este ordenador. Las pestañas abiertas se guardan como espacios de trabajo, con sus grupos, para abrirlas cuando quieras. Los archivos del otro navegador solo se leen, nunca se cambian; si está abierto, ciérralo antes.",
+  "Bring bookmarks, history, open tabs and search shortcuts over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer, and add its extensions. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.":
+    "Trae los favoritos, el historial, las pestañas abiertas y los atajos de búsqueda de Chrome, Edge, Brave, Vivaldi, Opera o Firefox de este ordenador, y añade sus extensiones. Las pestañas abiertas se guardan como espacios de trabajo, con sus grupos, para abrirlas cuando quieras. Los archivos del otro navegador solo se leen, nunca se cambian; si está abierto, ciérralo antes.",
   "1 open tab": "1 pestaña abierta",
   "{n} open tabs": "{n} pestañas abiertas",
   "{n} open tabs saved as {windows} workspaces": "{n} pestañas abiertas guardadas como {windows} espacios de trabajo",
@@ -184,6 +184,25 @@ export const ES: Record<string, string> = {
   "No new logins imported.": "No se importó ninguna contraseña nueva.",
   "{n} already saved.": "{n} ya estaban guardadas.",
   "{n} rows skipped.": "{n} filas omitidas.",
+  "1 extension": "1 extensión",
+  "{n} extensions": "{n} extensiones",
+  "Firefox add-ons come from Firefox's own store. Many are in the Chrome Web Store too: look each one up there.":
+    "Los complementos de Firefox vienen de la tienda de Firefox. Muchos están también en la Chrome Web Store: búscalos allí uno a uno.",
+  "Add the ones you want from the Chrome Web Store. Corvus shows what each one may do before it installs.":
+    "Añade las que quieras desde la Chrome Web Store. Corvus te enseña qué puede hacer cada una antes de instalarla.",
+  "Find in the Web Store": "Buscar en la Web Store",
+  "In Corvus": "En Corvus",
+  "Adding…": "Añadiendo…",
+  "Add to Corvus": "Añadir a Corvus",
+  "Search shortcuts": "Atajos de búsqueda",
+  "1 search shortcut": "1 atajo de búsqueda",
+  "{n} search shortcuts": "{n} atajos de búsqueda",
+  "Type a shortcut's keyword and a space in the address bar to search that site: “yt cats” searches YouTube for cats. Bring the ones you have in another browser with Import from another browser.":
+    "Escribe la palabra clave de un atajo y un espacio en la barra de direcciones para buscar en ese sitio: «yt gatos» busca gatos en YouTube. Trae los que tengas en otro navegador con Importar de otro navegador.",
+  "No search shortcuts yet": "Aún no hay atajos de búsqueda",
+  "New shortcut": "Nuevo atajo",
+  Keyword: "Palabra clave",
+  "Address, with %s where the search goes": "Dirección, con %s donde va la búsqueda",
   "1 bookmark": "1 favorito",
   "{n} bookmarks": "{n} favoritos",
   "1 page in history": "1 página en el historial",
@@ -302,6 +321,9 @@ export const ES: Record<string, string> = {
   "Not linked yet": "Aún sin vincular",
   Disconnect: "Desconectar",
   "Open links you send to the bot": "Abrir los enlaces que envíes al bot",
+  "Answer questions from Corvus on your phone": "Responder a las preguntas de Corvus en tu móvil",
+  "Questions you ask in the Corvus app on a phone paired with this profile's sync are answered here with Corvus's AI search, using this computer's AI provider, while Corvus is open.":
+    "Las preguntas que hagas en la app de Corvus de un móvil emparejado con la sincronización de este perfil se responden aquí con la búsqueda con IA de Corvus, usando el proveedor de IA de este ordenador, mientras Corvus esté abierto.",
   "Links that arrive from your linked chat open as background tabs in Corvus, about every 30 seconds. Messages from anyone else are ignored.":
     "Los enlaces que llegan de tu chat vinculado se abren como pestañas en segundo plano en Corvus, más o menos cada 30 segundos. Los mensajes de cualquier otra persona se ignoran.",
   Media: "Multimedia",

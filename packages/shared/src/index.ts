@@ -11,3 +11,4 @@ export * from "./sent-tabs.js";
 export * from "./library.js";
 export * from "./history.js";
 export * from "./watches.js";
+export * from "./asks.js";

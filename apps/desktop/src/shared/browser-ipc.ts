@@ -115,6 +115,8 @@ export interface BrowserChromeRpc {
   "grabber.downloadCopiedWithAi"(): boolean;
   /** "Send to your phone": sends the page to the linked Telegram chat. */
   "share.telegram"(url: string, title: string): void;
+  /** Sends the page to a phone paired with this profile's sync (Corvus for mobile notifies). */
+  "share.device"(deviceId: string, url: string, title: string): void;
   "share.copy"(url: string): void;
 }
 

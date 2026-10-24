@@ -22,6 +22,11 @@ export function outbox(records: Record<string, unknown>, self: string | null): S
   return self ? sentTabs(records, (t) => t.fromId === self) : [];
 }
 
+/** Pages a computer sent to this phone, oldest first (each leaves once it is opened here). */
+export function inbox(records: Record<string, unknown>, self: string | null): SentTabRecord[] {
+  return self ? sentTabs(records, (t) => t.to === self) : [];
+}
+
 /** The text shared from another app: a link alone, or a sentence with a link in it. */
 export function sharedText(payloads: ReadonlyArray<{ value: string; shareType: string }>): string {
   return payloads.find((p) => p.shareType === 'url')?.value ?? payloads.find((p) => p.shareType === 'text')?.value ?? '';

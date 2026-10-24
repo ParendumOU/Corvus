@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
+import { buildSuggestions } from "../shared/suggest";
 import { writeBrowserFixtures } from "./smoke-import-fixtures";
 import type { BrowserWindowCtl } from "./window";
 
@@ -35,6 +36,7 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
   const bookmarksBefore = new Set(profile.bookmarks.list().map((b) => b.id));
   const historyBefore = new Set(profile.history.all().map((e) => e.url));
   const workspacesBefore = new Set(profile.workspaces.list().map((w) => w.id));
+  const shortcutsBefore = new Set(profile.siteSearch.list().map((s) => s.keyword));
   let tabId: string | null = null;
   try {
     ctx.browserImport.setTestRoots(writeBrowserFixtures(root));
@@ -54,6 +56,25 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
       chromeText.slice(0, 300),
     );
 
+    // Extensions: the Chrome profile's Web Store ones to add, Firefox's add-ons to look up by name.
+    const extensions = (await wc.executeJavaScript(`(() => {
+      for (const d of document.querySelectorAll('[data-import-extensions]')) d.open = true;
+      const rows = (sel) => [...document.querySelectorAll(sel + ' [data-import-extension]')].map((li) => ({
+        name: li.querySelector('.grow')?.textContent ?? '',
+        button: li.querySelector('button')?.textContent ?? '',
+        link: li.querySelector('a')?.getAttribute('href') ?? '',
+      }));
+      return { chrome: rows('[data-import-source="chrome"] [data-import-profile="Default"]'), firefox: rows('[data-import-source="firefox"]') };
+    })()`)) as { chrome: Array<{ name: string; button: string; link: string }>; firefox: Array<{ name: string; button: string; link: string }> };
+    await capture("browser-import-extensions", wc);
+    check(
+      "browser import: a profile's Web Store extensions can be added, Firefox's add-ons looked up in the Web Store",
+      extensions.chrome.map((e) => `${e.name}:${e.button}`).join() === "Night Mode:Add to Corvus,uBlock Origin Lite:Add to Corvus" &&
+        extensions.firefox.length === 1 &&
+        extensions.firefox[0]?.link === "https://chromewebstore.google.com/search/uBlock%20Origin",
+      extensions,
+    );
+
     await wc.executeJavaScript("document.querySelector('[data-import-source=\"chrome\"] [data-import-profile=\"Default\"] [data-import-run]')?.click()");
     const done = await poll(wc, "document.querySelector('[data-import-source=\"chrome\"] [data-import-profile=\"Default\"] [data-import-result]') !== null");
     const added = profile.bookmarks.list().filter((b) => !bookmarksBefore.has(b.id));
@@ -70,12 +91,26 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
         workspace.groups.some((g) => g.title === "Research"),
       { done, added: added.map((b) => b.title), visited: visited.map((e) => e.url), workspace },
     );
+
+    // Search shortcuts came along, show in Settings, and the address bar uses them.
+    const shortcuts = profile.siteSearch.list().filter((x) => !shortcutsBefore.has(x.keyword));
+    await wc.executeJavaScript("location.hash = '#site-search'").catch(() => undefined);
+    wc.reload();
+    await sleep(300);
+    const shown = await poll(wc, "document.querySelector('[data-site-search=\"yt\"]') !== null && document.querySelector('[data-site-search=\"wiki\"]') !== null");
+    const suggestion = buildSuggestions("yt corvus", [], [], Date.now(), profile.siteSearch.list())[0];
+    check(
+      "browser import: search shortcuts come into Corvus, show in Settings and search from the address bar",
+      shortcuts.map((x) => x.keyword).join() === "yt,g,wiki" && shown && suggestion?.url === "https://www.youtube.com/results?search_query=corvus",
+      { shortcuts, shown, suggestion },
+    );
   } finally {
     ctx.browserImport.setTestRoots(null);
     if (tabId) win.closeTab(tabId);
     for (const b of profile.bookmarks.list().filter((x) => !bookmarksBefore.has(x.id) && x.title.startsWith("Imported from "))) profile.bookmarks.remove(b.id);
     profile.history.remove(profile.history.all().filter((e) => !historyBefore.has(e.url)).map((e) => e.id));
     for (const w of profile.workspaces.list().filter((x) => !workspacesBefore.has(x.id))) profile.workspaces.remove(w.id);
+    for (const x of profile.siteSearch.list().filter((y) => !shortcutsBefore.has(y.keyword))) profile.siteSearch.remove(x.keyword);
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

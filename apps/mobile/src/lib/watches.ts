@@ -1,6 +1,8 @@
 /** Watched pages as the phone shows them: what to watch, and what the computers last saw. */
 import { isSyncedWatch, parseDeviceWatchStatus, type DeviceInfo, type SyncedWatch, type WatchStatus } from '@corvus/shared';
 
+import { t } from './i18n';
+
 export interface WatchView extends SyncedWatch {
   /** The most recent check by any computer of the chain; absent until one has checked it. */
   status?: WatchStatus & { device: string };
@@ -11,10 +13,10 @@ export const INTERVAL_CHOICES: readonly number[] = [15, 60, 360, 1440];
 export const CONDITION_CHARS = 300;
 
 export function describeInterval(minutes: number): string {
-  if (minutes < 60) return `every ${minutes} min`;
-  if (minutes === 60) return 'every hour';
-  if (minutes < 1440) return `every ${Math.round(minutes / 60)} hours`;
-  return minutes === 1440 ? 'every day' : `every ${Math.round(minutes / 1440)} days`;
+  if (minutes < 60) return t('every {n} min', { n: minutes });
+  if (minutes === 60) return t('every hour');
+  if (minutes < 1440) return t('every {n} hours', { n: Math.round(minutes / 60) });
+  return minutes === 1440 ? t('every day') : t('every {n} days', { n: Math.round(minutes / 1440) });
 }
 
 /**

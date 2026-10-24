@@ -175,6 +175,11 @@ function fakeProvider() {
   };
 }
 
+/** The fake retriever and provider, for other smoke checks that need an AI search answer. */
+export function fakeSearchDeps(): { engine: unknown } {
+  return { engine: { retrievers: [fakeRetriever()], provider: fakeProvider() } };
+}
+
 async function waitFor(wc: WebContents, expression: string, timeoutMs = 10_000): Promise<boolean> {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
