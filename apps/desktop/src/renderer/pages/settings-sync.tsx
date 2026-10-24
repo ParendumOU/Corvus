@@ -258,6 +258,62 @@ function RecoveryPhrase() {
   );
 }
 
+/** How long the pairing QR code stays on screen. */
+const PAIRING_VISIBLE_MS = 120_000;
+
+/** "Pair a phone": a QR code the Corvus mobile app scans to join this sync chain. */
+function PairPhone() {
+  const api = internalApi();
+  const [pairing, setPairing] = useState<{ code: string; qrSvg: string; serverUrl: string; reachableFromPhone: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pairing) return;
+    const timer = setTimeout(() => setPairing(null), PAIRING_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [pairing]);
+  return (
+    <>
+      <Row label={t("Pair a phone")} hint={t("Shows a QR code for the Corvus app on your phone, which then syncs with this profile.")}>
+        {pairing ? (
+          <button className="btn small ghost" onClick={() => setPairing(null)}>
+            {t("Hide")}
+          </button>
+        ) : (
+          <button
+            className="btn small"
+            onClick={() => {
+              if (!confirm(t("Show the pairing code? It holds your recovery phrase: make sure nobody else can see your screen."))) return;
+              setError(null);
+              api
+                .call("sync.pairingCode")
+                .then(setPairing)
+                .catch((e: unknown) => setError(errorMessage(e)));
+            }}
+          >
+            {t("Pair a phone…")}
+          </button>
+        )}
+      </Row>
+      {pairing && (
+        <div className="pair-phone">
+          <img className="pair-qr" alt={t("Pairing code")} src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(pairing.qrSvg)}`} />
+          <div className="pair-steps">
+            <strong>{t("In the Corvus app on your phone, open Settings and choose “Pair with a computer”, then scan this code.")}</strong>
+            <span className="muted small">{t("Anyone who scans it can read your synced data. It hides itself after two minutes.")}</span>
+            <span className="muted small">{t("Sync server: {url}", { url: pairing.serverUrl })}</span>
+            {!pairing.reachableFromPhone && (
+              <div className="notice warn">
+                {t("Your phone probably cannot reach this sync server address. Use one it can reach (on your network or on the internet) in the sync server setting, then show the code again.")}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {error && <div className="notice error">{error}</div>}
+    </>
+  );
+}
+
 function DangerZone({ onStatus }: { onStatus: (s: SyncStatus) => void }) {
   const api = internalApi();
   const [open, setOpen] = useState(false);
@@ -380,6 +436,7 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       </Row>
       <ExtensionSuggestions status={status} />
       <RecoveryPhrase />
+      <PairPhone />
       <Row label={t("Sync chain")}>
         <code className="mono">{status.chainId}</code>
       </Row>

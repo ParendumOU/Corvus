@@ -5,7 +5,9 @@
  *   - tabs of a group are contiguous
  *   - groups without tabs are dropped
  */
-import type { GroupColor, GroupId, TabGroup, TabId } from "@corvus/shared";
+import { GROUP_COLORS, type GroupColor, type GroupId, type TabGroup, type TabId } from "@corvus/shared";
+
+export { GROUP_COLORS };
 
 export interface StripTab {
   id: TabId;
@@ -19,18 +21,6 @@ export interface TabStripState {
   groups: TabGroup[];
   activeId: TabId | null;
 }
-
-export const GROUP_COLORS: readonly GroupColor[] = [
-  "grey",
-  "blue",
-  "red",
-  "yellow",
-  "green",
-  "pink",
-  "purple",
-  "cyan",
-  "orange",
-];
 
 export function emptyStrip(): TabStripState {
   return { tabs: [], groups: [], activeId: null };

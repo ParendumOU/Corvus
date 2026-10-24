@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { SyncStateStorage } from "@corvus/shared";
+import { sentTabs, type SyncStateStorage } from "@corvus/shared";
 import { SyncEngine, createSyncClient, type CorvusSyncClient } from "@corvus/sync-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildServer } from "../../../services/sync-server/src/app";
@@ -433,5 +433,47 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     expect(await stale.sync()).toMatchObject({ pushed: 0, deleted: 0 });
 
     for (const d of [a, b, stale]) d.close();
+  });
+
+  it("delivers a page sent from the phone to its computer only, and deletes it once it is opened there", async () => {
+    const desk = new Device("Desk", "Work");
+    const other = new Device("Other", "Work");
+    await desk.client.register();
+    await other.client.register();
+    await desk.sync();
+    await other.sync();
+    const phone = createSyncClient({ serverUrl, phrase: PHRASE, deviceName: "Phone", platform: "android", storage: memoryStorage() });
+    await phone.register();
+    await phone.pull();
+
+    const deskId = await desk.client.getDeviceId();
+    const page = { url: "https://sent.example/article", title: "An article", to: deskId, fromId: await phone.getDeviceId(), from: "Phone", sentAt: 1 };
+    expect(await desk.client.hasNew("sent_tabs")).toBe(false);
+    await phone.push([
+      { collection: "sent_tabs", id: "sent-page-0001", payload: page, deleted: false },
+      { collection: "sent_tabs", id: "sent-bad-00001", payload: { ...page, url: "javascript:alert(1)" }, deleted: false },
+    ]);
+    // A cheap look at the server notices it without moving anything.
+    expect(await desk.client.hasNew("sent_tabs")).toBe(true);
+    expect(await desk.client.hasNew("sent_tabs")).toBe(true);
+
+    await desk.sync();
+    await other.sync();
+    expect(await desk.client.hasNew("sent_tabs")).toBe(false);
+    const mine = sentTabs(desk.remote.records("sent_tabs").all(), (t) => t.to === deskId);
+    expect(mine.map((t) => [t.id, t.url])).toEqual([["sent-page-0001", "https://sent.example/article"]]);
+    // The page for Desk stays on Other untouched (no deletion on Desk's behalf).
+    expect(Object.keys(other.remote.records("sent_tabs").all())).toEqual(["sent-page-0001"]);
+    expect(await other.sync()).toMatchObject({ deleted: 0 });
+
+    // Desk opens it (SyncService drops the record); the next cycle deletes it on the chain.
+    desk.remote.records("sent_tabs").delete("sent-page-0001");
+    expect(await desk.sync()).toMatchObject({ deleted: 1 });
+    const seen = await phone.pull();
+    expect(seen.filter((i) => i.collection === "sent_tabs").map((i) => [i.id, i.deleted])).toEqual([["sent-page-0001", true]]);
+    await other.sync();
+    expect(other.remote.records("sent_tabs").all()).toEqual({});
+
+    for (const d of [desk, other]) d.close();
   });
 });

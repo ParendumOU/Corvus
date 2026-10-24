@@ -4,3 +4,6 @@ export * from "./search.js";
 export * from "./sync.js";
 export * from "./services.js";
 export * from "./spend.js";
+export * from "./pairing.js";
+export * from "./open-tabs.js";
+export * from "./sent-tabs.js";

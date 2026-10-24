@@ -3,7 +3,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, webContents } from "electron";
-import type { SearchEvent } from "@corvus/shared";
+import { decodePairing, type SearchEvent } from "@corvus/shared";
 import { createSyncClient } from "@corvus/sync-core";
 import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
@@ -253,6 +253,13 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
   const phrase = await ctx.sync.generatePhrase();
   const on = await ctx.sync.enable(profile, { serverUrl, phrase, deviceName: "Smoke laptop" });
   check("sync enable", on.enabled && on.lastSyncAt !== null && on.error === null, { ...on, chainId: on.chainId?.slice(0, 8) });
+  const pairing = await ctx.sync.pairingCode(profile);
+  const decoded = decodePairing(pairing.code);
+  check(
+    "pair a phone: the QR code carries this chain's server and phrase",
+    decoded?.phrase === phrase && decoded.serverUrl === serverUrl.replace(/\/+$/, "") && pairing.qrSvg.startsWith("<svg") && !pairing.reachableFromPhone,
+    { serverUrl: decoded?.serverUrl, reachableFromPhone: pairing.reachableFromPhone },
+  );
 
   const memory = new Map<string, string>();
   const phone = createSyncClient({
@@ -299,6 +306,28 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
 
   const listed = await ctx.sync.devices(profile);
   check("sync devices", listed.length === 2 && listed[0]?.current === true && listed[1]?.name === "Smoke phone", listed);
+
+  // A page sent from the phone opens here once, and its record then leaves the chain.
+  const sentUrl = `${pageUrl}${pageUrl.includes("?") ? "&" : "?"}corvus-sent=1`;
+  const sentId = "smoke-sent-page-1";
+  const deskId = listed.find((d) => d.current)?.id ?? "";
+  await phone.push([
+    {
+      collection: "sent_tabs",
+      id: sentId,
+      payload: { url: sentUrl, title: "Sent from the phone", to: deskId, fromId: phoneId, from: "Smoke phone", sentAt: Date.now() },
+      deleted: false,
+    },
+  ]);
+  await ctx.sync.syncNow(profile);
+  await ctx.sync.syncNow(profile);
+  const sentTabs = win.listTabs().filter((t) => t.url === sentUrl);
+  const sentGone = (await phone.pull()).some((i) => i.collection === "sent_tabs" && i.id === sentId && i.deleted);
+  check("send to computer: a page sent from the phone opens once, then leaves the chain", sentTabs.length === 1 && sentGone, {
+    opened: sentTabs.length,
+    deletedOnChain: sentGone,
+  });
+  for (const tab of sentTabs) win.closeTab(tab.id);
   await runSyncLearnedSmoke(ctx, { profile, phone, win, check });
 
   const history = win.createTab("corvus://history");

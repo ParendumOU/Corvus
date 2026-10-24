@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
-import type { SyncStateStorage } from "@corvus/shared";
+import { encodePairing, reachableFromPhone, sentTabs, type SyncStateStorage } from "@corvus/shared";
+import { Notification } from "electron";
 import type { CorvusSyncClient, SyncEngine } from "@corvus/sync-core";
 import { extensionSuggestions, webstoreExtensions, type ExtensionSuggestion, type SyncedExtension } from "../shared/extension-suggestions";
 import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncOptions, type SyncStatus } from "../shared/ipc";
@@ -46,6 +47,8 @@ interface Runtime {
 const DEFAULT_INTERVAL_MINUTES = 5;
 const CHANGE_DEBOUNCE_MS = 10_000;
 const CHANGE_MAX_WAIT_MS = 60_000;
+/** How often to look for pages sent to this device between full syncs (one cheap request). */
+const INBOX_POLL_MS = 30_000;
 /** How often open tabs, installed extensions and profile metadata are checked for changes. */
 const WATCH_INTERVAL_MS = 3_000;
 const WIPE_CONFIRMATION = "DELETE";
@@ -80,11 +83,31 @@ function metaKey(profile: ProfileRuntime): string {
   return `${profile.profile.name}\u0000${profile.profile.avatar ?? ""}`;
 }
 
+/** Between full syncs, asks the server for new sent pages and runs a sync when there are some. */
+function pollInbox(client: CorvusSyncClient, sync: () => void): () => void {
+  let busy = false;
+  const timer = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    client
+      .hasNew("sent_tabs")
+      .then((fresh) => {
+        if (fresh) sync();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        busy = false;
+      });
+  }, INBOX_POLL_MS);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
 /**
  * Per-profile, end-to-end encrypted sync through @corvus/sync-core's SyncEngine: bookmarks, history,
  * allowlisted settings, profile name/avatar, open tabs and installed extensions, reading list,
- * watches, workspaces, annotations, and (unless turned off on this device) workflows and site
- * memory (see sync-adapters.ts).
+ * watches, workspaces, annotations, pages sent from other devices, and (unless turned off on this
+ * device) workflows and site memory (see sync-adapters.ts).
  * A sync chain belongs to exactly one profile. Crypto and the wire protocol live in sync-core.
  */
 export class SyncService {
@@ -319,6 +342,7 @@ export class SyncService {
         this.ctx.monitor.storeFor(profile).onChange(() => scheduler.poke()),
         ...(flows ? [flows.onChange(() => scheduler.poke())] : []),
         ...(memory ? [memory.onChange(() => scheduler.poke())] : []),
+        pollInbox(client, () => scheduler.poke()),
       ],
     };
     this.runtimes.set(id, rt);
@@ -351,11 +375,43 @@ export class SyncService {
       await engine.sync();
       file.update((s) => ({ ...s, lastSyncAt: Date.now() }));
       this.errors.delete(id);
+      // Opened pages leave the replica; the next cycle deletes them on the chain.
+      if ((await this.openSentTabs(profile)) > 0) this.runtimes.get(id)?.scheduler.poke();
     } catch (err) {
       this.errors.set(id, describeError(err, file.get().serverUrl));
     } finally {
       this.kvFiles.get(id)?.flush();
     }
+  }
+
+  /**
+   * Opens the pages other devices sent to this one as background tabs in a window of the profile,
+   * then drops their records. Pages wait while the profile has no window. Returns how many opened.
+   */
+  private async openSentTabs(profile: ProfileRuntime): Promise<number> {
+    const rt = this.runtimes.get(profile.profile.id);
+    if (!rt) return 0;
+    const own = await rt.client.getDeviceId();
+    const records = this.remote(profile).records("sent_tabs");
+    const pages = sentTabs(records.all(), (t) => t.to === own);
+    const windows = this.ctx.windows.forProfile(profile.profile.id);
+    const focused = this.ctx.windows.focused();
+    const win = windows.find((w) => w === focused) ?? windows[0];
+    if (pages.length === 0 || !win) return 0;
+    for (const page of pages) {
+      win.createTab(page.url, { activate: false });
+      records.delete(page.id);
+    }
+    if (Notification.isSupported()) {
+      const senders = [...new Set(pages.map((p) => p.from || "another device"))].join(", ");
+      const n = new Notification({
+        title: pages.length === 1 ? `A page from ${senders}` : `${pages.length} pages from ${senders}`,
+        body: pages.map((p) => p.title || p.url).join("\n").slice(0, 200),
+      });
+      n.on("click", () => win.win.focus());
+      n.show();
+    }
+    return pages.length;
   }
 
   private async active(profile: ProfileRuntime): Promise<Runtime> {
@@ -538,6 +594,18 @@ export class SyncService {
     this.remote(profile).forgetDevice(deviceId);
     await rt.scheduler.trigger();
     return this.devices(profile);
+  }
+
+  /**
+   * "Pair a phone": the pairing code (server address + recovery phrase) as text and as a QR code
+   * for the Corvus mobile app, and whether a phone can likely reach that server address.
+   */
+  async pairingCode(profile: ProfileRuntime): Promise<{ code: string; qrSvg: string; serverUrl: string; reachableFromPhone: boolean }> {
+    const phrase = this.revealPhrase(profile);
+    const serverUrl = this.state(profile).get().serverUrl;
+    const code = encodePairing({ serverUrl, phrase });
+    const { encodeQR } = await import("qr");
+    return { code, qrSvg: encodeQR(code, "svg", { border: 2 }), serverUrl, reachableFromPhone: reachableFromPhone(serverUrl) };
   }
 
   revealPhrase(profile: ProfileRuntime): string {

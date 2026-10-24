@@ -12,6 +12,8 @@ export type ProfileId = string;
 
 export type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange";
 
+export const GROUP_COLORS: readonly GroupColor[] = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
+
 export interface Tab {
   id: TabId;
   windowId: string;

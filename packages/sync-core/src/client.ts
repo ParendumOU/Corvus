@@ -60,6 +60,12 @@ export interface CorvusSyncClient extends SyncClient {
    * pullPages. Resolves to 0 without throwing when the server does not know the collection.
    */
   pullCollection(collection: SyncCollection, onPage: (items: SyncItem[]) => Promise<void> | void): Promise<number>;
+  /**
+   * Whether the chain has records of `collection` newer than this device's cursor that it has not
+   * seen. Moves nothing: a cheap check before a full sync (e.g. for pages sent to this device).
+   * False when the server does not know the collection.
+   */
+  hasNew(collection: SyncCollection): Promise<boolean>;
 }
 
 /** [version, deviceId] of the newest revision this device knows for a record. */
@@ -269,6 +275,21 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     }
   }
 
+  async function hasNew(collection: SyncCollection): Promise<boolean> {
+    if (unsupported.has(collection)) return false;
+    const cursor = Number((await opts.storage.get(storageKey("cursor"))) ?? 0) || 0;
+    let res: SyncPullResponse;
+    try {
+      res = await request<SyncPullResponse>("GET", `${chainPath}/records?since=${cursor}&collection=${collection}`);
+    } catch (err) {
+      if (!rejectedCollectionFilter(err)) throw err;
+      unsupported.add(collection);
+      return false;
+    }
+    const map = await versions(collection);
+    return res.records.some((r) => r.collection === collection && isNewer(r.version, r.deviceId, map.get(r.id)));
+  }
+
   async function forgetCollection(collection: SyncCollection): Promise<void> {
     versionCache.set(collection, new Map());
     await opts.storage.set(storageKey(`versions/${collection}`), "{}");
@@ -296,6 +317,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     pull,
     pullPages,
     pullCollection,
+    hasNew,
     forgetCollection,
     resetLocalState,
     async cursor(): Promise<number> {

@@ -357,6 +357,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "sync.removeDevice"(deviceId: string): SyncDeviceView[];
   "sync.renameDevice"(name: string): SyncDeviceView[];
   "sync.revealPhrase"(): string;
+  /** "Pair a phone": the pairing code as text and QR (it holds the recovery phrase). */
+  "sync.pairingCode"(): { code: string; qrSvg: string; serverUrl: string; reachableFromPhone: boolean };
   "sync.wipe"(confirmation: string): SyncStatus;
   "sync.remoteTabs"(): RemoteDeviceTabs[];
   "sync.extensionSuggestions"(): ExtensionSuggestion[];

@@ -535,6 +535,20 @@ export const ES: Record<string, string> = {
     "Hace falta para añadir un dispositivo. Quien la vea puede leer todos tus datos sincronizados.",
   "Show the recovery phrase? Make sure nobody can see your screen.": "¿Mostrar la frase de recuperación? Asegúrate de que nadie ve tu pantalla.",
   "Show recovery phrase": "Mostrar la frase de recuperación",
+  "Pair a phone": "Emparejar un móvil",
+  "Shows a QR code for the Corvus app on your phone, which then syncs with this profile.":
+    "Muestra un código QR para la app Corvus del móvil, que a partir de entonces se sincroniza con este perfil.",
+  "Show the pairing code? It holds your recovery phrase: make sure nobody else can see your screen.":
+    "¿Mostrar el código de emparejamiento? Contiene tu frase de recuperación: asegúrate de que nadie más ve tu pantalla.",
+  "Pair a phone…": "Emparejar un móvil…",
+  "Pairing code": "Código de emparejamiento",
+  "In the Corvus app on your phone, open Settings and choose “Pair with a computer”, then scan this code.":
+    "En la app Corvus del móvil, abre Ajustes, elige «Emparejar con un ordenador» y escanea este código.",
+  "Anyone who scans it can read your synced data. It hides itself after two minutes.":
+    "Quien lo escanee puede leer tus datos sincronizados. Se oculta solo a los dos minutos.",
+  "Sync server: {url}": "Servidor de sincronización: {url}",
+  "Your phone probably cannot reach this sync server address. Use one it can reach (on your network or on the internet) in the sync server setting, then show the code again.":
+    "Probablemente el móvil no puede llegar a esta dirección del servidor de sincronización. Pon una a la que pueda llegar (en tu red o en internet) en el ajuste del servidor y vuelve a mostrar el código.",
   "Delete sync chain": "Eliminar la cadena de sincronización",
   "Deletes all synced data from the server and signs out every device. Local data on each device is kept.":
     "Borra del servidor todos los datos sincronizados y desconecta todos los dispositivos. Los datos locales de cada dispositivo se conservan.",

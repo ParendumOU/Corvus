@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.11.0
+
+### Sync
+- **Pair a phone**: Settings > Sync has "Pair a phone". After a confirmation it shows a QR code
+  with your sync server's address and your recovery phrase for the Corvus mobile app to scan
+  (it hides itself after two minutes). It warns when the server address is one a phone cannot
+  reach, such as `localhost`.
+- **Pages from your phone**: pages sent from the Corvus mobile app open as background tabs on
+  the computer they were sent to, with a notification, usually within a minute while Corvus is
+  running. Corvus looks for them with one small request every 30 seconds between syncs.
+- **Sync server**: the server now accepts pages sent between devices (collection `sent_tabs`).
+  If you host your own, update it; the phone tells you when the server is too old to send pages.
+
+### Updates
+- The beta channel now finds desktop releases past Corvus for mobile releases, which share the
+  same GitHub repo (tags `mobile-v…`).
+
 ## v0.10.0
 
 ### Browser

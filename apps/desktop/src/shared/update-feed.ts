@@ -25,6 +25,34 @@ export function resolveUpdateFeed(feedUrl: string, channel: UpdaterChannel["chan
   return url ? { provider: "generic", url, channel } : { ...DEFAULT_UPDATE_FEED };
 }
 
+/** Desktop release tags; Corvus for mobile is released from the same repo as `mobile-v…`. */
+const DESKTOP_TAG_RE = /^v\d+\.\d+\.\d+(?:-(?:alpha|beta)(?:\.\d+)*)?$/;
+
+/**
+ * The newest desktop release in GitHub's releases feed (releases.atom, newest first). On the beta
+ * channel electron-updater's GitHub provider takes the newest entry whatever it is, so a mobile
+ * release would hide every desktop release from beta users; Corvus picks the tag itself.
+ */
+export function newestDesktopTag(atomXml: string): string | null {
+  // Only the entries' own links: release notes in the feed quote links to other releases, escaped.
+  for (const m of atomXml.matchAll(/<link\b[^>]*\bhref="[^"]*\/releases\/tag\/([^"/]+)"/g)) {
+    let tag: string;
+    try {
+      tag = decodeURIComponent(m[1] ?? "");
+    } catch {
+      continue;
+    }
+    if (DESKTOP_TAG_RE.test(tag)) return tag;
+  }
+  return null;
+}
+
+/** One desktop release's assets read as a generic feed, with the channel file that release has. */
+export function releaseFeed(tag: string): { feed: UpdateFeed; channel: string } {
+  const channel = /-(alpha|beta)\b/.exec(tag)?.[1] ?? "latest";
+  return { feed: { provider: "generic", url: `${DEFAULT_UPDATE_FEED_URL}/download/${encodeURIComponent(tag)}`, channel }, channel };
+}
+
 export function displayFeedUrl(feedUrl: string): string {
   return feedUrl.trim() || DEFAULT_UPDATE_FEED_URL;
 }

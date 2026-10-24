@@ -11,8 +11,8 @@ The website (https://corvus.parendum.com) links to
 `Corvus-Setup-<v>.exe`, `Corvus-Portable-<v>.exe`, `Corvus-<v>-x86_64.AppImage`,
 `corvus_<v>_amd64.deb` (`test/update-feed.test.ts` pins the patterns in `electron-builder.yml`).
 
-Current: `v0.10.0` (Windows + Linux, unsigned), published 2026-10-24 on ParendumOU/Corvus.
-Previous tags: `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
+Current: `v0.11.0` (Windows + Linux, unsigned), draft. Corvus for mobile: `mobile-v0.1.0` (Android, pre-release).
+Previous tags: `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
 
 ---
 
@@ -137,6 +137,29 @@ Run from the repo root on a host with Docker and gh.
    tags, without publishing). **No attribution lines** (project rule).
 9. **Verify auto-update** from the previous installed version (first possible with the release
    after v0.2.0, since earlier builds pointed at the placeholder feed).
+
+## Corvus for mobile releases
+
+The Android app (`apps/mobile`) is released from the same repo as a **pre-release** tagged
+`mobile-v<version>`, never marked latest: stable desktop apps read the latest release, and from
+v0.11.0 on the beta channel skips non-desktop tags (`newestDesktopTag` in
+`src/shared/update-feed.ts`). Beta installs of v0.10.0 and earlier take the newest entry of the
+releases feed whatever it is, so they report an update error while a mobile release is newer
+than every desktop release: when both ship together, make the desktop release the newer one
+(its target commit comes after the mobile release's).
+
+1. Bump `apps/mobile/package.json` and `apps/mobile/app.json` (`expo.version`, and
+   `android.versionCode` + 1).
+2. Checks in Docker: `typecheck`, `test`, `export:web` and `smoke:web` of `@corvus/mobile` (the
+   smoke needs the `sync-server` service and `CORVUS_SYNC_URL`).
+3. Signed APK: `docker compose --profile android run --rm android`, with the release key
+   mounted from `../secrets` (`corvus-mobile.keystore` and `corvus-mobile-keystore.env`, never in
+   a repository). It prints the APK's SHA-256. Losing the key means later versions cannot
+   install over earlier ones: keep a backup of it off this machine.
+4. The target is a public commit with this version's `apps/mobile` sources.
+5. `gh release create mobile-v<v> -R ParendumOU/Corvus --prerelease --latest=false --target
+   <public SHA> --title "Corvus for mobile <v>" --notes-file <notes>` with
+   `corvus-mobile-<v>.apk` and `SHA256SUMS.txt`.
 
 ## Release checklist
 - [ ] All tests + smoke green on the commit being released

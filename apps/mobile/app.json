@@ -1,0 +1,63 @@
+{
+  "expo": {
+    "name": "Corvus",
+    "slug": "corvus-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "corvus",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.parendum.corvus.mobile",
+      "icon": "./assets/expo.icon"
+    },
+    "android": {
+      "package": "com.parendum.corvus.mobile",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#1B1830",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#1B1830",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Corvus uses the camera to scan the pairing code that Corvus shows on your computer.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-sharing",
+        {
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": ["text/plain"]
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

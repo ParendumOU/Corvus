@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-24 · current release: **v0.10.0** (Windows + Linux, unsigned)
+Last updated: 2026-10-24 · current release: **v0.11.0** (Windows + Linux, unsigned) · Corvus for mobile **0.1.0** (Android preview)
 
 ---
 
@@ -97,11 +97,11 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [x] Cut v0.2.0 (unsigned Windows + Linux); signed builds follow once the cert and Apple ID land
 
 **AI depth (M3)**
-- [ ] Inline AI in form/text fields (rewrite, translate, draft) with approval
-- [ ] Multi-tab agent tasks (agent coordinates across several tabs)
+- [x] Inline AI in form/text fields (rewrite, translate, draft) with approval (v0.9.0)
+- [x] Multi-tab agent tasks (agent coordinates across several tabs) (v0.9.0)
 
 **Data portability (M4)**
-- [ ] Full profile export / import (single encrypted bundle)
+- [x] Full profile export / import (single encrypted bundle) (v0.10.0)
 - [ ] Sync conflict resolution UI
 - [ ] Sync command-bar history
 
@@ -111,7 +111,7 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Platform & reach (M6)**
 - [ ] Linux/macOS: ship AppImage/deb/dmg as release assets (depends on signing + mac runner)
-- [ ] Mobile companion or remote-control — exploratory
+- [~] Mobile companion: Corvus for mobile 0.1.0, an Android preview (pair with a computer, tabs from your computers, send pages to a computer); iOS once an Apple developer account is set up
 - [ ] Evaluate Chromium fork vs Electron for full extension-API coverage
       (bookmarks/history/tabGroups/sidePanel chrome.* APIs unsupported under Electron)
 

@@ -20,7 +20,8 @@ export type SyncCollection =
   | "workspaces"
   | "annotations"
   | "workflows"
-  | "site_memory";
+  | "site_memory"
+  | "sent_tabs";
 
 export interface EncryptedRecord {
   id: string; // random, opaque

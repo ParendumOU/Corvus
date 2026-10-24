@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Builds the Android app (release APK) in the `android` Docker service:
+#   docker compose run --rm android
+# The native project is generated (expo prebuild) and never committed. The APK lands in
+# out/mobile/. It is signed with the release key when /secrets holds corvus-mobile.keystore and
+# corvus-mobile-keystore.env (KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD), a folder outside every
+# repository; otherwise it keeps the debug signature, for local testing only.
+set -euo pipefail
+cd /workspace
+pnpm install --frozen-lockfile >/dev/null
+pnpm --filter @corvus/shared --filter @corvus/sync-core build >/dev/null
+
+cd apps/mobile
+VERSION="$(node -p "require('./package.json').version")"
+pnpm exec expo prebuild --platform android --no-install --clean
+cd android
+./gradlew --no-daemon --console=plain assembleRelease
+
+APK=app/build/outputs/apk/release/app-release.apk
+OUT_DIR=/workspace/out/mobile
+mkdir -p "$OUT_DIR"
+OUT="$OUT_DIR/corvus-mobile-$VERSION.apk"
+if [ -f /secrets/corvus-mobile.keystore ] && [ -f /secrets/corvus-mobile-keystore.env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /secrets/corvus-mobile-keystore.env
+  set +a
+  BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+  "$BUILD_TOOLS/zipalign" -f -p 4 "$APK" /tmp/corvus-aligned.apk
+  "$BUILD_TOOLS/apksigner" sign --ks /secrets/corvus-mobile.keystore --ks-pass env:KEYSTORE_PASSWORD \
+    --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD --out "$OUT" /tmp/corvus-aligned.apk
+  "$BUILD_TOOLS/apksigner" verify "$OUT"
+  echo "Signed with the release key."
+else
+  cp "$APK" "$OUT"
+  echo "Signed with the debug key (no release key in /secrets): for local testing only."
+fi
+sha256sum "$OUT"

@@ -2,7 +2,7 @@
  * Bridges each local store to @corvus/sync-core's SyncEngine. Electron-free so the whole set can be
  * exercised end to end against a real sync server in tests.
  */
-import type { Bookmark, SyncCollection } from "@corvus/shared";
+import { SENT_TAB_ID_RE, parseSentTab, type Bookmark, type SyncCollection } from "@corvus/shared";
 import type { LocalItem, SyncAdapter } from "@corvus/sync-core";
 import { isAnnotation, type Annotation } from "../shared/annotations";
 import { ROOT_IDS } from "../shared/bookmark-tree";
@@ -330,30 +330,51 @@ export function deviceRecordsAdapter(opts: {
   };
 }
 
+/**
+ * Pages sent between devices (one record per page). Every record is kept verbatim and listed back
+ * unchanged, so the engine never deletes a page meant for another device. A page for this device
+ * stays here until it has been opened (SyncService), and its removal is then pushed as a deletion,
+ * which tells the sender it arrived.
+ */
+export function sentTabsAdapter(records: DeviceRecords): SyncAdapter<unknown> {
+  return {
+    list: () => Object.entries(records.all()).map(([id, payload]) => ({ id, payload })),
+    apply: (items) => {
+      for (const item of items) {
+        if (!SENT_TAB_ID_RE.test(item.id)) continue;
+        if (item.deleted) records.delete(item.id);
+        else if (parseSentTab(item.payload)) records.set(item.id, item.payload);
+      }
+    },
+  };
+}
+
 interface RemoteFile {
   open_tabs: Record<string, unknown>;
   extensions: Record<string, unknown>;
+  sent_tabs: Record<string, unknown>;
   dismissedExtensions: string[];
 }
 
-type DeviceCollection = "open_tabs" | "extensions";
+type RemoteCollection = "open_tabs" | "extensions" | "sent_tabs";
 
 function emptyRemote(): RemoteFile {
-  return { open_tabs: {}, extensions: {}, dismissedExtensions: [] };
+  return { open_tabs: {}, extensions: {}, sent_tabs: {}, dismissedExtensions: [] };
 }
 
 function reviveRemote(raw: unknown): RemoteFile {
   if (!isObject(raw)) return emptyRemote();
-  const records = (v: unknown): Record<string, unknown> =>
-    isObject(v) ? Object.fromEntries(Object.entries(v).filter(([id]) => DEVICE_KEY_RE.test(id))) : {};
+  const records = (v: unknown, key: RegExp): Record<string, unknown> =>
+    isObject(v) ? Object.fromEntries(Object.entries(v).filter(([id]) => key.test(id))) : {};
   return {
-    open_tabs: records(raw.open_tabs),
-    extensions: records(raw.extensions),
+    open_tabs: records(raw.open_tabs, DEVICE_KEY_RE),
+    extensions: records(raw.extensions, DEVICE_KEY_RE),
+    sent_tabs: records(raw.sent_tabs, SENT_TAB_ID_RE),
     dismissedExtensions: Array.isArray(raw.dismissedExtensions) ? raw.dismissedExtensions.filter((x): x is string => typeof x === "string") : [],
   };
 }
 
-/** Other devices' per-device records plus dismissed extension suggestions, persisted per profile. */
+/** Other devices' records (per-device ones and pages sent between devices) plus dismissed extension suggestions, persisted per profile. */
 export class SyncRemoteStore {
   private readonly file: JsonFile<RemoteFile>;
 
@@ -361,7 +382,7 @@ export class SyncRemoteStore {
     this.file = JsonFile.load(filePath, emptyRemote, reviveRemote, 0);
   }
 
-  records(collection: DeviceCollection): DeviceRecords {
+  records(collection: RemoteCollection): DeviceRecords {
     return {
       all: () => this.file.get()[collection],
       set: (id, payload) => {
@@ -445,5 +466,6 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
       records: src.remote.records("extensions"),
       valid: (raw) => parseDeviceExtensions(raw) !== null,
     }),
+    sent_tabs: sentTabsAdapter(src.remote.records("sent_tabs")),
   };
 }

@@ -664,3 +664,23 @@ body {
   align-items: center;
   gap: 8px;
 }
+/* Settings > Sync: the pairing QR code for the mobile app. */
+.pair-phone {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 4px 20px 12px;
+}
+.pair-qr {
+  width: 220px;
+  height: 220px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #ffffff;
+  flex: none;
+}
+.pair-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

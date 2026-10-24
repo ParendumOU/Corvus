@@ -3,7 +3,15 @@ import electronUpdater, { type ProgressInfo, type UpdateInfo } from "electron-up
 import type { UpdatePhase, UpdateStatus } from "../shared/ipc";
 import type { PortableOffer } from "../shared/portable-update";
 import type { UpdateChannel } from "../shared/settings";
-import { displayFeedUrl, resolveUpdateFeed, updaterChannel } from "../shared/update-feed";
+import {
+  DEFAULT_UPDATE_FEED_URL,
+  displayFeedUrl,
+  newestDesktopTag,
+  releaseFeed,
+  resolveUpdateFeed,
+  updaterChannel,
+  type UpdateFeed,
+} from "../shared/update-feed";
 import type { AppContext } from "./context";
 import { PortableUpdater, portableExecutable } from "./portable-updater";
 
@@ -28,6 +36,8 @@ export class UpdateService {
   private readonly portable: PortableUpdater | null;
   private portableOffer: PortableOffer | null = null;
   private portableFile: string | null = null;
+  /** Beta channel on the built-in feed: the desktop release the last check read. */
+  private pinned: { feed: UpdateFeed; channel: string } | null = null;
 
   constructor(private readonly ctx: AppContext) {
     const exe = portableExecutable();
@@ -80,12 +90,15 @@ export class UpdateService {
       this.wired = true;
     }
     const { channel, allowPrerelease, allowDowngrade } = updaterChannel(this.channel(), app.getVersion());
-    autoUpdater.channel = channel;
+    const feedUrl = this.ctx.settings.get().update.feedUrl;
+    const pinned = channel === "beta" && !feedUrl.trim() ? this.pinned : null;
+    // The channel setter turns allowDowngrade on: set it last.
+    autoUpdater.channel = pinned?.channel ?? channel;
     autoUpdater.allowPrerelease = allowPrerelease;
     autoUpdater.allowDowngrade = allowDowngrade;
     try {
       // Set every time: clearing a custom URL must switch back to GitHub within the same session.
-      autoUpdater.setFeedURL(resolveUpdateFeed(this.ctx.settings.get().update.feedUrl, channel));
+      autoUpdater.setFeedURL(pinned?.feed ?? resolveUpdateFeed(feedUrl, channel));
     } catch (err) {
       this.error = cleanError(err as Error);
       this.set("error");
@@ -98,10 +111,12 @@ export class UpdateService {
   check(): Promise<void> {
     if (this.checking) return this.checking;
     if (this.portable && this.supported()) return (this.checking = this.checkPortable());
-    if (!this.configure()) return Promise.resolve();
+    if (!this.supported()) return Promise.resolve();
     this.error = null;
     this.checking = (async () => {
       try {
+        await this.pinDesktopRelease();
+        if (!this.configure()) return;
         await autoUpdater.checkForUpdates();
         this.checkedAt = Date.now();
       } catch (err) {
@@ -112,6 +127,19 @@ export class UpdateService {
       }
     })();
     return this.checking;
+  }
+
+  /** Beta on the built-in feed: find the newest desktop release first (see newestDesktopTag). */
+  private async pinDesktopRelease(): Promise<void> {
+    if (this.channel() !== "beta" || this.ctx.settings.get().update.feedUrl.trim()) {
+      this.pinned = null;
+      return;
+    }
+    const res = await net.fetch(`${DEFAULT_UPDATE_FEED_URL}.atom`, { headers: { accept: "application/atom+xml, application/xml" } });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status} for the releases feed`);
+    const tag = newestDesktopTag(await res.text());
+    if (!tag) throw new Error("No published versions on GitHub");
+    this.pinned = releaseFeed(tag);
   }
 
   private async checkPortable(): Promise<void> {

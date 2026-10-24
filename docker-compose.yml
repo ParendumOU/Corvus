@@ -33,6 +33,21 @@ services:
       CORVUS_SYNC_DB: /data/sync.db
     restart: unless-stopped
 
+  # Android build of the mobile app: docker compose run --rm android
+  android:
+    build: { context: ., dockerfile: docker/Dockerfile.android }
+    working_dir: /workspace
+    entrypoint: ["bash", "apps/mobile/scripts/build-android.sh"]
+    profiles: [android]
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+      - pnpm_store:/pnpm/store
+      - android_sdk:/opt/android-sdk
+      - gradle_cache:/root/.gradle
+      # Release signing key, kept outside every repository (see apps/mobile/scripts/build-android.sh).
+      - ${CORVUS_ANDROID_SECRETS:-../secrets}:/secrets
+
   builder:
     build: { context: ., dockerfile: docker/Dockerfile.builder }
     working_dir: /project
@@ -56,3 +71,5 @@ volumes:
   sync_data:
   builder_node_modules:
   electron_cache:
+  android_sdk:
+  gradle_cache:
