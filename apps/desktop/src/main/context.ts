@@ -5,6 +5,7 @@ import type { AgentCredentialService } from "./agent-credentials";
 import type { AgentRunner } from "./agent-runner";
 import type { AnnotationService } from "./annotation-service";
 import type { AssistService } from "./assist-service";
+import type { TranslateService } from "./translate-service";
 import type { AutofillService } from "./autofill-service";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
@@ -41,6 +42,8 @@ export interface AppContext {
   downloads: DownloadManager;
   sessionRestore: SessionRestore;
   assist: AssistService;
+  /** Page translation from the address bar. */
+  translate: TranslateService;
   reader: ReaderService;
   agents: AgentActivityService;
   agentRunner: AgentRunner;

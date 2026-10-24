@@ -422,6 +422,7 @@ export class BrowserWindowCtl {
       downloads: this.ctx.downloads.summary(this.profile),
       adblock: this.profile.adblock.barState(active && !active.view.webContents.isDestroyed() ? active.view.webContents : null),
       readerable: active ? this.ctx.reader.isReaderable(active) : false,
+      translate: this.ctx.translate.barState(active),
       readerActive: this.ctx.reader.isActive(this),
       autofill: this.ctx.autofill.stateFor(this),
       split: this.splitState(),
@@ -688,6 +689,7 @@ export class BrowserWindowCtl {
       // Until the new page reports its icon: the site's current one, else the last one history knows.
       if (!keepsFavicon(previous, url)) tab.faviconUrl = this.profile.history.faviconsFor([url]).get(url);
       this.profile.adblock.resetTab(wc.id);
+      this.ctx.translate.onNavigated(tab);
       this.ctx.reader.onNavigated(this, tab);
       this.ctx.autofill.onNavigated(this, tab);
       // A new document: any secret Corvus filled into the old one is gone, so script access returns.
@@ -698,6 +700,7 @@ export class BrowserWindowCtl {
       push();
     });
     wc.on("did-finish-load", () => {
+      void this.ctx.translate.onPageLoad(this, tab);
       void this.ctx.reader.probe(this, tab);
       void this.ctx.autofill.onPageLoad(this, tab);
       void this.ctx.semanticSearch.capturePage(this, tab);
@@ -914,6 +917,7 @@ export class BrowserWindowCtl {
     this.clearUnresponsive(tab);
     if (!tab.view.webContents.isDestroyed()) this.profile.adblock.forgetTab(tab.view.webContents.id);
     this.ctx.reader.forgetTab(id);
+    this.ctx.translate.forget(id);
     this.ctx.autofill.forgetTab(id);
     this.ctx.secretFills.clear(id);
     this.ctx.annotations.forgetTab(id);

@@ -49,7 +49,16 @@ const GROUPS = JSON.stringify({
   ],
 });
 
-function replyFor(system: string): string {
+function replyFor(system: string, user: string): string {
+  // The translator: echo every numbered segment back, marked as Spanish.
+  if (/a translator\. Translate each numbered segment/.test(system)) {
+    return user
+      .split("\n")
+      .map((line) => /^(\d+)\|(.*)$/.exec(line))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => `${m[1]}|[es] ${m[2]}`)
+      .join("\n");
+  }
   if (/Summarize the web page/.test(system)) return SUMMARY;
   if (/Group the user's numbered browser tabs/.test(system)) return GROUPS;
   if (/Answer the user's question/.test(system)) return ASK;
@@ -61,7 +70,7 @@ function fakeProvider(): AnswerProvider {
     kind: "anthropic-api",
     model: "claude-haiku-5-5",
     async *answer(req): AsyncGenerator<ProviderEvent> {
-      const reply = replyFor(req.prompt.system);
+      const reply = replyFor(req.prompt.system, req.prompt.user);
       for (const part of chunk(reply)) {
         if (req.signal?.aborted) return;
         await new Promise((r) => setTimeout(r, 4));
@@ -134,6 +143,36 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
       await capture(`assist-ask-${theme}`, panel);
       ctx.assist.clear(win);
     }
+
+    // Page translation from the address bar: offered for a page in another language, translated
+    // in place, and the original back on a second click.
+    nativeTheme.themeSource = "light";
+    ctx.settings.update({ translate: { targetLanguage: "es", offer: true } });
+    win.activate(pageTab.id);
+    win.loadUrl(pageTab.id, `${base}/raven`);
+    const chromeUi = win.chrome.webContents;
+    const translateState = async (want: string): Promise<boolean> => {
+      for (let i = 0; i < 80; i++) {
+        if (win.state().translate?.state === want) return true;
+        await sleep(100);
+      }
+      return false;
+    };
+    const offered = (await translateState("offer")) && (await poll(chromeUi, "document.querySelector('.omni-translate.offer')"));
+    check("a page in another language offers translation in the address bar", offered, win.state().translate);
+    const original = (await pageTab.view.webContents.executeJavaScript("document.querySelector('h1').textContent")) as string;
+    await chromeUi.executeJavaScript("document.querySelector('.omni-translate')?.click()");
+    const translated = await translateState("translated");
+    const heading = (await pageTab.view.webContents.executeJavaScript("document.querySelector('h1').textContent")) as string;
+    check("translate puts the translation in place", translated && heading === `[es] ${original.trim()}` && (win.state().translate?.translated ?? 0) > 1, {
+      state: win.state().translate,
+      heading,
+    });
+    await capture("translate-page", chromeUi);
+    await chromeUi.executeJavaScript("document.querySelector('.omni-translate')?.click()");
+    const restored = (await translateState("offer")) && (await poll(pageTab.view.webContents, `document.querySelector('h1').textContent === ${JSON.stringify(original)}`));
+    check("show original puts the page's own text back", restored, win.state().translate);
+    ctx.settings.update({ translate: { targetLanguage: "", offer: true } });
 
     // Agents timeline: connect a client and record a realistic run.
     nativeTheme.themeSource = "light";

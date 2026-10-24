@@ -211,6 +211,7 @@ export function App() {
           <Omnibox
             ref={omniRef}
             tab={active}
+            translate={state.translate}
             bookmarked={state.activeBookmarked}
             zoomPercent={state.zoomPercent}
             readerable={state.readerable}

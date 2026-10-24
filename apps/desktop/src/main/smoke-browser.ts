@@ -25,6 +25,11 @@ const ADS_PAGE = `<!doctype html><html><head><title>Ads</title></head><body>
 <img src="https://www.googletagmanager.com/gtm.js?id=GTM-TEST" alt="">
 <script src="https://doubleclick.net/tag.js"></script>
 </body></html>`;
+// A OneTrust cookie notice, the most common consent platform.
+const CONSENT_PAGE = `<!doctype html><html><head><title>Consent</title></head><body>
+<h1>Cookie notice smoke</h1>
+<div id="onetrust-banner-sdk" style="display:block;position:fixed;bottom:0">We use cookies <button>Accept all</button></div>
+</body></html>`;
 export const DOWNLOAD_BODY = "corvus download smoke\n";
 
 /** Extra routes on the smoke server. Returns true when the request was handled. */
@@ -42,6 +47,10 @@ export function serveBrowserSmokeRoute(req: http.IncomingMessage, res: http.Serv
     case "/ads":
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(ADS_PAGE);
+      return true;
+    case "/consent":
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(CONSENT_PAGE);
       return true;
     case "/report.txt":
       res.writeHead(200, { "Content-Type": "text/plain", "Content-Disposition": 'attachment; filename="report.txt"' });
@@ -264,6 +273,26 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   await sleep(500);
   check("global off disables blocking", win.state().adblock.blocked === 0 && !win.state().adblock.enabled, win.state().adblock);
   profile.adblock.setEnabled(true);
+
+  // Tracking parameters come off the address; a cookie notice is hidden; both switch off per profile.
+  const site = url.replace("127.0.0.1", "corvus-smoke.test");
+  const consentState = (): Promise<{ href: string; banner: string | null }> =>
+    adTab.view.webContents.executeJavaScript(
+      "({ href: location.href, banner: (() => { const b = document.getElementById('onetrust-banner-sdk'); return b ? getComputedStyle(b).display : null; })() })",
+    ) as Promise<{ href: string; banner: string | null }>;
+  win.loadUrl(adTab.id, `${site}consent?utm_source=news&keep=1&fbclid=abc`);
+  await waitForLoad(adTab.view.webContents);
+  await sleep(800);
+  const cleaned = await consentState();
+  check("tracking parameters are removed from the address", cleaned.href === `${site}consent?keep=1`, cleaned);
+  check("a cookie notice is hidden", cleaned.banner === "none", cleaned);
+  profile.adblock.setOptions({ annoyances: false, cleanUrls: false });
+  win.loadUrl(adTab.id, `${site}consent?utm_source=news&keep=1`);
+  await waitForLoad(adTab.view.webContents);
+  await sleep(800);
+  const unfiltered = await consentState();
+  check("with both options off the address and the notice stay", unfiltered.href === `${site}consent?utm_source=news&keep=1` && unfiltered.banner === "block", unfiltered);
+  profile.adblock.setOptions({ annoyances: true, cleanUrls: true });
 
   const adblockSettings = win.createTab("corvus://settings/#adblock");
   await sleep(1500);

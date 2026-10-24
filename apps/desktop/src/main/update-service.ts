@@ -1,9 +1,11 @@
-import { app } from "electron";
+import { app, net } from "electron";
 import electronUpdater, { type ProgressInfo, type UpdateInfo } from "electron-updater";
 import type { UpdatePhase, UpdateStatus } from "../shared/ipc";
+import type { PortableOffer } from "../shared/portable-update";
 import type { UpdateChannel } from "../shared/settings";
 import { displayFeedUrl, resolveUpdateFeed, updaterChannel } from "../shared/update-feed";
 import type { AppContext } from "./context";
+import { PortableUpdater, portableExecutable } from "./portable-updater";
 
 const { autoUpdater } = electronUpdater;
 
@@ -22,8 +24,15 @@ export class UpdateService {
   private checkedAt: number | null = null;
   private wired = false;
   private checking: Promise<void> | null = null;
+  /** The Windows portable build updates its own file instead of running the installer. */
+  private readonly portable: PortableUpdater | null;
+  private portableOffer: PortableOffer | null = null;
+  private portableFile: string | null = null;
 
-  constructor(private readonly ctx: AppContext) {}
+  constructor(private readonly ctx: AppContext) {
+    const exe = portableExecutable();
+    this.portable = exe ? new PortableUpdater(exe, (url, init) => net.fetch(url, init)) : null;
+  }
 
   private supported(): boolean {
     return app.isPackaged;
@@ -88,6 +97,7 @@ export class UpdateService {
   /** Check the feed. Manual checks reset any prior error so the result is fresh. */
   check(): Promise<void> {
     if (this.checking) return this.checking;
+    if (this.portable && this.supported()) return (this.checking = this.checkPortable());
     if (!this.configure()) return Promise.resolve();
     this.error = null;
     this.checking = (async () => {
@@ -104,9 +114,52 @@ export class UpdateService {
     return this.checking;
   }
 
+  private async checkPortable(): Promise<void> {
+    const portable = this.portable!;
+    this.error = null;
+    this.set("checking");
+    try {
+      const offer = await portable.check(this.channel(), app.getVersion(), this.ctx.settings.get().update.feedUrl);
+      this.checkedAt = Date.now();
+      this.portableOffer = offer;
+      this.newVersion = offer?.version ?? null;
+      this.releaseNotes = offer?.notes ?? null;
+      this.set(offer ? "available" : "not-available");
+    } catch (err) {
+      this.error = cleanError(err as Error);
+      this.set("error");
+    } finally {
+      this.checking = null;
+    }
+  }
+
+  private downloadPortable(): void {
+    const portable = this.portable!;
+    const offer = this.portableOffer;
+    if (!offer) return;
+    this.error = null;
+    this.percent = 0;
+    this.set("downloading");
+    portable
+      .download(offer, (percent) => {
+        this.percent = percent;
+        this.set("downloading");
+      })
+      .then((file) => {
+        this.portableFile = file;
+        this.percent = 100;
+        this.set("downloaded");
+      })
+      .catch((err: unknown) => {
+        this.error = cleanError(err as Error);
+        this.set("error");
+      });
+  }
+
   /** Start downloading an offered update. Progress and completion arrive via events. */
   download(): void {
     if (this.phase !== "available" && this.phase !== "error") return;
+    if (this.portable && this.supported()) return this.downloadPortable();
     if (!this.configure()) return;
     this.error = null;
     this.percent = 0;
@@ -121,6 +174,10 @@ export class UpdateService {
   install(): void {
     if (this.phase !== "downloaded") return;
     try {
+      if (this.portable && this.portableFile && this.newVersion) {
+        this.portable.install(this.portableFile, this.newVersion, () => app.quit());
+        return;
+      }
       autoUpdater.quitAndInstall();
     } catch (err) {
       this.error = cleanError(err as Error);
@@ -148,6 +205,7 @@ export class UpdateService {
       releaseNotes: this.releaseNotes,
       checkedAt: this.checkedAt,
       error: this.error,
+      portable: this.portable !== null,
     };
   }
 

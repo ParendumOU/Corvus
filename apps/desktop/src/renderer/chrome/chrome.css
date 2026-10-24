@@ -446,9 +446,22 @@ body,
   color: var(--accent);
 }
 
-.omni-reader {
+.omni-reader,
+.omni-translate {
   width: 28px;
   height: 28px;
+}
+.omni-translate.translated,
+.omni-translate.translating {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.omni-translate.error {
+  color: var(--danger, #d93025);
+}
+.omni-translate .spinner {
+  width: 14px;
+  height: 14px;
 }
 .omni-reader.on {
   color: var(--accent);

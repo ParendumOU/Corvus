@@ -17,6 +17,7 @@ import {
   removeAllowed,
   reviveAdblockSettings,
   shouldBlockPage,
+  stripTrackingParams,
   type AdblockSettings,
 } from "../src/shared/adblock";
 
@@ -45,6 +46,27 @@ describe("bundleScriptlets", () => {
 
   it("is empty when there is nothing to run", () => {
     expect(bundleScriptlets([])).toBe("");
+  });
+});
+
+describe("stripTrackingParams", () => {
+  it("drops click and campaign ids, keeps everything that shapes the page", () => {
+    expect(stripTrackingParams("https://shop.example/item?id=7&utm_source=news&utm_medium=mail&fbclid=abc&q=a+b#reviews")).toBe(
+      "https://shop.example/item?id=7&q=a+b#reviews",
+    );
+    expect(stripTrackingParams("https://example.com/?gclid=1&GCLID=2&UTM_Campaign=x")).toBe("https://example.com/");
+    expect(stripTrackingParams("https://example.com/a?mc_eid=1&_hsenc=2&igshid=3&msclkid=4&yclid=5")).toBe("https://example.com/a");
+  });
+
+  it("keeps the exact encoding of the parameters that stay (signed addresses)", () => {
+    expect(stripTrackingParams("https://cdn.example/f?X-Sig=a%2Fb~c%20d&utm_source=x&e=1+2")).toBe("https://cdn.example/f?X-Sig=a%2Fb~c%20d&e=1+2");
+  });
+
+  it("leaves addresses without tracking parameters alone", () => {
+    expect(stripTrackingParams("https://example.com/?q=utm&source=x")).toBeNull();
+    expect(stripTrackingParams("https://example.com/path")).toBeNull();
+    expect(stripTrackingParams("corvus://newtab/?utm_source=x")).toBeNull();
+    expect(stripTrackingParams("not a url")).toBeNull();
   });
 });
 

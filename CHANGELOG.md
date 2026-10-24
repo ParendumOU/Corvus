@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.5.0
+
+### Browser
+- **Translate pages**: a page written in another language shows a translate button in the
+  address bar. One click translates the whole page in place, as you watch, with your AI
+  provider; a second click shows the original. Choose the language in Settings > AI ("Translate
+  pages into"), or turn the offer off. "Translate this page" in the right-click menu works on any
+  page.
+- **No more cookie notices**: the blocker hides cookie consent banners, newsletter pop-ups, app
+  banners and similar clutter with the EasyList Cookie and uBlock Origin annoyances lists.
+  Settings > Ad & tracker blocker > "Hide cookie notices and annoyances" (on by default).
+- **Links without tracking**: pages open without their tracking parameters (utm_*, fbclid,
+  gclid, msclkid and similar); the rest of the address stays exactly as it was. Settings > Ad &
+  tracker blocker > "Remove tracking from links" (on by default).
+- **The portable build updates itself**: from this version on, Corvus-Portable checks for
+  updates like the installed app, downloads the next portable copy next to itself, verifies it
+  against the release checksums and replaces itself when you restart. Coming from 0.4.2 or
+  earlier, download this portable copy by hand once.
+
 ## v0.4.2
 
 ### Browser

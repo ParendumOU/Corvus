@@ -282,6 +282,12 @@ export const IconBook = (p: IconProps) => (
     <path d="M4 19a2 2 0 0 1 2-2h13" />
   </Svg>
 );
+export const IconTranslate = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5h8M8 3v2M5.5 5c.7 2.9 2.7 5.3 5.5 6.5M10.5 5c-.7 3.2-3 5.8-6.5 7" />
+    <path d="M12.5 21l4-9 4 9M14 17.5h5" />
+  </Svg>
+);
 
 /** The Corvus mark: a stylised crow head inside a "C". */
 export function CorvusMark({ size = 20 }: { size?: number }) {

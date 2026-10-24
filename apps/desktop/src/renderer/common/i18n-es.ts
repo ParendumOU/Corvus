@@ -195,6 +195,12 @@ export const ES: Record<string, string> = {
     "Bloquea anuncios y rastreadores con las listas que usa uBlock Origin (sus propios filtros, EasyList y EasyPrivacy): peticiones, elementos de la página y los scripts que quitan los anuncios de vídeo en sitios como YouTube. Nunca bloquea en las páginas corvus:// ni en direcciones locales, y los ajustes son por perfil y nunca se sincronizan.",
   "Block ads and trackers": "Bloquear anuncios y rastreadores",
   "Applies to every site except those you allow below.": "Se aplica a todos los sitios salvo los que permitas abajo.",
+  "Hide cookie notices and annoyances": "Ocultar avisos de cookies y molestias",
+  "Cookie consent banners, newsletter pop-ups, app banners and other clutter, with the EasyList Cookie and uBlock Origin annoyances lists.":
+    "Avisos de consentimiento de cookies, ventanas de suscripción, banners de apps y otros estorbos, con las listas EasyList Cookie y de molestias de uBlock Origin.",
+  "Remove tracking from links": "Quitar el rastreo de los enlaces",
+  "Opens addresses without their tracking parameters (utm_*, fbclid, gclid, msclkid and similar), which only tell trackers where you came from.":
+    "Abre las direcciones sin sus parámetros de rastreo (utm_*, fbclid, gclid, msclkid y similares), que solo sirven para que los rastreadores sepan de dónde vienes.",
   "Filter lists": "Listas de filtros",
   "{count} rules": "{count} reglas",
   "Using the bundled list until the first update succeeds.": "Usa la lista incluida hasta que funcione la primera actualización.",
@@ -281,6 +287,13 @@ export const ES: Record<string, string> = {
   "Answer length": "Longitud de la respuesta",
   "Maximum output tokens per answer.": "Máximo de tokens de salida por respuesta.",
   "Answer language": "Idioma de las respuestas",
+  "Translate pages into": "Traducir páginas al",
+  "Translates pages in place with this AI provider, from the address bar or the page's right-click menu.":
+    "Traduce las páginas en el sitio con este proveedor de IA, desde la barra de direcciones o el menú del botón derecho de la página.",
+  "The Corvus language": "Idioma de Corvus",
+  "Offer to translate": "Ofrecer traducción",
+  "Shows a translate button in the address bar on pages written in another language.":
+    "Muestra un botón de traducir en la barra de direcciones en las páginas escritas en otro idioma.",
   "Automatic (query language, then UI language)": "Automático (idioma de la búsqueda y, si no, el de la interfaz)",
   English: "Inglés",
   Spanish: "Español",
@@ -479,6 +492,7 @@ export const ES: Record<string, string> = {
   "Corvus updates itself from its GitHub Releases, or from a self-hosted feed you set below. Updates apply to this install and are never synced.":
     "Corvus se actualiza solo desde sus versiones en GitHub, o desde un servidor propio que indiques abajo. Las actualizaciones se aplican a esta instalación y nunca se sincronizan.",
   "Current version": "Versión actual",
+  "Portable copy: an update replaces this file and starts the new version.": "Copia portable: al actualizar se sustituye este archivo y arranca la versión nueva.",
   "Third-party software": "Software de terceros",
   "Corvus includes open-source packages under their own licences. The source is MPL-2.0; this app is distributed under GPL-3.0 because it includes electron-chrome-extensions. Source: github.com/ParendumOU/Corvus.":
     "Corvus incluye paquetes de código abierto con sus propias licencias. El código fuente es MPL-2.0; esta aplicación se distribuye bajo GPL-3.0 porque incluye electron-chrome-extensions. Código: github.com/ParendumOU/Corvus.",

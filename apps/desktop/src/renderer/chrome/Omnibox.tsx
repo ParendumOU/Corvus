@@ -6,7 +6,8 @@ import { isNewTabUrl } from "../../shared/internal-urls";
 import { displayUrl, searchQueryOf } from "../../shared/omnibox";
 import type { Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
-import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconWarning, IconZoom } from "../common/icons";
+import { languageName, type TranslateBarState } from "../../shared/translate";
+import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
 
@@ -18,6 +19,14 @@ export interface OmniboxHandle {
 function editValue(url: string): string {
   if (isNewTabUrl(url) || url === "about:blank") return "";
   return searchQueryOf(url) ?? url;
+}
+
+/**
+ * Selects the address for editing a frame later, unless the caret moved on meanwhile: Chromium's
+ * select() also focuses, so it would pull the caret back from whatever took it (a group name).
+ */
+function selectIfFocused(input: HTMLInputElement | null): void {
+  if (input && document.activeElement === input) input.select();
 }
 
 /** Drag data of a page (the site chip dragged out of the address bar): `{ url, title }` as JSON. */
@@ -76,8 +85,29 @@ function SecurityChip({ url, title, onOpen }: { url: string; title: string; onOp
   );
 }
 
+/** Translate (offered or failed), stop (translating), or show the original (translated). */
+function TranslateButton({ state, onClick }: { state: TranslateBarState; onClick: () => void }) {
+  const target = languageName(state.target, "en");
+  const from = state.pageLang ? languageName(state.pageLang, "en") : "";
+  const title =
+    state.state === "translating"
+      ? `Translating to ${target}… (${state.translated} done) · click to stop`
+      : state.state === "translated"
+        ? `Translated to ${target} · show original`
+        : state.state === "error"
+          ? `Translation failed: ${state.error ?? "unknown error"} · try again`
+          : `Translate this page${from ? ` from ${from}` : ""} to ${target}`;
+  return (
+    <button className={`icon-btn omni-translate ${state.state}`} title={title} aria-pressed={state.state === "translated"} onClick={onClick}>
+      {state.state === "translating" ? <span className="spinner small" /> : <IconTranslate size={16} />}
+    </button>
+  );
+}
+
 interface OmniboxProps {
   tab: TabView | undefined;
+  /** The active tab's translate button, or null when it is hidden. */
+  translate: TranslateBarState | null;
   bookmarked: boolean;
   zoomPercent: number;
   readerable: boolean;
@@ -89,7 +119,7 @@ interface OmniboxProps {
 }
 
 export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
-  function Omnibox({ tab, bookmarked, zoomPercent, readerable, readerActive, autofill, onOpenChange, onSiteInfo, onZoom }, ref) {
+  function Omnibox({ tab, translate, bookmarked, zoomPercent, readerable, readerActive, autofill, onOpenChange, onSiteInfo, onZoom }, ref) {
     const api = chromeApi();
     const inputRef = useRef<HTMLInputElement>(null);
     const [focused, setFocused] = useState(false);
@@ -147,7 +177,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     useEffect(() => {
       if (!focused || typed.current) return;
       setValue(editValue(url));
-      requestAnimationFrame(() => inputRef.current?.select());
+      requestAnimationFrame(() => selectIfFocused(inputRef.current));
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tab?.id]);
 
@@ -239,7 +269,8 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               setFocused(true);
               const v = editValue(url);
               setValue(v);
-              requestAnimationFrame(() => e.target.select());
+              const input = e.target;
+              requestAnimationFrame(() => selectIfFocused(input));
             }}
             onBlur={() => {
               setFocused(false);
@@ -252,6 +283,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             }}
             onKeyDown={onKeyDown}
           />
+          {tab && !focused && translate && <TranslateButton state={translate} onClick={() => void api.call("translate.toggle")} />}
           {tab && !focused && (readerable || readerActive) && (
             <button
               className={`icon-btn omni-reader ${readerActive ? "on" : ""}`}

@@ -18,6 +18,8 @@ export const SYNCED_SETTINGS = [
   "ai.localApi",
   "ai.retriever",
   "ai.answerLanguage",
+  "translate.offer",
+  "translate.targetLanguage",
   "ai.maxOutputTokens",
   "agent.maxSteps",
   "agent.askBeforeRisky",

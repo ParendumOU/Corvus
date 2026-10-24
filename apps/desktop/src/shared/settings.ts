@@ -113,6 +113,12 @@ export interface Settings {
     /** Per-body capture cap in bytes. */
     maxBodyBytes: number;
   };
+  translate: {
+    /** Offer to translate pages written in another language (a button in the address bar). */
+    offer: boolean;
+    /** Language pages are translated into: a BCP 47 tag, or "" for Corvus's own language. */
+    targetLanguage: string;
+  };
   monitor: {
     /** Background page-change monitoring ("Watch this page"). On by default. */
     enabled: boolean;
@@ -216,6 +222,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [] },
     downloads: { directory: "", askWhereToSave: false },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
+    translate: { offer: true, targetLanguage: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },
     startup: { mode: "restore" },
@@ -272,6 +279,9 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   if (!["horizontal", "vertical"].includes(merged.appearance.tabLayout)) merged.appearance.tabLayout = base.appearance.tabLayout;
   if (!["system", "light", "dark"].includes(merged.appearance.theme)) merged.appearance.theme = base.appearance.theme;
   if (!["system", "en", "es"].includes(merged.appearance.language)) merged.appearance.language = base.appearance.language;
+  if (merged.translate.targetLanguage !== "" && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(merged.translate.targetLanguage)) {
+    merged.translate.targetLanguage = base.translate.targetLanguage;
+  }
   if (!["default", "folder", "mcp"].includes(merged.ai.claudeAccount)) merged.ai.claudeAccount = base.ai.claudeAccount;
   if (!["corvus", "custom", ...Object.keys(HOME_PAGES)].includes(merged.appearance.homePage)) merged.appearance.homePage = base.appearance.homePage;
   if (!["anthropic-api", "claude-code-cli", "local"].includes(merged.ai.provider)) merged.ai.provider = base.ai.provider;

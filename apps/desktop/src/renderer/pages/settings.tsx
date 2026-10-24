@@ -558,6 +558,25 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
           ))}
         </select>
       </Row>
+      <Row label={t("Translate pages into")} hint={t("Translates pages in place with this AI provider, from the address bar or the page's right-click menu.")}>
+        <select
+          className="input"
+          value={view.settings.translate.targetLanguage}
+          onChange={(e) => update({ translate: { targetLanguage: e.target.value } })}
+        >
+          <option value="">{t("The Corvus language")}</option>
+          {languages()
+            .slice(1)
+            .map(([code, name]) => (
+              <option key={code} value={code}>
+                {name}
+              </option>
+            ))}
+        </select>
+      </Row>
+      <Row label={t("Offer to translate")} hint={t("Shows a translate button in the address bar on pages written in another language.")}>
+        <Toggle label={t("Offer to translate")} checked={view.settings.translate.offer} onChange={(v) => update({ translate: { offer: v } })} />
+      </Row>
       <Row label={t("Search backend")}>
         <select className="input" value={ai.retriever} onChange={(e) => update({ ai: { retriever: e.target.value as typeof ai.retriever } })}>
           <option value="searxng">{t("SearXNG (self-hosted)")}</option>
@@ -845,6 +864,22 @@ function AdblockSection() {
       <Row label={t("Block ads and trackers")} hint={t("Applies to every site except those you allow below.")}>
         <Toggle label={t("Block ads and trackers")} checked={view?.enabled ?? true} onChange={(v) => run(api.call("adblock.setEnabled", v))} />
       </Row>
+      <Row label={t("Hide cookie notices and annoyances")} hint={t("Cookie consent banners, newsletter pop-ups, app banners and other clutter, with the EasyList Cookie and uBlock Origin annoyances lists.")}>
+        <Toggle
+          label={t("Hide cookie notices and annoyances")}
+          checked={view?.annoyances ?? true}
+          disabled={view?.enabled === false}
+          onChange={(v) => run(api.call("adblock.setOptions", { annoyances: v }))}
+        />
+      </Row>
+      <Row label={t("Remove tracking from links")} hint={t("Opens addresses without their tracking parameters (utm_*, fbclid, gclid, msclkid and similar), which only tell trackers where you came from.")}>
+        <Toggle
+          label={t("Remove tracking from links")}
+          checked={view?.cleanUrls ?? true}
+          disabled={view?.enabled === false}
+          onChange={(v) => run(api.call("adblock.setOptions", { cleanUrls: v }))}
+        />
+      </Row>
       <Row label={t("Filter lists")} hint={lists?.updatedAt ? t("{count} rules", { count: lists.filterCount.toLocaleString() }) : t("Using the bundled list until the first update succeeds.")}>
         <span className="muted small">
           {sourceLabel}
@@ -969,6 +1004,9 @@ function UpdatesSection({ view, update }: { view: SettingsView; update: (p: Sett
       <Row label={t("Current version")}>
         <span className="pill off">Corvus {status?.currentVersion ?? "…"}</span>
         {status && !status.supported && <span className="muted small">{status.reason}</span>}
+        {status?.supported && status.portable && (
+          <span className="muted small">{t("Portable copy: an update replaces this file and starts the new version.")}</span>
+        )}
       </Row>
       <Row
         label={t("Third-party software")}

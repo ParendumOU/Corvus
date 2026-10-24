@@ -135,6 +135,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "omnibox.suggest": (w, input) =>
       buildSuggestions(str(input, "input", 2048), w.profile.history.all(), w.profile.bookmarks.list(), Date.now()),
     "bookmarks.toggleActive": (w) => w.toggleBookmark(),
+    "translate.toggle": (w) => ctx.translate.toggle(w),
     "bookmarks.addToBar": (w, url, title, index) => {
       const target = str(url, "url", 8192);
       if (!/^(https?|file):/i.test(target)) return false;
@@ -275,6 +276,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "adblock.setEnabled": ["settings", "welcome"],
   "adblock.removeAllowed": ["settings"],
   "adblock.update": ["settings"],
+  "adblock.setOptions": ["settings"],
   "clipboard.write": ["settings", "passwords"],
   "watch.list": ["watches"],
   "watch.add": ["watches"],
@@ -511,6 +513,14 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },
     "adblock.update": async (c) => c.profile.adblock.view(await ctx.adblock.updateNow()),
+    "adblock.setOptions": (c, patch) => {
+      const p = (patch ?? {}) as Record<string, unknown>;
+      c.profile.adblock.setOptions({
+        ...(typeof p.annoyances === "boolean" ? { annoyances: p.annoyances } : {}),
+        ...(typeof p.cleanUrls === "boolean" ? { cleanUrls: p.cleanUrls } : {}),
+      });
+      return c.profile.adblock.view(ctx.adblock.listsInfo());
+    },
     "clipboard.write": (_c, text) => clipboard.writeText(str(text, "text", 16384)),
     "watch.list": (c) => ctx.monitor.storeFor(c.profile).views(),
     "watch.add": (c, url, interval) => {

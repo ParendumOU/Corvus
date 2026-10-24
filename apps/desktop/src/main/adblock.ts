@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { ipcMain, net, webContents as allWebContents, type IpcMainEvent, type IpcMainInvokeEvent, type Session, type WebContents } from "electron";
-import { ElectronBlocker, Request, adsAndTrackingLists, fromElectronDetails } from "@ghostery/adblocker-electron";
+import { ipcMain, webContents as allWebContents, type IpcMainEvent, type IpcMainInvokeEvent, type Session, type WebContents } from "electron";
+import { Request, fromElectronDetails, type ElectronBlocker } from "@ghostery/adblocker-electron";
 import {
   ADBLOCK_RESOURCE_SCHEME,
   ADBLOCK_SCRIPTLETS_CHANNEL,
   ADBLOCK_YOUTUBE_LOOP_CHANNEL,
   BlockedCounts,
+  DEFAULT_ADBLOCK_OPTIONS,
   DEFAULT_ADBLOCK_SETTINGS,
+  stripTrackingParams,
+  type AdblockOptions,
   YOUTUBE_AD_SKIPPER,
   bundleScriptlets,
   decodeDataUrl,
@@ -24,13 +26,13 @@ import {
   reviveAdblockSettings,
   shouldBlockPage,
   type AdblockBarState,
-  type AdblockListSource,
   type AdblockListsInfo,
   type AdblockSettings,
   type AdblockView,
   type ScriptletsAnswer,
 } from "../shared/adblock";
 import { FALLBACK_FILTERS } from "./adblock-fallback";
+import { FilterSet, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
 import { JsonFile } from "./json-file";
 import { paths } from "./paths";
 
@@ -57,15 +59,6 @@ function resolveCosmeticPreload(): string | null {
 const COSMETIC_INJECT_CHANNEL = "@ghostery/adblocker/inject-cosmetic-filters";
 const COSMETIC_MUTATION_CHANNEL = "@ghostery/adblocker/is-mutation-observer-enabled";
 
-const ENGINE_CONFIG = { enableMutationObserver: true, guessRequestTypeFromUrl: true } as const;
-/**
- * The lists Brave and uBlock Origin block with: EasyList and EasyPrivacy plus uBlock Origin's own
- * filters (with its quick fixes, where sites like YouTube are kept ad-free) and Peter Lowe's list,
- * as Ghostery mirrors them. A cached engine built from another set is rebuilt.
- */
-const LIST_URLS = adsAndTrackingLists;
-const LIST_SET = "ghostery-ads-and-tracking-1";
-const REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
 const STATS_THROTTLE_MS = 500;
 const STAND_IN_TTL_MS = 60_000;
 /** How long YouTube stays in the fallback before the lists get another try. */
@@ -88,14 +81,8 @@ interface AdblockFile {
   allowed: string[];
   /** Until when YouTube pages are in the fallback (see AdblockService.inYouTubeFallback); kept across restarts. */
   youtubeFallbackUntil?: number;
-}
-
-interface ListMeta {
-  updatedAt: number | null;
-  source: AdblockListSource;
-  filterCount: number;
-  /** Which list set the cached engine was built from. */
-  lists?: string;
+  annoyances?: boolean;
+  cleanUrls?: boolean;
 }
 
 interface Attachment {
@@ -119,8 +106,16 @@ export class AdblockController {
       () => ({ version: 1, ...DEFAULT_ADBLOCK_SETTINGS }),
       (raw) => {
         const s = reviveAdblockSettings(raw);
-        const until = (raw as { youtubeFallbackUntil?: unknown } | null)?.youtubeFallbackUntil;
-        return { version: 1, enabled: s.enabled, allowed: s.allowed, ...(typeof until === "number" && until > Date.now() ? { youtubeFallbackUntil: until } : {}) };
+        const data = (raw ?? {}) as { youtubeFallbackUntil?: unknown; annoyances?: unknown; cleanUrls?: unknown };
+        const until = data.youtubeFallbackUntil;
+        return {
+          version: 1,
+          enabled: s.enabled,
+          allowed: s.allowed,
+          annoyances: data.annoyances !== false,
+          cleanUrls: data.cleanUrls !== false,
+          ...(typeof until === "number" && until > Date.now() ? { youtubeFallbackUntil: until } : {}),
+        };
       },
       300,
     );
@@ -131,9 +126,23 @@ export class AdblockController {
     return { enabled: f.enabled, allowed: f.allowed };
   }
 
+  options(): AdblockOptions {
+    const f = this.file.get();
+    return { annoyances: f.annoyances ?? DEFAULT_ADBLOCK_OPTIONS.annoyances, cleanUrls: f.cleanUrls ?? DEFAULT_ADBLOCK_OPTIONS.cleanUrls };
+  }
+
+  setOptions(patch: Partial<AdblockOptions>): void {
+    this.file.update((f) => ({
+      ...f,
+      ...(typeof patch.annoyances === "boolean" ? { annoyances: patch.annoyances } : {}),
+      ...(typeof patch.cleanUrls === "boolean" ? { cleanUrls: patch.cleanUrls } : {}),
+    }));
+    this.emitter.emit("change");
+  }
+
   view(lists: AdblockListsInfo): AdblockView {
     const f = this.file.get();
-    return { enabled: f.enabled, allowedSites: f.allowed, lists };
+    return { enabled: f.enabled, allowedSites: f.allowed, lists, ...this.options() };
   }
 
   onChange(listener: () => void): () => void {
@@ -217,13 +226,11 @@ export class AdblockController {
  * corvus:// or loopback, and counts blocked requests per tab via each profile's AdblockController.
  */
 export class AdblockService {
-  private blocker: ElectronBlocker;
-  private meta: ListMeta;
-  private updating = false;
+  /** Ads and trackers: always on while the blocker is. */
+  private readonly ads: FilterSet;
+  /** Cookie notices and other annoyances: per profile (on by default). */
+  private readonly annoyances: FilterSet;
   private readonly attachments: Attachment[] = [];
-  private readonly cacheDir: string;
-  private readonly enginePath: string;
-  private readonly metaPath: string;
   private readonly cosmeticPreload = resolveCosmeticPreload();
   /** $redirect stand-ins waiting to be loaded, by one-time token (oldest first). */
   private readonly standIns = new Map<string, { type: string; bytes: Uint8Array; at: number }>();
@@ -232,14 +239,18 @@ export class AdblockService {
     userDataDir: string,
     private readonly onProfileChange: (profileId: string) => void,
   ) {
-    this.cacheDir = path.join(userDataDir, "adblock");
-    this.enginePath = path.join(this.cacheDir, "engine.bin");
-    this.metaPath = path.join(this.cacheDir, "meta.json");
-    const loaded = this.loadFromCache() ?? this.buildFallback();
-    this.blocker = loaded.blocker;
-    this.meta = loaded.meta;
+    const cacheDir = path.join(userDataDir, "adblock");
+    this.ads = new FilterSet(cacheDir, adsAndTrackingSpec(FALLBACK_FILTERS), () => this.notifyAll());
+    this.annoyances = new FilterSet(cacheDir, annoyancesSpec(), () => this.notifyAll());
     this.registerCosmeticHandlers();
-    this.scheduleRefresh();
+    // One download at a time: ads first, annoyances after.
+    this.ads.scheduleRefresh(4000);
+    this.annoyances.scheduleRefresh(20_000);
+  }
+
+  /** The engines that apply to a profile: ads and trackers, plus annoyances when it wants them. */
+  private enginesFor(controller: AdblockController): ElectronBlocker[] {
+    return controller.options().annoyances ? [this.ads.blocker, this.annoyances.blocker] : [this.ads.blocker];
   }
 
   /** Binds blocking to a profile's session and wires its controller's counters. */
@@ -273,9 +284,17 @@ export class AdblockService {
       return;
     }
     session.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
-      if (details.resourceType === "mainFrame" || isNeverBlockedUrl(details.url)) {
+      if (isNeverBlockedUrl(details.url)) {
         callback({});
         return;
+      }
+      // Pages themselves are never blocked; their address only loses its tracking parameters.
+      if (details.resourceType === "mainFrame" || details.resourceType === "subFrame") {
+        const cleaned = this.cleanedNavigation(controller, details);
+        if (cleaned || details.resourceType === "mainFrame") {
+          callback(cleaned ? { redirectURL: cleaned } : {});
+          return;
+        }
       }
       const tabId = details.webContentsId ?? 0;
       if (!this.pageBlocks(controller, tabId, details.referrer)) {
@@ -284,17 +303,21 @@ export class AdblockService {
       }
       const request = fromElectronDetails(details);
       if (request.type === "other") request.guessTypeOfRequest();
-      const { match, redirect } = this.blocker.match(request);
-      const standIn = redirect ? this.standInUrl(redirect.dataUrl) : null;
-      if (standIn) {
-        controller.recordBlocked(tabId);
-        callback({ redirectURL: standIn });
-      } else if (match || redirect) {
-        controller.recordBlocked(tabId);
-        callback({ cancel: true });
-      } else {
-        callback({});
+      for (const engine of this.enginesFor(controller)) {
+        const { match, redirect } = engine.match(request);
+        const standIn = redirect ? this.standInUrl(redirect.dataUrl) : null;
+        if (standIn) {
+          controller.recordBlocked(tabId);
+          callback({ redirectURL: standIn });
+          return;
+        }
+        if (match || redirect) {
+          controller.recordBlocked(tabId);
+          callback({ cancel: true });
+          return;
+        }
       }
+      callback({});
     });
 
     session.webRequest.onHeadersReceived({ urls: ["<all_urls>"] }, (details, callback) => {
@@ -302,9 +325,22 @@ export class AdblockService {
         callback({});
         return;
       }
-      this.blocker.onHeadersReceived(details, callback);
+      this.ads.blocker.onHeadersReceived(details, callback);
     });
     attachment.registered = true;
+  }
+
+  /**
+   * The address a page or frame navigation should load instead, without its tracking parameters;
+   * null to load it as asked (cleaning off, a site you allowed, a form post, nothing to remove).
+   */
+  private cleanedNavigation(controller: AdblockController, details: Electron.OnBeforeRequestListenerDetails): string | null {
+    if (details.method !== "GET" || !controller.options().cleanUrls) return null;
+    const blocking =
+      details.resourceType === "mainFrame"
+        ? shouldBlockPage(controller.settings(), hostFromUrl(details.url) ?? "")
+        : this.pageBlocks(controller, details.webContentsId ?? 0, details.referrer);
+    return blocking ? stripTrackingParams(details.url) : null;
   }
 
   /**
@@ -333,12 +369,19 @@ export class AdblockService {
   }
 
   listsInfo(): AdblockListsInfo {
-    return { ...this.meta, updating: this.updating };
+    const { updatedAt, source } = this.ads.meta;
+    return {
+      updatedAt,
+      source,
+      filterCount: this.ads.meta.filterCount + this.annoyances.meta.filterCount,
+      updating: this.ads.updating || this.annoyances.updating,
+    };
   }
 
   /** Forces a fresh fetch of the filter lists now. */
   async updateNow(): Promise<AdblockListsInfo> {
-    await this.refresh(true);
+    await this.ads.refresh(true);
+    await this.annoyances.refresh(true);
     return this.listsInfo();
   }
 
@@ -388,10 +431,10 @@ export class AdblockService {
       const controller = this.controllerFor(event.sender.session);
       if (!controller || typeof url !== "string") return undefined;
       if (!isBlockablePageUrl(url) || !shouldBlockPage(controller.settings(), hostFromUrl(url) ?? "")) return undefined;
-      this.injectStyles(event, url, msg);
+      this.injectStyles(event, controller, url, msg);
       return undefined;
     });
-    ipcMain.handle(COSMETIC_MUTATION_CHANNEL, (event) => this.blocker.onIsMutationObserverEnabled(event));
+    ipcMain.handle(COSMETIC_MUTATION_CHANNEL, (event) => this.ads.blocker.onIsMutationObserverEnabled(event));
     ipcMain.on(ADBLOCK_SCRIPTLETS_CHANNEL, (event, url: unknown) => {
       event.returnValue = this.scriptletsFor(event, url);
     });
@@ -402,25 +445,27 @@ export class AdblockService {
    * Element hiding for a page: site and generic rules when it starts, then rules for the ids and
    * classes it adds. Scriptlets are not run from here: the scriptlets preload runs them earlier.
    */
-  private injectStyles(event: IpcMainInvokeEvent, url: string, msg: unknown): void {
+  private injectStyles(event: IpcMainInvokeEvent, controller: AdblockController, url: string, msg: unknown): void {
     const update = msg && typeof msg === "object" ? (msg as CosmeticUpdate) : undefined;
     const first = update === undefined;
     const { hostname, domain } = Request.fromRawDetails({ url });
-    const { active, styles } = this.blocker.getCosmeticsFilters({
-      url,
-      hostname,
-      domain,
-      classes: stringList(update?.classes),
-      hrefs: stringList(update?.hrefs),
-      ids: stringList(update?.ids),
-      getBaseRules: first,
-      getInjectionRules: false,
-      getExtendedRules: false,
-      getRulesFromHostname: first,
-      getRulesFromDOM: !first,
-      callerContext: { frameId: event.frameId, processId: event.processId },
-    });
-    if (active && styles.length > 0) void event.sender.insertCSS(styles, { cssOrigin: "user" }).catch(() => undefined);
+    for (const engine of this.enginesFor(controller)) {
+      const { active, styles } = engine.getCosmeticsFilters({
+        url,
+        hostname,
+        domain,
+        classes: stringList(update?.classes),
+        hrefs: stringList(update?.hrefs),
+        ids: stringList(update?.ids),
+        getBaseRules: first,
+        getInjectionRules: false,
+        getExtendedRules: false,
+        getRulesFromHostname: first,
+        getRulesFromDOM: !first,
+        callerContext: { frameId: event.frameId, processId: event.processId },
+      });
+      if (active && styles.length > 0) void event.sender.insertCSS(styles, { cssOrigin: "user" }).catch(() => undefined);
+    }
   }
 
   /** Scripts for a frame that is starting, answered synchronously (nothing when blocking is off). */
@@ -438,18 +483,23 @@ export class AdblockService {
       const { hostname, domain } = Request.fromRawDetails({ url });
       const youtube = isYouTubeHost(hostname);
       if (this.inYouTubeFallback(controller, pageHost)) return { scripts: youtube ? [YOUTUBE_AD_SKIPPER] : [], watchYouTube: false };
-      const { active, scripts } = this.blocker.getCosmeticsFilters({
-        url,
-        hostname,
-        domain,
-        getBaseRules: false,
-        getInjectionRules: true,
-        getExtendedRules: false,
-        getRulesFromHostname: true,
-        getRulesFromDOM: false,
-        callerContext: { frameId: event.frameId, processId: event.processId },
-      });
-      const out = active && scripts.length > 0 ? [bundleScriptlets(scripts)] : [];
+      const scripts: string[] = [];
+      for (const engine of this.enginesFor(controller)) {
+        const found = engine.getCosmeticsFilters({
+          url,
+          hostname,
+          domain,
+          getBaseRules: false,
+          getInjectionRules: true,
+          getExtendedRules: false,
+          getRulesFromHostname: true,
+          getRulesFromDOM: false,
+          callerContext: { frameId: event.frameId, processId: event.processId },
+        });
+        if (found.active) scripts.push(...found.scripts);
+      }
+      // One bundle for every engine's scriptlets: they share the page's original built-ins.
+      const out = scripts.length > 0 ? [bundleScriptlets(scripts)] : [];
       if (youtube) out.push(YOUTUBE_AD_SKIPPER);
       return { scripts: out, watchYouTube: youtube && isTop };
     } catch {
@@ -461,74 +511,7 @@ export class AdblockService {
     return this.attachments.find((a) => a.session === session)?.controller;
   }
 
-  private buildFallback(): { blocker: ElectronBlocker; meta: ListMeta } {
-    const blocker = ElectronBlocker.parse(FALLBACK_FILTERS, ENGINE_CONFIG);
-    return { blocker, meta: { updatedAt: null, source: "bundled", filterCount: this.countFilters(blocker) } };
-  }
-
-  private loadFromCache(): { blocker: ElectronBlocker; meta: ListMeta } | null {
-    try {
-      const meta = JSON.parse(fs.readFileSync(this.metaPath, "utf8")) as ListMeta;
-      const bytes = fs.readFileSync(this.enginePath);
-      const blocker = ElectronBlocker.deserialize(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
-      return {
-        blocker,
-        meta: {
-          updatedAt: meta.updatedAt ?? null,
-          source: "cache",
-          filterCount: meta.filterCount ?? this.countFilters(blocker),
-          ...(typeof meta.lists === "string" ? { lists: meta.lists } : {}),
-        },
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  private countFilters(blocker: ElectronBlocker): number {
-    const f = blocker.getFilters();
-    return f.networkFilters.length + f.cosmeticFilters.length;
-  }
-
-  /** Whether the engine in use is a cached one, built from today's list set, less than a week ago. */
-  private fresh(): boolean {
-    return this.meta.source === "cache" && this.meta.lists === LIST_SET && this.meta.updatedAt !== null && Date.now() - this.meta.updatedAt <= REFRESH_MS;
-  }
-
-  private scheduleRefresh(): void {
-    if (!this.fresh()) setTimeout(() => void this.refresh(false), 4000).unref();
-    setInterval(() => void this.refresh(false), REFRESH_MS).unref();
-  }
-
-  private async refresh(force: boolean): Promise<void> {
-    if (this.updating) return;
-    if (!force && this.fresh()) return;
-    this.updating = true;
-    this.notifyAll();
-    try {
-      const blocker = await ElectronBlocker.fromLists((url) => net.fetch(url), LIST_URLS, ENGINE_CONFIG);
-      this.blocker = blocker;
-      this.meta = { updatedAt: Date.now(), source: "network", filterCount: this.countFilters(blocker), lists: LIST_SET };
-      this.writeCache(blocker);
-    } catch (err) {
-      console.warn(`[corvus] adblock list refresh failed: ${(err as Error).message}`);
-    } finally {
-      this.updating = false;
-      this.notifyAll();
-    }
-  }
-
   private notifyAll(): void {
     for (const { profileId } of this.attachments) this.onProfileChange(profileId);
-  }
-
-  private writeCache(blocker: ElectronBlocker): void {
-    try {
-      fs.mkdirSync(this.cacheDir, { recursive: true });
-      fs.writeFileSync(this.enginePath, Buffer.from(blocker.serialize()));
-      fs.writeFileSync(this.metaPath, JSON.stringify({ updatedAt: this.meta.updatedAt, filterCount: this.meta.filterCount, lists: this.meta.lists }), "utf8");
-    } catch (err) {
-      console.warn(`[corvus] adblock cache write failed: ${(err as Error).message}`);
-    }
   }
 }

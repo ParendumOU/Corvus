@@ -68,6 +68,9 @@ export async function runChromeUiSmoke(ctx: AppContext, h: ChromeUiSmokeHelpers)
     check("a click on the toolbar or tab strip closes an open popover", hits.every((c) => typeof c === "string" && c.includes("overlay-backdrop")) && closed, { hits, closed });
 
     // Drag the site chip onto the bookmarks bar: the page is bookmarked there with the tab's title.
+    // The chip shows while the address bar is not being edited.
+    win.sendCommand({ type: "close-overlays" });
+    win.focusContent();
     await waitForJs(chrome, "document.querySelector('.site-chip') && document.querySelector('.bookmarks-bar')");
     const dropped = (await chrome.executeJavaScript(`(async () => {
       const data = new DataTransfer();

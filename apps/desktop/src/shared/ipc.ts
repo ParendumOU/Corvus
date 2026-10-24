@@ -6,7 +6,8 @@
  * Web content never gets either API.
  */
 import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
-import type { AdblockBarState, AdblockView } from "./adblock";
+import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
+import type { TranslateBarState } from "./translate";
 import type { AnnotationLibraryRpc } from "./annotations-ipc";
 import type { AgentRunsInternalEvent, AgentRunsInternalRpc } from "./agent-run-ipc";
 import type { AssistChromeCommand, AssistChromeRpc, AssistWindowExtras } from "./assist-ipc";
@@ -69,6 +70,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   readerable: boolean;
   /** Reader mode is on for the active tab. */
   readerActive: boolean;
+  /** The active tab's translate button (offered, translating, translated), or null when hidden. */
+  translate: TranslateBarState | null;
   /** Autofill availability and pending-save state for the active tab. */
   autofill: AutofillBarState;
   /** Two tabs tiled side by side, or null when the window shows a single tab. */
@@ -129,6 +132,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "extensions.menu"(id: string, x: number, y: number): void;
   "adblock.setEnabled"(enabled: boolean): void;
   "adblock.pauseSite"(paused: boolean): void;
+  /** The address bar's translate button: translate the page, or show its original again. */
+  "translate.toggle"(): void;
   "split.with"(tabId: TabId): void;
   "split.focus"(tabId: TabId): void;
   "split.exit"(): void;
@@ -220,6 +225,8 @@ export interface UpdateStatus {
   /** Last check time (epoch ms), null if never checked this session. */
   checkedAt: number | null;
   error: string | null;
+  /** The Windows portable build: updates replace its own file. */
+  portable?: boolean;
 }
 
 export interface SyncStatus {
@@ -338,6 +345,7 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "adblock.setEnabled"(enabled: boolean): AdblockView;
   "adblock.removeAllowed"(host: string): AdblockView;
   "adblock.update"(): AdblockView;
+  "adblock.setOptions"(patch: Partial<AdblockOptions>): AdblockView;
   "clipboard.write"(text: string): void;
   /** Reload the page that crashed in the calling tab (the recovery page calls this). */
   "crash.reload"(): void;

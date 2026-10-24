@@ -58,6 +58,8 @@ const SUMMARY_CACHE = 40;
 const ORGANIZER_CACHE = 10;
 const TRANSLATE_SEGMENTS = 120;
 const TRANSLATE_CHARS = 4500;
+/** A whole-page translation stops after this many batches (about 180,000 characters). */
+const TRANSLATE_MAX_BATCHES = 40;
 const SCRIPT_TIMEOUT_MS = 8000;
 /** Longest request the agentic chat takes (instructions can be longer than a question). */
 const AGENT_REQUEST_CHARS = 2000;
@@ -556,6 +558,43 @@ export class AssistService {
     const wc = win.activeTab()?.view.webContents;
     if (!wc || wc.isDestroyed()) return;
     await this.exec(wc, jumpToSectionScript(index)).catch(() => false);
+  }
+
+  /**
+   * Translates a whole page in place into `lang`, batch by batch in page order (for the address
+   * bar's translate button), reporting the pieces translated so far. Stops at the abort signal;
+   * whatever was translated stays until restoreTranslation.
+   */
+  async translateWholePage(win: BrowserWindowCtl, tab: TabRuntime, lang: string, onProgress: (translated: number) => void, signal: AbortSignal): Promise<number> {
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed() || !isReadable(wc.getURL())) throw new Error("Only web pages can be translated.");
+    const siteProfile = win.profile.siteProfiles.match(wc.getURL());
+    const provider = this.providerFor(siteProfile);
+    if (!provider) throw new Error(providerSetupReason(this.ctx.settings.get().ai.provider, "page translation"));
+    const addendum = siteProfile?.promptAddendum.trim();
+    await this.exec(wc, restoreTranslationScript()).catch(() => 0);
+    let total = 0;
+    for (let i = 0; i < TRANSLATE_MAX_BATCHES && !signal.aborted; i++) {
+      const batch = await this.exec<{ segments: string[]; more: boolean }>(wc, collectSegmentsScript(TRANSLATE_SEGMENTS, TRANSLATE_CHARS));
+      if (batch.segments.length === 0) break;
+      let text = "";
+      for await (const ev of runAssist(provider, { kind: "translate-page", segments: batch.segments, lang }, signal, addendum ? { systemAddendum: addendum } : undefined)) {
+        if (ev.type === "delta") text += ev.text;
+      }
+      if (signal.aborted || wc.isDestroyed()) break;
+      total += await this.exec<number>(wc, applyTranslationsScript(parseTranslatedSegments(text, batch.segments.length)));
+      onProgress(total);
+      if (!batch.more) break;
+    }
+    return total;
+  }
+
+  /** Puts a page's original text back after a translation. */
+  async restoreTranslation(tab: TabRuntime): Promise<void> {
+    if (tab.view.webContents.isDestroyed()) return;
+    await this.exec(tab.view.webContents, restoreTranslationScript()).catch(() => 0);
+    const entry = this.tabs.get(tab.id);
+    if (entry) entry.translation = "none";
   }
 
   async restorePage(win: BrowserWindowCtl): Promise<void> {

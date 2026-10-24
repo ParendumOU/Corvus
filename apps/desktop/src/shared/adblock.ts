@@ -134,6 +134,61 @@ export interface AdblockView {
   enabled: boolean;
   allowedSites: string[];
   lists: AdblockListsInfo;
+  /** Hide cookie notices and other annoyances (their own lists, on top of ads and trackers). */
+  annoyances: boolean;
+  /** Remove tracking parameters (utm_*, fbclid, gclid, ...) from the addresses you open. */
+  cleanUrls: boolean;
+}
+
+/** The blocker's per-profile switches beyond on/off and the allow list. */
+export interface AdblockOptions {
+  annoyances: boolean;
+  cleanUrls: boolean;
+}
+
+export const DEFAULT_ADBLOCK_OPTIONS: AdblockOptions = { annoyances: true, cleanUrls: true };
+
+/**
+ * Query parameters that only identify a click, a campaign or a mailing for trackers, never what a
+ * page shows: Brave's query filter list plus the utm_ campaign tags.
+ */
+const TRACKING_PARAMS = new Set([
+  "__hsfp", "__hssc", "__hstc", "__s", "_hsenc", "_hsmi", "_openstat", "ck_subscriber_id", "dclid", "fbclid", "gbraid", "gclid",
+  "gclsrc", "hsctatracking", "igsh", "igshid", "mc_cid", "mc_eid", "mkt_tok", "ml_subscriber", "ml_subscriber_hash", "msclkid", "oft_c",
+  "oft_ck", "oft_d", "oft_id", "oft_ids", "oft_k", "oft_lk", "oft_sk", "oly_anon_id", "oly_enc_id", "rb_clickid", "s_cid", "srsltid",
+  "ttclid", "twclid", "vero_conv", "vero_id", "wbraid", "wickedid", "yclid",
+]);
+
+function isTrackingParam(name: string): boolean {
+  const key = name.toLowerCase();
+  return TRACKING_PARAMS.has(key) || key.startsWith("utm_");
+}
+
+/** The address without its tracking parameters, or null when it has none (or is not a web address). */
+export function stripTrackingParams(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.search === "") return null;
+  // Pair by pair on the raw query, so the parameters that stay keep their exact encoding (signed
+  // addresses break when a parser re-encodes them).
+  const pairs = parsed.search.slice(1).split("&");
+  const kept = pairs.filter((pair) => {
+    const raw = pair.split("=")[0] ?? "";
+    let name = raw;
+    try {
+      name = decodeURIComponent(raw.replace(/\+/g, " "));
+    } catch {
+      // Malformed escape: judge the raw name.
+    }
+    return !isTrackingParam(name);
+  });
+  if (kept.length === pairs.length) return null;
+  parsed.search = kept.length > 0 ? `?${kept.join("&")}` : "";
+  return parsed.href;
 }
 
 /** Pushed to the chrome UI for the active tab's shield button and popover. */

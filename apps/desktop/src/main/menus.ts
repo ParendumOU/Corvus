@@ -345,7 +345,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       { type: "separator" },
       { label: "Reader mode", accelerator: `${mod}+Shift+R`, enabled: /^https?:/.test(wc.getURL()), click: () => ctx.reader.toggle(win) },
       { label: "Summarize this page", enabled: /^https?:/.test(wc.getURL()), click: () => ctx.assist.runPage(win, tab, "summarize") },
-      { label: "Translate this page", enabled: /^https?:/.test(wc.getURL()), click: () => ctx.assist.runPage(win, tab, "translate-page") },
+      { label: "Translate this page", enabled: /^https?:/.test(wc.getURL()), click: () => void ctx.translate.translate(win, tab) },
       { label: "Watch this page for changes", enabled: /^https?:/.test(wc.getURL()), click: () => ctx.monitor.watchTab(win, { url: wc.getURL(), title: tab.title, ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}) }) },
     );
     sep();
