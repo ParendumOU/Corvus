@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.10.0
+
+### Browser
+- **Send to your phone**: "Send to your phone…" in a tab's menu (and "Send link to your phone…" in
+  a link's menu) shows the page as a QR code to scan with your phone's camera. Link your own
+  Telegram bot in Settings > Send to your phone to send pages there too, and to open the links you
+  send to it from your phone; messages from anyone else are ignored.
+- **Move a profile**: Settings > Profiles can export a profile to one password-protected file
+  (bookmarks, history, reading list, annotations, workspaces, site settings, containers, watched
+  pages, workflows and saved logins) and import it on another computer as a new profile.
+
+### AI
+- **Local models, found for you**: Settings > AI search notices Ollama, LM Studio or llama.cpp
+  running on this computer and offers to use it in one click, so AI search and Corvus Assist stay
+  on the device with no API key. With a local model, the model field lists the server's models.
+
 ## v0.9.0
 
 ### Corvus Assist

@@ -29,6 +29,9 @@ export { buildClaudeCliArgs, ClaudeCliError, createClaudeCliProvider, StreamJson
 export {
   createLocalProvider,
   detectLocalCapabilities,
+  discoverLocalServers,
+  listLocalModels,
+  LOCAL_SERVER_CANDIDATES,
   isToolsUnsupported,
   LocalModelError,
   normalizeBaseUrl,
@@ -45,6 +48,7 @@ export type {
   LocalChatMessage,
   LocalChatRequest,
   LocalProviderOptions,
+  LocalServer,
   LocalTestResult,
   LocalToolSpec,
 } from "./providers/local.js";

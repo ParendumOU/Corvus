@@ -123,6 +123,15 @@ export interface Settings {
     /** Float a video that is playing with sound when you switch to another tab. On by default. */
     autoPictureInPicture: boolean;
   };
+  phone: {
+    /** The person's own Telegram bot (@username), once its token is checked. The token is a secret. */
+    telegramBot: string;
+    /** The private chat linked to the bot (who sent it /start): pages go there, links come from it. */
+    telegramChatId: string;
+    telegramChatName: string;
+    /** Open links the linked chat sends to the bot. */
+    receiveLinks: boolean;
+  };
   translate: {
     /** Offer to translate pages written in another language (a button in the address bar). */
     offer: boolean;
@@ -234,6 +243,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60 },
     media: { autoPictureInPicture: true },
+    phone: { telegramBot: "", telegramChatId: "", telegramChatName: "", receiveLinks: true },
     translate: { offer: true, targetLanguage: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },

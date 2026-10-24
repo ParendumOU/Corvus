@@ -17,6 +17,7 @@ import { SpendApprovalService } from "./spend-approvals";
 import { Controller } from "./controller";
 import { KeePassService } from "./keepass-service";
 import { PasswordCheckupService } from "./password-checkup";
+import { TelegramLink } from "./telegram-link";
 import { SecretFillGuard } from "./secret-fill-guard";
 import { DownloadManager } from "./downloads";
 import { ExtensionWindowBridge } from "./extension-windows";
@@ -140,6 +141,7 @@ async function main(): Promise<void> {
   ctx.autofill = new AutofillService(ctx);
   ctx.keepass = new KeePassService(ctx);
   ctx.passwordCheckup = new PasswordCheckupService();
+  ctx.telegram = new TelegramLink(ctx);
   ctx.secretFills = new SecretFillGuard();
   ctx.annotations = new AnnotationService(ctx);
   ctx.mcp = new McpService(ctx);
@@ -252,6 +254,7 @@ async function main(): Promise<void> {
   void ctx.mcp.apply();
   ctx.sync.start();
   ctx.monitor.start();
+  ctx.telegram.start();
   ctx.tabSleeper.start();
   ctx.updater.startupCheck();
 

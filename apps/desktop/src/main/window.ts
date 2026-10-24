@@ -1326,6 +1326,14 @@ export class BrowserWindowCtl {
     }
   }
 
+  /** "Send to your phone…": the page as a QR code to scan, and to Telegram when a chat is linked. */
+  async shareToPhone(url: string, title: string): Promise<void> {
+    if (!/^https?:\/\//i.test(url)) return;
+    const { encodeQR } = await import("qr");
+    const qrSvg = encodeQR(url, "svg", { border: 2 });
+    this.sendCommand({ type: "open-share", share: { url, title, qrSvg, telegram: this.ctx.telegram.status().linked } });
+  }
+
   /** Opens `url` in a new tab in a container (null: none), next to `openerId` when given. */
   openInContainer(url: string, containerId: string | null, openerId?: TabId): TabRuntime {
     return this.createTab(url, { ...(openerId ? { openerId } : {}), ...(containerId ? { containerId } : {}) });

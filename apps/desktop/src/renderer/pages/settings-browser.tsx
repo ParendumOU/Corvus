@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { GroupColor } from "@corvus/shared";
 import { CONTAINER_COLORS, type Container } from "../../shared/containers";
+import type { TelegramStatus } from "../../shared/phone-share";
 import { GROUP_COLOR_HEX } from "../../shared/ipc";
 import { PERMISSION_LABELS, type PermissionDecision, type PermissionKind, type SitePermissionEntry } from "../../shared/permissions";
 import type { SettingsPatch, SettingsView, StartupMode } from "../../shared/settings";
@@ -286,6 +287,77 @@ export function ContainersSection() {
         </button>
       </Row>
       {error && <div className="notice error">{error}</div>}
+    </Section>
+  );
+}
+
+/** "Send to your phone": a QR code always; Telegram through the person's own bot, when linked. */
+export function PhoneSection({ view, update }: Props) {
+  const api = internalApi();
+  const [status, setStatus] = useState<TelegramStatus | null>(null);
+  const [token, setToken] = useState("");
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void api.call("phone.status").then(setStatus);
+  }, [api]);
+  const connect = (): void => {
+    setBusy(true);
+    setMessage(null);
+    void api
+      .call("phone.connect", token.trim() || undefined)
+      .then((r) => {
+        setStatus(r.status);
+        setMessage({ ok: r.ok, text: r.message });
+        if (r.ok) setToken("");
+      })
+      .catch((e: unknown) => setMessage({ ok: false, text: errorMessage(e) }))
+      .finally(() => setBusy(false));
+  };
+  const disconnect = (): void => {
+    setMessage(null);
+    void api.call("phone.disconnect").then(setStatus);
+  };
+  return (
+    <Section
+      id="phone"
+      title={t("Send to your phone")}
+      description={t("“Send to your phone…” in a tab's or a link's menu shows the page as a QR code to scan with your phone's camera. Link your own Telegram bot to send pages there too, and to open links you send to it from your phone.")}
+    >
+      <Row
+        label={t("Telegram bot token")}
+        hint={t("Create a bot with @BotFather in Telegram, paste its token here, send /start to your bot, then click Connect. The token stays in this device's keychain.")}
+      >
+        <input
+          className="input"
+          type="password"
+          autoComplete="off"
+          placeholder={status?.hasToken ? t("Saved (paste a new one to replace it)") : "123456:ABC-DEF…"}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && connect()}
+        />
+        <button className="btn small primary" disabled={busy || (!token.trim() && !status?.hasToken)} onClick={connect}>
+          {busy ? t("Connecting…") : t("Connect")}
+        </button>
+      </Row>
+      {message && <div className={`notice ${message.ok ? "" : "error"}`}>{message.text}</div>}
+      {status?.hasToken && (
+        <Row label={t("Linked chat")} {...(status.bot ? { hint: t("Bot: {bot}", { bot: status.bot }) } : {})}>
+          <span className={status.linked ? "pill ok" : "muted"}>{status.linked ? status.chatName : t("Not linked yet")}</span>
+          <button className="btn small ghost danger" onClick={disconnect}>
+            {t("Disconnect")}
+          </button>
+        </Row>
+      )}
+      <Row label={t("Open links you send to the bot")} hint={t("Links that arrive from your linked chat open as background tabs in Corvus, about every 30 seconds. Messages from anyone else are ignored.")}>
+        <Toggle
+          label={t("Open links you send to the bot")}
+          checked={view.settings.phone.receiveLinks}
+          disabled={!status?.linked}
+          onChange={(v) => update({ phone: { receiveLinks: v } })}
+        />
+      </Row>
     </Section>
   );
 }

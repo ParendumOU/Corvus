@@ -336,6 +336,61 @@ export async function detectLocalCapabilities(opts: LocalProviderOptions, signal
   }
 }
 
+/** The models a local server has (Ollama's tags, or an OpenAI-compatible server's /models). Throws when unreachable. */
+export async function listLocalModels(opts: Omit<LocalProviderOptions, "model">, signal?: AbortSignal, timeoutMs = PROBE_TIMEOUT_MS): Promise<string[]> {
+  const api = resolveApi(opts.api);
+  const f = opts.fetch ?? fetch;
+  const withModel = { ...opts, model: "" };
+  if (api === "openai") {
+    const res = await fetchWithTimeout(f, `${openaiRoot(normalizeBaseUrl(opts.baseUrl, "openai"))}/models`, { method: "GET", headers: headers(withModel) }, timeoutMs, signal);
+    if (!res.ok) throw await httpError(res, "openai");
+    const data = (await res.json()) as { data?: Array<{ id?: string }> };
+    return (data.data ?? []).map((m) => m.id ?? "").filter(Boolean);
+  }
+  const res = await fetchWithTimeout(f, `${normalizeBaseUrl(opts.baseUrl, "ollama")}/api/tags`, { method: "GET", headers: headers(withModel) }, timeoutMs, signal);
+  if (!res.ok) throw await httpError(res, "ollama");
+  const tags = (await res.json()) as { models?: Array<{ name?: string; model?: string }> };
+  return (tags.models ?? []).map((m) => m.name ?? m.model ?? "").filter(Boolean);
+}
+
+/** A model server found running on this computer. */
+export interface LocalServer {
+  name: string;
+  api: LocalModelApi;
+  baseUrl: string;
+  models: string[];
+}
+
+/** Where the common local model servers listen by default. */
+export const LOCAL_SERVER_CANDIDATES: ReadonlyArray<Omit<LocalServer, "models">> = [
+  { name: "Ollama", api: "ollama", baseUrl: "http://localhost:11434" },
+  { name: "LM Studio", api: "openai", baseUrl: "http://localhost:1234/v1" },
+  { name: "llama.cpp", api: "openai", baseUrl: "http://localhost:8080/v1" },
+];
+
+const DISCOVERY_TIMEOUT_MS = 1_500;
+
+/**
+ * Looks for local model servers on their default ports (all at once, briefly) and returns the
+ * ones that answer, with their models. Never throws; servers that do not answer are left out.
+ */
+export async function discoverLocalServers(
+  opts: { fetch?: FetchLike; candidates?: ReadonlyArray<Omit<LocalServer, "models">> } = {},
+  signal?: AbortSignal,
+): Promise<LocalServer[]> {
+  const found = await Promise.all(
+    (opts.candidates ?? LOCAL_SERVER_CANDIDATES).map(async (c): Promise<LocalServer | null> => {
+      try {
+        const models = await listLocalModels({ api: c.api, baseUrl: c.baseUrl, ...(opts.fetch ? { fetch: opts.fetch } : {}) }, signal, DISCOVERY_TIMEOUT_MS);
+        return { ...c, models };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return found.filter((s): s is LocalServer => s !== null);
+}
+
 export interface LocalTestResult {
   ok: boolean;
   api: LocalModelApi;

@@ -212,6 +212,41 @@ export const ES: Record<string, string> = {
   "Sites that read your canvas, graphics card, audio stack or CPU count to recognise you get slightly different values on each site and each session. Sites you allow below are left alone.":
     "Los sitios que leen tu canvas, tu tarjeta gráfica, tu audio o tu número de núcleos para reconocerte reciben valores ligeramente distintos en cada sitio y cada sesión. Los sitios que permitas abajo no se tocan.",
   "Sites forgotten on close": "Sitios que se olvidan al cerrarlos",
+  "Export…": "Exportar…",
+  "Move a profile": "Llevar un perfil a otro equipo",
+  "Export saves a profile as one file protected by a password: bookmarks, history, reading list, annotations, workspaces, site settings, containers, watched pages, workflows and saved logins. Cookies, extensions and KeePass databases stay on this computer.":
+    "Exportar guarda un perfil en un único archivo protegido con contraseña: marcadores, historial, lista de lectura, anotaciones, espacios de trabajo, ajustes de sitios, contenedores, páginas vigiladas, flujos de trabajo e inicios de sesión guardados. Las cookies, las extensiones y las bases de datos de KeePass se quedan en este ordenador.",
+  "Import profile…": "Importar perfil…",
+  "Profile exported.": "Perfil exportado.",
+  "Imported as “{name}”.": "Importado como «{name}».",
+  "Export “{name}”": "Exportar «{name}»",
+  "Import a profile": "Importar un perfil",
+  "Choose a password for the file: it is needed to import it, and cannot be recovered. Keep the file somewhere safe, as it holds your saved logins.":
+    "Elige una contraseña para el archivo: hará falta para importarlo y no se puede recuperar. Guarda el archivo en un lugar seguro, porque contiene tus inicios de sesión.",
+  "Enter the password the profile was exported with, then choose its file. It becomes a new profile.":
+    "Escribe la contraseña con la que se exportó el perfil y elige su archivo. Se creará como un perfil nuevo.",
+  Password: "Contraseña",
+  "Repeat the password": "Repite la contraseña",
+  "Working…": "Trabajando…",
+  "Choose file…": "Elegir archivo…",
+  "At least 8 characters.": "Al menos 8 caracteres.",
+  "The passwords do not match.": "Las contraseñas no coinciden.",
+  "Send to your phone": "Enviar al móvil",
+  "“Send to your phone…” in a tab's or a link's menu shows the page as a QR code to scan with your phone's camera. Link your own Telegram bot to send pages there too, and to open links you send to it from your phone.":
+    "«Enviar al móvil…» en el menú de una pestaña o de un enlace muestra la página como un código QR para escanear con la cámara del móvil. Vincula tu propio bot de Telegram para enviar también las páginas allí y abrir los enlaces que le mandes desde el móvil.",
+  "Telegram bot token": "Token del bot de Telegram",
+  "Create a bot with @BotFather in Telegram, paste its token here, send /start to your bot, then click Connect. The token stays in this device's keychain.":
+    "Crea un bot con @BotFather en Telegram, pega aquí su token, envía /start a tu bot y pulsa Conectar. El token se guarda en el llavero de este dispositivo.",
+  "Saved (paste a new one to replace it)": "Guardado (pega otro para sustituirlo)",
+  "Connecting…": "Conectando…",
+  Connect: "Conectar",
+  "Linked chat": "Chat vinculado",
+  "Bot: {bot}": "Bot: {bot}",
+  "Not linked yet": "Aún sin vincular",
+  Disconnect: "Desconectar",
+  "Open links you send to the bot": "Abrir los enlaces que envíes al bot",
+  "Links that arrive from your linked chat open as background tabs in Corvus, about every 30 seconds. Messages from anyone else are ignored.":
+    "Los enlaces que llegan de tu chat vinculado se abren como pestañas en segundo plano en Corvus, más o menos cada 30 segundos. Los mensajes de cualquier otra persona se ignoran.",
   Media: "Multimedia",
   "Picture-in-picture when you switch tabs": "Imagen en imagen al cambiar de pestaña",
   "A video playing with sound keeps playing in a small floating window when you go to another tab, and returns to its page when you come back.":
@@ -290,6 +325,13 @@ export const ES: Record<string, string> = {
     "Un modelo que se ejecuta en este equipo (Ollama o un servidor compatible con OpenAI). Sin conexión, sin clave de API, nada sale del dispositivo.",
   "Claude Code CLI (local)": "CLI de Claude Code (local)",
   "Local model (offline)": "Modelo local (sin conexión)",
+  "{name} is running on this computer with {count} models ({models}). Use it to keep AI search and Corvus Assist on this device, with no API key.":
+    "{name} está en marcha en este ordenador con {count} modelos ({models}). Úsalo para que la búsqueda con IA y Corvus Assist se queden en este dispositivo, sin clave de API.",
+  "Use {name}": "Usar {name}",
+  "Looking…": "Buscando…",
+  "Refresh models": "Actualizar modelos",
+  "{model} (not on the server)": "{model} (no está en el servidor)",
+  "{model} (embeddings)": "{model} (embeddings)",
   "Local model": "Modelo local",
   "Anthropic API key": "Clave de API de Anthropic",
   "Encrypted with your operating system keychain.": "Cifrada con el llavero de tu sistema operativo.",

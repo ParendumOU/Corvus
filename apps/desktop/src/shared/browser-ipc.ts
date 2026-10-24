@@ -4,6 +4,7 @@
  */
 import type { DownloadAction, DownloadRecord } from "./downloads";
 import type { PermissionDecision, PermissionKind, SitePermissionEntry } from "./permissions";
+import type { PhoneShare } from "./phone-share";
 import type { SettingsView } from "./settings";
 
 export interface DisplaySourceView {
@@ -67,7 +68,7 @@ export interface SiteInfo {
   zoomPercent: number;
 }
 
-export type BrowserChromeCommand = { type: "find-focus" } | { type: "open-downloads" };
+export type BrowserChromeCommand = { type: "find-focus" } | { type: "open-downloads" } | { type: "open-share"; share: PhoneShare };
 
 export interface BrowserChromeRpc {
   "permissions.respond"(promptId: string, response: PermissionResponse, remember: boolean, sourceId?: string): void;
@@ -80,6 +81,9 @@ export interface BrowserChromeRpc {
   "zoom.step"(delta: 1 | -1 | 0): void;
   "downloads.action"(id: string, action: DownloadAction): void;
   "downloads.openPage"(): void;
+  /** "Send to your phone": sends the page to the linked Telegram chat. */
+  "share.telegram"(url: string, title: string): void;
+  "share.copy"(url: string): void;
 }
 
 export interface BrowserInternalRpc {

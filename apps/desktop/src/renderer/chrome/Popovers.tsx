@@ -5,6 +5,7 @@ import { downloadActions, downloadProgress, downloadStatus, type DownloadAction,
 import { PERMISSION_LABELS, type PermissionDecision } from "../../shared/permissions";
 import type { WatchBarState } from "../../shared/watch-ipc";
 import type { WorkspaceView } from "../../shared/workspace-ipc";
+import type { PhoneShare } from "../../shared/phone-share";
 import { chromeApi } from "../common/api";
 import {
   IconAgent,
@@ -600,6 +601,60 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
           Ad blocker settings
         </button>
       </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------------- send to your phone
+
+/** "Send to your phone": a QR code to scan, the link to copy, and Telegram when a chat is linked. */
+export function SharePopover({ share, anchor, onClose }: { share: PhoneShare; anchor: Anchor; onClose: () => void }) {
+  const api = chromeApi();
+  const [sent, setSent] = useState<"idle" | "sending" | "sent" | string>("idle");
+  const [copied, setCopied] = useState(false);
+  const sendTelegram = (): void => {
+    setSent("sending");
+    api.call("share.telegram", share.url, share.title).then(
+      () => setSent("sent"),
+      (err: unknown) => setSent(err instanceof Error ? err.message : String(err)),
+    );
+  };
+  return (
+    <div className="popover share-popover" role="dialog" aria-label="Send to your phone" style={placement(anchor)} onMouseDown={stop}>
+      <div className="share-head">
+        <strong>Send to your phone</strong>
+        <span className="muted small share-title">{share.title || share.url}</span>
+      </div>
+      <img className="share-qr" alt={`QR code for ${share.url}`} src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(share.qrSvg)}`} />
+      <div className="muted small share-hint">Scan it with your phone's camera to open the page there.</div>
+      <div className="popover-actions">
+        <button
+          className="btn small"
+          onClick={() => {
+            void api.call("share.copy", share.url);
+            setCopied(true);
+          }}
+        >
+          {copied ? "Copied" : "Copy link"}
+        </button>
+        {share.telegram ? (
+          <button className="btn small primary" disabled={sent === "sending" || sent === "sent"} onClick={sendTelegram}>
+            {sent === "sent" ? "Sent to Telegram" : sent === "sending" ? "Sending…" : "Send to Telegram"}
+          </button>
+        ) : (
+          <button
+            className="btn small ghost"
+            title="Link your own Telegram bot to send pages there and receive links back"
+            onClick={() => {
+              void api.call("tabs.openUrl", "corvus://settings/#phone", "new-tab");
+              onClose();
+            }}
+          >
+            Set up Telegram
+          </button>
+        )}
+      </div>
+      {sent !== "idle" && sent !== "sending" && sent !== "sent" && <div className="share-error small">{sent}</div>}
     </div>
   );
 }

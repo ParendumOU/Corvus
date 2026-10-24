@@ -565,3 +565,33 @@
 .ws-del:hover {
   color: var(--danger);
 }
+
+/* "Send to your phone" */
+.share-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+.share-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  margin: 0 auto 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #ffffff;
+}
+.share-hint {
+  text-align: center;
+  margin-bottom: 4px;
+}
+.share-error {
+  margin-top: 8px;
+  color: var(--danger, #d93025);
+}

@@ -26,6 +26,9 @@ import { runSiteMemorySmoke } from "./smoke-site-memory";
 import { runSyncLearnedSmoke } from "./smoke-sync-learned";
 import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
 import { runFeaturesSmoke } from "./smoke-features";
+import { runLocalModelsSmoke } from "./smoke-local-models";
+import { runPhoneSmoke } from "./smoke-phone";
+import { runProfileTransferSmoke } from "./smoke-profile-transfer";
 import { runPdfSmoke } from "./smoke-pdf";
 import { runReaderSmoke } from "./smoke-reader";
 import { runExtensionSmoke } from "./smoke-extensions";
@@ -213,6 +216,9 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
 
     await runAssistSmoke(ctx, { win, check, capture });
     await runFeaturesSmoke(ctx, { win, check, capture });
+    await runLocalModelsSmoke(ctx, { win, check, capture });
+    await runPhoneSmoke(ctx, { url, win, check, capture });
+    await runProfileTransferSmoke(ctx, { win, check, capture });
     await runReaderSmoke(ctx, { win, check, capture });
     await runPdfSmoke(ctx, { win, check, capture });
     await runCredentialsSmoke(ctx, { url, win, check, capture });

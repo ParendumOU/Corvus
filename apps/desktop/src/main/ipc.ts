@@ -18,6 +18,8 @@ import { toRecordView } from "./agent-run-store";
 import { ANNOTATIONS_INTERNAL_PERMISSIONS, annotationsInternalHandlers, registerAnnotationCapture } from "./ipc-annotations";
 import type { AppContext } from "./context";
 import { showExtensionMenu } from "./extension-windows";
+import { BundleError, MIN_BUNDLE_PASSWORD } from "./profile-bundle";
+import { exportProfile, importProfile } from "./profile-transfer";
 import { assistChromeHandlers, registerAssistIpc } from "./ipc-assist";
 import { BROWSER_INTERNAL_PERMISSIONS, browserChromeHandlers, browserInternalHandlers } from "./ipc-browser";
 import { CREDENTIALS_INTERNAL_PERMISSIONS, KEEPASS_INTERNAL_PERMISSIONS, autofillChromeHandlers, credentialsInternalHandlers, keepassInternalHandlers, registerAutofillCapture } from "./ipc-credentials";
@@ -242,6 +244,8 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "settings.update": ["settings", "welcome"],
   "settings.setSecret": ["settings", "welcome"],
   "settings.testConnection": ["settings", "welcome"],
+  "settings.discoverLocal": ["settings", "welcome"],
+  "settings.localModels": ["settings", "welcome"],
   "mcp.status": ["settings"],
   "mcp.regenerateToken": ["settings"],
   "mcp.activity": ["settings"],
@@ -253,6 +257,8 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "profiles.create": ["settings"],
   "profiles.rename": ["settings"],
   "profiles.remove": ["settings"],
+  "profiles.export": ["settings"],
+  "profiles.import": ["settings"],
   "profiles.openWindow": ["settings"],
   "sync.status": ["settings", "devices", "welcome"],
   "sync.generatePhrase": ["settings", "welcome"],
@@ -282,6 +288,9 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "adblock.setEnabled": ["settings", "welcome"],
   "adblock.removeAllowed": ["settings"],
   "adblock.removeForgetSite": ["settings"],
+  "phone.status": ["settings"],
+  "phone.connect": ["settings"],
+  "phone.disconnect": ["settings"],
   "containers.list": ["settings"],
   "containers.add": ["settings"],
   "containers.update": ["settings"],
@@ -416,6 +425,8 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       return ctx.settings.view();
     },
     "settings.testConnection": () => ctx.search.testConnection(),
+    "settings.discoverLocal": () => ctx.search.discoverLocal(),
+    "settings.localModels": () => ctx.search.localModels(),
     "mcp.status": async () => {
       await ctx.mcp.apply();
       return ctx.mcp.status();
@@ -441,6 +452,36 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const profile = ctx.profiles.create(str(name, "name", 200));
       ctx.windows.broadcastState();
       return profile;
+    },
+    "profiles.export": async (c, id, password) => {
+      const runtime = ctx.profiles.get(str(id, "id"));
+      const secret = str(password, "password", 1024);
+      if (secret.length < MIN_BUNDLE_PASSWORD) throw new IpcError(`Use a password of at least ${MIN_BUNDLE_PASSWORD} characters.`);
+      const options: Electron.SaveDialogOptions = {
+        title: "Export profile",
+        defaultPath: `${runtime.profile.name.replace(/[\\/:*?"<>|]+/g, "-") || "profile"}.corvus-profile`,
+        filters: [{ name: "Corvus profile", extensions: ["corvus-profile"] }],
+      };
+      const parent = c.window?.win;
+      const { canceled, filePath } = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+      if (canceled || !filePath) return false;
+      exportProfile(ctx, runtime, secret, filePath);
+      return true;
+    },
+    "profiles.import": async (c, password) => {
+      const secret = str(password, "password", 1024);
+      const options: Electron.OpenDialogOptions = { title: "Import profile", properties: ["openFile"], filters: [{ name: "Corvus profile", extensions: ["corvus-profile"] }] };
+      const parent = c.window?.win;
+      const { canceled, filePaths } = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+      const file = filePaths[0];
+      if (canceled || !file) return null;
+      try {
+        const profile = importProfile(ctx, file, secret);
+        ctx.windows.broadcastState();
+        return profile;
+      } catch (err) {
+        throw new IpcError(err instanceof BundleError ? err.message : `Could not import the profile: ${(err as Error).message}`);
+      }
     },
     "profiles.rename": (_c, id, name) => {
       ctx.profiles.rename(str(id, "id"), str(name, "name", 200));
@@ -525,6 +566,9 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       c.profile.adblock.removeAllowed(str(host, "host", 256));
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },
+    "phone.status": () => ctx.telegram.status(),
+    "phone.connect": (_c, token) => ctx.telegram.connect(token === undefined || token === null ? undefined : str(token, "token", 200)),
+    "phone.disconnect": () => ctx.telegram.disconnect(),
     "containers.list": (c) => c.profile.containers.list(),
     "containers.add": (c, name, color) => {
       c.profile.containers.add(str(name, "name", 200), str(color, "color", 20) as GroupColor);

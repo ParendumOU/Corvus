@@ -639,3 +639,28 @@ body {
   gap: 6px;
   margin-top: 4px;
 }
+/* A local model server found on this computer, offered in one click (Settings > AI search). */
+.notice.local-offer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.notice.local-offer span {
+  flex: 1;
+}
+/* Settings > Profiles: the password step of exporting or importing a profile. */
+.profile-transfer {
+  margin: 4px 20px 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.profile-transfer p {
+  margin: 4px 0 10px;
+}
+.profile-transfer-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}

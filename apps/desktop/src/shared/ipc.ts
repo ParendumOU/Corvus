@@ -5,10 +5,11 @@
  * Each side uses a single RPC channel; the main process validates the sender and the method.
  * Web content never gets either API.
  */
-import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
+import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
 import type { Container, TabContainer } from "./containers";
+import type { TelegramConnectResult, TelegramStatus } from "./phone-share";
 import type { AnnotationLibraryRpc } from "./annotations-ipc";
 import type { AgentRunsInternalEvent, AgentRunsInternalRpc } from "./agent-run-ipc";
 import type { AssistChromeCommand, AssistChromeRpc, AssistWindowExtras } from "./assist-ipc";
@@ -296,6 +297,14 @@ export interface ConnectionTestResult {
   supportsTools?: boolean;
 }
 
+/** A model server found running on this computer (Ollama, LM Studio, llama.cpp). */
+export interface LocalServerInfo {
+  name: string;
+  api: LocalModelApi;
+  baseUrl: string;
+  models: string[];
+}
+
 /** A streamed search event, or the end-of-stream marker sent once the engine is done. */
 export type SearchEventMessage = { searchId: string; event: SearchEvent } | { searchId: string; done: true };
 
@@ -318,6 +327,10 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "settings.setSecret"(key: SecretKey, value: string): SettingsView;
   /** Probe the configured AI provider (currently the local model server). */
   "settings.testConnection"(): ConnectionTestResult;
+  /** Model servers running on this computer on their default ports. */
+  "settings.discoverLocal"(): LocalServerInfo[];
+  /** The configured local server's models, or null when it does not answer. */
+  "settings.localModels"(): string[] | null;
   "mcp.status"(): McpStatus;
   "mcp.regenerateToken"(): McpStatus;
   "mcp.activity"(): McpActivity[];
@@ -329,6 +342,10 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "profiles.create"(name: string): Profile;
   "profiles.rename"(id: string, name: string): void;
   "profiles.remove"(id: string): void;
+  /** Saves a profile as one password-protected file (asks where); false when cancelled. */
+  "profiles.export"(id: string, password: string): boolean;
+  /** Opens a profile file (asks which) with its password into a new profile; null when cancelled. */
+  "profiles.import"(password: string): Profile | null;
   "profiles.openWindow"(id: string): void;
   "sync.status"(): SyncStatus;
   "sync.generatePhrase"(): string;
@@ -358,6 +375,11 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "adblock.setEnabled"(enabled: boolean): AdblockView;
   "adblock.removeAllowed"(host: string): AdblockView;
   "adblock.removeForgetSite"(site: string): AdblockView;
+  /** "Send to your phone" through the person's own Telegram bot. */
+  "phone.status"(): TelegramStatus;
+  /** Saves a new bot token (when given) and links the private chat that sent /start to the bot. */
+  "phone.connect"(token?: string): TelegramConnectResult;
+  "phone.disconnect"(): TelegramStatus;
   "containers.list"(): Container[];
   "containers.add"(name: string, color: GroupColor): Container[];
   "containers.update"(id: string, patch: { name?: string; color?: GroupColor }): Container[];

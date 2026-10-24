@@ -210,6 +210,7 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       { label: "Reload", click: () => win.reload(tabId) },
       { label: "Sleep to save memory", enabled: tabId !== win.activeTab()?.id && /^https?:/.test(tab.url), click: () => win.sleepTab(tabId) },
       { label: "Duplicate", click: () => win.duplicate(tabId) },
+      { label: "Send to your phone…", enabled: /^https?:/.test(tab.url), click: () => void win.shareToPhone(tab.url, tab.title) },
       {
         label: "Reopen in container",
         enabled: /^https?:/.test(tab.pendingUrl ?? tab.url),
@@ -344,6 +345,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       { type: "separator" },
       { label: "Save link as…", enabled: isWebUrl(link), click: () => ctx.downloads.saveAs(wc, link) },
       { label: "Copy link address", click: () => clipboard.writeText(link) },
+      { label: "Send link to your phone…", enabled: /^https?:/i.test(link), click: () => void win.shareToPhone(link, params.linkText.trim() || link) },
       ...(params.linkText.trim() ? [{ label: "Copy link text", click: () => clipboard.writeText(params.linkText.trim()) }] : []),
     );
     sep();

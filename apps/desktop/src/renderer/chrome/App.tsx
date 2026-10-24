@@ -12,6 +12,7 @@ import {
 } from "react";
 import type { GroupColor } from "@corvus/shared";
 import { GROUP_COLOR_HEX, type WindowState } from "../../shared/ipc";
+import type { PhoneShare } from "../../shared/phone-share";
 import { isNewTabUrl } from "../../shared/internal-urls";
 import { GROUP_COLORS } from "../../shared/tab-strip";
 import { isWorkspaceTabUrl } from "../../shared/workspaces";
@@ -26,6 +27,7 @@ import { Organizer } from "./Organizer";
 import {
   AdblockButton,
   AdblockPopover,
+  SharePopover,
   DownloadsBubble,
   DownloadsButton,
   PermissionPrompt,
@@ -44,7 +46,7 @@ interface GroupEditorState {
   anchor?: Anchor;
 }
 
-type PopoverState = { kind: "site" | "zoom" | "downloads" | "adblock" | "workspaces"; anchor: Anchor } | null;
+type PopoverState = { kind: "site" | "zoom" | "downloads" | "adblock" | "workspaces"; anchor: Anchor } | { kind: "share"; anchor: Anchor; share: PhoneShare } | null;
 
 function omniboxAnchor(): Anchor {
   const rect = document.querySelector(".omnibox")?.getBoundingClientRect();
@@ -97,6 +99,9 @@ export function App() {
         setOrganizer((open) => !open);
       } else if (command.type === "open-downloads") {
         setPopover({ kind: "downloads", anchor: downloadsAnchor() });
+      } else if (command.type === "open-share") {
+        const rect = document.querySelector(".omnibox")?.getBoundingClientRect();
+        setPopover({ kind: "share", share: command.share, anchor: { left: 0, top: (rect?.bottom ?? 80) + 6, right: rect?.right ?? window.innerWidth - 8 } });
       } else if (command.type === "open-workspaces") {
         setPopover({ kind: "workspaces", anchor: workspacesAnchor() });
       } else if (command.type === "edit-group") {
@@ -303,6 +308,7 @@ export function App() {
       {organizer && <Organizer dark={state.dark} tabCount={state.tabs.length} onClose={() => setOrganizer(false)} />}
       {popover?.kind === "downloads" && <DownloadsBubble summary={state.downloads} anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "adblock" && <AdblockPopover state={state.adblock} anchor={popover.anchor} onClose={closePopover} />}
+      {popover?.kind === "share" && <SharePopover share={popover.share} anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "workspaces" && (
         <WorkspacesPopover anchor={popover.anchor} saveCount={state.tabs.filter((t) => isWorkspaceTabUrl(t.url)).length} onClose={closePopover} />
       )}

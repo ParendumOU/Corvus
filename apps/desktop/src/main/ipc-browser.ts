@@ -1,4 +1,4 @@
-import { dialog, type WebContents } from "electron";
+import { clipboard, dialog, type WebContents } from "electron";
 import type { BrowserChromeRpc, BrowserInternalRpc, PermissionResponse } from "../shared/browser-ipc";
 import { isDownloadAction } from "../shared/downloads";
 import type { InternalPage } from "../shared/internal-urls";
@@ -62,6 +62,12 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
     },
     "downloads.action": (w, id, a) => ctx.downloads.act(w.profile, str(id, "download"), action(a)),
     "downloads.openPage": (w) => w.openSingleton("corvus://downloads/"),
+    "share.telegram": (_w, url, title) => {
+      const u = str(url, "url", 8192);
+      if (!/^https?:\/\//i.test(u)) throw new IpcError("Only web pages can be sent");
+      return ctx.telegram.send(u, str(title ?? "", "title", 500));
+    },
+    "share.copy": (_w, url) => clipboard.writeText(str(url, "url", 8192)),
   };
 }
 

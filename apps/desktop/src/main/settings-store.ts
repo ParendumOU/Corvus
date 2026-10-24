@@ -22,7 +22,7 @@ interface StoredSecret {
   data: string;
 }
 
-type SecretName = SecretKey | "mcpToken";
+type SecretName = SecretKey | "mcpToken" | "telegramBotToken";
 
 const ENV_SECRETS: Record<SecretKey, string> = {
   anthropicApiKey: "ANTHROPIC_API_KEY",
@@ -85,8 +85,9 @@ export class SettingsStore {
         console.warn(`[corvus] could not decrypt secret ${name}:`, err);
       }
     }
-    if (name !== "mcpToken") {
-      const fromEnv = this.env[ENV_SECRETS[name]];
+    const envName = (ENV_SECRETS as Partial<Record<SecretName, string>>)[name];
+    if (envName) {
+      const fromEnv = this.env[envName];
       if (fromEnv) return fromEnv;
     }
     return undefined;

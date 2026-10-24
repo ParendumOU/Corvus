@@ -3,7 +3,7 @@ import path from "node:path";
 import { app, type WebContents } from "electron";
 import type { LocalTestResult } from "@corvus/ai-engine";
 import type { AiEngineConfig, LocalModelApi, SearchCategory, SearchEngine, SearchEvent, SearchOptions } from "@corvus/shared";
-import type { ConnectionTestResult, EngineInfo, InternalEvent } from "../shared/ipc";
+import type { ConnectionTestResult, EngineInfo, InternalEvent, LocalServerInfo } from "../shared/ipc";
 import { INTERNAL_EVENT } from "../shared/ipc";
 import { claudeCliEnv, type Settings } from "../shared/settings";
 import { loadOptionalModule } from "./module-loader";
@@ -21,6 +21,8 @@ interface AiEngineModule {
   createSearchEngine?: (config: AiEngineConfig, deps?: unknown) => SearchEngine;
   fetchFavicon?: (domain: string) => Promise<string | null>;
   testLocalConnection?: (opts: { model: string; baseUrl?: string; api?: LocalModelApi }, signal?: AbortSignal) => Promise<LocalTestResult>;
+  discoverLocalServers?: () => Promise<LocalServerInfo[]>;
+  listLocalModels?: (opts: { baseUrl?: string; api?: LocalModelApi }) => Promise<string[]>;
 }
 
 /** Smoke-test seams: engine deps for createSearchEngine (fake retriever/provider) and a favicon stub. */
@@ -135,6 +137,20 @@ export class SearchService {
   async engineInfo(): Promise<EngineInfo> {
     await this.current();
     return this.info;
+  }
+
+  /** Model servers running on this computer on their default ports (Settings offers to use one). */
+  async discoverLocal(): Promise<LocalServerInfo[]> {
+    const mod = await this.module();
+    return mod?.discoverLocalServers ? mod.discoverLocalServers().catch(() => []) : [];
+  }
+
+  /** The configured local server's models for the model picker; null when it does not answer. */
+  async localModels(): Promise<string[] | null> {
+    const ai = this.settings.get().ai;
+    const mod = await this.module();
+    if (!mod?.listLocalModels) return null;
+    return mod.listLocalModels({ api: ai.localApi, ...(ai.localBaseUrl ? { baseUrl: ai.localBaseUrl } : {}) }).catch(() => null);
   }
 
   /** Probes the configured provider for the Settings "Test connection" button. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Profile } from "@corvus/shared";
 import type { AdblockView } from "../../shared/adblock";
-import type { ConnectionTestResult, EngineInfo, McpActivity, McpStatus, UpdateStatus } from "../../shared/ipc";
+import type { ConnectionTestResult, EngineInfo, LocalServerInfo, McpActivity, McpStatus, UpdateStatus } from "../../shared/ipc";
 import type { AccessLevel, ClaudeAccountMode, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
 import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
 import { errorMessage, internalApi } from "../common/api";
@@ -9,7 +9,7 @@ import { setUiLanguage, t } from "../common/i18n";
 import { IconCopy, IconTrash } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
 import { SyncSection } from "./settings-sync";
-import { ContainersSection, DownloadsSection, MediaSection, MemorySection, SitePermissionsSection, StartupSection } from "./settings-browser";
+import { ContainersSection, DownloadsSection, MediaSection, MemorySection, PhoneSection, SitePermissionsSection, StartupSection } from "./settings-browser";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 
@@ -435,6 +435,70 @@ function TestConnectionButton({ deps }: { deps: unknown[] }) {
   );
 }
 
+/** Embedding models cannot write answers: the picker and the offer skip them by default. */
+const isEmbeddingModel = (name: string): boolean => /embed|bge-|minilm/i.test(name);
+
+/** A model server running on this computer, offered in one click when another provider is set. */
+function LocalServerOffer({ update }: { update: (p: SettingsPatch) => void }) {
+  const [servers, setServers] = useState<LocalServerInfo[] | null>(null);
+  useEffect(() => {
+    void internalApi().call("settings.discoverLocal").then(setServers, () => setServers([]));
+  }, []);
+  const server = servers?.find((s) => s.models.some((m) => !isEmbeddingModel(m)));
+  if (!server) return null;
+  const chat = server.models.filter((m) => !isEmbeddingModel(m));
+  return (
+    <div className="notice local-offer">
+      <span>
+        {t("{name} is running on this computer with {count} models ({models}). Use it to keep AI search and Corvus Assist on this device, with no API key.", {
+          name: server.name,
+          count: chat.length,
+          models: chat.slice(0, 3).join(", ") + (chat.length > 3 ? "…" : ""),
+        })}
+      </span>
+      <button className="btn small primary" onClick={() => update({ ai: { provider: "local", localApi: server.api, localBaseUrl: server.baseUrl, model: chat[0] ?? "" } })}>
+        {t("Use {name}", { name: server.name })}
+      </button>
+    </div>
+  );
+}
+
+/** The local server's models to pick from (refreshable); a text field when the server does not answer. */
+function LocalModelPicker({ model, deps, onChange }: { model: string; deps: string; onChange: (model: string) => void }) {
+  const [models, setModels] = useState<string[] | null | undefined>(undefined);
+  const load = useCallback(() => {
+    setModels(undefined);
+    void internalApi().call("settings.localModels").then(setModels, () => setModels(null));
+  }, []);
+  useEffect(load, [load, deps]);
+  if (!models || models.length === 0) {
+    return (
+      <>
+        <LazyInput value={model} placeholder="llama3.1" onSave={(v) => onChange(v.trim() || "llama3.1")} />
+        <button className="btn small" disabled={models === undefined} onClick={load}>
+          {models === undefined ? t("Looking…") : t("Refresh models")}
+        </button>
+      </>
+    );
+  }
+  const listed = models.includes(model) || models.some((m) => m.split(":")[0] === model);
+  return (
+    <>
+      <select className="input" aria-label={t("Model")} value={listed ? (models.find((m) => m === model) ?? models.find((m) => m.split(":")[0] === model)) : model} onChange={(e) => onChange(e.target.value)}>
+        {!listed && <option value={model}>{t("{model} (not on the server)", { model: model || "—" })}</option>}
+        {models.map((m) => (
+          <option key={m} value={m}>
+            {isEmbeddingModel(m) ? t("{model} (embeddings)", { model: m }) : m}
+          </option>
+        ))}
+      </select>
+      <button className="btn small" onClick={load}>
+        {t("Refresh models")}
+      </button>
+    </>
+  );
+}
+
 function AiSection({ view, update, setView }: { view: SettingsView; update: (p: SettingsPatch) => void; setView: (v: SettingsView) => void }) {
   const ai = view.settings.ai;
   const loadEngine = useCallback(() => internalApi().call("search.engineInfo"), []);
@@ -463,6 +527,7 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
         )}
       </Row>
       {engine && !engine.available && engine.reason && <div className="notice warn">{engine.reason}</div>}
+      {ai.provider !== "local" && <LocalServerOffer update={update} />}
       <Row label={t("AI provider")} hint={providerHint()[ai.provider] ?? ""}>
         <select className="input" value={ai.provider} onChange={(e) => update({ ai: { provider: e.target.value as typeof ai.provider } })}>
           <option value="anthropic-api">Anthropic API</option>
@@ -535,11 +600,11 @@ function AiSection({ view, update, setView }: { view: SettingsView; update: (p: 
         </>
       )}
       <Row label={t("Model")} hint={ai.provider === "local" ? t("The model name the server exposes, e.g. llama3.1 or qwen2.5.") : t("A small, fast model keeps answers cheap.")}>
-        <LazyInput
-          value={ai.model}
-          placeholder={ai.provider === "local" ? "llama3.1" : "claude-haiku-5-5"}
-          onSave={(v) => update({ ai: { model: v.trim() || (ai.provider === "local" ? "llama3.1" : "claude-haiku-5-5") } })}
-        />
+        {ai.provider === "local" ? (
+          <LocalModelPicker model={ai.model} deps={`${ai.localApi}|${ai.localBaseUrl}`} onChange={(model) => update({ ai: { model } })} />
+        ) : (
+          <LazyInput value={ai.model} placeholder="claude-haiku-5-5" onSave={(v) => update({ ai: { model: v.trim() || "claude-haiku-5-5" } })} />
+        )}
       </Row>
       {ai.provider === "local" && (
         <Row label={t("Connection")} hint={t("No API key is needed — everything stays on this device.")}>
@@ -947,11 +1012,65 @@ function AdblockSection() {
   );
 }
 
+type ProfileTransfer = { kind: "export"; id: string; name: string } | { kind: "import" };
+
+/** The password step of exporting a profile to a file, or importing one. */
+function ProfileTransferForm({ transfer, onDone, onCancel }: { transfer: ProfileTransfer; onDone: (note: string) => void; onCancel: () => void }) {
+  const api = internalApi();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const exporting = transfer.kind === "export";
+  const ready = exporting ? password.length >= 8 && password === confirm : password.length > 0;
+  const go = (): void => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError(null);
+    const done = exporting
+      ? api.call("profiles.export", transfer.id, password).then((saved) => (saved ? t("Profile exported.") : null))
+      : api.call("profiles.import", password).then((p) => (p ? t("Imported as “{name}”.", { name: p.name }) : null));
+    done
+      .then((note) => (note ? onDone(note) : setBusy(false)))
+      .catch((e: unknown) => {
+        setError(errorMessage(e));
+        setBusy(false);
+      });
+  };
+  return (
+    <div className="profile-transfer">
+      <strong>{exporting ? t("Export “{name}”", { name: transfer.name }) : t("Import a profile")}</strong>
+      <p className="muted small">
+        {exporting
+          ? t("Choose a password for the file: it is needed to import it, and cannot be recovered. Keep the file somewhere safe, as it holds your saved logins.")
+          : t("Enter the password the profile was exported with, then choose its file. It becomes a new profile.")}
+      </p>
+      <div className="profile-transfer-fields">
+        <input className="input" type="password" autoComplete="new-password" aria-label={t("Password")} placeholder={t("Password")} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+        {exporting && (
+          <input className="input" type="password" autoComplete="new-password" aria-label={t("Repeat the password")} placeholder={t("Repeat the password")} value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+        )}
+        <button className="btn small primary" disabled={!ready || busy} onClick={go}>
+          {busy ? t("Working…") : exporting ? t("Export…") : t("Choose file…")}
+        </button>
+        <button className="btn small ghost" onClick={onCancel}>
+          {t("Cancel")}
+        </button>
+      </div>
+      {exporting && password.length > 0 && password.length < 8 && <div className="muted small">{t("At least 8 characters.")}</div>}
+      {exporting && confirm.length > 0 && confirm !== password && <div className="muted small">{t("The passwords do not match.")}</div>}
+      <Feedback error={error} />
+    </div>
+  );
+}
+
 function ProfilesSection() {
   const api = internalApi();
   const [data, setData] = useState<{ profiles: Profile[]; current: string } | null>(null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [transfer, setTransfer] = useState<ProfileTransfer | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const reload = useCallback(() => void api.call("profiles.list").then(setData), [api]);
   useEffect(reload, [reload]);
 
@@ -979,11 +1098,34 @@ function ProfilesSection() {
           <button className="btn small" onClick={() => run(api.call("profiles.openWindow", p.id))}>
             {t("Open window")}
           </button>
+          <button className="btn small" onClick={() => setTransfer({ kind: "export", id: p.id, name: p.name })}>
+            {t("Export…")}
+          </button>
           <button className="btn small ghost danger" disabled={data.profiles.length <= 1} onClick={() => run(api.call("profiles.remove", p.id))}>
             {t("Delete")}
           </button>
         </Row>
       ))}
+      <Row
+        label={t("Move a profile")}
+        hint={t("Export saves a profile as one file protected by a password: bookmarks, history, reading list, annotations, workspaces, site settings, containers, watched pages, workflows and saved logins. Cookies, extensions and KeePass databases stay on this computer.")}
+      >
+        <button className="btn small" onClick={() => setTransfer({ kind: "import" })}>
+          {t("Import profile…")}
+        </button>
+      </Row>
+      {transfer && (
+        <ProfileTransferForm
+          transfer={transfer}
+          onDone={(note) => {
+            setTransfer(null);
+            setNotice(note);
+            reload();
+          }}
+          onCancel={() => setTransfer(null)}
+        />
+      )}
+      {notice && <div className="notice">{notice}</div>}
       <Row label={t("Add profile")}>
         <input className="input" placeholder={t("Profile name")} value={name} onChange={(e) => setName(e.target.value)} />
         <button
@@ -1154,6 +1296,7 @@ function SettingsPage() {
         ["startup", t("On startup")],
         ["memory", t("Memory")],
         ["media", t("Media")],
+        ["phone", t("Send to your phone")],
         ["downloads", t("Downloads")],
         ["passwords", t("Passwords")],
         ["site-permissions", t("Site permissions")],
@@ -1211,6 +1354,7 @@ function SettingsPage() {
           <StartupSection view={view} update={update} />
           <MemorySection view={view} update={update} />
           <MediaSection view={view} update={update} />
+          <PhoneSection view={view} update={update} />
           <DownloadsSection view={view} update={update} setView={setView} />
           <PasswordsSection view={view} update={update} />
           <SitePermissionsSection />
