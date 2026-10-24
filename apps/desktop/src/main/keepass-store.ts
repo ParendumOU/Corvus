@@ -516,6 +516,11 @@ export class KeePassStore {
     };
   }
 
+  /** Every entry of the unlocked databases, with its password (the password checkup only). */
+  records(): LoginRecord[] {
+    return [...this.dbs.values()].filter((db) => db.status === "unlocked").flatMap((db) => db.entries.map((e) => this.record(db, e)));
+  }
+
   /** Entries of unlocked databases for the passwords page (no secrets), filtered by a query. */
   entries(query = ""): KeePassEntrySummary[] {
     const q = query.trim().toLowerCase();

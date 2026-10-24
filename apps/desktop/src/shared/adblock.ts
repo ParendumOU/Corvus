@@ -140,6 +140,10 @@ export interface AdblockView {
   cleanUrls: boolean;
   /** Your own rules (uBlock Origin syntax), including elements hidden with "Hide this element". */
   userFilters: string[];
+  /** Fingerprinting protection (see AdblockOptions). */
+  fingerprinting: boolean;
+  /** Sites whose cookies and data are deleted when their last tab closes. */
+  forgetSites: string[];
 }
 
 export const MAX_USER_FILTERS = 2000;
@@ -163,9 +167,11 @@ export function normalizeUserFilters(lines: readonly string[] | string): string[
 export interface AdblockOptions {
   annoyances: boolean;
   cleanUrls: boolean;
+  /** Fingerprinting protection: canvas, WebGL, audio and device readbacks get per-site noise. */
+  fingerprinting: boolean;
 }
 
-export const DEFAULT_ADBLOCK_OPTIONS: AdblockOptions = { annoyances: true, cleanUrls: true };
+export const DEFAULT_ADBLOCK_OPTIONS: AdblockOptions = { annoyances: true, cleanUrls: true, fingerprinting: true };
 
 /**
  * Query parameters that only identify a click, a campaign or a mailing for trackers, never what a
@@ -225,6 +231,8 @@ export interface AdblockBarState {
   active: boolean;
   /** YouTube refused to play with its ads removed, so its ads are skipped instead for a while. */
   skippingYouTubeAds?: boolean;
+  /** This site's cookies and data are deleted when its last tab closes. */
+  forgetOnClose?: boolean;
 }
 
 export const DEFAULT_ADBLOCK_SETTINGS: AdblockSettings = { enabled: true, allowed: [] };

@@ -561,6 +561,15 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
           onChange={(e) => void api.call("adblock.pauseSite", e.target.checked)}
         />
       </label>
+      <label className="shield-row" title="Its cookies and stored data are deleted when you close its last tab">
+        <span className="grow">Forget this site when I close it</span>
+        <input
+          type="checkbox"
+          checked={state.forgetOnClose === true}
+          disabled={state.host === ""}
+          onChange={(e) => void api.call("adblock.forgetOnClose", e.target.checked)}
+        />
+      </label>
       <label className="shield-row">
         <span className="grow">Block ads and trackers (all sites)</span>
         <input type="checkbox" checked={state.enabled} onChange={(e) => void api.call("adblock.setEnabled", e.target.checked)} />

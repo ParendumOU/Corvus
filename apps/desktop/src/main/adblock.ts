@@ -32,8 +32,10 @@ import {
   type AdblockView,
   type ScriptletsAnswer,
 } from "../shared/adblock";
+import { farblingScript, fingerprintSeed, siteMatches } from "../shared/privacy";
 import { FALLBACK_FILTERS } from "./adblock-fallback";
-import { FilterSet, ENGINE_CONFIG, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
+import { ENGINE_CONFIG } from "./adblock-engine";
+import { FilterSet, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
 import { elementPickerScript, pickedFilter } from "./adblock-picker";
 import { JsonFile } from "./json-file";
 import { paths } from "./paths";
@@ -90,6 +92,9 @@ interface AdblockFile {
   annoyances?: boolean;
   cleanUrls?: boolean;
   userFilters?: string[];
+  fingerprinting?: boolean;
+  /** Sites forgotten (cookies and data deleted) when their last tab closes. */
+  forgetOnClose?: string[];
 }
 
 interface Attachment {
@@ -113,7 +118,14 @@ export class AdblockController {
       () => ({ version: 1, ...DEFAULT_ADBLOCK_SETTINGS }),
       (raw) => {
         const s = reviveAdblockSettings(raw);
-        const data = (raw ?? {}) as { youtubeFallbackUntil?: unknown; annoyances?: unknown; cleanUrls?: unknown; userFilters?: unknown };
+        const data = (raw ?? {}) as {
+          youtubeFallbackUntil?: unknown;
+          annoyances?: unknown;
+          cleanUrls?: unknown;
+          userFilters?: unknown;
+          fingerprinting?: unknown;
+          forgetOnClose?: unknown;
+        };
         const until = data.youtubeFallbackUntil;
         return {
           version: 1,
@@ -121,7 +133,9 @@ export class AdblockController {
           allowed: s.allowed,
           annoyances: data.annoyances !== false,
           cleanUrls: data.cleanUrls !== false,
+          fingerprinting: data.fingerprinting !== false,
           userFilters: Array.isArray(data.userFilters) ? normalizeUserFilters(data.userFilters.filter((l): l is string => typeof l === "string")) : [],
+          forgetOnClose: reviveAdblockSettings({ allowed: data.forgetOnClose }).allowed,
           ...(typeof until === "number" && until > Date.now() ? { youtubeFallbackUntil: until } : {}),
         };
       },
@@ -136,7 +150,11 @@ export class AdblockController {
 
   options(): AdblockOptions {
     const f = this.file.get();
-    return { annoyances: f.annoyances ?? DEFAULT_ADBLOCK_OPTIONS.annoyances, cleanUrls: f.cleanUrls ?? DEFAULT_ADBLOCK_OPTIONS.cleanUrls };
+    return {
+      annoyances: f.annoyances ?? DEFAULT_ADBLOCK_OPTIONS.annoyances,
+      cleanUrls: f.cleanUrls ?? DEFAULT_ADBLOCK_OPTIONS.cleanUrls,
+      fingerprinting: f.fingerprinting ?? DEFAULT_ADBLOCK_OPTIONS.fingerprinting,
+    };
   }
 
   setOptions(patch: Partial<AdblockOptions>): void {
@@ -144,13 +162,32 @@ export class AdblockController {
       ...f,
       ...(typeof patch.annoyances === "boolean" ? { annoyances: patch.annoyances } : {}),
       ...(typeof patch.cleanUrls === "boolean" ? { cleanUrls: patch.cleanUrls } : {}),
+      ...(typeof patch.fingerprinting === "boolean" ? { fingerprinting: patch.fingerprinting } : {}),
     }));
     this.emitter.emit("change");
   }
 
   view(lists: AdblockListsInfo): AdblockView {
     const f = this.file.get();
-    return { enabled: f.enabled, allowedSites: f.allowed, lists, ...this.options(), userFilters: this.userFilters() };
+    return { enabled: f.enabled, allowedSites: f.allowed, lists, ...this.options(), userFilters: this.userFilters(), forgetSites: this.forgetSites() };
+  }
+
+  /** Sites whose cookies and data go when their last tab closes. */
+  forgetSites(): string[] {
+    return this.file.get().forgetOnClose ?? [];
+  }
+
+  /** The forget-on-close site `host` falls under, if any. */
+  forgetSiteFor(host: string): string | undefined {
+    return this.forgetSites().find((site) => siteMatches(host, site));
+  }
+
+  setForgetOnClose(host: string, forget: boolean): void {
+    this.file.update((f) => {
+      const list = f.forgetOnClose ?? [];
+      return { ...f, forgetOnClose: forget ? addAllowed(list, host) : list.filter((site) => !siteMatches(host, site)) };
+    });
+    this.emitter.emit("change");
   }
 
   userFilters(): string[] {
@@ -232,6 +269,7 @@ export class AdblockController {
       host,
       active: settings.enabled && blockable && !allowedHere,
       ...(settings.enabled && !allowedHere && isYouTubeHost(host) && this.youtubeFallbackUntil() > Date.now() ? { skippingYouTubeAds: true } : {}),
+      ...(blockable && host && this.forgetSiteFor(host) ? { forgetOnClose: true } : {}),
     };
   }
 
@@ -253,6 +291,8 @@ export class AdblockService {
   private readonly annoyances: FilterSet;
   private readonly attachments: Attachment[] = [];
   private readonly cosmeticPreload = resolveCosmeticPreload();
+  /** Fingerprinting noise changes every run: a site sees the same values all session, never across sessions. */
+  private readonly sessionKey = randomUUID();
   /** Each profile's own rules as an engine, with the text it was built from. */
   private readonly userEngines = new WeakMap<AdblockController, { text: string; engine: ElectronBlocker | null }>();
   /** $redirect stand-ins waiting to be loaded, by one-time token (oldest first). */
@@ -544,10 +584,16 @@ export class AdblockService {
       const isTop = event.senderFrame?.parent === null;
       const page = isTop ? url : event.sender.getURL() || url;
       const pageHost = hostFromUrl(page) ?? "";
-      if (!isBlockablePageUrl(page) || !shouldBlockPage(controller.settings(), pageHost)) return none;
+      if (!isBlockablePageUrl(page) || pageHost === "") return none;
+      const settings = controller.settings();
+      const blocking = shouldBlockPage(settings, pageHost);
+      // Fingerprinting protection has its own switch; a site you allowed is left alone entirely.
+      const farbling = controller.options().fingerprinting && !isHostAllowed(pageHost, settings.allowed);
+      const first = farbling ? [farblingScript(fingerprintSeed(this.sessionKey, Request.fromRawDetails({ url: page }).domain || pageHost))] : [];
+      if (!blocking) return { scripts: first, watchYouTube: false };
       const { hostname, domain } = Request.fromRawDetails({ url });
       const youtube = isYouTubeHost(hostname);
-      if (this.inYouTubeFallback(controller, pageHost)) return { scripts: youtube ? [YOUTUBE_AD_SKIPPER] : [], watchYouTube: false };
+      if (this.inYouTubeFallback(controller, pageHost)) return { scripts: [...first, ...(youtube ? [YOUTUBE_AD_SKIPPER] : [])], watchYouTube: false };
       const scripts: string[] = [];
       for (const engine of this.enginesFor(controller)) {
         const found = engine.getCosmeticsFilters({
@@ -564,7 +610,7 @@ export class AdblockService {
         if (found.active) scripts.push(...found.scripts);
       }
       // One bundle for every engine's scriptlets: they share the page's original built-ins.
-      const out = scripts.length > 0 ? [bundleScriptlets(scripts)] : [];
+      const out = [...first, ...(scripts.length > 0 ? [bundleScriptlets(scripts)] : [])];
       if (youtube) out.push(YOUTUBE_AD_SKIPPER);
       return { scripts: out, watchYouTube: youtube && isTop };
     } catch {
@@ -574,6 +620,46 @@ export class AdblockService {
 
   private controllerFor(session: Session): AdblockController | undefined {
     return this.attachments.find((a) => a.session === session)?.controller;
+  }
+
+  /** The registrable site of `url` ("mail.google.com" → "google.com"), or its host. */
+  siteOf(url: string): string {
+    const host = hostFromUrl(url) ?? "";
+    try {
+      return Request.fromRawDetails({ url }).domain || host;
+    } catch {
+      return host;
+    }
+  }
+
+  /**
+   * A tab closed: when its site is one to forget and no other open tab of the profile shows it,
+   * the site's cookies and stored data (local storage, IndexedDB, caches, service workers) go.
+   */
+  async onTabClosed(session: Session, url: string, openUrls: readonly string[]): Promise<boolean> {
+    const controller = this.controllerFor(session);
+    const host = hostFromUrl(url) ?? "";
+    const site = controller && host ? controller.forgetSiteFor(host) : undefined;
+    if (!site || openUrls.some((u) => siteMatches(hostFromUrl(u) ?? "", site))) return false;
+    const cookies = await session.cookies.get({}).catch(() => []);
+    await Promise.all(
+      cookies
+        .filter((c) => c.domain && siteMatches(c.domain.replace(/^\./, ""), site))
+        .map((c) => session.cookies.remove(`http${c.secure ? "s" : ""}://${c.domain!.replace(/^\./, "")}${c.path ?? "/"}`, c.name).catch(() => undefined)),
+    );
+    let pageOrigin = "";
+    try {
+      pageOrigin = new URL(url).origin;
+    } catch {
+      // No origin of its own to clear.
+    }
+    const origins = new Set([pageOrigin, `https://${site}`, `http://${site}`, `https://www.${site}`, `http://www.${site}`].filter(Boolean));
+    for (const origin of origins) {
+      await session
+        .clearStorageData({ origin, storages: ["localstorage", "indexdb", "serviceworkers", "cachestorage", "filesystem", "shadercache"] })
+        .catch(() => undefined);
+    }
+    return true;
   }
 
   private notifyAll(): void {

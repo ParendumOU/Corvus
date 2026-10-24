@@ -2,10 +2,12 @@ import fs from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { app, type WebContents } from "electron";
+import { Request } from "@ghostery/adblocker-electron";
 import type { TabId } from "@corvus/shared";
 import { originOf } from "../shared/permissions";
 import { reviveSession } from "../shared/session-state";
 import type { AppContext } from "./context";
+import { parseLists } from "./adblock-lists";
 import { SiteSettingsStore } from "./site-settings";
 import type { BrowserWindowCtl } from "./window";
 
@@ -356,6 +358,84 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   await waitForLoad(pageWc);
   await sleep(800);
   check("removing the rule shows the element again", (await promoDisplay()) !== "none");
+
+  // Fingerprinting protection: a canvas reads back the same within a site, differently on another
+  // site, and as drawn once the protection is off; the CPU count is capped.
+  const canvasRead = async (pageUrl: string): Promise<{ data: string; cores: number }> => {
+    win.loadUrl(adTab.id, pageUrl);
+    await waitForLoad(pageWc);
+    return (await pageWc.executeJavaScript(
+      "(() => { const c = document.createElement('canvas'); c.width = 200; c.height = 60; const g = c.getContext('2d'); g.fillStyle = '#f60'; g.fillRect(0, 0, 200, 60); g.fillStyle = '#069'; g.font = '18px sans-serif'; g.fillText('Corvus fingerprint', 4, 30); return { data: c.toDataURL(), cores: navigator.hardwareConcurrency }; })()",
+    )) as { data: string; cores: number };
+  };
+  const onSite = await canvasRead(`${site}picker`);
+  const onSiteAgain = await canvasRead(`${site}picker?again`);
+  const onOther = await canvasRead(`${url}picker`);
+  profile.adblock.setOptions({ fingerprinting: false });
+  const plainSite = await canvasRead(`${site}picker`);
+  const plainOther = await canvasRead(`${url}picker`);
+  profile.adblock.setOptions({ fingerprinting: true });
+  check(
+    "fingerprinting: canvas stable per site, different across sites, untouched when off",
+    onSite.data === onSiteAgain.data && onSite.data !== onOther.data && plainSite.data === plainOther.data && plainSite.data !== onSite.data,
+    { same: onSite.data === onSiteAgain.data, crossSite: onSite.data !== onOther.data, offEqual: plainSite.data === plainOther.data },
+  );
+  check("fingerprinting: CPU count is capped", onSite.cores >= 2 && onSite.cores <= 8, onSite.cores);
+
+  // Forget on close: the site's cookies and storage stay while a tab still shows it, and go once
+  // its last tab closes.
+  const smokeHost = "corvus-smoke.test";
+  const siteCookies = async (): Promise<number> => (await profile.session.cookies.get({ url: site })).length;
+  const keeper = win.createTab(`${site}picker`);
+  await waitForLoad(keeper.view.webContents);
+  await keeper.view.webContents.executeJavaScript("document.cookie = 'forget=1; max-age=3600; path=/'; localStorage.setItem('forget', '1'); true");
+  win.activate(keeper.id);
+  win.forgetSiteOnClose(true);
+  check("forget on close is recorded for the site", profile.adblock.forgetSiteFor(smokeHost) !== undefined && win.state().adblock.forgetOnClose === true, {
+    sites: profile.adblock.forgetSites(),
+    state: win.state().adblock,
+  });
+  win.loadUrl(adTab.id, `${site}picker`);
+  await waitForLoad(pageWc);
+  win.closeTab(keeper.id);
+  await sleep(800);
+  check("a site still open in another tab keeps its cookies", (await siteCookies()) > 0, await siteCookies());
+  win.loadUrl(adTab.id, `${url}picker`);
+  await waitForLoad(pageWc);
+  const last = win.createTab(`${site}picker`);
+  await waitForLoad(last.view.webContents);
+  win.closeTab(last.id);
+  let cookiesLeft = await siteCookies();
+  for (let i = 0; i < 20 && cookiesLeft > 0; i += 1) {
+    await sleep(250);
+    cookiesLeft = await siteCookies();
+  }
+  const probe = win.createTab(`${site}picker`);
+  await waitForLoad(probe.view.webContents);
+  const storedLeft = (await probe.view.webContents.executeJavaScript("localStorage.getItem('forget')")) as string | null;
+  check("closing the last tab of a forgotten site clears its cookies and storage", cookiesLeft === 0 && storedLeft === null, { cookiesLeft, storedLeft });
+  profile.adblock.setForgetOnClose(smokeHost, false);
+  win.closeTab(probe.id);
+
+  // Filter lists parse in the list parser process: the main process keeps ticking meanwhile.
+  const bigList = [...Array.from({ length: 60_000 }, (_, i) => `||ads-${i}.example^`), "||smoke-parse.example^"].join("\n");
+  let lastTick = Date.now();
+  let maxGap = 0;
+  const ticker = setInterval(() => {
+    maxGap = Math.max(maxGap, Date.now() - lastTick);
+    lastTick = Date.now();
+  }, 10);
+  const parseStart = Date.now();
+  const parsed = await parseLists(bigList, null);
+  clearInterval(ticker);
+  const parsedBlocks = parsed.blocker.match(Request.fromRawDetails({ url: "https://smoke-parse.example/a.js", type: "script", sourceUrl: "https://site.example/" })).match;
+  check("filter lists parse in the list parser process", parsed.offMainThread && parsedBlocks && parsed.built.filterCount === 60_001, {
+    offMainThread: parsed.offMainThread,
+    blocks: parsedBlocks,
+    filterCount: parsed.built.filterCount,
+    ms: Date.now() - parseStart,
+    maxMainGapMs: maxGap,
+  });
 
   const adblockSettings = win.createTab("corvus://settings/#adblock");
   await sleep(1500);

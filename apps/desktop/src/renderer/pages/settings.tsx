@@ -880,6 +880,16 @@ function AdblockSection() {
           onChange={(v) => run(api.call("adblock.setOptions", { cleanUrls: v }))}
         />
       </Row>
+      <Row
+        label={t("Block fingerprinting")}
+        hint={t("Sites that read your canvas, graphics card, audio stack or CPU count to recognise you get slightly different values on each site and each session. Sites you allow below are left alone.")}
+      >
+        <Toggle
+          label={t("Block fingerprinting")}
+          checked={view?.fingerprinting ?? true}
+          onChange={(v) => run(api.call("adblock.setOptions", { fingerprinting: v }))}
+        />
+      </Row>
       <Row label={t("Filter lists")} hint={lists?.updatedAt ? t("{count} rules", { count: lists.filterCount.toLocaleString() }) : t("Using the bundled list until the first update succeeds.")}>
         <span className="muted small">
           {sourceLabel}
@@ -909,6 +919,22 @@ function AdblockSection() {
             <div key={host} className="list-row">
               <span className="grow">{host}</span>
               <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("adblock.removeAllowed", host))}>
+                <IconTrash size={13} />
+                {t("Remove")}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <Row label={t("Sites forgotten on close")} hint={t("Their cookies and stored data are deleted when you close their last tab (chosen from the shield in the address bar).")}>
+        {view && view.forgetSites.length === 0 && <span className="muted">{t("None")}</span>}
+      </Row>
+      {view && view.forgetSites.length > 0 && (
+        <div className="list" style={{ borderTop: "1px solid var(--border-soft)" }}>
+          {view.forgetSites.map((site) => (
+            <div key={site} className="list-row">
+              <span className="grow">{site}</span>
+              <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("adblock.removeForgetSite", site))}>
                 <IconTrash size={13} />
                 {t("Remove")}
               </button>

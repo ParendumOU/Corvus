@@ -16,6 +16,7 @@ import type { SecretFillGuard } from "./secret-fill-guard";
 import type { SpendApprovalService } from "./spend-approvals";
 import type { McpService } from "./mcp-service";
 import type { PageMonitor } from "./page-monitor";
+import type { PasswordCheckupService } from "./password-checkup";
 import type { ProfileRegistry } from "./profiles";
 import type { ReaderService } from "./reader-service";
 import type { ScheduledAgentRunner } from "./scheduled-agent-runner";
@@ -60,6 +61,8 @@ export interface AppContext {
   scheduledAgents: ScheduledAgentRunner;
   flows: FlowService;
   autofill: AutofillService;
+  /** Breached, reused and weak saved passwords (corvus://passwords, on request). */
+  passwordCheckup: PasswordCheckupService;
   /** KeePass auto-lock and kept-unlocked restore across profiles. */
   keepass: KeePassService;
   /** Tabs where a saved secret was filled: script access is refused until they navigate. */

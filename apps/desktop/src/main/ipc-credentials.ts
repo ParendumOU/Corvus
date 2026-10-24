@@ -79,6 +79,8 @@ export const CREDENTIALS_INTERNAL_PERMISSIONS: Record<keyof CredentialsRpc, read
   "credentials.agentAccess": ["passwords"],
   "credentials.autoSignInIds": ["passwords"],
   "credentials.setAutoSignIn": ["passwords"],
+  "credentials.checkup": ["passwords"],
+  "credentials.runCheckup": ["passwords"],
 };
 
 /** Decodes a 2FA QR code from an image file, locally. Exported for the smoke test (no dialog). */
@@ -178,6 +180,8 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
     "credentials.importTotpQr": (c) => importTotpQr(c.window),
     "credentials.agentAccess": () => ctx.settings.get().passwords.agentAccess,
     "credentials.autoSignInIds": (c) => [...c.profile.autoSignIn.ids()],
+    "credentials.checkup": (c) => ctx.passwordCheckup.view(c.profile),
+    "credentials.runCheckup": (c) => ctx.passwordCheckup.run(c.profile),
     "credentials.setAutoSignIn": (c, id, on) => {
       const loginId = str(id, "id", 256);
       if (on === true && !c.profile.logins.get(loginId)) throw new IpcError("No such login");

@@ -10,6 +10,8 @@ export const paths = {
   extensionWorkerPreload: path.join(here, "../preload/extension-sw.cjs"),
   extensionApiPreload: path.join(here, "../preload/extension-api.cjs"),
   adblockScriptletsPreload: path.join(here, "../preload/adblock-scriptlets.cjs"),
+  /** Entry of the filter list parser utility process (built next to index.js). */
+  adblockParser: path.join(here, "adblock-parser.js"),
   rendererDir: path.join(here, "../renderer"),
   icon: path.join(here, "../../build/icon.png"),
 };

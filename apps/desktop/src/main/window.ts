@@ -461,6 +461,15 @@ export class BrowserWindowCtl {
     this.pushState();
   }
 
+  /** The shield's "Forget this site when I close it", for the active tab's site. */
+  forgetSiteOnClose(forget: boolean): void {
+    const url = this.activeTab()?.url ?? "";
+    const host = hostFromUrl(url);
+    if (!host) return;
+    this.profile.adblock.setForgetOnClose(forget ? this.ctx.adblock.siteOf(url) : host, forget);
+    this.pushState();
+  }
+
   private tabView(id: TabId): TabView | null {
     const tab = this.tabs.get(id);
     const entry = this.strip.tabs.find((t) => t.id === id);
@@ -951,6 +960,9 @@ export class BrowserWindowCtl {
     this.ctx.annotations.forgetTab(id);
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);
+    // A site set to be forgotten loses its cookies and data once no tab of the profile shows it.
+    const openUrls = this.ctx.windows.forProfile(this.profile.profile.id).flatMap((w) => w.tabRuntimes().map((t) => t.url));
+    void this.ctx.adblock.onTabClosed(this.profile.session, tab.url, openUrls);
     this.shownTabIds = this.shownTabIds.filter((t) => t !== id);
     if (this.activeShown === id) this.activeShown = null;
     this.win.contentView.removeChildView(tab.view);

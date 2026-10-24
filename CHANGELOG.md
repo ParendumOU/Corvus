@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.7.0
+
+### Privacy
+- **Fingerprinting protection**: sites that read your canvas, graphics card, audio stack, CPU
+  count or device memory to recognise you get slightly different values on each site and each
+  session, so those readings no longer follow you from site to site. It is on by default
+  (Settings > Ad & tracker blocker > "Block fingerprinting"), and sites you allow are left alone.
+- **Forget a site when you close it**: "Forget this site when I close it" in the shield popover
+  deletes that site's cookies, local storage, IndexedDB, caches and service workers once its last
+  tab closes. Settings > Ad & tracker blocker lists these sites.
+
+### Passwords
+- **Password checkup**: corvus://passwords checks your saved passwords (and unlocked KeePass
+  databases) for ones that appear in known data breaches, that you reuse or that are easy to
+  guess, and marks each login "In N breaches", "Reused" or "Weak". The breach check runs when you
+  ask and uses k-anonymity: only the first 5 characters of each password's SHA-1 hash are sent to
+  Have I Been Pwned, and the match happens on your device.
+
+### Performance
+- **No more freeze when the ad blocker updates**: its filter lists are now parsed in a separate
+  process, so the weekly update no longer stalls tabs and typing for a moment.
+
 ## v0.6.0
 
 ### Browser

@@ -4,6 +4,7 @@
  * on an explicit reveal/fill call; the page shows masked summaries until the user asks.
  */
 import type { CredentialMatch, CredentialSummary, PasswordOptions } from "./credentials";
+import type { PasswordCheckupView } from "./password-health";
 import type { TotpCode } from "./totp";
 
 export interface RevealedCredential {
@@ -55,6 +56,10 @@ export interface CredentialsRpc {
   /** Ids (vault or KeePass) of logins that sign in automatically after a confirmation. */
   "credentials.autoSignInIds"(): string[];
   "credentials.setAutoSignIn"(id: string, on: boolean): string[];
+  /** Breached, reused and weak saved passwords, as last checked this session (no network). */
+  "credentials.checkup"(): PasswordCheckupView;
+  /** Checks every saved password against known data breaches now (k-anonymity: 5 hash characters leave). */
+  "credentials.runCheckup"(): PasswordCheckupView;
 }
 
 /** Autofill indicator shown in the omnibox for the active tab. */

@@ -159,6 +159,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "extensions.menu": (w, id, x, y) => showExtensionMenu(w, str(id, "id"), num(x, "x"), num(y, "y")),
     "adblock.setEnabled": (w, enabled) => w.setAdblockEnabled(enabled === true),
     "adblock.pauseSite": (w, paused) => w.pauseAdblockSite(paused === true),
+    "adblock.forgetOnClose": (w, forget) => w.forgetSiteOnClose(forget === true),
     "adblock.pickElement": (w) => {
       const tab = w.activeTab();
       if (tab) void ctx.adblock.pickElement(w, tab);
@@ -279,6 +280,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "adblock.get": ["settings", "welcome"],
   "adblock.setEnabled": ["settings", "welcome"],
   "adblock.removeAllowed": ["settings"],
+  "adblock.removeForgetSite": ["settings"],
   "adblock.update": ["settings"],
   "adblock.setOptions": ["settings"],
   "adblock.setUserFilters": ["settings"],
@@ -517,6 +519,10 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       c.profile.adblock.removeAllowed(str(host, "host", 256));
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },
+    "adblock.removeForgetSite": (c, site) => {
+      c.profile.adblock.setForgetOnClose(str(site, "site", 256), false);
+      return c.profile.adblock.view(ctx.adblock.listsInfo());
+    },
     "adblock.update": async (c) => c.profile.adblock.view(await ctx.adblock.updateNow()),
     "adblock.setUserFilters": (c, text) => {
       c.profile.adblock.setUserFilters(str(text ?? "", "filters", 1_000_000));
@@ -527,6 +533,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       c.profile.adblock.setOptions({
         ...(typeof p.annoyances === "boolean" ? { annoyances: p.annoyances } : {}),
         ...(typeof p.cleanUrls === "boolean" ? { cleanUrls: p.cleanUrls } : {}),
+        ...(typeof p.fingerprinting === "boolean" ? { fingerprinting: p.fingerprinting } : {}),
       });
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },

@@ -136,6 +136,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "extensions.menu"(id: string, x: number, y: number): void;
   "adblock.setEnabled"(enabled: boolean): void;
   "adblock.pauseSite"(paused: boolean): void;
+  /** The shield's "Forget this site when I close it", for the active tab's site. */
+  "adblock.forgetOnClose"(forget: boolean): void;
   /** "Hide an element" from the shield: the picker runs in the active tab's page. */
   "adblock.pickElement"(): void;
   /** The address bar's translate button: translate the page, or show its original again. */
@@ -350,6 +352,7 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "adblock.get"(): AdblockView;
   "adblock.setEnabled"(enabled: boolean): AdblockView;
   "adblock.removeAllowed"(host: string): AdblockView;
+  "adblock.removeForgetSite"(site: string): AdblockView;
   "adblock.update"(): AdblockView;
   "adblock.setOptions"(patch: Partial<AdblockOptions>): AdblockView;
   /** Replaces the profile's own filter list (one rule per line). */

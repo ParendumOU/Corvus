@@ -43,7 +43,11 @@ export default defineConfig({
     build: {
       outDir: "out/main",
       rolldownOptions: {
-        input: { index: resolve(import.meta.dirname, "src/main/index.ts") },
+        input: {
+          index: resolve(import.meta.dirname, "src/main/index.ts"),
+          // The filter list parser runs as its own utility process.
+          "adblock-parser": resolve(import.meta.dirname, "src/main/adblock-parser.ts"),
+        },
         // Keep the Ghostery adblocker external: it resolves its content-script preload from disk at
         // runtime (require.resolve), which bundling would break.
         external: [/^@ghostery\//, /^tldts/],

@@ -3,6 +3,7 @@ import type { CredentialSummary, PasswordOptions } from "../../shared/credential
 import { DEFAULT_PASSWORD_OPTIONS } from "../../shared/credentials";
 import type { RevealedCredential } from "../../shared/credentials-ipc";
 import type { KeePassDbView, KeePassEntrySummary, KeePassExportResult, KeePassState, KeePassUnlockResult } from "../../shared/keepass-ipc";
+import { checkupSummary, type PasswordCheckupView, type PasswordHealth } from "../../shared/password-health";
 import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { internalApi } from "../common/api";
 import { IconAgent, IconClock, IconCopy, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
@@ -99,8 +100,81 @@ function AgentChips({ signIn, totp, globalOn }: { signIn: boolean; totp: boolean
   );
 }
 
+/** "In 12 breaches" / "Reused" / "Weak" chips for one login, from the last password checkup. */
+function HealthChips({ health }: { health: PasswordHealth | undefined }) {
+  if (!health) return null;
+  const breaches = health.breaches ?? 0;
+  return (
+    <>
+      {breaches > 0 && (
+        <span className="pw-health danger" title="This password appears in known data breaches: change it on the site, then here">
+          In {breaches.toLocaleString()} {breaches === 1 ? "breach" : "breaches"}
+        </span>
+      )}
+      {health.reusedWith > 0 && (
+        <span className="pw-health" title={`The same password is saved for ${health.reusedWith} other ${health.reusedWith === 1 ? "login" : "logins"}`}>
+          Reused
+        </span>
+      )}
+      {health.weak && (
+        <span className="pw-health" title="Short, common or easy to guess">
+          Weak
+        </span>
+      )}
+    </>
+  );
+}
+
+/** Breached, reused and weak passwords at a glance, with the (on request) breach check. */
+function CheckupCard({ view, onRun }: { view: PasswordCheckupView | null; onRun: () => void }) {
+  if (!view || view.items.length === 0) return null;
+  const { breached, reused, weak } = checkupSummary(view.items);
+  return (
+    <div className="card pw-checkup">
+      <div className="card-head">
+        <h2>Password checkup</h2>
+        <button className="btn small" disabled={view.running} onClick={onRun}>
+          {view.running ? "Checking…" : view.checkedAt ? "Check again" : "Check for breaches"}
+        </button>
+      </div>
+      <div className="card-body pw-checkup-body">
+        <div className="pw-checkup-line">
+          <strong>{view.checkedAt ? breached : "—"}</strong>
+          {view.checkedAt
+            ? breached > 0
+              ? `${breached === 1 ? "password appears" : "passwords appear"} in known data breaches. Change ${breached === 1 ? "it" : "them"} first.`
+              : "of your passwords appear in known data breaches."
+            : "Find out whether your saved passwords appear in known data breaches."}
+        </div>
+        <div className="pw-checkup-line">
+          <strong>{reused}</strong> {reused === 1 ? "login shares" : "logins share"} a password with another login.
+        </div>
+        <div className="pw-checkup-line">
+          <strong>{weak}</strong> {weak === 1 ? "password is" : "passwords are"} weak (short, common or easy to guess).
+        </div>
+        {view.error && <div className="pw-error">{view.error}</div>}
+        <div className="pw-hint">
+          Only the first 5 characters of each password’s SHA-1 hash are sent to Have I Been Pwned, which answers with every breached hash that starts
+          with them; the match happens on this device and your passwords never leave it.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PasswordsPage() {
   const api = internalApi();
+  const [checkup, setCheckup] = useState<PasswordCheckupView | null>(null);
+  const reloadCheckup = useCallback(() => void api.call("credentials.checkup").then(setCheckup), [api]);
+  const runCheckup = (): void => {
+    setCheckup((c) => (c ? { ...c, running: true } : c));
+    void api.call("credentials.runCheckup").then(setCheckup, reloadCheckup);
+  };
+  useEffect(() => {
+    reloadCheckup();
+    return api.onEvent((e) => (e.type === "credentials-changed" || e.type === "keepass-changed") && reloadCheckup());
+  }, [api, reloadCheckup]);
+  const health = new Map((checkup?.items ?? []).map((h) => [h.id, h]));
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<CredentialSummary[]>([]);
   const [persisted, setPersisted] = useState(true);
@@ -316,6 +390,8 @@ function PasswordsPage() {
         </div>
       )}
 
+      {!form && <CheckupCard view={checkup} onRun={runCheckup} />}
+
       {anyTotp && !form && (
         <div className="card">
           <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
@@ -333,6 +409,7 @@ function PasswordsPage() {
                 <div className="grow">
                   <div className="title">
                     {item.username || "(no username)"} <AgentChips signIn={item.agentSignIn} totp={item.agentTotp} globalOn={agentAccess} />
+                    <HealthChips health={health.get(item.id)} />
                   </div>
                   <div className="sub">{hostOf(item.origin)}</div>
                   <AutoSignInToggle id={item.id} on={autoIds.has(item.id)} onChange={setAutoSignIn} />
@@ -359,7 +436,7 @@ function PasswordsPage() {
         )}
       </div>
 
-      <KeePassSection query={query} agentAccess={agentAccess} autoIds={autoIds} onAutoSignIn={setAutoSignIn} />
+      <KeePassSection query={query} agentAccess={agentAccess} autoIds={autoIds} onAutoSignIn={setAutoSignIn} health={health} />
     </PageShell>
   );
 }
@@ -497,11 +574,13 @@ function KeePassSection({
   agentAccess,
   autoIds,
   onAutoSignIn,
+  health,
 }: {
   query: string;
   agentAccess: boolean;
   autoIds: Set<string>;
   onAutoSignIn: (id: string, on: boolean) => void;
+  health: Map<string, PasswordHealth>;
 }) {
   const api = internalApi();
   const [state, setState] = useState<KeePassState | null>(null);
@@ -638,6 +717,7 @@ function KeePassSection({
                   <div className="title">
                     {e.title || e.site || "(untitled)"} <span className="kp-source-chip">KeePass: {e.dbName}</span>
                     <AgentChips signIn={e.agentSignIn} totp={e.agentTotp} globalOn={agentAccess} />
+                    <HealthChips health={health.get(e.id)} />
                   </div>
                   <div className="sub">
                     {e.username || "(no username)"}

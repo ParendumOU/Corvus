@@ -16,6 +16,7 @@ import { AgentCredentialService } from "./agent-credentials";
 import { SpendApprovalService } from "./spend-approvals";
 import { Controller } from "./controller";
 import { KeePassService } from "./keepass-service";
+import { PasswordCheckupService } from "./password-checkup";
 import { SecretFillGuard } from "./secret-fill-guard";
 import { DownloadManager } from "./downloads";
 import { ExtensionWindowBridge } from "./extension-windows";
@@ -138,6 +139,7 @@ async function main(): Promise<void> {
   ctx.flows = new FlowService(ctx);
   ctx.autofill = new AutofillService(ctx);
   ctx.keepass = new KeePassService(ctx);
+  ctx.passwordCheckup = new PasswordCheckupService();
   ctx.secretFills = new SecretFillGuard();
   ctx.annotations = new AnnotationService(ctx);
   ctx.mcp = new McpService(ctx);

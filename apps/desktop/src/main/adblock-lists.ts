@@ -1,11 +1,51 @@
 import fs from "node:fs";
 import path from "node:path";
-import { net } from "electron";
-import { ElectronBlocker, adsAndTrackingLists, fullLists } from "@ghostery/adblocker-electron";
+import { net, utilityProcess } from "electron";
+import { ElectronBlocker, adsAndTrackingLists, fetchLists, fetchResources, fullLists } from "@ghostery/adblocker-electron";
 import type { AdblockListSource } from "../shared/adblock";
+import { ENGINE_CONFIG, buildEngine, countFilters, type BuiltEngine } from "./adblock-engine";
+import { paths } from "./paths";
 
-export const ENGINE_CONFIG = { enableMutationObserver: true, guessRequestTypeFromUrl: true } as const;
 const REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+const PARSE_TIMEOUT_MS = 3 * 60_000;
+
+/**
+ * Parses filter lists into an engine in a short-lived utility process, so the main process (and
+ * every tab's input with it) never stalls on the hundred thousand rules; only the quick
+ * deserialization happens here. Parses in this process if the parser cannot run.
+ */
+export async function parseLists(lists: string, resources: string | null): Promise<{ blocker: ElectronBlocker; built: BuiltEngine; offMainThread: boolean }> {
+  let built: BuiltEngine;
+  let offMainThread = true;
+  try {
+    built = await parseInUtilityProcess(lists, resources);
+  } catch (err) {
+    console.warn(`[corvus] adblock list parser unavailable, parsing in the main process: ${(err as Error).message}`);
+    built = buildEngine(lists, resources);
+    offMainThread = false;
+  }
+  return { blocker: ElectronBlocker.deserialize(built.bytes), built, offMainThread };
+}
+
+function parseInUtilityProcess(lists: string, resources: string | null): Promise<BuiltEngine> {
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(paths.adblockParser, [], { serviceName: "Corvus filter lists", stdio: "ignore" });
+    let settled = false;
+    const finish = (settle: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      settle();
+      child.kill();
+    };
+    const timer = setTimeout(() => finish(() => reject(new Error("timed out"))), PARSE_TIMEOUT_MS);
+    child.once("spawn", () => child.postMessage({ lists, resources }));
+    child.once("message", (msg: { ok?: boolean; bytes?: Uint8Array; filterCount?: number; error?: string }) =>
+      finish(() => (msg.ok && msg.bytes ? resolve({ bytes: msg.bytes, filterCount: msg.filterCount ?? 0 }) : reject(new Error(msg.error ?? "no engine")))),
+    );
+    child.once("exit", (code) => finish(() => reject(new Error(`exited with code ${code}`))));
+  });
+}
 
 export interface ListMeta {
   updatedAt: number | null;
@@ -95,10 +135,13 @@ export class FilterSet {
     this.updating = true;
     this.onChange();
     try {
-      const blocker = await ElectronBlocker.fromLists((url) => net.fetch(url), [...this.spec.urls], ENGINE_CONFIG);
+      // As ElectronBlocker.fromLists, with the parsing moved out of this process.
+      const fetchImpl = (url: string): ReturnType<typeof net.fetch> => net.fetch(url);
+      const [lists, resources] = await Promise.all([fetchLists(fetchImpl, [...this.spec.urls]), fetchResources(fetchImpl)]);
+      const { blocker, built } = await parseLists(lists.join("\n"), resources);
       this.blocker = blocker;
-      this.meta = { updatedAt: Date.now(), source: "network", filterCount: countFilters(blocker), lists: this.spec.set };
-      this.writeCache();
+      this.meta = { updatedAt: Date.now(), source: "network", filterCount: built.filterCount, lists: this.spec.set };
+      this.writeCache(built.bytes);
     } catch (err) {
       console.warn(`[corvus] adblock list refresh failed (${this.spec.set}): ${(err as Error).message}`);
     } finally {
@@ -136,10 +179,10 @@ export class FilterSet {
     }
   }
 
-  private writeCache(): void {
+  private writeCache(bytes: Uint8Array): void {
     try {
       fs.mkdirSync(this.cacheDir, { recursive: true });
-      fs.writeFileSync(path.join(this.cacheDir, this.spec.engineFile), Buffer.from(this.blocker.serialize()));
+      fs.writeFileSync(path.join(this.cacheDir, this.spec.engineFile), bytes);
       fs.writeFileSync(
         path.join(this.cacheDir, this.spec.metaFile),
         JSON.stringify({ updatedAt: this.meta.updatedAt, filterCount: this.meta.filterCount, lists: this.meta.lists }),
@@ -149,9 +192,4 @@ export class FilterSet {
       console.warn(`[corvus] adblock cache write failed (${this.spec.set}): ${(err as Error).message}`);
     }
   }
-}
-
-function countFilters(blocker: ElectronBlocker): number {
-  const f = blocker.getFilters();
-  return f.networkFilters.length + f.cosmeticFilters.length;
 }

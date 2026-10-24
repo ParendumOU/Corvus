@@ -41,9 +41,29 @@ const POST_LOGIN_PAGE = `<!doctype html><html><head><title>Sign in (POST)</title
 <button type="submit">Sign in</button>
 </form></main></body></html>`;
 
+/** A password the breach stand-in reports, and how many times. */
+const PWNED_PASSWORD = "password123";
+const PWNED_COUNT = 251682;
+/** What the breach stand-in was asked: path and Add-Padding header. */
+const pwnedRequests: Array<{ path: string; padding: string }> = [];
+
+/** Have I Been Pwned's range API stand-in: the known suffix under its prefix, plus padding. */
+function servePwnedRange(pathname: string, req: http.IncomingMessage, res: http.ServerResponse): void {
+  pwnedRequests.push({ path: pathname, padding: String(req.headers["add-padding"] ?? "") });
+  const sha1 = crypto.createHash("sha1").update(PWNED_PASSWORD).digest("hex").toUpperCase();
+  const lines = [`${"0".repeat(35)}:0`, `${"F".repeat(35)}:3`];
+  if (pathname.endsWith(`/${sha1.slice(0, 5)}`)) lines.splice(1, 0, `${sha1.slice(5)}:${PWNED_COUNT}`);
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end(lines.join("\r\n"));
+}
+
 /** Extra pages for the credentials smoke, served by the shared smoke server. */
 export function serveCredentialsSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
-  const pathname = (req.url ?? "/").split("?")[0];
+  const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+  if (pathname.startsWith("/pwned/range/")) {
+    servePwnedRange(pathname, req, res);
+    return true;
+  }
   const page = pathname === "/2fa" ? OTP_PAGE : pathname === "/2fa-split" ? SPLIT_OTP_PAGE : pathname === "/login-post" ? POST_LOGIN_PAGE : null;
   if (!page) return false;
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -227,11 +247,51 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   const warned = await page.view.webContents.executeJavaScript(`document.body.innerText.includes("turns two factors into one")`);
   check("corvus://passwords shows the live 2FA code and the warning", (await nearbyCodes()).includes(liveCode) && warned === true, { warned, length: liveCode.length });
   await capture("passwords", page.view.webContents);
+  await checkupSmoke(ctx, base, page.view.webContents, { url, win, check, capture });
 
   const vaultTarget: AgentTarget = { label: "", totp: TOTP, secrets: [TOTP.secret], setOptIn: (on) => void vault.update(seeded.id, { agentTotp: on }) };
   if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await agentTotpSmoke(ctx, base, vaultTarget, { url, win, check, capture });
   await autoSignInSmoke(ctx, base, seeded.id, { url, win, check, capture });
   await keepassSmoke(ctx, base, { url, win, check, capture });
+}
+
+/**
+ * Password checkup from corvus://passwords: a click on the button checks every saved password
+ * against the breach stand-in with 5-character prefixes only, and the rows show breached,
+ * reused and weak logins.
+ */
+async function checkupSmoke(ctx: AppContext, base: string, wc: WebContents, { win, check, capture }: SmokeCtx): Promise<void> {
+  const profileVault = win.profile.credentials;
+  ctx.passwordCheckup.endpoint = `${base}/pwned/range/`;
+  const added = [
+    profileVault.add({ origin: "https://breached.example", username: "bob", password: PWNED_PASSWORD }),
+    profileVault.add({ origin: "https://one.example", username: "carol", password: "Tr0ub4dor&3xyzzy!" }),
+    profileVault.add({ origin: "https://two.example", username: "carol", password: "Tr0ub4dor&3xyzzy!" }),
+  ];
+  pwnedRequests.length = 0;
+  await delay(600);
+  const clicked = await wc.executeJavaScript(`(() => { const b = document.querySelector(".pw-checkup .card-head button"); if (!b) return false; b.click(); return true; })()`);
+  type Chips = { breached: string[]; reused: number; weak: number; summary: string };
+  let chips: Chips | null = null;
+  for (let i = 0; i < 40; i += 1) {
+    await delay(200);
+    chips = (await wc.executeJavaScript(
+      `({ breached: [...document.querySelectorAll(".pw-health.danger")].map((e) => e.textContent), reused: [...document.querySelectorAll(".pw-health")].filter((e) => e.textContent === "Reused").length, weak: [...document.querySelectorAll(".pw-health")].filter((e) => e.textContent === "Weak").length, summary: document.querySelector(".pw-checkup")?.innerText ?? "" })`,
+    )) as Chips;
+    if (chips && chips.breached.length > 0) break;
+  }
+  check(
+    "password checkup flags the breached, reused and weak logins",
+    clicked === true && chips?.breached.length === 1 && chips.breached[0]?.replace(/\D/g, "") === String(PWNED_COUNT) && chips.reused >= 2 && chips.weak >= 1,
+    chips,
+  );
+  check(
+    "password checkup sends only 5-character prefixes, padded",
+    pwnedRequests.length > 0 && pwnedRequests.every((r) => /^\/pwned\/range\/[0-9A-F]{5}$/.test(r.path) && r.padding === "true"),
+    pwnedRequests,
+  );
+  await capture("passwords-checkup", wc);
+  for (const cred of added) profileVault.remove(cred.id);
 }
 
 /** Opt-in auto sign-in: asks first, does nothing when declined, fills and submits when confirmed. */

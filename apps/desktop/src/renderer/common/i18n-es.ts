@@ -208,6 +208,12 @@ export const ES: Record<string, string> = {
   "Cookie consent banners, newsletter pop-ups, app banners and other clutter, with the EasyList Cookie and uBlock Origin annoyances lists.":
     "Avisos de consentimiento de cookies, ventanas de suscripción, banners de apps y otros estorbos, con las listas EasyList Cookie y de molestias de uBlock Origin.",
   "Remove tracking from links": "Quitar el rastreo de los enlaces",
+  "Block fingerprinting": "Bloquear la huella digital del navegador",
+  "Sites that read your canvas, graphics card, audio stack or CPU count to recognise you get slightly different values on each site and each session. Sites you allow below are left alone.":
+    "Los sitios que leen tu canvas, tu tarjeta gráfica, tu audio o tu número de núcleos para reconocerte reciben valores ligeramente distintos en cada sitio y cada sesión. Los sitios que permitas abajo no se tocan.",
+  "Sites forgotten on close": "Sitios que se olvidan al cerrarlos",
+  "Their cookies and stored data are deleted when you close their last tab (chosen from the shield in the address bar).":
+    "Sus cookies y datos guardados se borran al cerrar su última pestaña (se eligen desde el escudo de la barra de direcciones).",
   "My filters": "Mis filtros",
   "Your own rules, one per line, in uBlock Origin syntax (example.com##.banner hides .banner on example.com). “Hide this element” on a page adds its rule here.":
     "Tus propias reglas, una por línea, con la sintaxis de uBlock Origin (example.com##.banner oculta .banner en example.com). «Ocultar este elemento» en una página añade aquí su regla.",
