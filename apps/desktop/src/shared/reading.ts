@@ -2,22 +2,9 @@
  * Pure, unit-tested helpers for the reading library (saved reader-mode articles): the stored record
  * shape, search, Markdown export composition and the sentence splitter used by read-aloud.
  */
+import type { ReadingItem } from "@corvus/shared";
 
-export interface ReadingItem {
-  id: string;
-  url: string;
-  title: string;
-  siteName: string;
-  byline: string;
-  excerpt: string;
-  /** Export-ready article Markdown (header + body). */
-  markdown: string;
-  /** AI key points captured at save time. */
-  keyPoints: string[];
-  wordCount: number;
-  readingMinutes: number;
-  savedAt: number;
-}
+export { isLinkOnly, isReadingItem, linkOnlyReadingItem, withReadState, type ReadingItem } from "@corvus/shared";
 
 /** List view of a saved item, without the large Markdown body. */
 export type ReadingSummary = Omit<ReadingItem, "markdown">;
@@ -25,19 +12,6 @@ export type ReadingSummary = Omit<ReadingItem, "markdown">;
 export function readingSummary(item: ReadingItem): ReadingSummary {
   const { markdown: _markdown, ...summary } = item;
   return summary;
-}
-
-/** Shape guard for a persisted/synced reading item (tolerant of older records missing optional fields). */
-export function isReadingItem(value: unknown): value is ReadingItem {
-  const v = value as Partial<ReadingItem> | null;
-  return (
-    typeof v?.id === "string" &&
-    typeof v.url === "string" &&
-    typeof v.title === "string" &&
-    typeof v.markdown === "string" &&
-    typeof v.savedAt === "number" &&
-    Array.isArray(v.keyPoints)
-  );
 }
 
 function host(url: string): string {

@@ -1,5 +1,13 @@
 import path from "node:path";
-import { type ReadingItem, type ReadingSummary, isReadingItem, readingSummary, searchReadingItems } from "../shared/reading";
+import {
+  type ReadingItem,
+  type ReadingSummary,
+  isLinkOnly,
+  isReadingItem,
+  readingSummary,
+  searchReadingItems,
+  withReadState,
+} from "../shared/reading";
 import { JsonFile } from "./json-file";
 
 type Listener = () => void;
@@ -52,6 +60,31 @@ export class ReadingStore {
     this.emit();
   }
 
+  /** Marks an item read or unread (synced to the other devices). */
+  setRead(id: string, read: boolean, now: number = Date.now()): void {
+    const items = this.file.get();
+    const item = items.find((i) => i.id === id);
+    if (!item || (item.readAt !== undefined) === read) return;
+    this.file.set(items.map((i) => (i === item ? withReadState(i, read ? now : null) : i)));
+    this.emit();
+  }
+
+  /** Articles saved as a link only (from the phone), waiting for a computer to fill them in. */
+  linkOnly(): ReadingItem[] {
+    return this.file.get().filter(isLinkOnly);
+  }
+
+  /** Fills in the article of a link-only item, unless it changed meanwhile. */
+  fill(id: string, article: Pick<ReadingItem, "title" | "siteName" | "byline" | "excerpt" | "markdown" | "wordCount" | "readingMinutes">): boolean {
+    const items = this.file.get();
+    const item = items.find((i) => i.id === id);
+    if (!item || !isLinkOnly(item)) return false;
+    const filled: ReadingItem = { ...item, ...article, title: article.title || item.title };
+    this.file.set(items.map((i) => (i === item ? filled : i)));
+    this.emit();
+    return true;
+  }
+
   remove(id: string): void {
     const next = this.file.get().filter((item) => item.id !== id);
     if (next.length !== this.file.get().length) {
@@ -74,8 +107,11 @@ export class ReadingStore {
         if (byUrl.delete(url)) dirty = true;
       } else {
         const existing = byUrl.get(url);
-        if (!existing || existing.savedAt !== item.savedAt || existing.id !== item.id) {
-          byUrl.set(url, item);
+        // A device that only has the link (the phone marking it read before the article reached it)
+        // must not wipe the article: keep it and take the read state. The merged item syncs back.
+        const next = existing && existing.id === item.id && isLinkOnly(item) && !isLinkOnly(existing) ? withReadState(existing, item.readAt ?? null) : item;
+        if (!existing || JSON.stringify(existing) !== JSON.stringify(next)) {
+          byUrl.set(url, next);
           dirty = true;
         }
       }

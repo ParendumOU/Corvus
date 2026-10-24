@@ -125,6 +125,8 @@ import type { ReadingSummary } from "./reading";
 export interface ReadingLibraryRpc {
   "reading.list"(query: string): ReadingSummary[];
   "reading.remove"(id: string): void;
+  /** Mark an article read or unread (synced to the other devices). */
+  "reading.setRead"(id: string, read: boolean): void;
   "reading.export"(id: string): boolean;
   "reading.open"(id: string): void;
 }

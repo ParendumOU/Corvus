@@ -4,8 +4,9 @@
  * the scheduler that decides which watches are due while honouring the interval and a concurrency
  * cap. Pure (no node/Electron imports) so it is unit tested and safe for both tsconfig projects.
  */
+import type { SyncedWatch, WatchResult, WatchStatus } from "@corvus/shared";
 
-export type WatchResult = "pending" | "ok" | "changed" | "error";
+export type { WatchResult } from "@corvus/shared";
 
 export interface Watch {
   id: string;
@@ -66,16 +67,7 @@ export function clampInterval(minutes: number, min: number = MIN_INTERVAL_MINUTE
  * because every device runs its own monitor; syncing it would churn constantly and never converge.
  * Watches are keyed by URL across devices, like history.
  */
-export interface SyncedWatch {
-  url: string;
-  title: string;
-  faviconUrl?: string;
-  intervalMinutes: number;
-  paused: boolean;
-  createdAt: number;
-  /** "Notify me when…" is the user's intent too, so it travels with the watch. */
-  condition?: string;
-}
+export { isSyncedWatch, type SyncedWatch } from "@corvus/shared";
 
 export function toSyncedWatch(w: Watch): SyncedWatch {
   return {
@@ -89,17 +81,18 @@ export function toSyncedWatch(w: Watch): SyncedWatch {
   };
 }
 
-export function isSyncedWatch(value: unknown): value is SyncedWatch {
-  const v = value as Partial<SyncedWatch> | null;
-  return (
-    typeof v?.url === "string" &&
-    typeof v.title === "string" &&
-    typeof v.intervalMinutes === "number" &&
-    typeof v.paused === "boolean" &&
-    typeof v.createdAt === "number" &&
-    (v.faviconUrl === undefined || typeof v.faviconUrl === "string") &&
-    (v.condition === undefined || typeof v.condition === "string")
-  );
+/** What this device last saw of a watch, published for the phone (sync collection `watch_status`). */
+export function toWatchStatus(w: Watch): WatchStatus {
+  return {
+    url: w.url,
+    lastCheckedAt: w.lastCheckedAt,
+    lastChangedAt: w.lastChangedAt,
+    result: w.lastResult,
+    summary: w.changeSummary,
+    ...(w.condition ? { conditionMet: w.conditionMet ?? null } : {}),
+    ...(w.condition && w.conditionDetail ? { conditionDetail: w.conditionDetail } : {}),
+    ...(w.lastError ? { error: w.lastError } : {}),
+  };
 }
 
 // --------------------------------------------------------------- watchable URL guard (SSRF)

@@ -17,7 +17,8 @@ export default function RootLayout() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="pair" options={{ presentation: 'modal', title: 'Pair with a computer' }} />
-        <Stack.Screen name="send" options={{ presentation: 'modal', title: 'Send to your computer' }} />
+        <Stack.Screen name="send" options={{ presentation: 'modal', title: 'Save or send a page' }} />
+        <Stack.Screen name="watches" options={{ title: 'Watched pages' }} />
       </Stack>
     </ThemeProvider>
   );

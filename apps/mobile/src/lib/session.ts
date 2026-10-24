@@ -4,12 +4,31 @@
  * web build, used only for automated checks, both are in local storage.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { DeviceInfo, PairingInfo, SentTab, SentTabRecord, SyncStateStorage } from '@corvus/shared';
+import {
+  OTHER_FOLDER_ID,
+  isReadingItem,
+  isSyncedWatch,
+  linkOnlyReadingItem,
+  withReadState,
+  type Bookmark,
+  type DeviceInfo,
+  type PairingInfo,
+  type ReadingItem,
+  type SentTab,
+  type SentTabRecord,
+  type SyncCollection,
+  type SyncedHistoryEntry,
+  type SyncStateStorage,
+} from '@corvus/shared';
 import { createSyncClient, type CorvusSyncClient } from '@corvus/sync-core';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { dataStore } from '@/lib/data-store';
+import { historyList } from '@/lib/history';
+import { bookmarkList, nextPosition, readingList } from '@/lib/library';
+import { watchFor, watchList, type WatchView } from '@/lib/watches';
 import { Replica, computerTabs, type ComputerTabs } from '@/lib/replica';
 import { outbox } from '@/lib/send';
 
@@ -63,10 +82,16 @@ export function clientFor(pairing: Pairing): CorvusSyncClient {
 export function replicaFor(pairing: Pairing): Replica {
   let replica = replicas.get(pairing.chainId);
   if (!replica) {
-    replica = new Replica(syncState, `${SYNC_STATE_PREFIX}${pairing.chainId}/`);
+    replica = new Replica(dataStore, `${pairing.chainId}/`);
     replicas.set(pairing.chainId, replica);
   }
   return replica;
+}
+
+/** Version 0.1.0 kept the replica in AsyncStorage; it now lives in files (fetched again once). */
+export async function dropLegacyReplica(): Promise<void> {
+  const keys = (await AsyncStorage.getAllKeys()).filter((k) => /^corvus-sync\/[^/]+\/data\//.test(k));
+  if (keys.length > 0) await AsyncStorage.multiRemove(keys);
 }
 
 export async function loadPairing(): Promise<Pairing | null> {
@@ -94,6 +119,12 @@ export interface ChainView {
   tabs: ComputerTabs[];
   /** Pages sent from this phone that are still waiting to be opened. */
   outbox: SentTabRecord[];
+  bookmarks: Bookmark[];
+  reading: ReadingItem[];
+  /** History of every device, most recent first. */
+  history: SyncedHistoryEntry[];
+  /** Watched pages, with what the computers last saw. */
+  watches: WatchView[];
 }
 
 async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView> {
@@ -104,12 +135,61 @@ async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView>
     self,
     tabs: computerTabs(await replica.records('open_tabs'), devices, self),
     outbox: outbox(await replica.records('sent_tabs'), self),
+    bookmarks: bookmarkList(await replica.records('bookmarks')),
+    reading: readingList(await replica.records('reading')),
+    history: historyList(await replica.records('history')),
+    watches: watchList(await replica.records('watches'), await replica.records('watch_status'), devices),
   };
 }
 
+/** Pushes one change of this phone and keeps it in the replica. */
+async function change(pairing: Pairing, collection: SyncCollection, id: string, payload: unknown): Promise<void> {
+  const client = clientFor(pairing);
+  const { conflicts } = await client.push([{ collection, id, payload, deleted: payload === null }]);
+  // Another device changed the same record first: theirs wins, and the phone shows it.
+  const remote = conflicts.find((c) => c.collection === collection && c.id === id);
+  await replicaFor(pairing).put(collection, id, remote ? (remote.deleted ? null : remote.payload) : payload);
+}
+
+/** Saves a link to the reading list; a computer with Corvus fetches the article. */
+export async function saveForLater(pairing: Pairing, url: string, title: string): Promise<void> {
+  const existing = (await replicaFor(pairing).records('reading'))[url];
+  if (isReadingItem(existing)) return;
+  await change(pairing, 'reading', url, linkOnlyReadingItem(Crypto.randomUUID(), url, title, Date.now()));
+}
+
+/** Marks a reading list entry read or unread on every device. */
+export async function markRead(pairing: Pairing, item: ReadingItem, read: boolean): Promise<void> {
+  const current = (await replicaFor(pairing).records('reading'))[item.url];
+  await change(pairing, 'reading', item.url, withReadState(isReadingItem(current) ? current : item, read ? Date.now() : null));
+}
+
+/** Watches a page (or changes how an existing watch checks it); the computers monitor it. */
+export async function watchPage(pairing: Pairing, url: string, title: string, intervalMinutes: number, condition: string): Promise<void> {
+  const existing = (await replicaFor(pairing).records('watches'))[url];
+  await change(pairing, 'watches', url, watchFor(url, title, intervalMinutes, condition, Date.now(), isSyncedWatch(existing) ? existing : undefined));
+}
+
+/** Adds a bookmark at the end of "Other bookmarks". */
+export async function addBookmark(pairing: Pairing, url: string, title: string): Promise<void> {
+  const bookmarks = bookmarkList(await replicaFor(pairing).records('bookmarks'));
+  const now = Date.now();
+  const bookmark: Bookmark = {
+    id: Crypto.randomUUID(),
+    parentId: OTHER_FOLDER_ID,
+    kind: 'bookmark',
+    title,
+    url,
+    position: nextPosition(bookmarks, OTHER_FOLDER_ID),
+    createdAt: now,
+    updatedAt: now,
+  };
+  await change(pairing, 'bookmarks', bookmark.id, bookmark);
+}
+
 /** What the phone already has, without the network (shown before the first refresh). */
-export function cachedView(pairing: Pairing): Promise<ChainView> {
-  return view(pairing, []);
+export function cachedView(pairing: Pairing, devices: DeviceInfo[] = []): Promise<ChainView> {
+  return view(pairing, devices);
 }
 
 /** Lists the chain's devices and pulls what changed since the last refresh. */
@@ -150,6 +230,7 @@ export async function unpair(pairing: Pairing): Promise<void> {
   await secrets.remove(PAIRING_KEY);
   clients.delete(pairing.chainId);
   replicas.delete(pairing.chainId);
+  await dataStore.clear();
   const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SYNC_STATE_PREFIX));
   if (keys.length > 0) await AsyncStorage.multiRemove(keys);
 }

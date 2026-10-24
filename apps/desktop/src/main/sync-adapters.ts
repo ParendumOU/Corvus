@@ -2,7 +2,15 @@
  * Bridges each local store to @corvus/sync-core's SyncEngine. Electron-free so the whole set can be
  * exercised end to end against a real sync server in tests.
  */
-import { SENT_TAB_ID_RE, parseSentTab, type Bookmark, type SyncCollection } from "@corvus/shared";
+import {
+  SENT_TAB_ID_RE,
+  isSyncedBookmark,
+  parseDeviceWatchStatus,
+  parseSentTab,
+  type Bookmark,
+  type DeviceWatchStatus,
+  type SyncCollection,
+} from "@corvus/shared";
 import type { LocalItem, SyncAdapter } from "@corvus/sync-core";
 import { isAnnotation, type Annotation } from "../shared/annotations";
 import { ROOT_IDS } from "../shared/bookmark-tree";
@@ -39,19 +47,6 @@ export interface ProfileAccess {
 export const PROFILE_RECORD_ID = "profile";
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-
-function isSyncedBookmark(v: unknown): v is Bookmark {
-  if (!isObject(v)) return false;
-  return (
-    typeof v.id === "string" &&
-    typeof v.parentId === "string" &&
-    (v.kind === "folder" || (v.kind === "bookmark" && typeof v.url === "string")) &&
-    typeof v.title === "string" &&
-    typeof v.position === "number" &&
-    typeof v.createdAt === "number" &&
-    typeof v.updatedAt === "number"
-  );
-}
 
 export function bookmarksAdapter(store: BookmarkStore): SyncAdapter<Bookmark> {
   return {
@@ -352,14 +347,15 @@ export function sentTabsAdapter(records: DeviceRecords): SyncAdapter<unknown> {
 interface RemoteFile {
   open_tabs: Record<string, unknown>;
   extensions: Record<string, unknown>;
+  watch_status: Record<string, unknown>;
   sent_tabs: Record<string, unknown>;
   dismissedExtensions: string[];
 }
 
-type RemoteCollection = "open_tabs" | "extensions" | "sent_tabs";
+type RemoteCollection = "open_tabs" | "extensions" | "watch_status" | "sent_tabs";
 
 function emptyRemote(): RemoteFile {
-  return { open_tabs: {}, extensions: {}, sent_tabs: {}, dismissedExtensions: [] };
+  return { open_tabs: {}, extensions: {}, watch_status: {}, sent_tabs: {}, dismissedExtensions: [] };
 }
 
 function reviveRemote(raw: unknown): RemoteFile {
@@ -369,6 +365,7 @@ function reviveRemote(raw: unknown): RemoteFile {
   return {
     open_tabs: records(raw.open_tabs, DEVICE_KEY_RE),
     extensions: records(raw.extensions, DEVICE_KEY_RE),
+    watch_status: records(raw.watch_status, DEVICE_KEY_RE),
     sent_tabs: records(raw.sent_tabs, SENT_TAB_ID_RE),
     dismissedExtensions: Array.isArray(raw.dismissedExtensions) ? raw.dismissedExtensions.filter((x): x is string => typeof x === "string") : [],
   };
@@ -401,6 +398,7 @@ export class SyncRemoteStore {
 
   forgetDevice(deviceId: string): void {
     this.records("open_tabs").delete(deviceId);
+    this.records("watch_status").delete(deviceId);
     this.records("extensions").delete(deviceId);
   }
 
@@ -439,6 +437,8 @@ export interface SyncSources {
   ownDeviceId: () => Promise<string>;
   openTabs: () => DeviceTabs;
   extensions: () => DeviceExtensions;
+  /** What this device's monitor last saw of each watched page (for the phone). */
+  watchStatus: () => DeviceWatchStatus;
 }
 
 export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollection, SyncAdapter<any>>> {
@@ -465,6 +465,12 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
       own: src.extensions,
       records: src.remote.records("extensions"),
       valid: (raw) => parseDeviceExtensions(raw) !== null,
+    }),
+    watch_status: deviceRecordsAdapter({
+      ownId: src.ownDeviceId,
+      own: src.watchStatus,
+      records: src.remote.records("watch_status"),
+      valid: (raw) => parseDeviceWatchStatus(raw) !== null,
     }),
     sent_tabs: sentTabsAdapter(src.remote.records("sent_tabs")),
   };

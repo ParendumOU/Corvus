@@ -7,3 +7,6 @@ export * from "./spend.js";
 export * from "./pairing.js";
 export * from "./open-tabs.js";
 export * from "./sent-tabs.js";
+export * from "./library.js";
+export * from "./history.js";
+export * from "./watches.js";

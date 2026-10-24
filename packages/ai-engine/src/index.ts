@@ -20,7 +20,7 @@ export * from "./retrievers/index.js";
 export { dedupeResults, domainOf, normalizeUrl, stripTracking } from "./url.js";
 export { SearchCache, cacheKey, normalizeQuery, DEFAULT_TTL_MS, CACHE_FORMAT } from "./cache.js";
 export type { CachedAnswer, CacheKeyParts, SearchCacheOptions } from "./cache.js";
-export { defaultLookup, extractReadableText, fetchPageExtracts, isFetchablePublicUrl, isPrivateAddress, resolvesToPublic } from "./deep.js";
+export { defaultLookup, extractReadableText, fetchPageExtracts, fetchPublicHtml, isFetchablePublicUrl, isPrivateAddress, resolvesToPublic } from "./deep.js";
 export type { DeepFetchOptions, LookupLike } from "./deep.js";
 export { fetchWithTimeout, readTextCapped, USER_AGENT } from "./http.js";
 export type { FetchLike } from "./http.js";

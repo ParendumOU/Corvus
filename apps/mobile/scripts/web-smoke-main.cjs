@@ -115,6 +115,51 @@ async function pairingSmoke(win, base, syncUrl) {
   await computer.register();
   const deskId = await computer.getDeviceId();
   await computer.push([{ collection: "open_tabs", id: deskId, payload: deskTabs(base), deleted: false }]);
+  const article = `${base}/smoke/article`;
+  const node = (id, parentId, kind, title, position, url) => ({ id, parentId, kind, title, position, createdAt: 1, updatedAt: 1, ...(url ? { url } : {}) });
+  await computer.push([
+    { collection: "bookmarks", id: "smoke-folder", payload: node("smoke-folder", "bar", "folder", "Smoke folder", 1), deleted: false },
+    { collection: "bookmarks", id: "smoke-home", payload: node("smoke-home", "bar", "bookmark", "Smoke home", 0, `${base}/smoke/home`), deleted: false },
+    { collection: "bookmarks", id: "smoke-deep", payload: node("smoke-deep", "smoke-folder", "bookmark", "Deep smoke page", 0, `${base}/smoke/deep`), deleted: false },
+    ...[
+      [`${base}/smoke/visited-1`, "First visited page", Date.now() - 60_000],
+      [`${base}/smoke/visited-2`, "Second visit of the day", Date.now() - 120_000],
+      [`${base}/smoke/visited-3`, "A page from last week", Date.now() - 7 * 86_400_000],
+    ].map(([url, title, visitedAt]) => ({ collection: "history", id: url, payload: { url, title, visitedAt, visitCount: 1 }, deleted: false })),
+    {
+      collection: "watches",
+      id: `${base}/smoke/shop`,
+      payload: { url: `${base}/smoke/shop`, title: "Smoke shop item", intervalMinutes: 60, paused: false, createdAt: 1, condition: "the price is under 100" },
+      deleted: false,
+    },
+    {
+      collection: "watch_status",
+      id: deskId,
+      payload: {
+        device: "Smoke desktop",
+        platform: "win32",
+        updatedAt: Date.now(),
+        watches: [
+          {
+            url: `${base}/smoke/shop`,
+            lastCheckedAt: Date.now() - 60_000,
+            lastChangedAt: Date.now() - 120_000,
+            result: "changed",
+            summary: "The price dropped to 89",
+            conditionMet: true,
+            conditionDetail: "Price: 89",
+          },
+        ],
+      },
+      deleted: false,
+    },
+    {
+      collection: "reading",
+      id: article,
+      payload: { id: "smoke-article", url: article, title: "A smoke article", siteName: "Smoke", byline: "", excerpt: "About smoke.", markdown: "# A smoke article\n\nBody", keyPoints: [], wordCount: 300, readingMinutes: 2, savedAt: Date.now() },
+      deleted: false,
+    },
+  ]);
 
   await win.loadURL(`${base}/pair`);
   await until(win, "document.querySelector('[data-testid=pair-server]')");
@@ -195,6 +240,91 @@ async function pairingSmoke(win, base, syncUrl) {
   const cancelled = await received(cancelUrl);
   const gone = await until(win, `!document.querySelector('[data-testid="outbox-${cancelUrl}"]')`, 5000);
   check("send: a page can be taken back before the computer opens it", Boolean(toCancel) && cancelled?.deleted === true && cancelled.id === toCancel.id && gone, cancelled);
+
+  // Library: the computer's bookmarks and reading list, and changes made on the phone.
+  const pulledUntil = async (pred) => {
+    for (const end = Date.now() + 15000; Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
+      const item = (await computer.pull()).find(pred);
+      if (item) return item;
+    }
+    return null;
+  };
+  const tap = (testId) => win.webContents.executeJavaScript(`document.querySelector('[data-testid=${JSON.stringify(testId)}]').click()`);
+  const present = (testId) => `Boolean(document.querySelector('[data-testid=${JSON.stringify(testId)}]'))`;
+  await win.loadURL(`${base}/library`);
+  await until(win, present("folder-Bookmarks bar"), 20000);
+  await tap("folder-Bookmarks bar");
+  await until(win, present("folder-Smoke folder"));
+  const inBar = await until(win, present(`bookmark-${base}/smoke/home`));
+  await tap("folder-Smoke folder");
+  const inFolder = await until(win, present(`bookmark-${base}/smoke/deep`));
+  check("library: bookmarks are browsed folder by folder", inBar && inFolder);
+  await tap("crumb-top");
+  await typeInto(win, "library-search", "deep smoke");
+  check("library: a bookmark is found by its title from any folder", await until(win, present(`bookmark-${base}/smoke/deep`)));
+  await typeInto(win, "library-search", "");
+
+  await tap("library-reading");
+  const articleListed = await until(win, `(document.querySelector('[data-testid="reading-${article}"]')?.innerText ?? '').includes('2 min read')`);
+  await shot(win, "library-reading");
+  await tap(`reading-toggle-${article}`);
+  const marked = await pulledUntil((i) => i.collection === "reading" && i.id === article);
+  check(
+    "library: marking an article read on the phone reaches the computer, article intact",
+    articleListed && typeof marked?.payload?.readAt === "number" && marked.payload.markdown === "# A smoke article\n\nBody",
+    marked?.payload ? { readAt: marked.payload.readAt, markdown: marked.payload.markdown.length } : null,
+  );
+
+  await tap("library-history");
+  const visited = (n) => present(`history-${base}/smoke/visited-${n}`);
+  const historyShown = await until(win, `${present("history-day-Today")} && ${visited(1)} && ${visited(2)} && ${visited(3)}`);
+  await shot(win, "library-history");
+  await typeInto(win, "library-search", "second visit");
+  const historyFound = await until(win, `${visited(2)} && !${visited(1)}`);
+  check("history: pages visited on the computer, grouped by day, found by title", historyShown && historyFound);
+  await typeInto(win, "library-search", "");
+
+  // Watched pages: what the computer saw, and a watch added on the phone.
+  await win.loadURL(`${base}/`);
+  const homeCard = await until(win, `(document.querySelector('[data-testid=home-watches]')?.innerText ?? '').includes('1 watched · 1 changed')`, 20000);
+  await tap("home-watches");
+  const shopCard = `document.querySelector('[data-testid="watch-${base}/smoke/shop"]')?.innerText ?? ''`;
+  const watchShown = await until(win, `(${shopCard}).includes('The price dropped to 89') && (${shopCard}).includes('Yes') && (${shopCard}).includes('Smoke desktop')`);
+  await shot(win, "watches");
+  check("watches: the phone shows what the computer saw, condition included", homeCard && watchShown, await win.webContents.executeJavaScript(shopCard));
+  const watchedUrl = "https://example.org/watch-from-phone";
+  await typeInto(win, "watch-url", watchedUrl);
+  await typeInto(win, "watch-condition", "it is back in stock");
+  await tap("watch-every-15");
+  await until(win, "document.querySelector('[data-testid=watch-add]')?.getAttribute('aria-disabled') !== 'true'");
+  await tap("watch-add");
+  const added = await pulledUntil((i) => i.collection === "watches" && i.id === watchedUrl);
+  check(
+    "watches: a watch added on the phone reaches the computer",
+    added?.payload?.intervalMinutes === 15 && added.payload.condition === "it is back in stock" && added.payload.paused === false,
+    added?.payload ?? null,
+  );
+
+  const keep = async (url, title, action) => {
+    await win.loadURL(`${base}/send`);
+    await until(win, present("send-url"), 20000);
+    await typeInto(win, "send-url", url);
+    if (title) await typeInto(win, "send-title", title);
+    await until(win, `document.querySelector('[data-testid=${action}]')?.getAttribute('aria-disabled') !== 'true'`);
+    await tap(action);
+  };
+  const later = "https://example.org/read-this-later";
+  await keep(later, "", "send-read-later");
+  const saved = await pulledUntil((i) => i.collection === "reading" && i.id === later);
+  check("share: a link saved for later reaches the computer as a link to fill in", saved?.payload?.markdown === "" && saved.payload.url === later, saved?.payload ?? null);
+  const marked2 = "https://example.org/bookmark-me";
+  await keep(marked2, "Bookmarked on the phone", "send-bookmark");
+  const bookmark = await pulledUntil((i) => i.collection === "bookmarks" && i.payload?.url === marked2);
+  check(
+    "share: a bookmark made on the phone lands in Other bookmarks",
+    bookmark?.payload?.parentId === "other" && bookmark.payload.title === "Bookmarked on the phone" && bookmark.payload.kind === "bookmark",
+    bookmark?.payload ?? null,
+  );
 
   await win.loadURL(`${base}/settings`);
   const listed = await until(win, "document.querySelector('[data-testid=\"device-Smoke desktop\"]') && document.querySelector('[data-testid=\"device-Phone\"]')?.textContent.includes('(this phone)')", 20000);

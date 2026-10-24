@@ -1,16 +1,19 @@
 import os from "node:os";
 import path from "node:path";
-import { encodePairing, reachableFromPhone, sentTabs, type SyncStateStorage } from "@corvus/shared";
+import { MAX_WATCH_STATUS, encodePairing, reachableFromPhone, sentTabs, type SyncStateStorage } from "@corvus/shared";
 import { Notification } from "electron";
 import type { CorvusSyncClient, SyncEngine } from "@corvus/sync-core";
 import { extensionSuggestions, webstoreExtensions, type ExtensionSuggestion, type SyncedExtension } from "../shared/extension-suggestions";
 import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncOptions, type SyncStatus } from "../shared/ipc";
 import { OpenTabsPublisher, collectTabs, parseDeviceTabs, type RemoteDeviceTabs } from "../shared/open-tabs";
+import { toWatchStatus } from "../shared/page-watch";
+import { StampedRecord } from "../shared/stamped-record";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import { loadOptionalModule } from "./module-loader";
 import type { ProfileRuntime } from "./profiles";
 import type { SecretCipher } from "./settings-store";
+import { ReadingFiller } from "./reading-fill";
 import { SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
 import { SyncScheduler } from "./sync-scheduler";
 
@@ -116,6 +119,7 @@ export class SyncService {
   private readonly remotes = new Map<string, SyncRemoteStore>();
   private readonly runtimes = new Map<string, Runtime>();
   private readonly errors = new Map<string, string>();
+  private readonly filler = new ReadingFiller();
   private readonly memoryPhrases = new Map<string, string>();
   private watcher: ReturnType<typeof setInterval> | null = null;
 
@@ -279,6 +283,11 @@ export class SyncService {
     const flows = file.get().syncWorkflows ? this.ctx.flows?.storeFor(profile) : undefined;
     const memory = file.get().syncSiteMemory ? this.ctx.flows?.memory.storeFor(profile) : undefined;
     const published = { key: "", extensions: [] as SyncedExtension[] };
+    const watchStatus = new StampedRecord(() => ({
+      device: file.get().deviceName,
+      platform: process.platform,
+      watches: this.ctx.monitor.storeFor(profile).list().slice(0, MAX_WATCH_STATUS).map(toWatchStatus),
+    }));
     const engine = new mod.SyncEngine({
       client,
       storage,
@@ -310,6 +319,7 @@ export class SyncService {
           tabs.refresh();
           return tabs.record();
         },
+        watchStatus: () => watchStatus.record(),
         extensions: () => {
           const key = extensionIdsKey(profile);
           if (key !== published.key) {
@@ -377,6 +387,8 @@ export class SyncService {
       this.errors.delete(id);
       // Opened pages leave the replica; the next cycle deletes them on the chain.
       if ((await this.openSentTabs(profile)) > 0) this.runtimes.get(id)?.scheduler.poke();
+      // Links saved from the phone get their article here (a filled item syncs on the next cycle).
+      void this.filler.run(profile.reading);
     } catch (err) {
       this.errors.set(id, describeError(err, file.get().serverUrl));
     } finally {
@@ -506,6 +518,7 @@ export class SyncService {
         await rt.client.push([
           { collection: "open_tabs", id: own, payload: null, deleted: true },
           { collection: "extensions", id: own, payload: null, deleted: true },
+          { collection: "watch_status", id: own, payload: null, deleted: true },
         ]);
         await rt.client.removeDevice(own);
       } catch (err) {

@@ -7,19 +7,26 @@ import { ACCENT, Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
-import { sendToComputer, useSession } from '@/hooks/use-session';
+import { bookmarkPage, saveToReadingList, sendToComputer, useSession, watch } from '@/hooks/use-session';
 import { useSharedText } from '@/hooks/use-shared-text';
 import { useTheme } from '@/hooks/use-theme';
+import { tabHost } from '@/lib/replica';
 import { sendTargets } from '@/lib/send';
 
-/** Send a page to a computer: typed here, or shared to Corvus from another app (Android share sheet). */
+type Action = 'send' | 'read-later' | 'bookmark' | 'watch';
+
+/**
+ * A page typed here, or shared to Corvus from another app (Android share sheet): send it to a
+ * computer, save it to the reading list, or bookmark it.
+ */
 export default function SendScreen() {
   const theme = useTheme();
   const session = useSession();
   const { text: shared, clear: clearShared } = useSharedText();
   const [text, setText] = useState(shared);
+  const [title, setTitle] = useState('');
   const [to, setTo] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The share can arrive after the screen opened (the app was already running).
@@ -31,19 +38,23 @@ export default function SendScreen() {
   const target = targets.find((d) => d.id === to) ?? targets[0];
   const url = normalizeSentUrl(text);
 
-  const send = async (): Promise<void> => {
-    if (!url || !target) return;
-    setBusy(true);
+  const run = async (action: Action): Promise<void> => {
+    if (!url) return;
+    setBusy(action);
     setError(null);
     try {
-      await sendToComputer({ url, title: '', to: target.id });
+      if (action === 'send' && target) await sendToComputer({ url, title: title.trim(), to: target.id });
+      if (action === 'read-later') await saveToReadingList(url, title.trim());
+      if (action === 'bookmark') await bookmarkPage(url, title.trim() || tabHost(url));
+      if (action === 'watch') await watch(url, title.trim(), 60, '');
       clearShared();
-      if (router.canGoBack()) router.back();
-      else router.replace('/');
+      if (action === 'watch') router.replace('/watches');
+      else if (router.canGoBack()) router.back();
+      else router.replace(action === 'send' ? '/' : '/library');
     } catch (err) {
-      setError(`Could not send it: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`That did not work: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -63,10 +74,6 @@ export default function SendScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <ThemedText type="small" themeColor="textSecondary">
-          The page opens in a new tab on your computer the next time Corvus there syncs (within a minute while it is running).
-        </ThemedText>
-
         <ThemedView type="backgroundElement" style={styles.card}>
           <ThemedText type="smallBold">Page</ThemedText>
           <TextInput
@@ -86,10 +93,21 @@ export default function SendScreen() {
               That is not a web address.
             </ThemedText>
           )}
+          <TextInput
+            testID="send-title"
+            style={[styles.input, styles.title, { color: theme.text, backgroundColor: theme.background }]}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Title (optional)"
+            placeholderTextColor={theme.textSecondary}
+          />
         </ThemedView>
 
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">Computer</ThemedText>
+          <ThemedText type="smallBold">Send to a computer</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            It opens in a new tab there the next time Corvus syncs (within a minute while it is running).
+          </ThemedText>
           {targets.length === 0 && (
             <ThemedText type="small" themeColor="textSecondary" testID="send-no-computer">
               {session.refreshed ? 'No computer on this sync chain yet.' : 'Loading…'}
@@ -113,9 +131,38 @@ export default function SendScreen() {
               );
             })}
           </View>
+          <Button
+            label={target ? `Send to ${target.name}` : 'Send'}
+            busy={busy === 'send'}
+            disabled={!url || !target || busy !== null}
+            onPress={() => void run('send')}
+            testID="send-submit"
+          />
         </ThemedView>
 
-        <Button label={target ? `Send to ${target.name}` : 'Send'} busy={busy} disabled={!url || !target} onPress={() => void send()} testID="send-submit" />
+        <ThemedView type="backgroundElement" style={styles.card}>
+          <ThemedText type="smallBold">Keep it</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            Saved on every device. For the reading list, a computer with Corvus fetches the article.
+          </ThemedText>
+          <Button
+            label="Save to reading list"
+            kind="secondary"
+            busy={busy === 'read-later'}
+            disabled={!url || busy !== null}
+            onPress={() => void run('read-later')}
+            testID="send-read-later"
+          />
+          <Button label="Bookmark" kind="secondary" busy={busy === 'bookmark'} disabled={!url || busy !== null} onPress={() => void run('bookmark')} testID="send-bookmark" />
+          <Button
+            label="Watch for changes"
+            kind="secondary"
+            busy={busy === 'watch'}
+            disabled={!url || busy !== null}
+            onPress={() => void run('watch')}
+            testID="send-watch"
+          />
+        </ThemedView>
 
         {error && (
           <ThemedText type="small" style={styles.error} testID="send-error">
@@ -150,6 +197,9 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.two,
     fontSize: 16,
     textAlignVertical: 'top',
+  },
+  title: {
+    minHeight: 44,
   },
   chips: {
     flexDirection: 'row',

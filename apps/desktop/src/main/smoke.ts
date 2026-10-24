@@ -3,7 +3,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, webContents } from "electron";
-import { decodePairing, type SearchEvent } from "@corvus/shared";
+import { decodePairing, linkOnlyReadingItem, parseDeviceWatchStatus, type SearchEvent } from "@corvus/shared";
 import { createSyncClient } from "@corvus/sync-core";
 import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
@@ -328,6 +328,37 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
     deletedOnChain: sentGone,
   });
   for (const tab of sentTabs) win.closeTab(tab.id);
+
+  // A link saved for later on the phone joins the reading list here; read state syncs both ways.
+  const laterUrl = `${pageUrl}${pageUrl.includes("?") ? "&" : "?"}corvus-later=1`;
+  await phone.push([{ collection: "reading", id: laterUrl, payload: linkOnlyReadingItem("smoke-later-1", laterUrl, "Saved on the phone", Date.now()), deleted: false }]);
+  await ctx.sync.syncNow(profile);
+  const later = profile.reading.allItems().find((i) => i.url === laterUrl);
+  profile.reading.setRead("smoke-later-1", true);
+  await ctx.sync.syncNow(profile);
+  const readBack = (await phone.pull()).find((i) => i.collection === "reading" && i.id === laterUrl)?.payload as { readAt?: number } | undefined;
+  check("reading list: a link saved on the phone arrives, and reading it here reaches the phone", later?.title === "Saved on the phone" && typeof readBack?.readAt === "number", {
+    arrived: Boolean(later),
+    readAt: readBack?.readAt ?? null,
+  });
+
+  // A watch added on the phone is monitored here, and what this computer sees is published for it.
+  const watchUrl = "https://example.org/watched-from-the-phone";
+  await phone.push([
+    { collection: "watches", id: watchUrl, payload: { url: watchUrl, title: "", intervalMinutes: 60, paused: false, createdAt: Date.now(), condition: "it mentions ravens" }, deleted: false },
+  ]);
+  await ctx.sync.syncNow(profile);
+  await ctx.sync.syncNow(profile);
+  const watches = ctx.monitor.storeFor(profile);
+  const watched = watches.list().find((w) => w.url === watchUrl);
+  const published = (await phone.pull()).filter((i) => i.collection === "watch_status" && i.id === deskId);
+  const deskStatus = parseDeviceWatchStatus(published[published.length - 1]?.payload);
+  check(
+    "watched pages: a watch added on the phone is monitored here, and its status reaches the phone",
+    watched?.condition === "it mentions ravens" && deskStatus?.device === "Smoke laptop" && Boolean(deskStatus.watches.some((w) => w.url === watchUrl)),
+    { watched: Boolean(watched), status: deskStatus?.watches.map((w) => w.url) ?? null },
+  );
+  if (watched) watches.remove(watched.id);
   await runSyncLearnedSmoke(ctx, { profile, phone, win, check });
 
   const history = win.createTab("corvus://history");

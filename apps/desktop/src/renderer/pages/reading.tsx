@@ -47,8 +47,10 @@ function ReadingPage() {
             <div className="list">
               {g.items.map((item) => {
                 const open = expanded.has(item.id);
+                const read = item.readAt !== undefined;
+                const linkOnly = item.wordCount === 0 && !item.excerpt;
                 return (
-                  <div key={item.id} className="list-row" style={{ alignItems: "flex-start" }}>
+                  <div key={item.id} className="list-row" style={{ alignItems: "flex-start", opacity: read ? 0.65 : 1 }} data-reading-url={item.url}>
                     <Favicon url={item.url} />
                     <div className="grow">
                       <a className="title" href={item.url} title={item.url}>
@@ -56,7 +58,9 @@ function ReadingPage() {
                       </a>
                       <div className="sub">
                         {item.siteName || hostOf(item.url)}
-                        {item.byline ? ` · ${item.byline}` : ""} · {item.readingMinutes} min read
+                        {item.byline ? ` · ${item.byline}` : ""}
+                        {linkOnly ? " · link only (Corvus fetches the article when it can)" : ` · ${item.readingMinutes} min read`}
+                        {read ? " · read" : ""}
                       </div>
                       {item.excerpt && <div className="sub" style={{ marginTop: 4 }}>{item.excerpt}</div>}
                       {item.keyPoints.length > 0 && (
@@ -82,6 +86,9 @@ function ReadingPage() {
                       )}
                     </div>
                     <div className="actions">
+                      <button className="btn small ghost" data-reading-toggle onClick={() => void api.call("reading.setRead", item.id, !read).then(() => load(query))}>
+                        {read ? "Mark unread" : "Mark read"}
+                      </button>
                       <button className="icon-btn" title="Export as Markdown" onClick={() => void api.call("reading.export", item.id)}>
                         <IconDownload size={15} />
                       </button>

@@ -122,39 +122,68 @@ export async function resolvesToPublic(raw: string, lookup: LookupLike): Promise
   }
 }
 
+type HtmlFetchOptions = Required<Pick<DeepFetchOptions, "fetch" | "lookup" | "timeoutMs" | "maxBytes">> & { signal?: AbortSignal };
+
+/** GET an HTML page on the public internet; undefined for anything else (private address, not HTML, error). */
+async function fetchHtml(startUrl: string, opts: HtmlFetchOptions): Promise<{ url: string; html: string } | undefined> {
+  // Redirects are followed by hand so every hop gets the same public-address check.
+  let url = startUrl;
+  let res: Response | undefined;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!(await resolvesToPublic(url, opts.lookup))) return undefined;
+    res = await fetchWithTimeout(
+      opts.fetch,
+      url,
+      { headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml" }, redirect: "manual" },
+      opts.timeoutMs,
+      opts.signal,
+    );
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!location) break;
+    await res.body?.cancel();
+    url = new URL(location, url).toString();
+    res = undefined;
+  }
+  if (!res) return undefined;
+  const type = res.headers.get("content-type") ?? "";
+  if (!res.ok || !/text\/html|application\/xhtml\+xml/i.test(type)) {
+    await res.body?.cancel();
+    return undefined;
+  }
+  const html = await readTextCapped(res, opts.maxBytes);
+  return html ? { url, html } : undefined;
+}
+
+/**
+ * Fetches one page for reading (no cookies, public addresses only, redirects checked hop by hop).
+ * Returns the final URL and the HTML, or undefined when the page cannot be read.
+ */
+export async function fetchPublicHtml(
+  url: string,
+  opts: Pick<DeepFetchOptions, "fetch" | "lookup" | "timeoutMs" | "maxBytes" | "signal"> = {},
+): Promise<{ url: string; html: string } | undefined> {
+  try {
+    return await fetchHtml(url, {
+      fetch: opts.fetch ?? fetch,
+      lookup: opts.lookup ?? defaultLookup,
+      timeoutMs: opts.timeoutMs ?? 15_000,
+      maxBytes: opts.maxBytes ?? 5 * 1024 * 1024,
+      signal: opts.signal,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchPage(
   result: SearchResult,
   index: number,
   opts: Required<Omit<DeepFetchOptions, "signal" | "count">> & { signal?: AbortSignal },
 ): Promise<PageExtract | undefined> {
   try {
-    // Redirects are followed by hand so every hop gets the same public-address check.
-    let url = result.url;
-    let res: Response | undefined;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      if (!(await resolvesToPublic(url, opts.lookup))) return undefined;
-      res = await fetchWithTimeout(
-        opts.fetch,
-        url,
-        { headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml" }, redirect: "manual" },
-        opts.timeoutMs,
-        opts.signal,
-      );
-      const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
-      if (!location) break;
-      await res.body?.cancel();
-      url = new URL(location, url).toString();
-      res = undefined;
-    }
-    if (!res) return undefined;
-    const type = res.headers.get("content-type") ?? "";
-    if (!res.ok || !/text\/html|application\/xhtml\+xml/i.test(type)) {
-      await res.body?.cancel();
-      return undefined;
-    }
-    const html = await readTextCapped(res, opts.maxBytes);
-    if (!html) return undefined;
-    const text = extractReadableText(html);
+    const page = await fetchHtml(result.url, opts);
+    if (!page) return undefined;
+    const text = extractReadableText(page.html);
     return text ? { index, text: truncate(text, opts.maxChars) } : undefined;
   } catch {
     // Deep mode is best effort: a slow or broken page just means fewer excerpts.

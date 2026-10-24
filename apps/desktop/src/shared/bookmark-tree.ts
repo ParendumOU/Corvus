@@ -3,10 +3,9 @@
  * Two fixed root folders exist: the bookmarks bar and "Other bookmarks". Roots cannot be
  * renamed, moved or deleted.
  */
-import type { Bookmark } from "@corvus/shared";
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID, type Bookmark } from "@corvus/shared";
 
-export const BAR_FOLDER_ID = "bar";
-export const OTHER_FOLDER_ID = "other";
+export { BAR_FOLDER_ID, OTHER_FOLDER_ID };
 export const ROOT_IDS: ReadonlySet<string> = new Set([BAR_FOLDER_ID, OTHER_FOLDER_ID]);
 
 export class BookmarkError extends Error {}

@@ -2,10 +2,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ReadingFiller, fetchArticle } from "../src/main/reading-fill";
 import { ReadingStore } from "../src/main/reading-store";
 import { defaultSettings, mergeSettings } from "../src/shared/settings";
 import {
   type ReadingItem,
+  linkOnlyReadingItem,
   readingExportFilename,
   readingItemToMarkdown,
   searchReadingItems,
@@ -135,5 +137,50 @@ describe("ReadingStore", () => {
     expect(reopened.list()).toHaveLength(1);
     reopened.remove("a");
     expect(reopened.list()).toHaveLength(0);
+  });
+
+  it("marks items read and unread, and takes the read state from other devices", () => {
+    const store = new ReadingStore(dir);
+    store.save(item({ id: "a" }));
+    store.setRead("a", true, 50);
+    expect(store.get("a")?.readAt).toBe(50);
+    store.setRead("a", false);
+    expect(store.get("a")?.readAt).toBeUndefined();
+    // Only the read state changed on the other device: the same id and savedAt still apply.
+    store.applyRemote([{ url: "https://example.org/raven", item: { ...item({ id: "a" }), readAt: 70 } }]);
+    expect(store.get("a")?.readAt).toBe(70);
+  });
+
+  it("keeps the article when the phone sends the link only, and fills in links saved from the phone", async () => {
+    const store = new ReadingStore(dir);
+    store.save(item({ id: "a" }));
+    const fromPhone = { ...linkOnlyReadingItem("a", "https://example.org/raven", "", 1), readAt: 90 };
+    store.applyRemote([{ url: fromPhone.url, item: fromPhone }]);
+    expect(store.get("a")?.markdown).toContain("The common raven");
+    expect(store.get("a")?.readAt).toBe(90);
+
+    const saved = linkOnlyReadingItem("p", "https://news.test/story", "Shared title", 5);
+    store.applyRemote([{ url: saved.url, item: saved }]);
+    expect(store.linkOnly().map((i) => i.id)).toEqual(["p"]);
+    const fetched: string[] = [];
+    const filler = new ReadingFiller(async (url) => {
+      fetched.push(url);
+      return { title: "", siteName: "News", byline: "R. Porter", excerpt: "What happened.", markdown: "# Story\n\nBody", wordCount: 400, readingMinutes: 2 };
+    });
+    expect(await filler.run(store)).toBe(1);
+    expect(await filler.run(store)).toBe(0);
+    expect(fetched).toEqual(["https://news.test/story"]);
+    expect(store.get("p")).toMatchObject({ title: "Shared title", siteName: "News", wordCount: 400, savedAt: 5 });
+    expect(store.linkOnly()).toEqual([]);
+  });
+
+  it("reads a fetched page as an article", async () => {
+    const paragraph = "The common raven is a large all-black passerine bird found across the Northern Hemisphere. ".repeat(12);
+    const html = `<html><head><title>Ravens</title></head><body><article><h1>Ravens</h1>${`<p>${paragraph}</p>`.repeat(6)}</article></body></html>`;
+    const article = await fetchArticle("https://birds.test/ravens", async (url) => ({ url, html }));
+    expect(article?.title).toBe("Ravens");
+    expect(article?.markdown).toContain("<https://birds.test/ravens>");
+    expect(article?.wordCount).toBeGreaterThan(100);
+    expect(await fetchArticle("https://birds.test/gone", async () => undefined)).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 /** Pure browsing-history operations. Entries are unique per URL. */
-import type { HistoryEntry } from "@corvus/shared";
+import type { HistoryEntry, SyncedHistoryEntry } from "@corvus/shared";
 import { isFaviconUrl } from "./favicon";
 
 export interface HistoryRecord extends HistoryEntry {
@@ -106,13 +106,7 @@ export function removeEntries(list: HistoryRecord[], ids: string[]): HistoryReco
 }
 
 /** History as synced: one record per URL (also the record key), without the device-local id. */
-export interface SyncedHistoryEntry {
-  url: string;
-  title: string;
-  visitedAt: number;
-  visitCount: number;
-  faviconUrl?: string;
-}
+export { parseSyncedHistory, type SyncedHistoryEntry } from "@corvus/shared";
 
 export function toSyncedHistory(e: HistoryRecord): SyncedHistoryEntry {
   return {
@@ -121,19 +115,6 @@ export function toSyncedHistory(e: HistoryRecord): SyncedHistoryEntry {
     visitedAt: e.visitedAt,
     visitCount: e.visitCount,
     ...(e.faviconUrl ? { faviconUrl: e.faviconUrl } : {}),
-  };
-}
-
-export function parseSyncedHistory(raw: unknown): SyncedHistoryEntry | null {
-  const v = raw as Partial<SyncedHistoryEntry> | null;
-  if (typeof v?.url !== "string" || v.url.length === 0 || v.url.length > 8192) return null;
-  if (typeof v.visitedAt !== "number" || !Number.isFinite(v.visitedAt)) return null;
-  return {
-    url: v.url,
-    title: typeof v.title === "string" ? v.title.slice(0, 1000) : "",
-    visitedAt: v.visitedAt,
-    visitCount: typeof v.visitCount === "number" && v.visitCount >= 1 ? Math.floor(v.visitCount) : 1,
-    ...(typeof v.faviconUrl === "string" && v.faviconUrl.length <= 8192 ? { faviconUrl: v.faviconUrl } : {}),
   };
 }
 

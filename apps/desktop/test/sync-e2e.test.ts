@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { sentTabs, type SyncStateStorage } from "@corvus/shared";
+import { parseDeviceWatchStatus, sentTabs, type SyncStateStorage } from "@corvus/shared";
 import { SyncEngine, createSyncClient, type CorvusSyncClient } from "@corvus/sync-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildServer } from "../../../services/sync-server/src/app";
@@ -20,6 +20,8 @@ import { BAR_FOLDER_ID, OTHER_FOLDER_ID, ROOT_IDS, toTree } from "../src/shared/
 import { extensionSuggestions, webstoreExtensions } from "../src/shared/extension-suggestions";
 import type { ExtensionInfo } from "../src/shared/ipc";
 import { OpenTabsPublisher, parseDeviceTabs, type SyncedTab } from "../src/shared/open-tabs";
+import { toWatchStatus } from "../src/shared/page-watch";
+import { StampedRecord } from "../src/shared/stamped-record";
 import type { FlowStep } from "../src/shared/flow";
 import { hintKey, type TrailEvent } from "../src/shared/site-memory";
 
@@ -83,6 +85,7 @@ class Device {
     this.meta = { name: profileName };
     this.client = createSyncClient({ serverUrl, phrase: PHRASE, deviceName: name, platform: "linux", storage: memoryStorage() });
     const publisher = new OpenTabsPublisher(() => ({ device: name, platform: "linux", tabs: this.tabs }));
+    const status = new StampedRecord(() => ({ device: name, platform: "linux", watches: this.watches.list().map(toWatchStatus) }));
     this.engine = new SyncEngine({
       client: this.client,
       storage: memoryStorage(),
@@ -106,6 +109,7 @@ class Device {
           return publisher.record();
         },
         extensions: () => ({ device: name, extensions: webstoreExtensions(this.installed) }),
+        watchStatus: () => status.record(),
       }),
     });
   }
@@ -297,7 +301,8 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     const bId = await b.client.getDeviceId();
     await a.client.removeDevice(bId);
     a.remote.forgetDevice(bId);
-    expect(await a.sync()).toMatchObject({ deleted: 2 });
+    // B's open tabs, extensions and watch status.
+    expect(await a.sync()).toMatchObject({ deleted: 3 });
 
     const c = new Device("Restored", "Personal");
     await c.client.register();
@@ -475,5 +480,42 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     expect(other.remote.records("sent_tabs").all()).toEqual({});
 
     for (const d of [desk, other]) d.close();
+  });
+
+  it("monitors a watch added on the phone and publishes what it saw, only when that changes", async () => {
+    const desk = new Device("Desk", "Work");
+    await desk.client.register();
+    await desk.sync();
+    const phone = createSyncClient({ serverUrl, phrase: PHRASE, deviceName: "Phone", platform: "android", storage: memoryStorage() });
+    await phone.register();
+    await phone.pull();
+
+    const url = "https://shop.example/item";
+    await phone.push([
+      { collection: "watches", id: url, payload: { url, title: "", intervalMinutes: 60, paused: false, createdAt: 5, condition: "the price is under 100" }, deleted: false },
+    ]);
+    await desk.sync();
+    const watch = desk.watches.list().find((w) => w.url === url);
+    expect(watch).toMatchObject({ intervalMinutes: 60, condition: "the price is under 100", lastResult: "pending" });
+
+    // The monitor checks it (simulated): the next sync publishes the result for the phone.
+    desk.watches.update(watch!.id, { lastCheckedAt: 100, lastChangedAt: 100, lastResult: "changed", changeSummary: "Price dropped to 89", conditionMet: true, conditionDetail: "Price: 89" });
+    await desk.sync();
+    const deskId = await desk.client.getDeviceId();
+    const published = (await phone.pull()).filter((i) => i.collection === "watch_status" && i.id === deskId);
+    const status = parseDeviceWatchStatus(published[published.length - 1]?.payload);
+    expect(status?.device).toBe("Desk");
+    expect(status?.watches.find((w) => w.url === url)).toEqual({
+      url,
+      lastCheckedAt: 100,
+      lastChangedAt: 100,
+      result: "changed",
+      summary: "Price dropped to 89",
+      conditionMet: true,
+      conditionDetail: "Price: 89",
+    });
+    // Nothing changed since: no new record.
+    expect(await desk.sync()).toMatchObject({ pushed: 0 });
+    desk.close();
   });
 });

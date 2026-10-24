@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.12.0
+
+### Reading list
+- **Read state**: corvus://reading has Mark read / Mark unread, synced with your other devices
+  and the Corvus mobile app.
+- **Links saved on your phone**: a link saved to the reading list from the mobile app arrives
+  without its article; Corvus fetches the page (public addresses only, without your cookies) and
+  keeps the reader-mode article, which then syncs back to the phone.
+
+### Sync
+- **Watched pages on your phone**: Corvus publishes what its page monitor last saw of each
+  watched page (last check and change, the change summary, whether your "Notify me when…"
+  condition holds), so the mobile app can show it. Watches added on the phone are monitored here.
+- **Sync server**: the server now accepts that status (collection `watch_status`). If you host
+  your own, update it; an older server simply leaves it out.
+
 ## v0.11.0
 
 ### Sync

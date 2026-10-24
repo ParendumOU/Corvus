@@ -81,6 +81,7 @@ type InternalHandlers<T> = {
 export const READING_INTERNAL_PERMISSIONS: Record<keyof ReadingLibraryRpc, readonly InternalPage[]> = {
   "reading.list": ["reading"],
   "reading.remove": ["reading"],
+  "reading.setRead": ["reading"],
   "reading.export": ["reading"],
   "reading.open": ["reading"],
 };
@@ -89,6 +90,7 @@ export function readingInternalHandlers(): InternalHandlers<ReadingLibraryRpc> {
   return {
     "reading.list": (c, query) => c.profile.reading.list(str(query ?? "", "query", 512)),
     "reading.remove": (c, id) => c.profile.reading.remove(str(id, "id", 128)),
+    "reading.setRead": (c, id, read) => c.profile.reading.setRead(str(id, "id", 128), read === true),
     "reading.open": (c, id) => {
       const item = c.profile.reading.get(str(id, "id", 128));
       if (item && c.window) c.window.openUrl(item.url, "new-tab");

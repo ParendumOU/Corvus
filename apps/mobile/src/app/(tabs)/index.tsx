@@ -14,6 +14,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { ago } from '@/lib/format';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { filterTabs, tabHost, type ComputerTabs } from '@/lib/replica';
+import { changedRecently } from '@/lib/watches';
 
 const OUTBOX_REFRESH_MS = 10_000;
 
@@ -140,6 +141,24 @@ export default function HomeScreen() {
             </ThemedView>
           )}
 
+          {session.status === 'paired' && (
+            <Pressable accessibilityRole="button" onPress={() => router.push('/watches')} testID="home-watches">
+              <ThemedView type="backgroundElement" style={[styles.card, styles.watchCard]}>
+                <View style={styles.tabText}>
+                  <ThemedText type="smallBold">Watched pages</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {session.watches.length === 0
+                      ? 'Watch a page for changes or for a price to drop.'
+                      : `${session.watches.length} watched · ${changedRecently(session.watches)} changed in the last day`}
+                  </ThemedText>
+                </View>
+                <ThemedText type="smallBold" themeColor="textSecondary">
+                  ›
+                </ThemedText>
+              </ThemedView>
+            </Pressable>
+          )}
+
           {session.status === 'paired' && session.tabs.length > 0 && (
             <TextInput
               testID="tabs-filter"
@@ -218,6 +237,11 @@ const styles = StyleSheet.create({
   },
   tabText: {
     flex: 1,
+  },
+  watchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
   },
   pending: {
     flexDirection: 'row',
