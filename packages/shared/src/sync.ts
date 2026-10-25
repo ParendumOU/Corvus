@@ -24,7 +24,8 @@ export type SyncCollection =
   | "sent_tabs"
   | "watch_status"
   | "asks"
-  | "command_history";
+  | "command_history"
+  | "assist_history";
 
 export interface EncryptedRecord {
   id: string; // random, opaque

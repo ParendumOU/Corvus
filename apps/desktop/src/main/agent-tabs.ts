@@ -14,7 +14,7 @@ import type { BrowserWindowCtl } from "./window";
  */
 export class RunTabs implements RunTabsHandle {
   private readonly own = new Set<TabId>();
-  private groupId: GroupId | null = null;
+  private groupId_: GroupId | null = null;
   private title: string;
   /** The Command Bar's fresh tab, while it still shows the New Tab page. */
   private blank: TabId | null = null;
@@ -29,9 +29,15 @@ export class RunTabs implements RunTabsHandle {
   }
 
   /** The Command Bar's own tab: the first open_tab loads there instead of leaving it empty. */
-  adopt(id: TabId): void {
+  adopt(id: TabId, opts: { groupNow?: boolean } = {}): void {
     this.own.add(id);
     this.blank = id;
+    if (opts.groupNow) this.group();
+  }
+
+  /** The run's tab group, once it has one. */
+  get groupId(): GroupId | null {
+    return this.groupId_;
   }
 
   async open(url: string, name: string): Promise<Tab> {
@@ -42,7 +48,7 @@ export class RunTabs implements RunTabsHandle {
       this.group();
       return tab;
     }
-    const grouped = this.groupId && this.win.hasGroup(this.groupId) ? this.groupId : null;
+    const grouped = this.groupId_ && this.win.hasGroup(this.groupId_) ? this.groupId_ : null;
     const fresh = this.win.createTab(NEW_TAB_URL, { activate: this.watched(), agent: true, ...(grouped ? { groupId: grouped } : {}) });
     this.own.add(fresh.id);
     this.group();
@@ -91,7 +97,7 @@ export class RunTabs implements RunTabsHandle {
    * Returns them, so the panel can offer them; an untouched New Tab page is not worth offering.
    */
   release(): AgentLeftTab[] {
-    if (this.groupId) this.win.setAgentGroup(this.groupId, false);
+    if (this.groupId_) this.win.setAgentGroup(this.groupId_, false);
     const left: AgentLeftTab[] = [];
     for (const id of this.ownOpen()) {
       const found = this.ctx.windows.findTab(id);
@@ -125,12 +131,12 @@ export class RunTabs implements RunTabsHandle {
 
   private isOwn(id: TabId): boolean {
     if (this.own.has(id)) return true;
-    return this.groupId !== null && this.win.hasTab(id) && this.win.groupOf(id) === this.groupId;
+    return this.groupId_ !== null && this.win.hasTab(id) && this.win.groupOf(id) === this.groupId_;
   }
 
   private ownOpen(): TabId[] {
     const ids = new Set([...this.own].filter((id) => this.ctx.windows.findTab(id)));
-    if (this.groupId) for (const id of this.win.tabIds()) if (this.win.groupOf(id) === this.groupId) ids.add(id);
+    if (this.groupId_) for (const id of this.win.tabIds()) if (this.win.groupOf(id) === this.groupId_) ids.add(id);
     return [...ids];
   }
 
@@ -149,13 +155,13 @@ export class RunTabs implements RunTabsHandle {
   private group(): void {
     const ids = [...this.own].filter((id) => this.win.hasTab(id));
     if (ids.length === 0) return;
-    if (this.groupId && this.win.hasGroup(this.groupId)) {
-      const loose = ids.filter((id) => this.win.groupOf(id) !== this.groupId);
-      if (loose.length > 0) this.win.addToGroup(loose, this.groupId);
-      if (this.win.listGroups().find((g) => g.id === this.groupId)?.title !== this.title) this.win.updateGroup(this.groupId, { title: this.title });
+    if (this.groupId_ && this.win.hasGroup(this.groupId_)) {
+      const loose = ids.filter((id) => this.win.groupOf(id) !== this.groupId_);
+      if (loose.length > 0) this.win.addToGroup(loose, this.groupId_);
+      if (this.win.listGroups().find((g) => g.id === this.groupId_)?.title !== this.title) this.win.updateGroup(this.groupId_, { title: this.title });
       return;
     }
-    this.groupId = this.win.createGroup(ids, { title: this.title })?.id ?? null;
-    if (this.groupId) this.win.setAgentGroup(this.groupId, true);
+    this.groupId_ = this.win.createGroup(ids, { title: this.title })?.id ?? null;
+    if (this.groupId_) this.win.setAgentGroup(this.groupId_, true);
   }
 }

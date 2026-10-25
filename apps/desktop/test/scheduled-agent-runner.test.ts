@@ -86,13 +86,35 @@ function mockController() {
 
 function fakeWindow(): BrowserWindowCtl {
   const tabs = new Set<string>();
+  const groups = new Map<string, { id: string; title: string; collapsed: boolean; tabs: Set<string> }>();
+  const groupOf = (id: string): string | undefined => [...groups.values()].find((g) => g.tabs.has(id))?.id;
   return {
     createTab: () => {
       tabs.add("sched1");
-      return { id: "sched1" };
+      return { id: "sched1", view: { webContents: { isDestroyed: () => false, getURL: () => "corvus://newtab/" } } };
     },
     hasTab: (id: string) => tabs.has(id),
     closeTab: (id: string) => tabs.delete(id),
+    tabIds: () => [...tabs],
+    listTabs: () => [...tabs].map((id) => ({ id, url: "corvus://newtab/", title: "New Tab" })),
+    getTab: (id: string) => (tabs.has(id) ? { id } : undefined),
+    toTab: (t: { id: string }) => ({ id: t.id, url: "corvus://newtab/", title: "New Tab" }),
+    groupOf,
+    hasGroup: (id: string) => groups.has(id),
+    listGroups: () => [...groups.values()].map((g) => ({ id: g.id, title: g.title, color: "grey", collapsed: g.collapsed })),
+    createGroup: (ids: string[], opts: { title?: string }) => {
+      const g = { id: "g1", title: opts.title ?? "", collapsed: false, tabs: new Set(ids) };
+      groups.set(g.id, g);
+      return { id: g.id, title: g.title, color: "grey", collapsed: false };
+    },
+    updateGroup: (id: string, patch: { collapsed?: boolean; title?: string }) => Object.assign(groups.get(id) ?? {}, patch),
+    addToGroup: vi.fn(),
+    closeGroup: (id: string) => {
+      for (const t of groups.get(id)?.tabs ?? []) tabs.delete(t);
+      groups.delete(id);
+    },
+    setAgentGroup: vi.fn(),
+    clearAgentMark: vi.fn(),
     activate: vi.fn(),
     isDisposed: () => false,
     openSingleton: vi.fn(),
@@ -110,7 +132,12 @@ function fakeContext(controller: ReturnType<typeof mockController>, maxSteps = 1
       get: () => ({ scheduledAgents: { enabled: true, maxSteps, maxTokens: 60000 }, ai: { provider: "anthropic-api", model: "fake" } }),
       getSecret: () => "sk-test",
     },
-    windows: { forProfile: () => [win], open: () => win, focused: () => win },
+    windows: {
+      forProfile: () => [win],
+      open: () => win,
+      focused: () => win,
+      findTab: (id: string) => (win.hasTab(id) ? { window: win, tab: { id, view: { webContents: { isDestroyed: () => false, getURL: () => "corvus://newtab/" } } } } : undefined),
+    },
   } as unknown as AppContext;
   return { ctx, win };
 }

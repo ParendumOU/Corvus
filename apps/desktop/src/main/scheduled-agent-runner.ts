@@ -4,20 +4,22 @@
  * Bar uses (runAgent + the shared TOOLS / AGENT_SYSTEM / executor), but in a background tab, under
  * strict step and token caps, and with a scheduled-run approval gate that NEVER auto-approves — a
  * risky action (or a secret/CAPTCHA handoff, or ask_user) pauses the run, surfaces its tab and raises
- * a notification until the user approves, skips or stops it on corvus://schedules. When the run ends
- * it captures the agent's summary, closes the tab, records the result and notifies, exactly like the
- * watches change alert.
+ * a notification until the user approves, skips or stops it on corvus://schedules. It works in a tab
+ * group named after the schedule (folded, with the busy dot), which stays when the run ends so the
+ * person can look at what it found; the schedule's next run replaces it. It records the result and
+ * notifies, exactly like the watches change alert.
  */
 import crypto from "node:crypto";
 import { Notification } from "electron";
 import { AgentStopError, runAgent, type AgentModelProvider, type AgentStep, type AgentToolResult, type ToolExecutor } from "@corvus/ai-engine";
-import type { TabId } from "@corvus/shared";
+import type { GroupId } from "@corvus/shared";
 import { summarizeArgs } from "../shared/agent-activity";
 import type { AgentApprovalDecision } from "../shared/command-bar-ipc";
-import { NEW_TAB_URL } from "../shared/internal-urls";
+import { NEW_TAB_URL, isNewTabUrl } from "../shared/internal-urls";
 import { MAX_CONCURRENT_RUNS, clampMaxSteps, selectDueSchedules, type AgentSchedule, type ScheduleRunRecord } from "../shared/schedule";
 import type { ScheduleApprovalView, ScheduleInput, ScheduleView } from "../shared/schedule-ipc";
-import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, argStr, classifyToolCall, providerFromSettings, runAgentTool, type ToolRunState } from "./agent-tools";
+import { AGENT_SYSTEM, PER_TURN_TOKENS, RUN_OPEN_TAB, RUN_TAB_TOOLS, TOOLS, argStr, classifyToolCall, providerFromSettings, runAgentTool, type ToolRunState } from "./agent-tools";
+import { RunTabs } from "./agent-tabs";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
 import { ScheduleStore } from "./schedule-store";
@@ -41,7 +43,11 @@ interface ActiveRun extends ToolRunState {
   cancelled: boolean;
   deadline: NodeJS.Timeout;
   approval: { view: ScheduleApprovalView; resolve: (d: AgentApprovalDecision) => void } | null;
+  tabs?: RunTabs;
 }
+
+/** A scheduled run's tools: the shared browser tools, with its tabs kept in its own group. */
+const SCHEDULED_TOOLS = [...TOOLS.map((t) => (t.name === "open_tab" ? RUN_OPEN_TAB : t)), ...RUN_TAB_TOOLS];
 
 function errorText(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
@@ -51,6 +57,8 @@ function errorText(err: unknown): string {
 export class ScheduledAgentRunner {
   private readonly stores = new Map<string, ScheduleStore>();
   private readonly active = new Map<string, ActiveRun>();
+  /** The tab group each schedule's last run left, replaced by its next run. */
+  private readonly lastGroups = new Map<string, { win: BrowserWindowCtl; groupId: GroupId }>();
   /** Schedule ids with a run in flight (global; ids are unique uuids). */
   private readonly running = new Set<string>();
   private testProvider: AgentModelProvider | null | undefined;
@@ -230,7 +238,17 @@ export class ScheduledAgentRunner {
     this.ctx.agents.clientConnected(SCHED_CLIENT, true);
 
     try {
+      // The previous run of this schedule makes way: its group of tabs is replaced by this one.
+      const previous = this.lastGroups.get(schedule.id);
+      if (previous && !previous.win.isDisposed() && previous.win.hasGroup(previous.groupId)) previous.win.closeGroup(previous.groupId);
+      run.tabs = new RunTabs(this.ctx, win, schedule.name, null);
       run.tabId = win.createTab(NEW_TAB_URL, { activate: false, agent: true }).id;
+      run.tabs.adopt(run.tabId, { groupNow: true });
+      const groupId = run.tabs.groupId;
+      if (groupId) {
+        win.updateGroup(groupId, { collapsed: true });
+        this.lastGroups.set(schedule.id, { win, groupId });
+      }
       const settings = this.ctx.settings.get().scheduledAgents;
       const maxSteps = Math.min(clampMaxSteps(schedule.maxSteps), settings.maxSteps);
       const execute: ToolExecutor = (name, input, signal) => this.execute(run, name, input, signal);
@@ -238,7 +256,7 @@ export class ScheduledAgentRunner {
         provider,
         system: AGENT_SYSTEM,
         task: schedule.task,
-        tools: TOOLS,
+        tools: SCHEDULED_TOOLS,
         execute,
         maxSteps,
         maxTokens: PER_TURN_TOKENS,
@@ -257,7 +275,10 @@ export class ScheduledAgentRunner {
       }
       record.endedAt = Date.now();
       record.summary = (run.finalText.trim() || record.summary || this.fallbackSummary(record)).slice(0, SUMMARY_CHARS);
-      if (run.tabId) this.closeTab(win, run.tabId);
+      // Its tabs stay for the person (no agent badge or busy dot any more); a run that opened no page
+      // leaves nothing behind.
+      run.tabs?.release();
+      if (run.tabId && run.tabs?.groupId && this.onlyBlank(win, run.tabs.groupId)) win.closeGroup(run.tabs.groupId);
       run.approval = null;
       this.active.delete(schedule.id);
       this.running.delete(schedule.id);
@@ -365,6 +386,8 @@ export class ScheduledAgentRunner {
 
   /** Bring the agent tab to the front and notify, so the user can see what needs approval. */
   private surfaceForApproval(run: ActiveRun, view: ScheduleApprovalView): void {
+    const groupId = run.tabs?.groupId;
+    if (groupId && !run.win.isDisposed() && run.win.hasGroup(groupId)) run.win.updateGroup(groupId, { collapsed: false });
     if (run.tabId && !run.win.isDisposed()) {
       run.win.activate(run.tabId);
       if (!run.win.win.isDestroyed()) run.win.win.focus();
@@ -397,8 +420,11 @@ export class ScheduledAgentRunner {
     win?.openSingleton(SCHEDULES_URL);
   }
 
-  private closeTab(win: BrowserWindowCtl, tabId: TabId): void {
-    if (!win.isDisposed() && win.hasTab(tabId)) win.closeTab(tabId);
+  /** The group holds nothing but an empty New Tab page (the run never opened a site). */
+  private onlyBlank(win: BrowserWindowCtl, groupId: GroupId): boolean {
+    if (win.isDisposed() || !win.hasGroup(groupId)) return false;
+    const tabs = win.listTabs().filter((t) => win.groupOf(t.id) === groupId);
+    return tabs.every((t) => isNewTabUrl(t.url));
   }
 
   private touch(run: ActiveRun): void {

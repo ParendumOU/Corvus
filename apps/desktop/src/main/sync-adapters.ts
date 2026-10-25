@@ -27,6 +27,7 @@ import type { Workspace } from "../shared/workspaces";
 import { WIPE_RECORD_ID, parseSiteMemoryWipe, parseSyncedSiteMemory, type SiteMemoryWipe, type SyncedSiteMemory } from "../shared/site-memory-sync";
 import { parseSyncedWorkflow, type SyncedWorkflow } from "../shared/workflow-sync";
 import { parseCommandRecent, type CommandRecent } from "../shared/command-history";
+import { reviveConversation, type AssistConversation } from "../shared/assist-history";
 import { readSetting, settingsPatch, syncedSettingKeys, type SyncedSettingKey } from "../shared/sync-settings";
 import { JsonFile } from "./json-file";
 import type { BookmarkStore, HistoryStore } from "./stores";
@@ -240,6 +241,31 @@ export function commandHistoryAdapter(store: CommandHistorySyncStore): SyncAdapt
       }
       store.applyRemote(changes);
     },
+  };
+}
+
+export interface AssistHistorySyncStore {
+  syncList(): Array<{ id: string; payload: AssistConversation }>;
+  applyRemote(changes: ReadonlyArray<{ id: string; conversation: AssistConversation | null }>): void;
+  retain(id: string): boolean;
+}
+
+/** Assist conversations, one record per conversation; the newer version wins (see the store). */
+export function assistHistoryAdapter(store: AssistHistorySyncStore): SyncAdapter<unknown> {
+  return {
+    list: () => store.syncList(),
+    apply: (items) => {
+      const changes: Array<{ id: string; conversation: AssistConversation | null }> = [];
+      for (const item of items) {
+        if (item.deleted) changes.push({ id: item.id, conversation: null });
+        else {
+          const conversation = reviveConversation({ ...(item.payload as object), id: item.id });
+          if (conversation) changes.push({ id: item.id, conversation });
+        }
+      }
+      store.applyRemote(changes);
+    },
+    retain: (id) => store.retain(id),
   };
 }
 
@@ -479,6 +505,8 @@ export interface SyncSources {
   siteMemory?: SiteMemorySyncStore;
   /** Command Bar recents; left out when the user turned their sync off on this device. */
   commands?: CommandHistorySyncStore;
+  /** Assist conversations; left out when the user turned their sync off on this device. */
+  assistHistory?: AssistHistorySyncStore;
   settings: SettingsAccess;
   /** User opt-in to also sync machine-specific service URLs (SearXNG). */
   includeServiceUrls: () => boolean;
@@ -503,6 +531,7 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
     ...(src.workflows ? { workflows: workflowsAdapter(src.workflows) } : {}),
     ...(src.siteMemory ? { site_memory: siteMemoryAdapter(src.siteMemory) } : {}),
     ...(src.commands ? { command_history: commandHistoryAdapter(src.commands) } : {}),
+    ...(src.assistHistory ? { assist_history: assistHistoryAdapter(src.assistHistory) } : {}),
     settings: settingsAdapter(src.settings, src.includeServiceUrls),
     profiles: profileAdapter(src.profile),
     open_tabs: deviceRecordsAdapter({

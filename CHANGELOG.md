@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.23.0
+
+### AI
+- **Scheduled agents work where you can see them**: a scheduled task runs in a folded tab group
+  named after it (with the busy dot while it works) instead of a hidden tab it closed at the end.
+  The tabs it opened stay so you can look at what it found, and its next run replaces them, so they
+  never pile up. When it needs your OK, its group unfolds and the tab comes to the front.
+
+### Sync
+- **Assist conversations on all your devices**: the conversation history syncs end to end, so a
+  conversation started on one computer can be carried on from another (the latest 30 messages of
+  each; private windows keep none). Settings → Sync → Assist conversations turns it off on a device.
+  A self-hosted sync server needs this version's server to carry them; an older one simply leaves
+  them out.
+
 ## v0.22.0
 
 ### AI

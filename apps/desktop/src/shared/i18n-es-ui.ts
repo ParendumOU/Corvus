@@ -1453,6 +1453,9 @@ export const ES_UI: Record<string, string> = {
   "Tasks under way": "Tareas en marcha",
   "No agent task is running in this window.": "No hay ninguna tarea del agente en marcha en esta ventana.",
   "waiting for you": "esperándote",
+  "Assist conversations": "Conversaciones de Assist",
+  "Your conversations with Assist and the page each was on, so you can carry one on from another device (the latest 30 messages of each). Private windows keep none. Off: this device keeps its conversations but stops syncing them.": "Tus conversaciones con Assist y la página en la que estaba cada una, para seguir una desde otro dispositivo (los últimos 30 mensajes de cada una). Las ventanas privadas no guardan ninguna. Desactivado: este dispositivo conserva sus conversaciones pero deja de sincronizarlas.",
+  "Sync Assist conversations": "Sincronizar conversaciones de Assist",
   // <title> of internal pages (translated when served, see main/protocol.ts)
   "New Tab": "Nueva pestaña",
   "PDF": "PDF",

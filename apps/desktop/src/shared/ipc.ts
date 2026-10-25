@@ -315,6 +315,8 @@ export interface SyncStatus {
   syncSiteMemory: boolean;
   /** Sync what was run from the Command Bar (per device, default on). */
   syncCommandHistory: boolean;
+  /** Sync Assist conversations (per device, default on). */
+  syncAssistHistory: boolean;
   /** This device's changes a newer change from another device replaced (Settings > Sync). */
   conflicts: number;
 }
@@ -331,6 +333,7 @@ export interface SyncOptions {
   syncWorkflows?: boolean;
   syncSiteMemory?: boolean;
   syncCommandHistory?: boolean;
+  syncAssistHistory?: boolean;
 }
 
 export interface EngineInfo {

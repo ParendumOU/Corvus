@@ -509,6 +509,12 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       >
         <Toggle label={t("Sync Command Bar history")} checked={status.syncCommandHistory} onChange={(v) => act(api.call("sync.setOptions", { syncCommandHistory: v }))} />
       </Row>
+      <Row
+        label={t("Assist conversations")}
+        hint={t("Your conversations with Assist and the page each was on, so you can carry one on from another device (the latest 30 messages of each). Private windows keep none. Off: this device keeps its conversations but stops syncing them.")}
+      >
+        <Toggle label={t("Sync Assist conversations")} checked={status.syncAssistHistory} onChange={(v) => act(api.call("sync.setOptions", { syncAssistHistory: v }))} />
+      </Row>
       <Row label={t("Also sync the SearXNG URL")} hint={t("Off by default because service URLs often point to this machine (localhost).")}>
         <Toggle label={t("Also sync the SearXNG URL")} checked={status.syncServiceUrls} onChange={(v) => act(api.call("sync.setOptions", { syncServiceUrls: v }))} />
       </Row>

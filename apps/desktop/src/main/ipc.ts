@@ -575,6 +575,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
         ...(typeof o.syncServiceUrls === "boolean" ? { syncServiceUrls: o.syncServiceUrls } : {}),
         ...(typeof o.syncWorkflows === "boolean" ? { syncWorkflows: o.syncWorkflows } : {}),
         ...(typeof o.syncCommandHistory === "boolean" ? { syncCommandHistory: o.syncCommandHistory } : {}),
+        ...(typeof o.syncAssistHistory === "boolean" ? { syncAssistHistory: o.syncAssistHistory } : {}),
         ...(typeof o.syncSiteMemory === "boolean" ? { syncSiteMemory: o.syncSiteMemory } : {}),
       });
     },

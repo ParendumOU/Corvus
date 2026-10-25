@@ -39,6 +39,8 @@ interface ProfileSyncState {
   syncSiteMemory: boolean;
   /** Sync the Command Bar's recents (per device, default on; off keeps local data). */
   syncCommandHistory: boolean;
+  /** Sync Assist conversations (per device, default on; off keeps local data). */
+  syncAssistHistory: boolean;
   /** Client/engine state written by older versions; moved to sync-kv.json on first start. */
   kv?: Record<string, string>;
 }
@@ -220,6 +222,7 @@ export class SyncService {
         syncWorkflows: true,
         syncSiteMemory: true,
         syncCommandHistory: true,
+        syncAssistHistory: true,
       });
       file = JsonFile.load<ProfileSyncState>(
         path.join(profile.dataDir, "sync.json"),
@@ -304,6 +307,7 @@ export class SyncService {
     const flows = file.get().syncWorkflows ? this.ctx.flows?.storeFor(profile) : undefined;
     const memory = file.get().syncSiteMemory ? this.ctx.flows?.memory.storeFor(profile) : undefined;
     const commands = file.get().syncCommandHistory ? profile.commands : undefined;
+    const assistHistory = file.get().syncAssistHistory ? profile.assistHistory : undefined;
     const published = { key: "", extensions: [] as SyncedExtension[] };
     const watchStatus = new StampedRecord(() => ({
       device: file.get().deviceName,
@@ -321,6 +325,7 @@ export class SyncService {
       ...(flows ? { workflows: flows } : {}),
       ...(memory ? { siteMemory: memory } : {}),
       ...(commands ? { commands } : {}),
+      ...(assistHistory ? { assistHistory } : {}),
       settings: this.ctx.settings,
       includeServiceUrls: () => file.get().syncServiceUrls,
       profile: {
@@ -382,6 +387,7 @@ export class SyncService {
         ...(flows ? [flows.onChange(() => scheduler.poke())] : []),
         ...(memory ? [memory.onChange(() => scheduler.poke())] : []),
         ...(commands ? [commands.onChange(() => scheduler.poke())] : []),
+        ...(assistHistory ? [assistHistory.onChange(() => scheduler.poke())] : []),
         pollInbox(client, "sent_tabs", INBOX_POLL_MS, () => scheduler.poke()),
         pollInbox(client, "asks", ASKS_POLL_MS, () => void scheduler.trigger().catch(() => undefined)),
       ],
@@ -414,6 +420,7 @@ export class SyncService {
       this.ctx.flows?.storeFor(profile).flush();
       this.ctx.flows?.memory.storeFor(profile).flush();
       profile.commands.flush();
+      profile.assistHistory.flush();
       await engine.sync();
       file.update((s) => ({ ...s, lastSyncAt: Date.now() }));
       this.errors.delete(id);
@@ -529,6 +536,7 @@ export class SyncService {
       syncWorkflows: s.syncWorkflows,
       syncSiteMemory: s.syncSiteMemory,
       syncCommandHistory: s.syncCommandHistory,
+      syncAssistHistory: s.syncAssistHistory,
       conflicts: this.conflictStore(profile).list().length,
     };
   }
@@ -666,9 +674,13 @@ export class SyncService {
     const syncWorkflows = opts.syncWorkflows ?? s.syncWorkflows;
     const syncSiteMemory = opts.syncSiteMemory ?? s.syncSiteMemory;
     const syncCommandHistory = opts.syncCommandHistory ?? s.syncCommandHistory;
-    this.state(profile).update((st) => ({ ...st, intervalMinutes, syncServiceUrls, syncWorkflows, syncSiteMemory, syncCommandHistory }));
+    const syncAssistHistory = opts.syncAssistHistory ?? s.syncAssistHistory;
+    this.state(profile).update((st) => ({ ...st, intervalMinutes, syncServiceUrls, syncWorkflows, syncSiteMemory, syncCommandHistory, syncAssistHistory }));
     const rt = this.runtimes.get(profile.profile.id);
-    if (rt && (syncWorkflows !== s.syncWorkflows || syncSiteMemory !== s.syncSiteMemory || syncCommandHistory !== s.syncCommandHistory)) {
+    if (
+      rt &&
+      (syncWorkflows !== s.syncWorkflows || syncSiteMemory !== s.syncSiteMemory || syncCommandHistory !== s.syncCommandHistory || syncAssistHistory !== s.syncAssistHistory)
+    ) {
       // The engine's collections are fixed when it is built: rebuild it. A category turned off
       // forgets what it synced (local data stays); turned on, it joins with a full merge. A cycle
       // already running finishes first, so two engines never share the state.

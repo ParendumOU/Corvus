@@ -114,6 +114,19 @@ export async function runScheduledAgentSmoke(ctx: AppContext, h: Helpers): Promi
     const ended = await poll(wc, "!document.querySelector('.sched-approval')", 8000);
     const stopped = ctx.scheduledAgents.views(win.profile).find((v) => v.id === scheduleId);
     check("scheduled run stopped from the UI", ended && stopped?.running === false && stopped?.lastRun?.status === "stopped", stopped?.lastRun);
+
+    // It worked in a tab group named after the schedule, which stays with the page it opened.
+    let left: { group: string; tabs: string[]; agent: boolean[] } | null = null;
+    for (let i = 0; i < 20 && !left; i++) {
+      const group = win.listGroups().find((g) => g.title === "Smoke buy");
+      if (group) {
+        const ids = win.tabIds().filter((id) => win.groupOf(id) === group.id);
+        left = { group: group.title, tabs: ids.map((id) => win.getTab(id)?.url ?? ""), agent: ids.map((id) => win.getTab(id)?.agentControlled === true) };
+      } else await sleep(100);
+    }
+    check("scheduled run leaves its tabs in a group named after it", Boolean(left?.tabs.some((u) => u.startsWith(url))) && left!.agent.every((a) => !a), left);
+    const groupLeft = win.listGroups().find((g) => g.title === "Smoke buy");
+    if (groupLeft) win.closeGroup(groupLeft.id);
   } finally {
     if (scheduleId) ctx.scheduledAgents.remove(win.profile, scheduleId);
     ctx.scheduledAgents.setTestProvider(undefined);

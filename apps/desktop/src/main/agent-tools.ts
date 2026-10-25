@@ -181,14 +181,14 @@ export const TOOLS: AgentTool[] = [
  * names it, switch_tab and close_tab move between and tidy the run's tabs. Scheduled runs keep the
  * plain open_tab above.
  */
-const RUN_OPEN_TAB: AgentTool = {
+export const RUN_OPEN_TAB: AgentTool = {
   name: "open_tab",
   description:
     "Open an http(s) URL in a new tab and make it the working tab. Your tabs share one tab group the person sees, and stay open for them when you finish. group: a short name for that group (2-4 words, in the person's language), on your first open_tab.",
   inputSchema: { type: "object", properties: { url: { type: "string" }, group: { type: "string" } }, required: ["url"] },
 };
 
-const RUN_TAB_TOOLS: AgentTool[] = [
+export const RUN_TAB_TOOLS: AgentTool[] = [
   {
     name: "switch_tab",
     description: "Make one of your tabs (marked yours in list_tabs, or the tab you started in) the working tab and show it to the person.",

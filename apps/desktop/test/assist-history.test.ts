@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AssistMessage } from "../src/shared/assist-ipc";
-import { MAX_CONVERSATIONS, keptMessages, matchesConversation, reviveConversation, summarizeConversation, type AssistConversation } from "../src/shared/assist-history";
+import { MAX_CONVERSATIONS, SYNC_MESSAGES, keptMessages, syncedConversation, matchesConversation, reviveConversation, summarizeConversation, type AssistConversation } from "../src/shared/assist-history";
 import { AssistHistoryStore } from "../src/main/assist-history-store";
 
 const msg = (id: string, patch: Partial<AssistMessage> = {}): AssistMessage => ({ id, kind: "ask", prompt: "", text: "", status: "done", at: 1, ...patch });
@@ -87,5 +87,36 @@ describe("AssistHistoryStore", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("assist history sync", () => {
+  it("keeps the newer version, applies deletions and never deletes what the cap dropped", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-assist-sync-"));
+    try {
+      const store = new AssistHistoryStore(dir);
+      store.save(conversation("a", 10));
+      store.applyRemote([{ id: "a", conversation: conversation("a", 5, [msg("old", { prompt: "older" })]) }]);
+      expect(store.get("a")?.messages[0]?.id).toBe("m1");
+      store.applyRemote([{ id: "a", conversation: conversation("a", 20, [msg("new", { prompt: "newer" })]) }, { id: "b", conversation: conversation("b", 1) }]);
+      expect(store.get("a")?.messages[0]?.id).toBe("new");
+      expect(store.get("b")).toBeDefined();
+      store.applyRemote([{ id: "b", conversation: null }]);
+      expect(store.get("b")).toBeUndefined();
+      for (let i = 0; i < MAX_CONVERSATIONS; i++) store.save(conversation(`n${i}`, 100 + i));
+      expect(store.get("a")).toBeUndefined();
+      expect(store.retain("a")).toBe(true);
+      expect(store.retain("n5")).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("syncs the latest messages with answers capped", () => {
+    const long = conversation("c", 1, Array.from({ length: SYNC_MESSAGES + 5 }, (_, i) => msg(`m${i}`, { text: "x".repeat(i === SYNC_MESSAGES + 4 ? 9000 : 10) })));
+    const synced = syncedConversation(long);
+    expect(synced.messages).toHaveLength(SYNC_MESSAGES);
+    expect(synced.messages[0]?.id).toBe("m5");
+    expect(synced.messages.at(-1)!.text.length).toBe(8001);
   });
 });

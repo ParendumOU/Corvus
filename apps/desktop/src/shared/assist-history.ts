@@ -67,6 +67,18 @@ export function keptMessages(messages: readonly AssistMessage[]): AssistMessage[
     });
 }
 
+/** Messages and characters of each answer a synced conversation carries (a record stays small). */
+export const SYNC_MESSAGES = 30;
+const SYNC_TEXT = 8000;
+
+/** The conversation as synced to the person's other devices: its latest messages, answers capped. */
+export function syncedConversation(c: AssistConversation): AssistConversation {
+  return {
+    ...c,
+    messages: c.messages.slice(-SYNC_MESSAGES).map((m) => (m.text.length > SYNC_TEXT ? { ...m, text: `${m.text.slice(0, SYNC_TEXT)}…` } : m)),
+  };
+}
+
 /** Search the history: every word must appear in the question, the page title or its address. */
 export function matchesConversation(s: AssistConversationSummary, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);

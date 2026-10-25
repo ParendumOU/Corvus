@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-25 · current release: **v0.22.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-25 · current release: **v0.23.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
 
 ---
 
@@ -137,7 +137,7 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [x] Private windows: in-memory session per profile, no history, saved session, synced tabs or page
       index; downloads never saved to the list; out of reach of extensions and AI agents
 
-**An agent you can watch (M8)** (v0.20.2 → v0.22.0)
+**An agent you can watch (M8)** (v0.20.2 → v0.23.0)
 - [x] Visible browsing: the sites it uses open in its own tab group, named after the task, left open
 - [x] Step lines in the interface language; a busy dot on its group; the tabs it left open offered
 - [x] Take over: a click or key in its tab holds the run until the page is handed back
@@ -147,8 +147,8 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [x] Several Command Bar tasks at once, each in its own group
 - [x] Run history with a capture of the page after each step
 - [x] One place listing every live agent task (Command Bar and Assist) with Watch and Stop
-- [ ] Scheduled agents work in a visible background tab group and leave their tabs for the person
-- [ ] Assist conversation history synced end to end across devices
+- [x] Scheduled agents work in a visible (folded) tab group and leave their tabs for the person
+- [x] Assist conversation history synced end to end across devices
 
 ---
 
