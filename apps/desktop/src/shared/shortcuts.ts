@@ -3,6 +3,7 @@
 export type BrowserCommand =
   | { type: "new-tab" }
   | { type: "new-window" }
+  | { type: "new-private-window" }
   | { type: "close-tab" }
   | { type: "reopen-closed-tab" }
   | { type: "focus-omnibox" }
@@ -67,6 +68,8 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
     switch (key) {
       case "t":
         return { type: "reopen-closed-tab" };
+      case "n":
+        return { type: "new-private-window" };
       case "b":
         return { type: "toggle-bookmarks-bar" };
       case "o":

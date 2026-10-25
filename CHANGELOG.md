@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.20.0
+
+### Privacy & connections
+- **Private windows** (menu → New private window, Ctrl+Shift+N, or a link's menu → Open link in
+  private window): cookies, storage and cache live in memory only and go when the last private
+  window closes; no history, no place in the saved session, the synced open tabs or "Find in my
+  pages". Their downloads are listed while they are open and never saved to the list (the files
+  stay). Extensions do not run in them and AI agents do not see them. They connect like their
+  profile (its proxy too). The toolbar says **Private**, and so does the New Tab page.
+- **Proxies** (Settings → Connections): send a profile through an HTTP, HTTPS, SOCKS4, SOCKS5 or PAC
+  proxy, and each container through a different one. Proxies that ask for a sign-in get it from
+  Corvus (the password is encrypted with the system keychain). **Site rules** send some sites
+  another way (`*.example.com` direct, or through another proxy). A proxy that stops answering
+  makes its pages fail instead of going out through your own connection, and WebRTC stays on the
+  proxy so sites cannot see your real address. Downloads and extensions go the same way; sync,
+  updates and AI services keep using the computer's connection. **Test** tries a proxy on its
+  own, and **Check connection** shows the address sites see (it asks Cloudflare, only when you
+  click it).
+
 ## v0.19.0
 
 ### Downloads

@@ -198,6 +198,12 @@ function NewTab() {
   return (
     <div className={`newtab ${editing ? "editing" : ""} ${tone ? `on-${tone}` : ""} ${layout.background.kind !== "default" ? "has-bg" : ""}`} onPointerMove={move} onPointerUp={end}>
       <BackgroundLayer background={layout.background} />
+      {view.privateWindow && (
+        <div className="nt-private" data-newtab-private>
+          <strong>{t("Private window")}</strong>
+          <span>{t("Corvus keeps no history of this window, and its cookies and site data go when the last private window closes. Downloads and bookmarks you make stay. Extensions and AI agents do not see it.")}</span>
+        </div>
+      )}
       <div ref={grid} className="nt-grid" style={{ gridTemplateRows: `repeat(${rows}, ${ROW}px)` }}>
         {layout.widgets.map((w) => (
           <section

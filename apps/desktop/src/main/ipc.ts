@@ -1,13 +1,15 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { app, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
 import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from "../shared/browser-import";
 import { SHOWN_COMMAND_RECENTS } from "../shared/command-history";
+import { PROXY_KINDS, type ConnectionChoice } from "../shared/connections";
 import { parsePasswordCsv } from "../shared/password-import";
-import type { BookmarkImportResult, PasswordImportResult } from "../shared/ipc";
+import type { BookmarkImportResult, ConnectionsView, PasswordImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
 import { internalPageOf, type InternalPage } from "../shared/internal-urls";
 import { clampInterval, isWatchableUrl } from "../shared/page-watch";
@@ -19,6 +21,7 @@ import { GROUP_COLORS, type GroupPatch } from "../shared/tab-strip";
 import type { SecretKey, SettingsPatch } from "../shared/settings";
 import { toRecordView } from "./agent-run-store";
 import { ANNOTATIONS_INTERNAL_PERMISSIONS, annotationsInternalHandlers, registerAnnotationCapture } from "./ipc-annotations";
+import { checkConnection, testProxy, type ProxyInput } from "./connections";
 import type { AppContext } from "./context";
 import { showExtensionMenu } from "./extension-windows";
 import { BundleError, MIN_BUNDLE_PASSWORD } from "./profile-bundle";
@@ -293,6 +296,15 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "phone.status": ["settings"],
   "phone.connect": ["settings"],
   "phone.disconnect": ["settings"],
+  "connections.get": ["settings"],
+  "connections.saveProxy": ["settings"],
+  "connections.removeProxy": ["settings"],
+  "connections.setProfile": ["settings"],
+  "connections.setContainer": ["settings"],
+  "connections.setRules": ["settings"],
+  "connections.setWebrtc": ["settings"],
+  "connections.check": ["settings"],
+  "connections.test": ["settings"],
   "containers.list": ["settings"],
   "containers.add": ["settings"],
   "containers.update": ["settings"],
@@ -606,6 +618,47 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "phone.status": () => ctx.telegram.status(),
     "phone.connect": (_c, token) => ctx.telegram.connect(token === undefined || token === null ? undefined : str(token, "token", 200)),
     "phone.disconnect": () => ctx.telegram.disconnect(),
+    "connections.get": (c) => connectionsView(c.profile),
+    "connections.saveProxy": (c, input, id) => {
+      c.profile.connections.saveProxy(proxyInput(input), id === undefined || id === null ? undefined : str(id, "id", 64));
+      return connectionsView(c.profile);
+    },
+    "connections.removeProxy": (c, id) => {
+      c.profile.connections.removeProxy(str(id, "id", 64));
+      return connectionsView(c.profile);
+    },
+    "connections.setProfile": (c, choice) => {
+      c.profile.connections.setProfileChoice(connectionChoice(choice));
+      return connectionsView(c.profile);
+    },
+    "connections.setContainer": (c, containerId, choice) => {
+      const id = str(containerId, "container", 64);
+      if (!c.profile.containers.get(id)) throw new IpcError("No such container");
+      c.profile.connections.setContainerChoice(id, choice === null || choice === undefined ? null : connectionChoice(choice));
+      return connectionsView(c.profile);
+    },
+    "connections.setRules": (c, rules) => {
+      if (!Array.isArray(rules) || rules.length > 200) throw new IpcError("Invalid rules");
+      c.profile.connections.setRules(rules.map((r) => ({ pattern: str((r as { pattern?: unknown })?.pattern, "pattern", 255), via: str((r as { via?: unknown })?.via, "via", 64) })));
+      return connectionsView(c.profile);
+    },
+    "connections.setWebrtc": (c, on) => {
+      c.profile.connections.setWebrtcProtection(on === true);
+      return connectionsView(c.profile);
+    },
+    "connections.check": async (c, containerId) => {
+      const id = containerId === undefined || containerId === null ? null : str(containerId, "container", 64);
+      if (id && !c.profile.containers.get(id)) throw new IpcError("No such container");
+      const ses = id ? c.profile.containerSession(id) : c.profile.session;
+      await c.profile.whenConnected(ses);
+      return checkConnection(ses, (host, port) => c.profile.proxyCredentials(host, port));
+    },
+    "connections.test": (c, proxyId) => {
+      const id = str(proxyId, "id", 64);
+      const proxy = c.profile.connections.config().proxies.find((p) => p.id === id);
+      if (!proxy) throw new IpcError("No such proxy");
+      return testProxy(proxy, c.profile.connections.password(id), `corvus-proxy-test-${crypto.randomUUID()}`);
+    },
     "containers.list": (c) => c.profile.containers.list(),
     "containers.add": (c, name, color) => {
       c.profile.containers.add(str(name, "name", 200), str(color, "color", 20) as GroupColor);
@@ -624,6 +677,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       if (!c.profile.containers.get(containerId)) return c.profile.containers.list();
       for (const win of ctx.windows.forProfile(c.profile.profile.id)) win.closeContainerTabs(containerId);
       c.profile.containers.remove(containerId);
+      c.profile.connections.setContainerChoice(containerId, null);
       await c.profile.clearContainer(containerId);
       return c.profile.containers.list();
     },
@@ -864,4 +918,31 @@ export function registerIpc(ctx: AppContext): void {
     const handler = internal[method as keyof InternalRpc] as (c: InternalContext, ...a: unknown[]) => unknown;
     return handler({ sender: event.sender, page, profile, window: found?.window }, ...(Array.isArray(args) ? args : []));
   });
+}
+
+function connectionsView(profile: ProfileRuntime): ConnectionsView {
+  return { config: profile.connections.config(), containers: profile.containers.list(), keychain: safeStorage.isEncryptionAvailable() };
+}
+
+function connectionChoice(raw: unknown): ConnectionChoice {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  if (o.mode === "system" || o.mode === "direct") return { mode: o.mode };
+  if (o.mode === "proxy") return { mode: "proxy", proxyId: str(o.proxyId, "proxy", 64) };
+  throw new IpcError("Invalid connection");
+}
+
+function proxyInput(raw: unknown): ProxyInput {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const kind = PROXY_KINDS.find((k) => k === o.kind);
+  if (!kind) throw new IpcError("Invalid proxy type");
+  const port = typeof o.port === "number" ? o.port : Number(o.port);
+  return {
+    name: typeof o.name === "string" ? str(o.name, "name", 60) : "",
+    kind,
+    host: typeof o.host === "string" ? str(o.host, "host", 255) : "",
+    port: Number.isFinite(port) ? port : 0,
+    ...(typeof o.pacUrl === "string" && o.pacUrl ? { pacUrl: str(o.pacUrl, "pacUrl", 2000) } : {}),
+    ...(typeof o.username === "string" ? { username: str(o.username, "username", 255) } : {}),
+    ...(typeof o.password === "string" ? { password: str(o.password, "password", 1000) } : {}),
+  };
 }

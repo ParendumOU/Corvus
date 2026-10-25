@@ -48,7 +48,7 @@ export class SessionRestore {
   }
 
   capture(): SessionSnapshot {
-    const windows = this.ctx.windows.all().filter((w) => !w.isDisposed());
+    const windows = this.ctx.windows.regular().filter((w) => !w.isDisposed());
     return buildSnapshot(
       windows.map((w) => w.sessionWindow()),
       Date.now(),
@@ -67,7 +67,7 @@ export class SessionRestore {
   /** Called before a window closes. Closing the last one keeps it in the saved session. */
   windowClosing(win: BrowserWindowCtl): void {
     if (this.frozen) return;
-    const others = this.ctx.windows.all().filter((w) => w !== win && !w.isDisposed());
+    const others = this.ctx.windows.regular().filter((w) => w !== win && !w.isDisposed());
     if (others.length > 0) {
       this.markDirty();
       return;

@@ -18,6 +18,8 @@ export interface NewTabView {
   topSites: NewTabSite[];
   mcpRunning: boolean;
   canUndo: boolean;
+  /** Shown in a private window. */
+  privateWindow?: boolean;
 }
 
 export interface FeedItem {

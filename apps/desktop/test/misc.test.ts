@@ -162,6 +162,8 @@ describe("shortcuts", () => {
   it.each([
     [key("t", { control: true }), { type: "new-tab" }],
     [key("T", { control: true, shift: true }), { type: "reopen-closed-tab" }],
+    [key("N", { control: true, shift: true }), { type: "new-private-window" }],
+    [key("n", { control: true }), { type: "new-window" }],
     [key("w", { control: true }), { type: "close-tab" }],
     [key("l", { control: true }), { type: "focus-omnibox" }],
     [key("Tab", { control: true }), { type: "next-tab" }],

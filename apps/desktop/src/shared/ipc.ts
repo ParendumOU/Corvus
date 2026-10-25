@@ -10,6 +10,7 @@ import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModel
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
 import type { Container, TabContainer } from "./containers";
+import type { ConnectionChoice, ConnectionsConfig, ProxyKind, SiteRule } from "./connections";
 import type { TelegramConnectResult, TelegramStatus } from "./phone-share";
 import type { AnnotationLibraryRpc } from "./annotations-ipc";
 import type { AgentRunsInternalEvent, AgentRunsInternalRpc } from "./agent-run-ipc";
@@ -65,6 +66,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   profile: Profile;
   profiles: Profile[];
   partition: string;
+  /** A private window: nothing of it is kept once it closes. */
+  privateWindow: boolean;
   tabs: TabView[];
   groups: TabGroup[];
   activeTabId: TabId | null;
@@ -436,6 +439,18 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   /** Saves a new bot token (when given) and links the private chat that sent /start to the bot. */
   "phone.connect"(token?: string): TelegramConnectResult;
   "phone.disconnect"(): TelegramStatus;
+  /** Proxies and which one the profile, each container and each site rule use (passwords never leave main). */
+  "connections.get"(): ConnectionsView;
+  "connections.saveProxy"(input: ProxyInputView, id?: string): ConnectionsView;
+  "connections.removeProxy"(id: string): ConnectionsView;
+  "connections.setProfile"(choice: ConnectionChoice): ConnectionsView;
+  "connections.setContainer"(containerId: string, choice: ConnectionChoice | null): ConnectionsView;
+  "connections.setRules"(rules: SiteRule[]): ConnectionsView;
+  "connections.setWebrtc"(on: boolean): ConnectionsView;
+  /** The address sites see from the profile (or a container), from Cloudflare's trace page. */
+  "connections.check"(containerId?: string): ConnectionCheck;
+  /** Tries one proxy on its own. */
+  "connections.test"(proxyId: string): ConnectionCheck;
   "containers.list"(): Container[];
   "containers.add"(name: string, color: GroupColor): Container[];
   "containers.update"(id: string, patch: { name?: string; color?: GroupColor }): Container[];
@@ -544,3 +559,23 @@ export const GROUP_COLOR_HEX: Record<GroupColor, { light: string; dark: string }
   cyan: { light: "#007b83", dark: "#78d9ec" },
   orange: { light: "#fa903e", dark: "#fcad70" },
 };
+
+export interface ConnectionsView {
+  config: ConnectionsConfig;
+  containers: Container[];
+  /** Passwords are encrypted with the OS keychain (else kept until Corvus closes). */
+  keychain: boolean;
+}
+
+/** A proxy as typed in Settings (password: new one, "" to forget, absent to keep). */
+export interface ProxyInputView {
+  name: string;
+  kind: ProxyKind;
+  host: string;
+  port: number;
+  pacUrl?: string;
+  username?: string;
+  password?: string;
+}
+
+export type ConnectionCheck = { ip: string; country?: string } | { error: string };

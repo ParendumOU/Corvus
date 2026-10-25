@@ -1,4 +1,4 @@
-import { app, session as electronSession, type Session } from "electron";
+import { app, session as electronSession, webContents as allWebContents, type Session } from "electron";
 import type { Profile, ProfileId } from "@corvus/shared";
 import { AdblockController } from "./adblock";
 import { AnnotationStore } from "./annotation-store";
@@ -7,6 +7,8 @@ import { containerPartition } from "../shared/containers";
 import { ContainerStore } from "./containers";
 import { CredentialVault } from "./credential-store";
 import { ExtensionHost, type ExtensionWindowDelegate } from "./extensions";
+import { containerChoice, type ConnectionChoice } from "../shared/connections";
+import { ConnectionStore, applyConnection, webrtcPolicy } from "./connections";
 import { registerCommandApis, registerDownloadApis, registerExtensionApis, registerSessionApis, registerSidePanelApis, registerTabGroupApis } from "./extension-apis";
 import { KeePassStore } from "./keepass-store";
 import { LoginSources, vaultProvider } from "./login-sources";
@@ -107,6 +109,14 @@ export class ProfileRuntime {
   readonly userAgents: UserAgents;
   /** Containers: tabs with their own cookies and site data, each in a session of its own. */
   readonly containers: ContainerStore;
+  /** Proxies, and which one the profile and each container go through. */
+  readonly connections: ConnectionStore;
+  /** Each session's latest proxy change, until Chromium uses it. */
+  private readonly connecting = new Map<Session, Promise<void>>();
+  private readonly connected = new Set<Session>();
+  /** The in-memory session of this profile's private windows, while one is open. */
+  private privateSes: Session | null = null;
+  private privateRuns = 0;
   private readonly containerSessions = new Map<string, Session>();
   private readonly containerSessionListeners = new Set<(session: Session) => void>();
 
@@ -118,6 +128,10 @@ export class ProfileRuntime {
   ) {
     this.partition = ProfileManager.partition(profile.id);
     this.session = electronSession.fromPartition(this.partition);
+    // The proxy first, before anything of the profile goes online.
+    this.connections = new ConnectionStore(dataDir, cipher);
+    this.applyConnections();
+    this.connections.onChange(() => this.applyConnections());
     this.userAgents = installUserAgents();
     const setClientHints = clientHints(this.session);
     setClientHints(true);
@@ -168,12 +182,95 @@ export class ProfileRuntime {
     const known = this.containerSessions.get(containerId);
     if (known) return known;
     const ses = electronSession.fromPartition(containerPartition(this.partition, containerId));
+    this.connect(ses, containerChoice(this.connections.config(), containerId));
     clientHints(ses)(true);
     handleInternalProtocol(ses);
     this.permissions.install(ses);
     this.containerSessions.set(containerId, ses);
     for (const listener of this.containerSessionListeners) listener(ses);
     return ses;
+  }
+
+  /** Puts the profile's and its containers' sessions on their connection (proxy, PAC or direct). */
+  private applyConnections(): void {
+    const config = this.connections.config();
+    this.connect(this.session, config.profile);
+    for (const [id, ses] of this.containerSessions) this.connect(ses, containerChoice(config, id));
+    if (this.privateSes) this.connect(this.privateSes, config.profile);
+    for (const wc of allWebContents.getAllWebContents()) if (this.ownsSession(wc.session)) wc.setWebRTCIPHandlingPolicy(this.webrtcPolicy(wc.session));
+  }
+
+  private connect(ses: Session, choice: ConnectionChoice): void {
+    const done = applyConnection(ses, choice, this.connections.config())
+      .catch(() => undefined)
+      .then(() => {
+        if (this.connecting.get(ses) === done) this.connected.add(ses);
+      });
+    this.connected.delete(ses);
+    this.connecting.set(ses, done);
+  }
+
+  /** Whether a session already uses its connection (a tab can start loading at once). */
+  isConnected(ses: Session): boolean {
+    return this.connected.has(ses) || !this.ownsSession(ses);
+  }
+
+  /** Resolves once a session uses its latest connection. */
+  whenConnected(ses: Session): Promise<void> {
+    return this.connecting.get(ses) ?? Promise.resolve();
+  }
+
+  /** The connection a session of this profile takes (the profile's, or its container's). */
+  choiceFor(ses: Session): ConnectionChoice {
+    const config = this.connections.config();
+    for (const [id, s] of this.containerSessions) if (s === ses) return containerChoice(config, id);
+    return config.profile;
+  }
+
+  /** WebRTC for pages of a session: through the proxy only when the profile protects it. */
+  webrtcPolicy(ses: Session): "default" | "disable_non_proxied_udp" {
+    return webrtcPolicy(this.choiceFor(ses), this.connections.config());
+  }
+
+  /** The sign-in of one of this profile's proxies, when it has one. */
+  proxyCredentials(host: string, port: number): { username: string; password: string } | null {
+    const proxy = this.connections.proxyAt(host, port);
+    if (!proxy?.username) return null;
+    return { username: proxy.username, password: this.connections.password(proxy.id) ?? "" };
+  }
+
+  /**
+   * The session of this profile's private windows: in memory only (nothing of it reaches the disk),
+   * shared by the private windows open at the same time and dropped when the last one closes.
+   * It connects like the profile; extensions do not run in it.
+   */
+  privateSession(): Session {
+    if (this.privateSes) return this.privateSes;
+    // No "persist:" prefix: Chromium keeps cookies, storage and cache in memory.
+    const ses = electronSession.fromPartition(`corvus-private-${this.profile.id}-${++this.privateRuns}-${Date.now()}`, { cache: false });
+    this.privateSes = ses;
+    this.connect(ses, this.connections.config().profile);
+    clientHints(ses)(true);
+    handleInternalProtocol(ses);
+    this.permissions.install(ses);
+    for (const listener of this.containerSessionListeners) listener(ses);
+    return ses;
+  }
+
+  isPrivateSession(ses: Session): boolean {
+    return ses === this.privateSes;
+  }
+
+  /** The last private window closed: what its session held is wiped. */
+  async endPrivateSession(): Promise<void> {
+    const ses = this.privateSes;
+    if (!ses) return;
+    this.privateSes = null;
+    this.connecting.delete(ses);
+    this.connected.delete(ses);
+    await ses.clearStorageData().catch(() => undefined);
+    await ses.clearCache().catch(() => undefined);
+    await ses.clearAuthCache().catch(() => undefined);
   }
 
   /** Calls `listener` for every container session, now and as they are created. */
@@ -184,7 +281,7 @@ export class ProfileRuntime {
 
   /** Whether `session` is this profile's own or one of its containers'. */
   ownsSession(session: Session): boolean {
-    return session === this.session || [...this.containerSessions.values()].includes(session);
+    return session === this.session || session === this.privateSes || [...this.containerSessions.values()].includes(session);
   }
 
   /** Deletes everything a container's session holds (cookies, storage, cache). */
@@ -195,6 +292,7 @@ export class ProfileRuntime {
   }
 
   flush(): void {
+    this.connections.flush();
     this.bookmarks.flush();
     this.history.flush();
     this.workspaces.flush();

@@ -1,6 +1,6 @@
 {
   "name": "@corvus/webscope",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "license": "MPL-2.0",
   "description": "Corvus Webscope: web-traffic security/diagnostics engine (scope, HTTP history, repeater, intruder-style fuzzer, match/replace, encoders, HAR) for authorized testing of your own/permitted targets.",
   "type": "module",

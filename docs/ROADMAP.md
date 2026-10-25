@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-25 · current release: **v0.19.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-25 · current release: **v0.20.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
 
 ---
 
@@ -128,6 +128,16 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
       the missing APIs in Corvus: a fork costs builds, a security cadence and a port out of scale
 - [~] Extension APIs Corvus adds itself: `bookmarks`, `history`, `tabGroups` + `tabs.group`, `sessions`,
       `sidePanel`, `commands` shortcuts, `downloads` done; DNR at scale only if needed
+
+**Privacy & connections (M7)** — next
+- [x] Proxies per profile and per container (HTTP, HTTPS, SOCKS4/5, PAC), with sign-in, per-site rules,
+      no fallback to direct and WebRTC kept on the proxy
+- [x] Private windows: in-memory session per profile, no history, saved session, synced tabs or page
+      index; downloads never saved to the list; out of reach of extensions and AI agents
+- [ ] Tor: private windows over Tor with a bundled Tor client (new identity, .onion sites), like Brave
+- [ ] VPN: WireGuard profiles in user space (no system driver or admin rights), per profile or container,
+      with a kill switch when the tunnel drops
+- [ ] DNS over HTTPS choice, WebRTC leak protection, and a connection check (IP, DNS, WebRTC leaks)
 
 ---
 

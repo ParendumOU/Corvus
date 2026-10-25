@@ -13,7 +13,10 @@ const first = (value: string | string[] | undefined): string | null => (Array.is
  * session.fetch never tells the final address, which a hoster page's relative links and short
  * links need.
  */
-function request(session: Session, url: string, init: FetchInit, signal: AbortSignal): Promise<HostResponse> {
+/** A proxy's sign-in, by its host and port. */
+export type ProxyCredentials = (host: string, port: number) => { username: string; password: string } | null;
+
+function request(session: Session, url: string, init: FetchInit, signal: AbortSignal, credentials?: ProxyCredentials): Promise<HostResponse> {
   return new Promise<HostResponse>((resolve, reject) => {
     if (signal.aborted) {
       reject(new Error("Stopped"));
@@ -36,6 +39,11 @@ function request(session: Session, url: string, init: FetchInit, signal: AbortSi
         // a header Chromium keeps for itself
       }
     }
+    req.on("login", (authInfo, callback) => {
+      const found = authInfo.isProxy ? credentials?.(authInfo.host, authInfo.port) : null;
+      if (found) callback(found.username, found.password);
+      else callback();
+    });
     let finalUrl = url;
     let redirects = 0;
     const abort = (): void => req.abort();
@@ -103,11 +111,11 @@ function request(session: Session, url: string, init: FetchInit, signal: AbortSi
 }
 
 /** Hoster requests through a profile's session: its cookies, its proxy, its user agent. */
-export function sessionNet(session: Session, signal: AbortSignal): HosterNet {
+export function sessionNet(session: Session, signal: AbortSignal, credentials?: ProxyCredentials): HosterNet {
   return {
     fetch(url: string, init: FetchInit = {}) {
       if (!/^https?:\/\//i.test(url)) return Promise.reject(new Error("Only web addresses can be fetched"));
-      return request(session, url, init, signal);
+      return request(session, url, init, signal, credentials);
     },
     cookie: async (url, name) => (await session.cookies.get({ url, name }))[0]?.value ?? null,
     setCookie: (url, name, value) => session.cookies.set({ url, name, value, secure: true, expirationDate: Math.floor(Date.now() / 1000) + 30 * 86400 }),

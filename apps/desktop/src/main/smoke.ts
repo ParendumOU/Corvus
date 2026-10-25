@@ -28,6 +28,8 @@ import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credent
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { runPhoneSmoke } from "./smoke-phone";
+import { runConnectionsSmoke } from "./smoke-connections";
+import { runPrivateSmoke } from "./smoke-private";
 import { runGrabberSmoke } from "./smoke-grabber";
 import { runDefaultBrowserSmoke } from "./smoke-default-browser";
 import { runBrowserImportSmoke } from "./smoke-browser-import";
@@ -223,6 +225,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runLocalModelsSmoke(ctx, { win, check, capture });
     await runPhoneSmoke(ctx, { url, win, check, capture });
     await runGrabberSmoke(ctx, { win, check, capture });
+    await runConnectionsSmoke(ctx, { win, check, capture });
+    await runPrivateSmoke(ctx, { win, check, capture });
     await runDefaultBrowserSmoke(ctx, { win, check, capture });
     await runBrowserImportSmoke(ctx, { win, check, capture });
     await runDownloadAiSmoke(ctx, { win, check, capture });

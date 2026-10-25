@@ -30,6 +30,8 @@ interface ProfileDownloads {
   /** Downloads started since launch: the toolbar bubble only shows these. */
   sessionIds: Set<string>;
   notifyTimer: NodeJS.Timeout | null;
+  /** Downloads of private windows: listed while they are open, never written to downloads.json. */
+  ephemeral: DownloadRecord[];
 }
 
 export class DownloadError extends Error {}
@@ -74,13 +76,28 @@ export class DownloadManager {
     const id = runtime.profile.id;
     if (this.profiles.has(id)) return;
     const file = JsonFile.load(path.join(runtime.dataDir, "downloads.json"), () => [], reviveDownloads, 1000);
-    this.profiles.set(id, { runtime, file, sessionIds: new Set(), notifyTimer: null });
+    this.profiles.set(id, { runtime, file, sessionIds: new Set(), notifyTimer: null, ephemeral: [] });
     runtime.session.on("will-download", (event, item, wc) => this.onWillDownload(runtime, event, item, wc));
   }
 
   /** Downloads from a container tab of the profile land in the profile's list like any other. */
   attachSession(runtime: ProfileRuntime, session: Session): void {
-    session.on("will-download", (event, item, wc) => this.onWillDownload(runtime, event, item, wc));
+    const ephemeral = runtime.isPrivateSession(session);
+    session.on("will-download", (event, item, wc) => this.onWillDownload(runtime, event, item, wc, ephemeral));
+  }
+
+  /** The last private window of a profile closed: its running downloads stop and its list goes. */
+  forgetPrivate(runtime: ProfileRuntime): void {
+    const entry = this.profiles.get(runtime.profile.id);
+    if (!entry || entry.ephemeral.length === 0) return;
+    for (const record of entry.ephemeral) this.live.get(record.id)?.cancel();
+    entry.ephemeral = [];
+    this.notify(entry);
+  }
+
+  /** Saved and private downloads, newest first. */
+  private records(entry: ProfileDownloads): DownloadRecord[] {
+    return entry.ephemeral.length === 0 ? entry.file.get() : [...entry.ephemeral, ...entry.file.get()].sort((a, b) => b.startedAt - a.startedAt);
   }
 
   /** Download a URL from a tab, always asking where to save (context menu "Save … as"). */
@@ -138,12 +155,12 @@ export class DownloadManager {
   }
 
   list(runtime: ProfileRuntime): DownloadRecord[] {
-    return this.entry(runtime).file.get();
+    return this.records(this.entry(runtime));
   }
 
   summary(runtime: ProfileRuntime): DownloadsSummary {
     const entry = this.profiles.get(runtime.profile.id);
-    const recent = entry ? entry.file.get().filter((d) => entry.sessionIds.has(d.id)) : [];
+    const recent = entry ? this.records(entry).filter((d) => entry.sessionIds.has(d.id)) : [];
     const active = recent.filter(isActiveDownload);
     const total = active.reduce((sum, d) => sum + d.totalBytes, 0);
     const known = active.every((d) => downloadProgress(d) !== null);
@@ -161,7 +178,7 @@ export class DownloadManager {
     return this.profiles.get(runtime.profile.id) as ProfileDownloads;
   }
 
-  private onWillDownload(runtime: ProfileRuntime, event: Electron.Event, item: DownloadItem, wc: WebContents | undefined): void {
+  private onWillDownload(runtime: ProfileRuntime, event: Electron.Event, item: DownloadItem, wc: WebContents | undefined, ephemeral = false): void {
     const url = item.getURL();
     const filename = item.getFilename() || "download";
     const tab = wc && !wc.isDestroyed() ? this.ctx.windows.byTabWebContents(wc) : undefined;
@@ -198,6 +215,7 @@ export class DownloadManager {
         startedAt: Date.now(),
         agent,
         ...(extensionId ? { extensionId } : {}),
+        ...(ephemeral ? { ephemeral: true } : {}),
         canResume: false,
       });
       request?.resolve(blockedId);
@@ -230,6 +248,7 @@ export class DownloadManager {
       startedAt: Date.now(),
       agent,
       ...(extensionId ? { extensionId } : {}),
+      ...(ephemeral ? { ephemeral: true } : {}),
       canResume: false,
     };
     this.live.set(record.id, item);
@@ -274,9 +293,10 @@ export class DownloadManager {
 
   private mutate(runtime: ProfileRuntime, fn: (list: DownloadRecord[]) => DownloadRecord[]): void {
     const entry = this.entry(runtime);
-    const before = entry.file.get();
+    const before = this.records(entry);
     const after = fn(before);
-    entry.file.set(after);
+    entry.file.set(after.filter((d) => !d.ephemeral));
+    entry.ephemeral = after.filter((d) => d.ephemeral);
     for (const l of this.listeners) l(runtime.profile.id, before, after);
     this.notify(entry);
   }

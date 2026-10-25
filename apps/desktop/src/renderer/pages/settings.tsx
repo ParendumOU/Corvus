@@ -22,6 +22,7 @@ import {
   SiteSearchSection,
   StartupSection,
 } from "./settings-browser";
+import { ConnectionsSection } from "./settings-connections";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 
@@ -1316,6 +1317,7 @@ function SettingsPage() {
         ["site-permissions", t("Site permissions")],
         ["adblock", t("Ad blocker")],
         ["containers", t("Containers")],
+        ["connections", t("Connections")],
         ["monitoring", t("Page monitoring")],
       ],
     ],
@@ -1377,6 +1379,7 @@ function SettingsPage() {
           <SitePermissionsSection />
           <AdblockSection />
           <ContainersSection />
+          <ConnectionsSection />
           <MonitoringSection view={view} update={update} />
           <AiSection view={view} update={update} setView={setView} />
           <CommandAgentSection view={view} update={update} />

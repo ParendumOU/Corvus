@@ -17,7 +17,7 @@ import { isNewTabUrl } from "../../shared/internal-urls";
 import { GROUP_COLORS } from "../../shared/tab-strip";
 import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
-import { IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
+import { IconLock, IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
@@ -168,7 +168,7 @@ export function App() {
 
   return (
     <div
-      className={`chrome-root ${mac ? "mac" : ""} ${vertical ? "vertical" : ""} ${vertical && state.sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+      className={`chrome-root ${mac ? "mac" : ""} ${vertical ? "vertical" : ""} ${vertical && state.sidebarCollapsed ? "sidebar-collapsed" : ""} ${state.privateWindow ? "private-window" : ""}`}
       style={vertical ? ({ "--sidebar-w": `${state.sidebarCollapsed ? 52 : state.sidebarWidth}px` } as CSSProperties) : undefined}
     >
       <div id="chrome-bar" ref={barRef}>
@@ -260,6 +260,12 @@ export function App() {
               <button className="icon-btn agent-indicator" title={tx("AI agents can connect (MCP server running)")} onClick={() => void api.call("tabs.openUrl", "corvus://settings/#agents", "new-tab")}>
                 <IconAgent size={17} />
               </button>
+            )}
+            {state.privateWindow && (
+              <span className="private-badge" data-private-badge title={tx("Private window: Corvus keeps no history, cookies or site data of it once it closes")}>
+                <IconLock size={13} />
+                {tx("Private")}
+              </span>
             )}
             <button
               className="avatar-btn"

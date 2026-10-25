@@ -177,7 +177,8 @@ export class Controller implements BrowserController {
 
   private locate(id: TabId): { window: BrowserWindowCtl; tab: TabRuntime } {
     const found = this.ctx.windows.findTab(id);
-    if (!found) throw new AgentError(`Unknown tab ${id}`);
+    // Private windows are out of agents' reach.
+    if (!found || found.window.isPrivate) throw new AgentError(`Unknown tab ${id}`);
     return found;
   }
 
@@ -225,16 +226,16 @@ export class Controller implements BrowserController {
   }
 
   async listTabs(): Promise<Tab[]> {
-    return this.ctx.windows.all().flatMap((w) => w.listTabs());
+    return this.ctx.windows.regular().flatMap((w) => w.listTabs());
   }
 
   async listGroups(): Promise<TabGroup[]> {
-    return this.ctx.windows.all().flatMap((w) => w.listGroups());
+    return this.ctx.windows.regular().flatMap((w) => w.listGroups());
   }
 
   async openTab(url: string, opts: { background?: boolean; groupId?: GroupId; agent?: boolean } = {}): Promise<Tab> {
     const target = this.agentUrl(url);
-    const window = (opts.groupId ? this.ctx.windows.all().find((w) => w.hasGroup(opts.groupId as GroupId)) : undefined) ?? this.ctx.windows.target();
+    const window = (opts.groupId ? this.ctx.windows.regular().find((w) => w.hasGroup(opts.groupId as GroupId)) : undefined) ?? this.ctx.windows.target();
     const groupId = opts.groupId && window.hasGroup(opts.groupId) ? opts.groupId : undefined;
     const tab = window.createTab(target, { activate: opts.background !== true, agent: opts.agent ?? true, ...(groupId ? { groupId } : {}) });
     this.logs.watch(tab.view.webContents);
@@ -296,7 +297,7 @@ export class Controller implements BrowserController {
   }
 
   async ungroup(tabIds: TabId[]): Promise<void> {
-    for (const window of this.ctx.windows.all()) {
+    for (const window of this.ctx.windows.regular()) {
       const ids = tabIds.filter((id) => window.hasTab(id));
       if (ids.length > 0) window.ungroupTabs(ids);
     }

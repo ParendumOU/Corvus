@@ -32,6 +32,7 @@ import { registerIpc } from "./ipc";
 import { McpService } from "./mcp-service";
 import { PageMonitor } from "./page-monitor";
 import { ProfileManager } from "./profile-manager";
+import { installConnectionHooks } from "./connection-hooks";
 import { ProfileRegistry, installUserAgents } from "./profiles";
 import { ReaderService } from "./reader-service";
 import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setNewTabRoutes } from "./protocol";
@@ -207,6 +208,7 @@ async function main(): Promise<void> {
     }
   });
   profiles.setDelegate(new ExtensionWindowBridge(ctx));
+  installConnectionHooks(profiles);
   profiles.onCreated((runtime) => ctx.downloads.attach(runtime));
   profiles.onCreated((runtime) => ctx.queue.attach(runtime));
   profiles.onCreated((runtime) => ctx.adblock.attach(runtime.session, runtime.adblock, runtime.profile.id));

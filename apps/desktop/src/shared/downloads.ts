@@ -18,6 +18,8 @@ export interface DownloadRecord {
   agent: boolean;
   /** Started by an extension (chrome.downloads.download). */
   extensionId?: string;
+  /** From a private window: listed while it is open, never saved. */
+  ephemeral?: boolean;
   canResume: boolean;
 }
 

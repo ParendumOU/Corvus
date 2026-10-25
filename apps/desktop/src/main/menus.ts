@@ -79,7 +79,8 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
     [
       { label: tr("New tab"), accelerator: `${mod}+T`, click: () => win.runCommand({ type: "new-tab" }) },
       { label: tr("New window"), accelerator: `${mod}+N`, click: () => win.runCommand({ type: "new-window" }) },
-      { label: tr("New container tab"), submenu: containerItems(win, (id) => void win.openInContainer(NEW_TAB_URL, id)) },
+      { label: tr("New private window"), accelerator: `${mod}+Shift+N`, click: () => win.runCommand({ type: "new-private-window" }) },
+      { label: tr("New container tab"), enabled: !win.isPrivate, submenu: containerItems(win, (id) => void win.openInContainer(NEW_TAB_URL, id)) },
       { type: "separator" },
       { label: tr("History"), accelerator: `${mod}+H`, click: () => win.openSingleton("corvus://history/") },
       { label: tr("Bookmarks manager"), click: () => win.openSingleton("corvus://bookmarks/") },
@@ -221,7 +222,7 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       { label: tr("Download with AI"), enabled: /^https?:/.test(tab.url), click: () => ctx.grabber.downloadPageWithAi(win, tabId) },
       {
         label: tr("Reopen in container"),
-        enabled: /^https?:/.test(tab.pendingUrl ?? tab.url),
+        enabled: !win.isPrivate && /^https?:/.test(tab.pendingUrl ?? tab.url),
         submenu: containerItems(win, (id) => void win.reopenInContainer(tabId, id), { none: true, except: tab.containerId ?? null }),
       },
       { label: pinned ? tr("Unpin") : tr("Pin"), click: () => win.pin(tabId, !pinned) },
@@ -366,8 +367,13 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       { label: tr("Open link in new tab"), click: () => openInTab(link) },
       { label: tr("Open link in new window"), enabled: !tab.agentControlled, click: () => win.openInNewWindow(link) },
       {
-        label: tr("Open link in container tab"),
+        label: tr("Open link in private window"),
         enabled: !tab.agentControlled && /^https?:/i.test(link),
+        click: () => void ctx.windows.openPrivate(win.profile.profile.id, [link]),
+      },
+      {
+        label: tr("Open link in container tab"),
+        enabled: !win.isPrivate && !tab.agentControlled && /^https?:/i.test(link),
         submenu: containerItems(win, (id) => void win.openInContainer(link, id, tab.id), { none: true, except: tab.containerId ?? null }),
       },
       { type: "separator" },

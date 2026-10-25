@@ -35,7 +35,7 @@ export const NEWTAB_INTERNAL_PERMISSIONS: Record<keyof NewTabRpc, readonly Inter
 
 export function newtabInternalHandlers(ctx: AppContext): InternalHandlers<NewTabRpc> {
   return {
-    "newtab.view": (c) => ctx.newtab.view(c.profile),
+    "newtab.view": (c) => ({ ...ctx.newtab.view(c.profile), ...(c.window?.isPrivate ? { privateWindow: true } : {}) }),
     "newtab.save": (c, layout) => ctx.newtab.save(c.profile, layout),
     "newtab.undo": (c) => ctx.newtab.undo(c.profile),
     "newtab.reset": (c) => ctx.newtab.reset(c.profile),

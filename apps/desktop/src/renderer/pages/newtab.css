@@ -712,3 +712,22 @@ body {
     grid-column: 1 / -1 !important;
   }
 }
+
+.nt-private {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 720px;
+  margin: 20px auto 0;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #2a2342;
+  color: #ece8f7;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.nt-private strong {
+  font-size: 15px;
+}

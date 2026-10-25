@@ -76,6 +76,8 @@ const nextId = (prefix: string): string => `${prefix}${Date.now().toString(36)}$
 export const THEME = {
   light: { strip: "#e3e7ed", symbol: "#3c4043" },
   dark: { strip: "#1c1d21", symbol: "#e8eaed" },
+  /** Private windows, in either theme. */
+  private: { strip: "#2a2342", symbol: "#ece8f7" },
 };
 
 /** Height of the tab strip, also used for the native window-controls overlay. */
@@ -150,6 +152,8 @@ export interface OpenTabOptions {
 export interface WindowOpenOptions {
   bounds?: SessionBounds;
   maximized?: boolean;
+  /** A private window: its tabs live in the profile's in-memory session, and nothing of it is kept. */
+  private?: boolean;
 }
 
 function initialTitle(url: string): string {
@@ -198,6 +202,9 @@ export class BrowserWindowCtl {
   /** A sleeping tab's view while the extensions layer is told about it (see sleepTab). */
   private quietExtensionTab: WebContents | null = null;
 
+  /** A private window (see WindowOpenOptions.private). */
+  readonly isPrivate: boolean;
+
   constructor(
     private readonly ctx: AppContext,
     readonly profile: ProfileRuntime,
@@ -205,7 +212,8 @@ export class BrowserWindowCtl {
     opts: WindowOpenOptions = {},
   ) {
     const dark = nativeTheme.shouldUseDarkColors;
-    const palette = dark ? THEME.dark : THEME.light;
+    this.isPrivate = opts.private === true;
+    const palette = this.isPrivate ? THEME.private : dark ? THEME.dark : THEME.light;
     const mac = process.platform === "darwin";
     const bounds = visibleBounds(opts.bounds, screen.getAllDisplays().map((d) => d.workArea));
     this.startMaximized = opts.maximized === true;
@@ -266,7 +274,8 @@ export class BrowserWindowCtl {
       this.layout();
     });
     this.win.on("focus", () => ctx.windows.noteFocus(this));
-    this.win.on("close", () => ctx.sessionRestore.windowClosing(this));
+    // Private windows are never part of the saved session.
+    this.win.on("close", () => (this.isPrivate ? undefined : ctx.sessionRestore.windowClosing(this)));
     this.win.on("closed", () => this.dispose());
     const moved = (): void => ctx.sessionRestore.markDirty();
     this.win.on("moved", moved);
@@ -363,7 +372,7 @@ export class BrowserWindowCtl {
   }
 
   private applyTheme(): void {
-    const palette = nativeTheme.shouldUseDarkColors ? THEME.dark : THEME.light;
+    const palette = this.isPrivate ? THEME.private : nativeTheme.shouldUseDarkColors ? THEME.dark : THEME.light;
     if (process.platform !== "darwin") {
       this.win.setTitleBarOverlay({ color: palette.strip, symbolColor: palette.symbol, height: TAB_STRIP_HEIGHT });
     }
@@ -468,6 +477,7 @@ export class BrowserWindowCtl {
       profile: this.profile.profile,
       profiles: this.ctx.profiles.list(),
       partition: this.profile.partition,
+      privateWindow: this.isPrivate,
       tabs: this.strip.tabs.map((t) => this.tabView(t.id)).filter((t): t is TabView => t !== null),
       groups: this.strip.groups,
       activeTabId: this.strip.activeId,
@@ -696,7 +706,7 @@ export class BrowserWindowCtl {
       ...windowOpen,
       webPreferences: {
         ...windowOpen?.webPreferences,
-        session: containerId ? this.profile.containerSession(containerId) : this.profile.session,
+        session: containerId ? this.profile.containerSession(containerId) : this.isPrivate ? this.profile.privateSession() : this.profile.session,
         preload: paths.internalPreload,
         sandbox: true,
         contextIsolation: true,
@@ -720,7 +730,8 @@ export class BrowserWindowCtl {
     const opened = opts.windowOpen;
     if (!opened) url = pdfViewerRedirect(this.ctx, opts.agent === true, url) ?? url;
     // A container tab can start on the New Tab page; other corvus:// pages stay in the profile session.
-    const containerId = opts.containerId && (!isInternalUrl(url) || isNewTabUrl(url)) && this.profile.containers.get(opts.containerId) ? opts.containerId : undefined;
+    // Private windows have no containers: their tabs are all in the private session.
+    const containerId = !this.isPrivate && opts.containerId && (!isInternalUrl(url) || isNewTabUrl(url)) && this.profile.containers.get(opts.containerId) ? opts.containerId : undefined;
     const view = this.newTabView(url, containerId, opened);
 
     const lazy = opts.lazy === true && opts.activate === false;
@@ -754,9 +765,14 @@ export class BrowserWindowCtl {
     );
     // A page opened by window.open loads itself (and its opener may still write to or navigate it).
     if (!lazy && !opened) {
-      view.webContents.loadURL(url).catch(() => {
-        // Load failures surface through did-fail-load.
-      });
+      const start = (): void =>
+        void view.webContents.loadURL(url).catch(() => {
+          // Load failures surface through did-fail-load.
+        });
+      // Not before the session is on its proxy (right after start or a change), so nothing leaks.
+      const ses = view.webContents.session;
+      if (this.profile.isConnected(ses)) start();
+      else void this.profile.whenConnected(ses).then(() => (view.webContents.isDestroyed() ? undefined : start()));
     }
     this.syncActive(true);
     this.pushState();
@@ -808,21 +824,21 @@ export class BrowserWindowCtl {
       this.ctx.secretFills.clear(tab.id);
       this.applySavedZoom(tab);
       if (tab.find) tab.find = { ...tab.find, active: 0, matches: 0 };
-      if (isHistoryWorthy(url)) this.profile.history.recordVisit(url, "");
+      if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, "");
       push();
     });
     wc.on("did-finish-load", () => {
       void this.ctx.translate.onPageLoad(this, tab);
       void this.ctx.reader.probe(this, tab);
       void this.ctx.autofill.onPageLoad(this, tab);
-      void this.ctx.semanticSearch.capturePage(this, tab);
+      if (!this.isPrivate) void this.ctx.semanticSearch.capturePage(this, tab);
       this.ctx.annotations.onPageLoad(this, tab);
     });
     wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
       if (!isMainFrame) return;
       tab.url = url;
       this.ctx.autofill.onInPageNavigation(this, tab);
-      if (isHistoryWorthy(url)) this.profile.history.recordVisit(url, tab.title);
+      if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, tab.title);
       push();
     });
     wc.on("page-title-updated", (_e, title) => {
@@ -1325,8 +1341,10 @@ export class BrowserWindowCtl {
     else this.createTab(url, { activate: disposition !== "background-tab", ...(active ? { openerId: active.id } : {}) });
   }
 
+  /** A new window of the same kind (private from a private window). */
   openInNewWindow(url: string): void {
-    this.ctx.windows.open(this.profile.profile.id, [url]);
+    if (this.isPrivate) this.ctx.windows.openPrivate(this.profile.profile.id, [url]);
+    else this.ctx.windows.open(this.profile.profile.id, [url]);
   }
 
   /** Activate an existing tab showing this internal page, or open it. */
@@ -1577,6 +1595,9 @@ export class BrowserWindowCtl {
         break;
       case "new-window":
         this.ctx.windows.open(this.profile.profile.id);
+        break;
+      case "new-private-window":
+        this.ctx.windows.openPrivate(this.profile.profile.id);
         break;
       case "close-tab":
         if (active) this.closeTab(active.id);

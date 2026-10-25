@@ -605,7 +605,7 @@ export class DownloadQueue {
     this.notify(entry);
     let result;
     try {
-      result = await resolveLink(item.url, sessionNet(entry.runtime.session, signal));
+      result = await resolveLink(item.url, sessionNet(entry.runtime.session, signal, (host, port) => entry.runtime.proxyCredentials(host, port)));
     } finally {
       this.update(entry, itemId, { resolving: undefined });
     }

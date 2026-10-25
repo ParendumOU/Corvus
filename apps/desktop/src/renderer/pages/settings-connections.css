@@ -1,0 +1,22 @@
+.proxy-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+.proxy-form .input {
+  min-width: 0;
+}
+.proxy-form .input.grow {
+  flex: 1 1 180px;
+}
+.proxy-list,
+.connection-containers,
+.connection-rules {
+  width: 100%;
+}
+.connection-rules .inline {
+  margin-top: 6px;
+  gap: 6px;
+}

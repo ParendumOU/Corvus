@@ -295,7 +295,7 @@ export class SyncService {
     const tabs = new OpenTabsPublisher(() => ({
       device: file.get().deviceName,
       platform: process.platform,
-      tabs: collectTabs(this.ctx.windows.forProfile(id).map((w) => ({ tabs: w.listTabs(), groups: w.listGroups() }))),
+      tabs: collectTabs(this.ctx.windows.forProfile(id).filter((w) => !w.isPrivate).map((w) => ({ tabs: w.listTabs(), groups: w.listGroups() }))),
     }));
     tabs.refresh();
 
@@ -444,7 +444,7 @@ export class SyncService {
     const own = await rt.client.getDeviceId();
     const records = this.remote(profile).records("sent_tabs");
     const pages = sentTabs(records.all(), (t) => t.to === own);
-    const windows = this.ctx.windows.forProfile(profile.profile.id);
+    const windows = this.ctx.windows.forProfile(profile.profile.id).filter((w) => !w.isPrivate);
     const focused = this.ctx.windows.focused();
     const win = windows.find((w) => w === focused) ?? windows[0];
     if (pages.length === 0 || !win) return 0;

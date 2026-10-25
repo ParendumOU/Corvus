@@ -103,7 +103,7 @@ export class SemanticSearchService {
 
   /** Capture readable page text on load and index it under the visited URL. Best-effort, never throws. */
   async capturePage(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
-    if (!this.indexingEnabled()) return;
+    if (!this.indexingEnabled() || win.isPrivate) return;
     const url = tab.url;
     if (!isHistoryWorthy(url)) return;
     const wc = tab.view.webContents;

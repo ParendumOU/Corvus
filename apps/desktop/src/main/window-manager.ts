@@ -22,6 +22,15 @@ export class WindowManager implements PermissionHost {
     return win;
   }
 
+  /** A private window of a profile (see WindowOpenOptions.private). */
+  openPrivate(profileId: ProfileId, urls?: string[]): BrowserWindowCtl {
+    const runtime = this.ctx.profiles.get(profileId);
+    const win = new BrowserWindowCtl(this.ctx, runtime, urls && urls.length > 0 ? urls : [NEW_TAB_URL], { private: true });
+    this.windows.push(win);
+    this.lastFocused = win;
+    return win;
+  }
+
   /** Reopen a window from the saved session. */
   restore(saved: SessionWindow): BrowserWindowCtl {
     const runtime = this.ctx.profiles.get(saved.profileId);
@@ -38,6 +47,11 @@ export class WindowManager implements PermissionHost {
 
   all(): BrowserWindowCtl[] {
     return [...this.windows];
+  }
+
+  /** Windows that are not private: what agents, sync and the saved session see. */
+  regular(): BrowserWindowCtl[] {
+    return this.windows.filter((w) => !w.isPrivate);
   }
 
   forProfile(profileId: ProfileId): BrowserWindowCtl[] {
@@ -72,13 +86,21 @@ export class WindowManager implements PermissionHost {
     return this.lastFocused ?? this.windows[0];
   }
 
-  /** Window that agent and extension actions target, opening one if needed. */
+  /** Window that agent and extension actions target (never a private one), opening one if needed. */
   target(): BrowserWindowCtl {
-    return this.focused() ?? this.open(this.ctx.profiles.manager.lastUsed);
+    const focused = this.focused();
+    if (focused && !focused.isPrivate) return focused;
+    const regular = this.regular();
+    return regular[regular.length - 1] ?? this.open(focused?.profile.profile.id ?? this.ctx.profiles.manager.lastUsed);
   }
 
   removed(win: BrowserWindowCtl): void {
     this.windows = this.windows.filter((w) => w !== win);
+    // The last private window of a profile: its session's cookies, storage and downloads go.
+    if (win.isPrivate && !this.windows.some((w) => w.isPrivate && w.profile === win.profile)) {
+      this.ctx.downloads.forgetPrivate(win.profile);
+      void win.profile.endPrivateSession();
+    }
     if (this.lastFocused === win) this.lastFocused = this.windows[this.windows.length - 1] ?? null;
     if (this.windows.length === 0 && process.platform !== "darwin") app.quit();
   }

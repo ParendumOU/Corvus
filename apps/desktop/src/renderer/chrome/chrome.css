@@ -1077,3 +1077,27 @@ body,
   text-align: center;
   box-shadow: 0 0 0 2px var(--toolbar);
 }
+
+/* ---------------------------------------------------------------- private windows */
+.chrome-root.private-window {
+  --strip: #2a2342;
+}
+.chrome-root.private-window .toolbar {
+  background: color-mix(in srgb, #3b2f63 22%, var(--toolbar));
+}
+.private-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  background: #3b2f63;
+  color: #ece8f7;
+  font-size: 12px;
+  font-weight: 600;
+}
+.chrome-root.private-window .tab:not(.active),
+.chrome-root.private-window .new-tab-btn {
+  color: #d9d3ee;
+}
