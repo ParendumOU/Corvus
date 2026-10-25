@@ -35,10 +35,27 @@ export interface SyncAdapter<T = unknown> {
   retain?(id: string): boolean;
 }
 
+/**
+ * A change this device made to an already synced record that a remote change replaced before it was
+ * pushed: the remote change wins (it is applied), and this is what was lost here.
+ */
+export interface SyncConflict<T = unknown> {
+  collection: SyncCollection;
+  id: string;
+  /** This device's version that lost; null when this device had deleted the record. */
+  local: T | null;
+  /** The version now applied; null when another device deleted the record. */
+  remote: T | null;
+}
+
 export interface SyncEngineOptions {
   client: CorvusSyncClient;
   storage: SyncStateStorage;
   adapters: Partial<Record<SyncCollection, SyncAdapter<any>>>;
+  /** Told about each local change a remote change replaced, in `conflictCollections` only. */
+  onConflict?: (conflict: SyncConflict) => void | Promise<void>;
+  /** Collections watched for conflicts (each applied page reads their local items once). */
+  conflictCollections?: readonly SyncCollection[];
 }
 
 export interface SyncCycleResult {
@@ -61,7 +78,8 @@ export function fingerprint(payload: unknown): string {
 /**
  * One sync cycle = join new collections -> pull (apply remote changes page by page) -> diff local
  * state against the last synced fingerprints -> push dirty items and tombstones -> apply conflicts
- * (remote wins).
+ * (remote wins). A local change to a synced record that a remote change replaces is reported to
+ * onConflict (for the collections it watches), so the person can bring it back.
  *
  * Collections join and leave independently: a collection with an adapter that has not synced on
  * this chain yet (added by an upgrade, or turned back on) first pulls all of its records (filtered
@@ -206,7 +224,9 @@ export class SyncEngine {
     }
     for (const [collection, group] of groups) {
       const adapter = this.opts.adapters[collection]!;
+      const candidates = await this.overwritten(collection, adapter, group);
       await adapter.apply(group);
+      const lost = candidates.length > 0 ? await this.stillLost(adapter, candidates) : [];
       const known = await this.load(collection);
       const present = group.some((i) => !i.deleted) ? new Set((await adapter.list()).map((i) => i.id)) : new Set<string>();
       for (const item of group) {
@@ -218,8 +238,54 @@ export class SyncEngine {
       }
       await this.save(collection);
       applied += group.length;
+      for (const conflict of lost) {
+        try {
+          await this.opts.onConflict?.(conflict);
+        } catch {
+          // Reporting a conflict never stops a sync.
+        }
+      }
     }
     return applied;
+  }
+
+  /**
+   * Local changes the remote items may replace: records synced before (a known fingerprint) that
+   * this device changed or deleted since, where the remote version differs. Records never synced
+   * from here (a fresh join, a new local item) are a merge, not a conflict.
+   */
+  private async overwritten(collection: SyncCollection, adapter: SyncAdapter, group: SyncItem[]): Promise<SyncConflict[]> {
+    if (!this.opts.onConflict || !this.opts.conflictCollections?.includes(collection)) return [];
+    const known = await this.load(collection);
+    if (!group.some((item) => known[item.id] !== undefined)) return [];
+    const local = new Map((await adapter.list()).map((item) => [item.id, item.payload] as const));
+    const lost: SyncConflict[] = [];
+    for (const item of group) {
+      const synced = known[item.id];
+      if (synced === undefined) continue;
+      const here = local.has(item.id) ? local.get(item.id) : undefined;
+      const remote = item.deleted ? null : item.payload;
+      if (here === undefined) {
+        // Deleted here since the last sync: a remote deletion agrees, a remote edit brings it back.
+        if (remote !== null) lost.push({ collection, id: item.id, local: null, remote });
+        continue;
+      }
+      const mine = fingerprint(here);
+      if (mine === synced) continue;
+      if (remote !== null && fingerprint(remote) === mine) continue;
+      lost.push({ collection, id: item.id, local: here, remote });
+    }
+    return lost;
+  }
+
+  /**
+   * The candidates whose local version is really gone once the adapter applied the remote items:
+   * a store that keeps the newer edit (by its own timestamps) may have kept this device's change,
+   * which then syncs as usual instead.
+   */
+  private async stillLost(adapter: SyncAdapter, candidates: SyncConflict[]): Promise<SyncConflict[]> {
+    const after = new Map((await adapter.list()).map((item) => [item.id, fingerprint(item.payload)] as const));
+    return candidates.filter((c) => (c.local === null ? after.has(c.id) : after.get(c.id) !== fingerprint(c.local)));
   }
 
   private collections(): SyncCollection[] {

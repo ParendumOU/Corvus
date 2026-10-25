@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-25 · current release: **v0.17.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-25 · current release: **v0.18.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
 
 ---
 
@@ -98,7 +98,8 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [ ] **Trusted code-signing cert** — kills Windows SmartScreen → *blocked on user (see Open Decisions)*
 - [ ] **macOS builds** on a mac runner (notarization) → *blocked on user*
 - [x] **Update-feed host**: GitHub Releases of ParendumOU/Corvus
-- [ ] Bundle-size / startup pass — lazy-load `corvus://` pages, trim the ~431MB artifact
+- [x] Bundle-size / startup pass: self-test code, the MCP server and the Anthropic SDK load on demand
+      (window ready ~22% sooner); the PDF library ships once (installers ~20% smaller)
 - [x] Cut v0.2.0 (unsigned Windows + Linux); signed builds follow once the cert and Apple ID land
 
 **AI depth (M3)**
@@ -107,8 +108,8 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Data portability (M4)**
 - [x] Full profile export / import (single encrypted bundle) (v0.10.0)
-- [ ] Sync conflict resolution UI
-- [ ] Sync command-bar history
+- [x] Sync conflict resolution UI: changes another device replaced are kept and can be brought back
+- [x] Sync command-bar history: "Recent" in the Command Bar, synced per device switch
 
 **Downloads & switching**
 - [x] Download manager: link grabber, package queue, parallel connections, checksums, and joining and extracting split archives with their password (v0.13.0); "Download with AI" and the `download_queue` MCP tools
@@ -117,13 +118,15 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Automation (M5)**
 - [ ] WebScope depth: active checks opt-in, match/replace rules UI, session export/import
-- [ ] Per-tool audit log + rate limits surfaced in UI
+- [x] Per-tool audit log + rate limits surfaced in UI (Settings → AI agents)
 
 **Platform & reach (M6)**
-- [ ] Linux/macOS: ship AppImage/deb/dmg as release assets (depends on signing + mac runner)
+- [~] Release assets: Windows installer/portable, Linux AppImage and deb ship with every release; macOS dmg waits on the Developer ID certificate and notarization
 - [~] Mobile companion: Corvus for mobile 0.3.0, an Android preview (pair with a computer, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, watched pages, notifications, English and Spanish); iOS once an Apple developer account is set up (docs/MOBILE.md)
-- [ ] Evaluate Chromium fork vs Electron for full extension-API coverage
-      (bookmarks/history/tabGroups/sidePanel chrome.* APIs unsupported under Electron)
+- [x] Evaluate Chromium fork vs Electron for full extension-API coverage: stay on Electron and add
+      the missing APIs in Corvus: a fork costs builds, a security cadence and a port out of scale
+- [ ] Extension APIs Corvus adds itself: `bookmarks` + `history`, then `tabGroups` + `sessions`, a
+      `sidePanel` host, `commands` shortcuts and real `downloads`; DNR at scale only if needed
 
 ---
 

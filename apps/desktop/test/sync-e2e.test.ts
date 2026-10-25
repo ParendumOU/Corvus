@@ -2,10 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseDeviceWatchStatus, sentTabs, type SyncStateStorage } from "@corvus/shared";
-import { SyncEngine, createSyncClient, type CorvusSyncClient } from "@corvus/sync-core";
+import { SyncEngine, createSyncClient, type CorvusSyncClient, type SyncAdapter } from "@corvus/sync-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildServer } from "../../../services/sync-server/src/app";
 import { AnnotationStore } from "../src/main/annotation-store";
+import { CommandHistoryStore } from "../src/main/command-history-store";
 import { CredentialVault } from "../src/main/credential-store";
 import { FlowStore } from "../src/main/flow-store";
 import { SiteMemoryStore } from "../src/main/site-memory-store";
@@ -13,6 +14,8 @@ import { ReadingStore } from "../src/main/reading-store";
 import { SettingsStore, type SecretCipher } from "../src/main/settings-store";
 import { BookmarkStore, HistoryStore } from "../src/main/stores";
 import { SyncRemoteStore, createSyncAdapters, type ProfileMeta } from "../src/main/sync-adapters";
+import { SyncConflictStore } from "../src/main/sync-conflict-store";
+import { CONFLICT_COLLECTIONS, conflictView, freshVersion } from "../src/shared/sync-conflicts";
 import { WatchStore } from "../src/main/watch-store";
 import { WorkspaceStore } from "../src/main/workspace-store";
 import type { ReadingItem } from "../src/shared/reading";
@@ -68,10 +71,13 @@ class Device {
   readonly workspaces = new WorkspaceStore(this.dir);
   readonly flows = new FlowStore(this.dir);
   readonly memory = new SiteMemoryStore(this.dir);
+  readonly commands = new CommandHistoryStore(this.dir);
   readonly settings = new SettingsStore(this.dir, cipher, {});
   readonly remote = new SyncRemoteStore(path.join(this.dir, "sync-remote.json"));
+  readonly conflicts = new SyncConflictStore(path.join(this.dir, "sync-conflicts.json"));
   readonly client: CorvusSyncClient;
   readonly engine: SyncEngine;
+  readonly adapters: Partial<Record<string, SyncAdapter>>;
   meta: ProfileMeta;
   tabs: SyncedTab[] = [];
   installed: ExtensionInfo[] = [];
@@ -86,31 +92,35 @@ class Device {
     this.client = createSyncClient({ serverUrl, phrase: PHRASE, deviceName: name, platform: "linux", storage: memoryStorage() });
     const publisher = new OpenTabsPublisher(() => ({ device: name, platform: "linux", tabs: this.tabs }));
     const status = new StampedRecord(() => ({ device: name, platform: "linux", watches: this.watches.list().map(toWatchStatus) }));
+    this.adapters = createSyncAdapters({
+      bookmarks: this.bookmarks,
+      history: this.history,
+      credentials: this.credentials,
+      reading: this.reading,
+      watches: this.watches,
+      workspaces: this.workspaces,
+      annotations: this.annotations,
+      workflows: this.flows,
+      siteMemory: this.memory,
+      commands: this.commands,
+      settings: this.settings,
+      includeServiceUrls: () => this.shareUrls,
+      profile: { get: () => this.meta, set: (m) => (this.meta = m) },
+      remote: this.remote,
+      ownDeviceId: () => this.client.getDeviceId(),
+      openTabs: () => {
+        publisher.refresh();
+        return publisher.record();
+      },
+      extensions: () => ({ device: name, extensions: webstoreExtensions(this.installed) }),
+      watchStatus: () => status.record(),
+    });
     this.engine = new SyncEngine({
       client: this.client,
       storage: memoryStorage(),
-      adapters: createSyncAdapters({
-        bookmarks: this.bookmarks,
-        history: this.history,
-        credentials: this.credentials,
-        reading: this.reading,
-        watches: this.watches,
-        workspaces: this.workspaces,
-        annotations: this.annotations,
-        workflows: this.flows,
-        siteMemory: this.memory,
-        settings: this.settings,
-        includeServiceUrls: () => this.shareUrls,
-        profile: { get: () => this.meta, set: (m) => (this.meta = m) },
-        remote: this.remote,
-        ownDeviceId: () => this.client.getDeviceId(),
-        openTabs: () => {
-          publisher.refresh();
-          return publisher.record();
-        },
-        extensions: () => ({ device: name, extensions: webstoreExtensions(this.installed) }),
-        watchStatus: () => status.record(),
-      }),
+      adapters: this.adapters,
+      conflictCollections: CONFLICT_COLLECTIONS,
+      onConflict: (c) => this.conflicts.add(c),
     });
   }
 
@@ -151,6 +161,7 @@ class Device {
     this.workspaces.flush();
     this.flows.flush();
     this.memory.flush();
+    this.commands.flush();
     this.settings.flush();
   }
 }
@@ -517,5 +528,100 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     // Nothing changed since: no new record.
     expect(await desk.sync()).toMatchObject({ pushed: 0 });
     desk.close();
+  });
+
+  it("keeps a change another device replaced, and brings it back as a new change", async () => {
+    const a = new Device("Conflict laptop", "Work");
+    const b = new Device("Conflict desktop", "Work");
+    await a.client.register();
+    await b.client.register();
+    const mark = a.bookmarks.create({ parentId: BAR_FOLDER_ID, kind: "bookmark", title: "Raven", url: "https://raven.example/" });
+    await a.sync();
+    await b.sync();
+    // Two themes, both different from the one the chain already has.
+    const [laptopTheme, desktopTheme] = (["light", "dark", "system"] as const).filter((x) => x !== b.settings.get().appearance.theme);
+    expect(b.bookmarks.list().find((x) => x.id === mark.id)?.title).toBe("Raven");
+    b.conflicts.clear();
+
+    // Both edit the bookmark (the laptop later, so its edit is newer) and the theme; the laptop
+    // syncs first. Bookmarks keep the newer edit and settings the first one synced: both win there.
+    b.bookmarks.update(mark.id, { title: "Raven (desktop)" });
+    await new Promise((r) => setTimeout(r, 5));
+    a.bookmarks.update(mark.id, { title: "Raven (laptop)" });
+    a.settings.update({ appearance: { theme: laptopTheme! } });
+    await a.sync();
+    b.settings.update({ appearance: { theme: desktopTheme! } });
+    await b.sync();
+
+    expect(b.bookmarks.list().find((x) => x.id === mark.id)?.title).toBe("Raven (laptop)");
+    expect(b.settings.get().appearance.theme).toBe(laptopTheme);
+    const kept = b.conflicts.list();
+    expect(kept.map((c) => `${c.collection}:${c.recordId}`).sort()).toEqual([`bookmarks:${mark.id}`, "settings:appearance.theme"]);
+    const bookmark = kept.find((c) => c.collection === "bookmarks")!;
+    expect(conflictView(bookmark)).toMatchObject({
+      name: "Raven (desktop)",
+      local: "Raven (desktop) — https://raven.example/",
+      remote: "Raven (laptop) — https://raven.example/",
+    });
+    expect(conflictView(kept.find((c) => c.collection === "settings")!)).toMatchObject({ name: "appearance.theme", local: JSON.stringify(desktopTheme), remote: JSON.stringify(laptopTheme) });
+
+    // "Use this device's version": written through the adapter as a new change, it syncs and wins.
+    const taken = b.conflicts.take(bookmark.id)!;
+    await b.adapters.bookmarks!.apply([{ collection: "bookmarks", id: taken.recordId, payload: freshVersion(taken.local, Date.now()), deleted: false }]);
+    await b.sync();
+    await a.sync();
+    expect(a.bookmarks.list().find((x) => x.id === mark.id)?.title).toBe("Raven (desktop)");
+    expect(a.conflicts.list()).toEqual([]);
+    expect(b.conflicts.list().map((c) => c.collection)).toEqual(["settings"]);
+
+    // A newer edit here that the store keeps is no conflict: it simply syncs.
+    a.bookmarks.update(mark.id, { title: "Raven (older)" });
+    await a.sync();
+    await new Promise((r) => setTimeout(r, 5));
+    b.bookmarks.update(mark.id, { title: "Raven (newest)" });
+    await b.sync();
+    await a.sync();
+    expect(b.conflicts.list().map((c) => c.collection)).toEqual(["settings"]);
+    expect(a.bookmarks.list().find((x) => x.id === mark.id)?.title).toBe("Raven (newest)");
+    a.close();
+    b.close();
+  });
+
+  it("syncs the Command Bar history both ways, and clearing it on one device clears it on the other", async () => {
+    const a = new Device("History laptop", "Work");
+    const b = new Device("History desktop", "Work");
+    await a.client.register();
+    await b.client.register();
+    await a.sync();
+    await b.sync();
+    a.commands.clear();
+    b.commands.clear();
+    await a.sync();
+    await b.sync();
+
+    a.commands.add("agent", "Find a quiet café near the office");
+    // A later time, so the order does not depend on random ids.
+    await new Promise((r) => setTimeout(r, 5));
+    a.commands.add("search", "raven lifespan");
+    await a.sync();
+    await b.sync();
+    expect(b.commands.list().map((r) => [r.kind, r.text])).toEqual([
+      ["search", "raven lifespan"],
+      ["agent", "Find a quiet café near the office"],
+    ]);
+
+    // The same search again on the desktop is one entry everywhere, under its new time.
+    await new Promise((r) => setTimeout(r, 5));
+    b.commands.add("search", "Raven lifespan");
+    await b.sync();
+    await a.sync();
+    expect(a.commands.list().map((r) => r.text)).toEqual(["Raven lifespan", "Find a quiet café near the office"]);
+
+    b.commands.clear();
+    await b.sync();
+    await a.sync();
+    expect(a.commands.list()).toEqual([]);
+    a.close();
+    b.close();
   });
 });

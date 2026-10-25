@@ -1,0 +1,63 @@
+.agent-log {
+  border-top: 1px solid var(--border-soft);
+}
+.agent-log-title {
+  padding: 12px 20px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.agent-log-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.agent-log-filters .grow {
+  flex: 1;
+}
+.agent-log-filters .input {
+  width: auto;
+  max-width: 220px;
+}
+.agent-log-table {
+  width: calc(100% - 40px);
+  margin: 0 20px 12px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.agent-log-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.agent-log-table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-variant-numeric: tabular-nums;
+}
+.agent-log-table td.bad {
+  color: var(--danger);
+}
+.agent-log-table td.warn {
+  color: var(--warning);
+}
+.agent-log-row .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-log-error {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-log .pill.warn {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  color: var(--warning);
+}
+.agent-log-empty {
+  padding: 8px 20px 16px;
+}

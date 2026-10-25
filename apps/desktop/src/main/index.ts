@@ -47,12 +47,13 @@ import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
 import { setMenuLanguage, tr } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
 import type { BrowserWindowCtl } from "./window";
-import { runSmokeTest } from "./smoke";
-import { runMarketingCapture } from "./capture-marketing";
 import { SyncService } from "./sync-service";
 import { UpdateService } from "./update-service";
 import { WebScopeService } from "./webscope-service";
 import { WindowManager } from "./window-manager";
+
+/** When this bundle finished loading (its imports parsed and run), for the startup probe. */
+const MAIN_LOADED_AT = Date.now();
 
 registerInternalScheme();
 app.setName("Corvus");
@@ -309,8 +310,25 @@ async function main(): Promise<void> {
   ctx.tabSleeper.start();
   ctx.updater.startupCheck();
 
-  if (process.env.CORVUS_SMOKE_TEST === "1") void runSmokeTest(ctx);
-  else if (process.env.CORVUS_CAPTURE === "1") void runMarketingCapture(ctx);
+  // The smoke test and the marketing capture are chunks of their own: normal starts never load them.
+  if (process.env.CORVUS_SMOKE_TEST === "1") void import("./smoke").then((m) => m.runSmokeTest(ctx));
+  else if (process.env.CORVUS_CAPTURE === "1") void import("./capture-marketing").then((m) => m.runMarketingCapture(ctx));
+  else if (process.env.CORVUS_STARTUP_PROBE === "1") reportStartup(ctx);
+}
+
+/**
+ * CORVUS_STARTUP_PROBE=1: prints how long the main bundle took to load and the first window's
+ * browser bar to finish loading (ms since the process started), then quits. For measuring starts.
+ */
+function reportStartup(ctx: AppContext): void {
+  const created = process.getCreationTime() ?? MAIN_LOADED_AT;
+  const chrome = ctx.windows.all()[0]?.chrome.webContents;
+  const done = (): void => {
+    console.log(`[startup] ${JSON.stringify({ mainLoadedMs: MAIN_LOADED_AT - created, chromeLoadedMs: Date.now() - created })}`);
+    app.quit();
+  };
+  if (!chrome || !chrome.isLoading()) done();
+  else chrome.once("did-finish-load", done);
 }
 
 if (!app.requestSingleInstanceLock()) {

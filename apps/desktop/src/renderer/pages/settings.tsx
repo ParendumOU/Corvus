@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Profile } from "@corvus/shared";
 import type { AdblockView } from "../../shared/adblock";
-import type { ConnectionTestResult, EngineInfo, LocalServerInfo, McpActivity, McpStatus, UpdateStatus } from "../../shared/ipc";
+import type { ConnectionTestResult, EngineInfo, LocalServerInfo, McpStatus, UpdateStatus } from "../../shared/ipc";
 import type { AccessLevel, ClaudeAccountMode, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
 import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
 import { errorMessage, internalApi } from "../common/api";
 import { setUiLanguage, t } from "../common/i18n";
 import { IconCopy, IconTrash } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
+import { AgentActivityLog } from "./settings-agent-log";
 import { SyncSection } from "./settings-sync";
 import {
   ContainersSection,
@@ -740,6 +741,20 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       >
         <Toggle label={t("Learn from runs (site memory)")} checked={agent.siteMemory} onChange={(v) => update({ agent: { siteMemory: v } })} />
       </Row>
+      <Row
+        label={t("Remember what you run")}
+        hint={t("Tasks you give the agent and searches and addresses you type in the Command Bar show under “Recent” when it opens empty. They sync end to end when Command Bar history sync is on.")}
+      >
+        <Toggle label={t("Remember what you run")} checked={agent.rememberCommands} onChange={(v) => update({ agent: { rememberCommands: v } })} />
+        <button
+          className="btn small ghost"
+          onClick={() => {
+            if (confirm(t("Clear the Command Bar history? Your other synced devices forget it too."))) void internalApi().call("commands.clear");
+          }}
+        >
+          {t("Clear")}
+        </button>
+      </Row>
     </Section>
   );
 }
@@ -747,7 +762,6 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
 function AgentsSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
   const api = internalApi();
   const [status, setStatus] = useState<McpStatus | null>(null);
-  const [activity, setActivity] = useState<McpActivity[]>([]);
   const [showToken, setShowToken] = useState(false);
   const mcp = view.settings.mcp;
 
@@ -755,7 +769,6 @@ function AgentsSection({ view, update }: { view: SettingsView; update: (p: Setti
     let alive = true;
     const refresh = (): void => {
       void api.call("mcp.status").then((s) => alive && setStatus(s));
-      void api.call("mcp.activity").then((a) => alive && setActivity(a));
     };
     refresh();
     const timer = setInterval(refresh, 3000);
@@ -837,18 +850,7 @@ function AgentsSection({ view, update }: { view: SettingsView; update: (p: Setti
           </span>
         ))}
       </Row>
-      {activity.length > 0 && (
-        <div className="list" style={{ borderTop: "1px solid var(--border-soft)" }}>
-          {activity.slice(0, 8).map((a, i) => (
-            <div key={`${a.at}-${i}`} className="list-row">
-              <span className="mono muted">{formatTime(a.at)}</span>
-              <span className="grow">
-                <strong>{a.client}</strong> <span className="muted">{a.tool}</span>
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      <AgentActivityLog view={view} update={update} />
     </Section>
   );
 }

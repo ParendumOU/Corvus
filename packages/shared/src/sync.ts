@@ -23,7 +23,8 @@ export type SyncCollection =
   | "site_memory"
   | "sent_tabs"
   | "watch_status"
-  | "asks";
+  | "asks"
+  | "command_history";
 
 export interface EncryptedRecord {
   id: string; // random, opaque

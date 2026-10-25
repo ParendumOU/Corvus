@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.18.0
+
+### Faster and smaller
+- **Starts sooner**: the browser window is ready about a fifth sooner (about 0.35 s on the test
+  machine). The app no longer builds its self-test data on every start (a 20 MB buffer), and the
+  MCP server, the Anthropic SDK and the self-test code load only when they are needed.
+- **Smaller downloads**: about 20 % smaller installers (Linux: AppImage 164 → 130 MB, deb 129 → 103
+  MB). The PDF viewer's library is built into the viewer instead of shipping a second copy with
+  native canvas binaries it never used (and that were Linux binaries even in the Windows build).
+- `CORVUS_STARTUP_PROBE=1` prints how long a start took and quits, for measuring.
+
+### AI agents in other apps (MCP)
+- **Activity log**: Settings → AI agents keeps which tool each agent called, on which site, how it
+  ended (with the tool's own error message) and how long it took, for 30 days on this device:
+  per tool over the last 24 hours, then the latest calls filtered by agent or to the ones that
+  failed, with **Export CSV** and **Clear**. Never what an agent typed or what pages said. On by
+  default; **Keep an activity log** turns it off.
+- **Rate limit**: choose how many tool calls each connected agent may make (Strict: 1 a second,
+  bursts of 10; Standard: 5 a second, bursts of 30, as before; Relaxed: 20 a second, bursts of
+  100). Calls over the limit show in the log, with a notice when there were any in the last day.
+
+### Command Bar
+- **Recent**: tasks you gave the agent and searches and addresses you typed in the Command Bar
+  show under **Recent** when it opens empty. A task comes back as "> task" to read or change
+  before Enter runs it again; × removes an entry. Settings → Command Bar agent → **Remember what
+  you run** (on by default, per device) and **Clear**.
+
+### Sync
+- **Command Bar history** syncs end to end (Settings → Sync → **Sync Command Bar history**, on
+  by default, per device; new collection `command_history`: self-hosted sync servers need this
+  release's server, an older one keeps the history on each device).
+- **Changes replaced by another device**: when you change a bookmark, a setting, a reading-list
+  item, a watched page, a workspace or an annotation here while another device changes it too, the
+  other device's newer change is used everywhere as before, but your version is no longer lost:
+  Settings → Sync lists it next to the one in use, with **Use this device's version** (it syncs
+  as a new change and wins) or **Keep the one in use**. Saved logins are left out (no passwords
+  are kept outside the vault).
+
 ## v0.17.0
 
 ### Browser

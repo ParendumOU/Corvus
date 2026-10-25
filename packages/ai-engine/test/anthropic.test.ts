@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPrompt } from "../src/prompt.js";
-import { createAnthropicProvider } from "../src/providers/anthropic.js";
+import { createAnthropicProvider, lazyAnthropicClient } from "../src/providers/anthropic.js";
 import type { ProviderEvent } from "../src/providers/types.js";
 
 const prompt = buildPrompt("q", "en", [{ url: "https://a.example/", title: "A", snippet: "s", source: "a.example", rank: 1 }]);
@@ -52,5 +52,20 @@ describe("createAnthropicProvider", () => {
       messages: [{ role: "user", content: prompt.user }],
     });
     expect(options.signal).toBe(controller.signal);
+  });
+});
+
+describe("lazyAnthropicClient", () => {
+  it("makes the client once, on first use", async () => {
+    let made = 0;
+    const get = lazyAnthropicClient((Sdk) => {
+      made += 1;
+      return new Sdk({ apiKey: "k" });
+    });
+    expect(made).toBe(0);
+    const [a, b] = await Promise.all([get(), get()]);
+    expect(made).toBe(1);
+    expect(a).toBe(b);
+    expect(typeof a.messages.stream).toBe("function");
   });
 });

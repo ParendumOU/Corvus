@@ -19,6 +19,7 @@ import type { FlowChromeRpc, FlowInternalEvent, FlowInternalRpc } from "./flow-i
 import type { AutofillBarState, AutofillChromeRpc, CredentialsRpc } from "./credentials-ipc";
 import type { KeePassRpc } from "./keepass-ipc";
 import type { ExtensionSuggestion } from "./extension-suggestions";
+import type { SyncConflictView } from "./sync-conflicts";
 import type { BrowserChromeCommand, BrowserChromeRpc, BrowserInternalEvent, BrowserInternalRpc, BrowserWindowExtras } from "./browser-ipc";
 import type { HistoryRecord } from "./history-ops";
 import type { RemoteDeviceTabs } from "./open-tabs";
@@ -216,10 +217,44 @@ export interface McpStatus {
   lanAddress: string | null;
 }
 
-export interface McpActivity {
+export type McpActivityOutcome = "ok" | "error" | "rate-limited";
+
+/** One MCP tool call in the activity log: never its arguments, what was typed or page content. */
+export interface McpActivityEntry {
+  at: number;
   client: string;
   tool: string;
-  at: number;
+  /** Host of the page the call was about ("" for calls about no page). */
+  host: string;
+  outcome: McpActivityOutcome;
+  durationMs: number;
+  /** The tool's own error message, clipped (errors and rate-limited calls). */
+  error?: string;
+}
+
+export interface McpToolSummary {
+  tool: string;
+  calls: number;
+  errors: number;
+  /** Calls refused by the rate limit. */
+  rateLimited: number;
+  avgMs: number;
+}
+
+export interface McpActivityQuery {
+  limit?: number;
+  client?: string;
+  /** Only calls that failed or hit the rate limit. */
+  problemsOnly?: boolean;
+}
+
+export interface McpActivityView {
+  /** False when Settings > AI agents > Activity log is off (nothing new is recorded). */
+  enabled: boolean;
+  entries: McpActivityEntry[];
+  clients: string[];
+  /** Per tool over the last 24 hours. */
+  summary: McpToolSummary[];
 }
 
 /** Lifecycle of an electron-updater check/download. */
@@ -265,6 +300,10 @@ export interface SyncStatus {
   syncWorkflows: boolean;
   /** Sync what Corvus learned about sites (per device, default on). */
   syncSiteMemory: boolean;
+  /** Sync what was run from the Command Bar (per device, default on). */
+  syncCommandHistory: boolean;
+  /** This device's changes a newer change from another device replaced (Settings > Sync). */
+  conflicts: number;
 }
 
 export const SYNC_INTERVALS_MINUTES = [1, 5, 15, 30, 60] as const;
@@ -278,6 +317,7 @@ export interface SyncOptions {
   syncServiceUrls?: boolean;
   syncWorkflows?: boolean;
   syncSiteMemory?: boolean;
+  syncCommandHistory?: boolean;
 }
 
 export interface EngineInfo {
@@ -337,7 +377,10 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "settings.localModels"(): string[] | null;
   "mcp.status"(): McpStatus;
   "mcp.regenerateToken"(): McpStatus;
-  "mcp.activity"(): McpActivity[];
+  "mcp.activity"(query?: McpActivityQuery): McpActivityView;
+  "mcp.activityClear"(): void;
+  /** Saves the log as CSV where the person picks; false when cancelled. */
+  "mcp.activityExport"(): boolean;
   "update.status"(): UpdateStatus;
   "update.check"(): UpdateStatus;
   "update.download"(): UpdateStatus;
@@ -368,6 +411,11 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "sync.extensionSuggestions"(): ExtensionSuggestion[];
   "sync.installExtension"(id: string): ExtensionSuggestion[];
   "sync.dismissExtension"(id: string): ExtensionSuggestion[];
+  "sync.conflicts"(): SyncConflictView[];
+  /** Forget this profile's Command Bar history (synced devices forget it too). */
+  "commands.clear"(): void;
+  /** "mine" brings this device's version back; "theirs" keeps the one in use. */
+  "sync.resolveConflict"(id: string, keep: "mine" | "theirs"): SyncConflictView[];
   "extensions.list"(): ExtensionInfo[];
   "extensions.loadUnpacked"(): ExtensionInfo | null;
   "extensions.remove"(id: string): void;

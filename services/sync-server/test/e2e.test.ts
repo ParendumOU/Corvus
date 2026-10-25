@@ -1,5 +1,5 @@
 import type { SyncCollection, SyncItem } from "@corvus/shared";
-import { SYNC_COLLECTIONS, SyncEngine, SyncError, createSyncClient, type CorvusSyncClient, type SyncAdapter } from "@corvus/sync-core";
+import { SYNC_COLLECTIONS, SyncEngine, SyncError, createSyncClient, type CorvusSyncClient, type SyncAdapter, type SyncConflict } from "@corvus/sync-core";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PHRASE_A, PHRASE_B, makeServer, memoryStorage } from "./helpers.js";
@@ -155,6 +155,58 @@ describe("end-to-end sync through a real server", () => {
     await clientC.register();
     await new SyncEngine({ client: clientC, storage: memoryStorage(), adapters: { bookmarks: storeC } }).sync();
     expect(Object.fromEntries(storeC.items)).toEqual(Object.fromEntries(storeA.items));
+  });
+
+  it("reports local changes that a remote change replaced (remote wins), and only those", async () => {
+    const clientA = client(PHRASE_A, "Conflict A");
+    const clientB = client(PHRASE_A, "Conflict B");
+    await clientA.register();
+    await clientA.wipeChain();
+    await clientA.register();
+    await clientB.register();
+    const storeA = bookmarkStore();
+    const storeB = bookmarkStore();
+    const lostOnB: SyncConflict[] = [];
+    const engineA = new SyncEngine({ client: clientA, storage: memoryStorage(), adapters: { bookmarks: storeA } });
+    const engineB = new SyncEngine({
+      client: clientB,
+      storage: memoryStorage(),
+      adapters: { bookmarks: storeB },
+      conflictCollections: ["bookmarks"],
+      onConflict: (c) => void lostOnB.push(c),
+    });
+    storeA.items.set("k1", { title: "One", url: "https://one.example/" });
+    storeA.items.set("k2", { title: "Two", url: "https://two.example/" });
+    storeA.items.set("k3", { title: "Three", url: "https://three.example/" });
+    await engineA.sync();
+    await engineB.sync();
+    expect(lostOnB).toEqual([]);
+
+    // Both change k1; B deletes k2 while A edits it; only A changes k3 (no conflict).
+    storeA.items.set("k1", { title: "One (A)", url: "https://one.example/" });
+    storeA.items.set("k2", { title: "Two (A)", url: "https://two.example/" });
+    storeA.items.set("k3", { title: "Three (A)", url: "https://three.example/" });
+    await engineA.sync();
+    storeB.items.set("k1", { title: "One (B)", url: "https://one.example/" });
+    storeB.items.delete("k2");
+    await engineB.sync();
+
+    expect(lostOnB.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
+      { collection: "bookmarks", id: "k1", local: { title: "One (B)", url: "https://one.example/" }, remote: { title: "One (A)", url: "https://one.example/" } },
+      { collection: "bookmarks", id: "k2", local: null, remote: { title: "Two (A)", url: "https://two.example/" } },
+    ]);
+    // The remote versions won on B, and nothing B lost reached the chain.
+    expect(storeB.items.get("k1")?.title).toBe("One (A)");
+    expect(storeB.items.get("k2")?.title).toBe("Two (A)");
+    await engineA.sync();
+    expect(Object.fromEntries(storeA.items)).toEqual(Object.fromEntries(storeB.items));
+
+    // Bringing B's version back is an ordinary local change: it syncs and wins on A.
+    storeB.items.set("k1", lostOnB[0]!.local as Bookmark);
+    await engineB.sync();
+    await engineA.sync();
+    expect(storeA.items.get("k1")?.title).toBe("One (B)");
+    expect(lostOnB).toHaveLength(2);
   });
 
   it("converges every collection between two engines and never deletes items an adapter declines", async () => {

@@ -42,6 +42,7 @@ export const OPT_IN_SYNCED_SETTINGS = ["ai.searxngUrl", "ai.localBaseUrl"] as co
 /** Every other setting, with the reason it stays on this device. */
 export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "agent.siteMemory": "Whether this device learns about sites is its own choice (what it learned syncs as the site memory category).",
+  "agent.rememberCommands": "Whether this device keeps a Command Bar history is its own choice (the history syncs as its own category).",
   "phone.telegramBot": "Goes with the bot token, which stays in this device's keychain.",
   "phone.telegramChatId": "Linked on this device with its own bot token.",
   "phone.telegramChatName": "Linked on this device with its own bot token.",
@@ -69,6 +70,8 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "mcp.accessLevel": "What local agents may do; a per-device security decision.",
   "mcp.allowEvaluate": "Lets agents run scripts in pages; a per-device security decision.",
   "mcp.approvedClients": "Approvals are for agents running on this machine.",
+  "mcp.rateLimit": "Limits the agents running on this machine.",
+  "mcp.activityLog": "The log of agent tool calls is kept on this device only.",
   "webscope.enabled": "Captures local browser traffic for security testing; a per-device decision.",
   "webscope.maxBodyBytes": "Capture buffer size tuned to this machine.",
   "appearance.sidebarWidth": "Vertical tab sidebar width tuned to this screen.",

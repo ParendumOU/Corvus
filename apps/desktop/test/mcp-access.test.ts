@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { requiredLevel, toolAllowed } from "@corvus/mcp-server/access";
-import { defaultSettings, mergeSettings, resolveMcpAccessLevel } from "../src/shared/settings";
+import { DEFAULT_RATE_LIMIT } from "@corvus/mcp-server";
+import { defaultSettings, MCP_RATE_LIMITS, mergeSettings, resolveMcpAccessLevel } from "../src/shared/settings";
 
 describe("MCP access level settings", () => {
   it("defaults to standard with evaluate off", () => {
@@ -24,6 +25,16 @@ describe("MCP access level settings", () => {
     expect(merged.mcp.accessLevel).toBe("standard");
     const ok = mergeSettings(base, { mcp: { accessLevel: "full" } });
     expect(ok.mcp.accessLevel).toBe("full");
+  });
+
+  it("keeps a known rate limit (standard by default, the server's own default) and the activity log on", () => {
+    const base = defaultSettings();
+    expect(base.mcp.rateLimit).toBe("standard");
+    expect(MCP_RATE_LIMITS.standard).toEqual(DEFAULT_RATE_LIMIT);
+    expect(base.mcp.activityLog).toBe(true);
+    expect(mergeSettings(base, { mcp: { rateLimit: "strict" } }).mcp.rateLimit).toBe("strict");
+    expect(mergeSettings(base, { mcp: { rateLimit: "none" } }).mcp.rateLimit).toBe("standard");
+    expect(mergeSettings(base, { mcp: { rateLimit: "toString" } }).mcp.rateLimit).toBe("standard");
   });
 
   it("gates full-only tools: evaluate is absent at the standard default", () => {

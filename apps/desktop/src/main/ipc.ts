@@ -5,6 +5,7 @@ import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
 import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from "../shared/browser-import";
+import { SHOWN_COMMAND_RECENTS } from "../shared/command-history";
 import { parsePasswordCsv } from "../shared/password-import";
 import type { BookmarkImportResult, PasswordImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
@@ -182,6 +183,16 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       return w.workspaceViews();
     },
     "agent.start": (w, task) => ctx.agentRunner.start(w, str(task, "task", 4000)),
+    "commands.recent": (w) => (ctx.settings.get().agent.rememberCommands ? w.profile.commands.list().slice(0, SHOWN_COMMAND_RECENTS) : []),
+    "commands.remember": (w, kind, text) => {
+      if (kind !== "agent" && kind !== "search" && kind !== "url") throw new IpcError("Invalid kind");
+      const value = str(text, "text", 4000);
+      if (ctx.settings.get().agent.rememberCommands) w.profile.commands.add(kind, value);
+    },
+    "commands.forget": (w, id) => {
+      w.profile.commands.remove(str(id, "id", 64));
+      return w.profile.commands.list().slice(0, SHOWN_COMMAND_RECENTS);
+    },
     "agent.stop": (w) => ctx.agentRunner.stop(w),
     "agent.pause": (w, paused) => ctx.agentRunner.pause(w, paused === true),
     "agent.approve": (w, decision) => {
@@ -234,6 +245,8 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "mcp.status": ["settings"],
   "mcp.regenerateToken": ["settings"],
   "mcp.activity": ["settings"],
+  "mcp.activityClear": ["settings"],
+  "mcp.activityExport": ["settings"],
   "update.status": ["settings"],
   "update.check": ["settings"],
   "update.download": ["settings"],
@@ -261,6 +274,9 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "sync.extensionSuggestions": ["settings"],
   "sync.installExtension": ["settings"],
   "sync.dismissExtension": ["settings"],
+  "sync.conflicts": ["settings"],
+  "commands.clear": ["settings"],
+  "sync.resolveConflict": ["settings"],
   "extensions.list": ["extensions"],
   "extensions.loadUnpacked": ["extensions"],
   "extensions.remove": ["extensions"],
@@ -429,7 +445,27 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       await ctx.mcp.apply();
       return ctx.mcp.status();
     },
-    "mcp.activity": () => ctx.mcp.recentActivity(),
+    "mcp.activity": (_c, query) => {
+      const q = (query ?? {}) as Record<string, unknown>;
+      return ctx.mcp.activityView({
+        ...(typeof q.limit === "number" ? { limit: q.limit } : {}),
+        ...(typeof q.client === "string" && q.client ? { client: q.client.slice(0, 100) } : {}),
+        ...(q.problemsOnly === true ? { problemsOnly: true } : {}),
+      });
+    },
+    "mcp.activityClear": () => ctx.mcp.audit.clear(),
+    "mcp.activityExport": async (c) => {
+      const options: Electron.SaveDialogOptions = {
+        title: "Export AI agent activity",
+        defaultPath: `corvus-agent-activity-${new Date().toISOString().slice(0, 10)}.csv`,
+        filters: [{ name: "CSV", extensions: ["csv"] }],
+      };
+      const parent = c.window?.win;
+      const { canceled, filePath } = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);
+      if (canceled || !filePath) return false;
+      await fs.writeFile(filePath, ctx.mcp.audit.csv());
+      return true;
+    },
     "update.status": () => ctx.updater.status(),
     "update.check": async () => {
       await ctx.updater.check();
@@ -522,6 +558,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
         ...(typeof o.intervalMinutes === "number" ? { intervalMinutes: o.intervalMinutes } : {}),
         ...(typeof o.syncServiceUrls === "boolean" ? { syncServiceUrls: o.syncServiceUrls } : {}),
         ...(typeof o.syncWorkflows === "boolean" ? { syncWorkflows: o.syncWorkflows } : {}),
+        ...(typeof o.syncCommandHistory === "boolean" ? { syncCommandHistory: o.syncCommandHistory } : {}),
         ...(typeof o.syncSiteMemory === "boolean" ? { syncSiteMemory: o.syncSiteMemory } : {}),
       });
     },
@@ -535,6 +572,12 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "sync.extensionSuggestions": (c) => ctx.sync.extensionSuggestions(c.profile),
     "sync.installExtension": (c, id) => ctx.sync.installExtension(c.profile, str(id, "extension", 64)),
     "sync.dismissExtension": (c, id) => ctx.sync.dismissExtension(c.profile, str(id, "extension", 64)),
+    "sync.conflicts": (c) => ctx.sync.conflicts(c.profile),
+    "commands.clear": (c) => c.profile.commands.clear(),
+    "sync.resolveConflict": (c, id, keep) => {
+      if (keep !== "mine" && keep !== "theirs") throw new IpcError("keep must be mine or theirs");
+      return ctx.sync.resolveConflict(c.profile, str(id, "id", 64), keep);
+    },
     "extensions.list": (c) => c.profile.extensions.list(),
     "extensions.loadUnpacked": async (c) => {
       const options: Electron.OpenDialogOptions = { title: "Load unpacked extension", properties: ["openDirectory"] };

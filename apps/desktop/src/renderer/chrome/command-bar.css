@@ -139,6 +139,28 @@
   padding: 2px 6px;
 }
 
+.cmd-forget {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+.cmd-row:hover .cmd-forget,
+.cmd-row.sel .cmd-forget {
+  opacity: 1;
+}
+.cmd-forget:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
 /* ---------------------------------------------------------------- run panel */
 
 .run-panel {

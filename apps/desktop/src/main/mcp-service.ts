@@ -7,13 +7,17 @@ import type { FlowRunner, FlowSummary, SiteMemoryReader, StartMcpServerOptions }
 import { memoryHints } from "../shared/site-memory";
 import type { SavedFlow } from "../shared/flow";
 import { findFlow, flowSites, normalizeSite, workflowsForHost } from "../shared/workflow";
-import type { McpActivity, McpStatus } from "../shared/ipc";
-import { mcpAddCommand, resolveMcpAccessLevel } from "../shared/settings";
+import type { McpActivityQuery, McpActivityView, McpStatus } from "../shared/ipc";
+import { MCP_RATE_LIMITS, mcpAddCommand, resolveMcpAccessLevel } from "../shared/settings";
 import type { AppContext } from "./context";
+import { McpAuditLog } from "./mcp-audit";
 import { loadOptionalModule } from "./module-loader";
 import { tr } from "./menu-i18n";
 
-const MAX_ACTIVITY = 100;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const callKey = (e: { client: string; tool: string; at: number }): string => JSON.stringify([e.client, e.tool, e.at]);
+
 /** Turns the MCP server on at launch; the stdio bridge passes it when it starts Corvus for an agent. */
 export const ENABLE_MCP_SWITCH = "--enable-mcp";
 
@@ -25,12 +29,15 @@ export class McpService {
   private handle: McpServerHandle | null = null;
   private available = true;
   private error: string | null = null;
-  private activity: McpActivity[] = [];
+  readonly audit: McpAuditLog;
+  /** Host each running call is about, until its result arrives (keyed by client, tool and start time). */
+  private readonly callHosts = new Map<string, string>();
   private pendingApprovals = new Map<string, Promise<boolean>>();
   private applying: Promise<void> = Promise.resolve();
   private runningConfig = "";
 
   constructor(private readonly ctx: AppContext) {
+    this.audit = new McpAuditLog(app.getPath("userData"), () => ctx.settings.get().mcp.activityLog);
     ctx.settings.onChange((next, prev) => {
       if (next === prev || JSON.stringify(next.mcp) !== JSON.stringify(prev.mcp)) this.apply();
     });
@@ -66,8 +73,8 @@ export class McpService {
   }
 
   private desiredConfig(): string {
-    const { host, port } = this.ctx.settings.get().mcp;
-    return JSON.stringify({ host, port, accessLevel: this.accessLevel(), token: this.ctx.settings.mcpToken() });
+    const { host, port, rateLimit } = this.ctx.settings.get().mcp;
+    return JSON.stringify({ host, port, accessLevel: this.accessLevel(), token: this.ctx.settings.mcpToken(), rateLimit });
   }
 
   private accessLevel(): AccessLevel {
@@ -103,7 +110,7 @@ export class McpService {
       return;
     }
     this.available = true;
-    const { host, port } = this.ctx.settings.get().mcp;
+    const { host, port, rateLimit } = this.ctx.settings.get().mcp;
     const accessLevel = this.accessLevel();
     const token = this.ctx.settings.mcpToken();
     this.handle = await mod.startMcpServer({
@@ -118,19 +125,35 @@ export class McpService {
       siteMemory: () => this.siteMemoryReader(),
       onClientConnect: (info) => this.approve(info),
       onClientSession: (session) => this.noteClaudeSession(session),
+      rateLimit: MCP_RATE_LIMITS[rateLimit],
       onToolCall: (event) => {
-        this.record(event.client, event.tool, event.at);
+        this.callHosts.set(callKey(event), this.hostOf(event));
         this.ctx.agents.toolCall(event);
       },
-      onToolResult: (event) => this.ctx.agents.toolResult(event),
+      onToolResult: (event) => {
+        const key = callKey(event);
+        const host = this.callHosts.get(key) ?? "";
+        this.callHosts.delete(key);
+        this.audit.record({
+          at: event.at,
+          client: event.client,
+          tool: event.tool,
+          host,
+          outcome: event.outcome ?? (event.ok ? "ok" : "error"),
+          durationMs: event.durationMs,
+          ...(event.error ? { error: event.error } : {}),
+        });
+        // A call refused by the rate limit never started, so the activity timeline has no step for it.
+        if (event.outcome !== "rate-limited") this.ctx.agents.toolResult(event);
+      },
     });
     this.error = null;
     if (port === 0) {
       // Persist the random port so the `claude mcp add` command keeps working across restarts.
-      this.runningConfig = JSON.stringify({ host, port: this.handle.port, accessLevel, token });
+      this.runningConfig = JSON.stringify({ host, port: this.handle.port, accessLevel, token, rateLimit });
       this.ctx.settings.update({ mcp: { port: this.handle.port } });
     } else {
-      this.runningConfig = JSON.stringify({ host, port, accessLevel, token });
+      this.runningConfig = JSON.stringify({ host, port, accessLevel, token, rateLimit });
     }
     // The local stdio bridge always connects over loopback, even when the server also listens on all interfaces.
     this.writeDiscovery(`http://127.0.0.1:${this.handle.port}/mcp`, token);
@@ -264,12 +287,33 @@ export class McpService {
     };
   }
 
-  private record(client: string, tool: string, at: number): void {
-    this.activity = [{ client, tool, at }, ...this.activity].slice(0, MAX_ACTIVITY);
+  /** The page a call is about: its url argument, else its tab (the active one when it names none). */
+  private hostOf(event: { args: unknown; tabScoped?: boolean }): string {
+    const args = (event.args ?? {}) as { url?: unknown; tabId?: unknown };
+    let url = typeof args.url === "string" ? args.url : "";
+    if (!url && event.tabScoped) {
+      const tab = typeof args.tabId === "string" ? this.ctx.windows.findTab(args.tabId)?.tab : this.ctx.windows.target().activeTab();
+      url = tab?.url ?? "";
+    }
+    try {
+      return url ? new URL(url).host : "";
+    } catch {
+      return "";
+    }
   }
 
-  recentActivity(): McpActivity[] {
-    return this.activity;
+  /** A client was approved, rejected or revoked: logged next to its tool calls. */
+  private clientEvent(client: string, event: "(connected)" | "(rejected)" | "(revoked)"): void {
+    this.audit.record({ at: Date.now(), client, tool: event, host: "", outcome: event === "(rejected)" ? "error" : "ok", durationMs: 0 });
+  }
+
+  activityView(query: McpActivityQuery = {}): McpActivityView {
+    return {
+      enabled: this.ctx.settings.get().mcp.activityLog,
+      entries: this.audit.list(query),
+      clients: this.audit.clients(),
+      summary: this.audit.summary(Date.now() - DAY_MS),
+    };
   }
 
   private approve(info: McpClientInfo): Promise<boolean> {
@@ -306,7 +350,7 @@ export class McpService {
       const approved = this.ctx.settings.get().mcp.approvedClients;
       if (!approved.includes(info.name)) this.ctx.settings.update({ mcp: { approvedClients: [...approved, info.name] } });
     }
-    this.record(info.name, allowed ? "connected" : "rejected", Date.now());
+    this.clientEvent(info.name, allowed ? "(connected)" : "(rejected)");
     this.ctx.agents.clientConnected(info.name, allowed);
     return allowed;
   }
@@ -316,7 +360,7 @@ export class McpService {
     const approved = this.ctx.settings.get().mcp.approvedClients;
     if (approved.includes(name)) this.ctx.settings.update({ mcp: { approvedClients: approved.filter((c) => c !== name) } });
     this.handle?.revokeClient?.(name);
-    this.record(name, "revoked", Date.now());
+    this.clientEvent(name, "(revoked)");
   }
 
   status(): McpStatus {

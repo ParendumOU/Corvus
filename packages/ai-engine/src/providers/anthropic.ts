@@ -1,11 +1,22 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { AnswerProvider, AnswerRequest, ProviderEvent } from "./types.js";
+
+type MessagesClient = Pick<Anthropic, "messages">;
+
+/**
+ * An Anthropic client, made on first use: the SDK is large and most starts of the app never call
+ * the API, so it is loaded only then. The same promise serves every later call.
+ */
+export function lazyAnthropicClient(make: (Sdk: typeof Anthropic) => MessagesClient): () => Promise<MessagesClient> {
+  let client: Promise<MessagesClient> | undefined;
+  return () => (client ??= import("@anthropic-ai/sdk").then((sdk) => make(sdk.default)));
+}
 
 export interface AnthropicProviderOptions {
   apiKey: string;
   model: string;
   /** Injected in tests. */
-  client?: Pick<Anthropic, "messages">;
+  client?: MessagesClient;
 }
 
 interface UsageLike {
@@ -21,12 +32,13 @@ export function totalInputTokens(usage: UsageLike): number {
 }
 
 export function createAnthropicProvider(opts: AnthropicProviderOptions): AnswerProvider {
-  const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey, maxRetries: 1, timeout: 30_000 });
+  const injected = opts.client;
+  const client = injected ? async () => injected : lazyAnthropicClient((Sdk) => new Sdk({ apiKey: opts.apiKey, maxRetries: 1, timeout: 30_000 }));
   return {
     kind: "anthropic-api",
     model: opts.model,
     async *answer(req: AnswerRequest): AsyncIterable<ProviderEvent> {
-      const stream = client.messages.stream(
+      const stream = (await client()).messages.stream(
         {
           model: opts.model,
           max_tokens: req.maxOutputTokens,

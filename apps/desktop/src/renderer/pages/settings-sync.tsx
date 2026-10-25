@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ExtensionSuggestion } from "../../shared/extension-suggestions";
 import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncStatus } from "../../shared/ipc";
+import type { ConflictCollection, SyncConflictView } from "../../shared/sync-conflicts";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconCopy } from "../common/icons";
@@ -223,6 +224,82 @@ function ExtensionSuggestions({ status }: { status: SyncStatus }) {
   );
 }
 
+function conflictKind(collection: ConflictCollection): string {
+  switch (collection) {
+    case "bookmarks":
+      return t("Bookmark");
+    case "settings":
+      return t("Setting");
+    case "reading":
+      return t("Reading list");
+    case "watches":
+      return t("Watched page");
+    case "workspaces":
+      return t("Workspace");
+    case "annotations":
+      return t("Annotation");
+  }
+}
+
+/**
+ * Changes made on this device that a newer change from another device replaced (that one is in
+ * use everywhere). "Use this device's version" brings it back as a new change.
+ */
+function SyncConflicts({ status }: { status: SyncStatus }) {
+  const api = internalApi();
+  const [list, setList] = useState<SyncConflictView[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void api.call("sync.conflicts").then(setList);
+  }, [api, status.lastSyncAt, status.conflicts]);
+
+  if (list.length === 0) return null;
+  const resolve = (id: string, keep: "mine" | "theirs"): void => {
+    setBusy(id);
+    setError(null);
+    api
+      .call("sync.resolveConflict", id, keep)
+      .then(setList)
+      .catch((e: unknown) => setError(errorMessage(e)))
+      .finally(() => setBusy(null));
+  };
+  return (
+    <>
+      <Row
+        label={t("Changes replaced by another device")}
+        hint={t("You changed these here while another device changed them too. The other device's newer change is in use; you can bring yours back.")}
+      >
+        <span className="pill">{list.length}</span>
+      </Row>
+      <div className="list">
+        {list.map((c) => (
+          <div key={c.id} className="list-row">
+            <div className="grow">
+              <div className="title">
+                {conflictKind(c.collection)}: {c.name}
+              </div>
+              <div className="sub">
+                {t("This device")}: {c.local ?? t("Deleted")}
+              </div>
+              <div className="sub">
+                {t("In use")}: {c.remote ?? t("Deleted")} · {when(c.at)}
+              </div>
+            </div>
+            <button className="btn small primary" disabled={busy !== null} onClick={() => resolve(c.id, "mine")}>
+              {t("Use this device's version")}
+            </button>
+            <button className="btn small ghost" disabled={busy !== null} onClick={() => resolve(c.id, "theirs")}>
+              {t("Keep the one in use")}
+            </button>
+          </div>
+        ))}
+      </div>
+      {error && <div className="notice error">{error}</div>}
+    </>
+  );
+}
+
 function RecoveryPhrase() {
   const api = internalApi();
   const [phrase, setPhrase] = useState<string | null>(null);
@@ -394,6 +471,7 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       </Row>
       {status.error && <div className="notice error">{status.error}</div>}
       {error && <div className="notice error">{error}</div>}
+      <SyncConflicts status={status} />
       <Row label={t("Auto-sync")} hint={t("Also syncs about 10 seconds after a change on this device.")}>
         <select
           className="input"
@@ -424,6 +502,12 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
         hint={t("What Corvus learned about sites from successful agent runs, and what you told it to forget. Never typed values, passwords or codes. Whether this device learns stays its own switch. Off: this device keeps what it learned but stops syncing it.")}
       >
         <Toggle label={t("Sync site memory")} checked={status.syncSiteMemory} onChange={(v) => act(api.call("sync.setOptions", { syncSiteMemory: v }))} />
+      </Row>
+      <Row
+        label={t("Command Bar history")}
+        hint={t("Tasks you gave the agent and searches and addresses you typed in the Command Bar, its “Recent” list. Off: this device keeps its list but stops syncing it.")}
+      >
+        <Toggle label={t("Sync Command Bar history")} checked={status.syncCommandHistory} onChange={(v) => act(api.call("sync.setOptions", { syncCommandHistory: v }))} />
       </Row>
       <Row label={t("Also sync the SearXNG URL")} hint={t("Off by default because service URLs often point to this machine (localhost).")}>
         <Toggle label={t("Also sync the SearXNG URL")} checked={status.syncServiceUrls} onChange={(v) => act(api.call("sync.setOptions", { syncServiceUrls: v }))} />

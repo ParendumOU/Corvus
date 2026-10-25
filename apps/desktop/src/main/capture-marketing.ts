@@ -317,7 +317,7 @@ export async function runMarketingCapture(ctx: AppContext): Promise<void> {
   const preset = { ...PRESETS[lang]! };
   if (process.env.CORVUS_CAPTURE_TASK) preset.task = process.env.CORVUS_CAPTURE_TASK;
   const outDir = path.resolve(process.env.CORVUS_CAPTURE_OUT ?? "out/marketing");
-  const fixtures = path.resolve(process.env.CORVUS_CAPTURE_FIXTURES ?? path.join(import.meta.dirname, "../../capture/fixtures"));
+  const fixtures = path.resolve(process.env.CORVUS_CAPTURE_FIXTURES ?? path.resolve(process.cwd(), "capture/fixtures"));
   const width = Number(process.env.CORVUS_CAPTURE_WIDTH) || 1600;
   const height = Number(process.env.CORVUS_CAPTURE_HEIGHT) || 1000;
   fs.mkdirSync(outDir, { recursive: true });

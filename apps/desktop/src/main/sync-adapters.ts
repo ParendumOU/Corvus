@@ -26,6 +26,7 @@ import type { Settings, SettingsPatch } from "../shared/settings";
 import type { Workspace } from "../shared/workspaces";
 import { WIPE_RECORD_ID, parseSiteMemoryWipe, parseSyncedSiteMemory, type SiteMemoryWipe, type SyncedSiteMemory } from "../shared/site-memory-sync";
 import { parseSyncedWorkflow, type SyncedWorkflow } from "../shared/workflow-sync";
+import { parseCommandRecent, type CommandRecent } from "../shared/command-history";
 import { readSetting, settingsPatch, syncedSettingKeys, type SyncedSettingKey } from "../shared/sync-settings";
 import { JsonFile } from "./json-file";
 import type { BookmarkStore, HistoryStore } from "./stores";
@@ -213,6 +214,32 @@ export function workflowsAdapter(store: WorkflowSyncStore): SyncAdapter<SyncedWo
       store.applyRemote(changes);
     },
     join: () => store.resetSyncMarkers(),
+  };
+}
+
+export interface CommandHistorySyncStore {
+  syncList(): Array<{ id: string; payload: unknown }>;
+  applyRemote(changes: ReadonlyArray<{ id: string; recent: CommandRecent | null }>): void;
+}
+
+/**
+ * Command Bar recents, one record per entry (random ids). The store keeps the newest 50, one per
+ * kind and text: an entry it drops (older, or the same text again) is deleted on the chain too.
+ */
+export function commandHistoryAdapter(store: CommandHistorySyncStore): SyncAdapter<unknown> {
+  return {
+    list: () => store.syncList(),
+    apply: (items) => {
+      const changes: Array<{ id: string; recent: CommandRecent | null }> = [];
+      for (const item of items) {
+        if (item.deleted) changes.push({ id: item.id, recent: null });
+        else {
+          const recent = parseCommandRecent(item.payload, item.id);
+          if (recent) changes.push({ id: item.id, recent });
+        }
+      }
+      store.applyRemote(changes);
+    },
   };
 }
 
@@ -450,6 +477,8 @@ export interface SyncSources {
   workflows?: WorkflowSyncStore;
   /** Site memory; left out when the user turned sync of site memory off on this device. */
   siteMemory?: SiteMemorySyncStore;
+  /** Command Bar recents; left out when the user turned their sync off on this device. */
+  commands?: CommandHistorySyncStore;
   settings: SettingsAccess;
   /** User opt-in to also sync machine-specific service URLs (SearXNG). */
   includeServiceUrls: () => boolean;
@@ -473,6 +502,7 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
     annotations: annotationsAdapter(src.annotations),
     ...(src.workflows ? { workflows: workflowsAdapter(src.workflows) } : {}),
     ...(src.siteMemory ? { site_memory: siteMemoryAdapter(src.siteMemory) } : {}),
+    ...(src.commands ? { command_history: commandHistoryAdapter(src.commands) } : {}),
     settings: settingsAdapter(src.settings, src.includeServiceUrls),
     profiles: profileAdapter(src.profile),
     open_tabs: deviceRecordsAdapter({

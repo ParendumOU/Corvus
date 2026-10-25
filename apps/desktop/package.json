@@ -1,6 +1,6 @@
 {
   "name": "@corvus/desktop",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "license": "MPL-2.0",
   "private": true,
   "description": "Corvus desktop browser shell (Electron).",
@@ -26,8 +26,7 @@
     "@ghostery/adblocker-electron": "2.20.1",
     "electron-chrome-extensions": "4.9.0",
     "electron-chrome-web-store": "0.13.0",
-    "electron-updater": "6.6.2",
-    "pdfjs-dist": "^6.4.299"
+    "electron-updater": "6.6.2"
   },
   "devDependencies": {
     "@corvus/ai-engine": "workspace:*",
@@ -45,6 +44,7 @@
     "electron-vite": "6.0.0",
     "hash-wasm": "4.12.0",
     "kdbxweb": "2.1.1",
+    "pdfjs-dist": "6.4.299",
     "png-to-ico": "3.0.2",
     "qr": "0.7.2",
     "react": "18.3.1",

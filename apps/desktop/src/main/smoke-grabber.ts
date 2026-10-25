@@ -20,8 +20,8 @@ const LARGE = Buffer.alloc(20 * 1024 * 1024);
 for (let i = 0; i < LARGE.length; i += 4) LARGE.writeUInt32LE((i * 2654435761) >>> 0, i);
 const CHECK_PART = (n: string): Buffer => Buffer.from(`checksum smoke part ${n}\n`.repeat(100));
 const crc = (b: Buffer): string => (zlib.crc32(b) >>> 0).toString(16).padStart(8, "0");
-/** Archives the unit tests use too (out/main -> apps/desktop/test). */
-const ARCHIVES = path.join(import.meta.dirname, "../../test/fixtures/archives");
+/** Archives the unit tests use too (smoke.sh runs from apps/desktop). */
+const ARCHIVES = path.resolve(process.cwd(), "test/fixtures/archives");
 const PAYLOAD_SHA256 = "3649d9bfc363a45a7f5834cdbf4fcfb2729d0f05df0e67631eeb76d1ff397cb1";
 const sha256 = (file: string): string => (fs.existsSync(file) ? crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") : "");
 

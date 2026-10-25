@@ -76,6 +76,8 @@ export interface Settings {
     askBeforeRisky: boolean;
     /** Learn compact per-site hints from successful runs (local only, never synced). On by default. */
     siteMemory: boolean;
+    /** Remember what is run from the Command Bar (its "Recent" list). On by default. */
+    rememberCommands: boolean;
   };
   passwords: {
     /**
@@ -102,6 +104,10 @@ export interface Settings {
     /** Legacy switch kept in sync with accessLevel ("full" ⇔ true) for older configs and tools. */
     allowEvaluate: boolean;
     approvedClients: string[];
+    /** How many tool calls a connected session may make (MCP_RATE_LIMITS). */
+    rateLimit: McpRateLimit;
+    /** Keep a local log of agents' tool calls (tool, client, site, result; never page content or arguments). */
+    activityLog: boolean;
   };
   downloads: {
     /** Absolute folder; empty string = the OS Downloads folder. */
@@ -253,9 +259,9 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       answerLanguage: "",
       maxOutputTokens: 400,
     },
-    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true },
+    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true },
     passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false },
-    mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [] },
+    mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
     downloads: { directory: "", askWhereToSave: false, watchClipboard: false, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60 },
@@ -306,6 +312,7 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   merged.mcp.port = Number.isInteger(merged.mcp.port) && merged.mcp.port >= 0 && merged.mcp.port <= 65535 ? merged.mcp.port : 0;
   if (merged.mcp.host !== "127.0.0.1" && merged.mcp.host !== "0.0.0.0") merged.mcp.host = base.mcp.host;
   if (!ACCESS_LEVELS.includes(merged.mcp.accessLevel)) merged.mcp.accessLevel = base.mcp.accessLevel;
+  if (!Object.hasOwn(MCP_RATE_LIMITS, merged.mcp.rateLimit)) merged.mcp.rateLimit = base.mcp.rateLimit;
   merged.ai.maxOutputTokens = Math.max(50, Math.min(4000, Math.round(merged.ai.maxOutputTokens)));
   merged.agent.maxSteps = Math.max(1, Math.min(50, Math.round(merged.agent.maxSteps)));
   merged.passwords.keepassAutoLockMinutes = Math.max(0, Math.min(1440, Math.round(merged.passwords.keepassAutoLockMinutes) || 0));
@@ -345,6 +352,15 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
  * Effective MCP access level from settings. The legacy `allowEvaluate` toggle still grants full
  * access when it was on, so upgrading a config that had it enabled keeps evaluate/uploads working.
  */
+export type McpRateLimit = "strict" | "standard" | "relaxed";
+
+/** Per connected MCP session: a burst of `capacity` calls, then `refillPerSecond` calls a second. */
+export const MCP_RATE_LIMITS: Readonly<Record<McpRateLimit, { capacity: number; refillPerSecond: number }>> = {
+  strict: { capacity: 10, refillPerSecond: 1 },
+  standard: { capacity: 30, refillPerSecond: 5 },
+  relaxed: { capacity: 100, refillPerSecond: 20 },
+};
+
 export function resolveMcpAccessLevel(mcp: { accessLevel: AccessLevel; allowEvaluate: boolean }): AccessLevel {
   return mcp.allowEvaluate && mcp.accessLevel !== "full" ? "full" : mcp.accessLevel;
 }

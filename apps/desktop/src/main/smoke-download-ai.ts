@@ -18,7 +18,8 @@ interface DownloadAiSmokeHelpers {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 /** The password-protected two-part RAR5 the unit tests use too (out/main -> apps/desktop/test). */
-const ARCHIVES = path.join(import.meta.dirname, "../../test/fixtures/archives");
+/** Archives the unit tests use too (smoke.sh runs from apps/desktop). */
+const ARCHIVES = path.resolve(process.cwd(), "test/fixtures/archives");
 const PAYLOAD_SHA256 = "3649d9bfc363a45a7f5834cdbf4fcfb2729d0f05df0e67631eeb76d1ff397cb1";
 const sha256 = (file: string): string => (fs.existsSync(file) ? crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") : "");
 

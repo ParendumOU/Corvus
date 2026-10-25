@@ -39,11 +39,23 @@ export interface McpServerOptions {
   /** Ask the user to approve a new client. Return false to reject. */
   onClientConnect?: (info: McpClientInfo) => Promise<boolean>;
   /** Called for every tool invocation (for the activity log / AI badge). */
-  onToolCall?: (event: { client: string; tool: string; args: unknown; at: number }) => void;
+  /** `tabScoped`: the tool works on one tab (the active one when `args.tabId` is not given). */
+  onToolCall?: (event: { client: string; tool: string; args: unknown; at: number; tabScoped?: boolean }) => void;
   /** Called when a tool invocation finishes (activity timeline: duration and result size). */
   onToolResult?: (event: McpToolResultEvent) => void;
 }
-export interface McpToolResultEvent { client: string; tool: string; at: number; durationMs: number; ok: boolean; resultChars: number }
+export interface McpToolResultEvent {
+  client: string;
+  tool: string;
+  at: number;
+  durationMs: number;
+  ok: boolean;
+  resultChars: number;
+  /** "rate-limited": refused by the server's rate limit before it ran (no onToolCall came first). */
+  outcome?: "ok" | "error" | "rate-limited";
+  /** Why an error result failed: its text, clipped; never set when it carries page content. */
+  error?: string;
+}
 export interface McpServerHandle {
   port: number;
   url: string;

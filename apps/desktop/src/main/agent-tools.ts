@@ -16,14 +16,13 @@ import {
   type AgentToolResult,
 } from "@corvus/ai-engine";
 import type { AccessLevel, ActionTarget, AIProviderKind, PageSnapshot, SnapshotElement, TabId } from "@corvus/shared";
-import { challengeGuidance } from "@corvus/shared";
+import { NEWTAB_GUIDE, challengeGuidance } from "@corvus/shared";
 import { classifyAction, classifyPointAction, stricterRisk, type ActionRisk } from "../shared/agent-safety";
 import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry } from "../shared/visual-input";
 import type { AppContext } from "./context";
 import { agentScreenshot, clickAt, describeFocused, describePoint, hoverAt, pressKey, scrollAt, typeText } from "./visual-input";
 import { claudeCliEnv } from "../shared/settings";
 import { parseAgentDownloadRequest } from "../shared/download-ai";
-import { NEWTAB_GUIDE } from "@corvus/mcp-server";
 
 export const PER_TURN_TOKENS = 1536;
 export const RESULT_PREVIEW_CHARS = 200;

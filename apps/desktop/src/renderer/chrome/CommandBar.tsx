@@ -7,6 +7,7 @@ import {
   type PaletteIcon,
 } from "../../shared/command-bar";
 import type { AgentRunStep, AgentRunView } from "../../shared/command-bar-ipc";
+import type { CommandRecent } from "../../shared/command-history";
 import type { SemanticHit } from "../../shared/semantic-search-ipc";
 import type { WindowState } from "../../shared/ipc";
 import { classifyOmnibox, intentToUrl } from "../../shared/omnibox";
@@ -69,6 +70,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
   const hoverSelect = useHoverSelect(setSelected);
   const [suggestions, setSuggestions] = useState<UiAction[]>([]);
   const [localHits, setLocalHits] = useState<SemanticHit[]>([]);
+  const [recents, setRecents] = useState<CommandRecent[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const request = useRef(0);
@@ -79,7 +81,8 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    void api.call("commands.recent").then(setRecents);
+  }, [api]);
 
   const staticActions = useMemo<UiAction[]>(() => {
     // Actions that take the user somewhere close the bar; the agent row keeps it open for its run.
@@ -124,9 +127,15 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
     if (q) {
       const intent = classifyOmnibox(q);
       if (intent.kind === "url") {
-        out.push({ action: { id: "open-url", kind: "navigate", title: t("Open {url}", { url: intent.url }), icon: "navigate", priority: 50 }, run: () => commit(intent.url) });
+        out.push({
+          action: { id: "open-url", kind: "navigate", title: t("Open {url}", { url: intent.url }), icon: "navigate", priority: 50 },
+          run: () => commit(intent.url, { kind: "url", text: intent.url }),
+        });
       } else {
-        out.push({ action: { id: "search", kind: "search", title: t("Search the web for \"{query}\"", { query: intent.query }), icon: "search", priority: 50 }, run: () => commit(intentToUrl(intent)) });
+        out.push({
+          action: { id: "search", kind: "search", title: t("Search the web for \"{query}\"", { query: intent.query }), icon: "search", priority: 50 },
+          run: () => commit(intentToUrl(intent), { kind: "search", text: intent.query }),
+        });
       }
     }
     return out;
@@ -191,17 +200,45 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localHits, ranked, parsed.mode, value]);
 
-  const rows = useMemo(() => [...ranked, ...localItems], [ranked, localItems]);
-  const firstLocalIndex = ranked.length;
+  // "Recent": what was run from the bar, while it is empty. A task comes back as "> task" to read
+  // (and change) before Enter runs it again; a search or an address opens.
+  const recentItems = useMemo<UiAction[]>(() => {
+    if (value !== "") return [];
+    return recents.map((r) => {
+      const subtitle = r.kind === "agent" ? t("Agent task") : r.kind === "search" ? t("Web search") : hostOf(r.text);
+      const icon: PaletteIcon = r.kind === "agent" ? "agent" : r.kind === "search" ? "search" : "navigate";
+      return {
+        action: { id: `recent:${r.id}`, kind: r.kind === "agent" ? "agent" : r.kind === "search" ? "search" : "navigate", title: r.text, subtitle, icon } as PaletteAction,
+        run: () => {
+          if (r.kind === "agent") {
+            setValue(`${AGENT_PREFIX} ${r.text}`);
+            inputRef.current?.focus();
+            return;
+          }
+          const intent = classifyOmnibox(r.text);
+          commit(intentToUrl(intent), { kind: r.kind, text: r.text });
+        },
+      };
+    });
+  }, [recents, value]);
+
+  const rows = useMemo(() => [...recentItems, ...ranked, ...localItems], [recentItems, ranked, localItems]);
+  const firstActionIndex = recentItems.length;
+  const firstLocalIndex = recentItems.length + ranked.length;
 
   useEffect(() => setSelected(0), [value]);
   useEffect(() => {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }, [selected, rows.length]);
 
-  function commit(url: string): void {
+  function commit(url: string, remember?: { kind: "search" | "url"; text: string }): void {
+    if (remember) void api.call("commands.remember", remember.kind, remember.text);
     void api.call("tabs.openUrl", url, "current");
     onClose();
+  }
+
+  function forget(id: string): void {
+    void api.call("commands.forget", id).then(setRecents);
   }
 
   function startAgent(task: string): void {
@@ -211,6 +248,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
       onClose();
       return;
     }
+    void api.call("commands.remember", "agent", task);
     void api.call("agent.start", task);
     setValue("");
   }
@@ -263,6 +301,12 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
           {rows.length === 0 && <li className="cmd-empty">{t("No matches. Press Tab to ask Corvus to do it.")}</li>}
           {rows.map((u, i) => (
             <Fragment key={u.action.id}>
+              {i === 0 && recentItems.length > 0 && (
+                <li className="cmd-section" role="presentation">{t("Recent")}</li>
+              )}
+              {i === firstActionIndex && recentItems.length > 0 && ranked.length > 0 && (
+                <li className="cmd-section" role="presentation">{t("Actions")}</li>
+              )}
               {i === firstLocalIndex && localItems.length > 0 && (
                 <li className="cmd-section" role="presentation">{t("Find in my history")}</li>
               )}
@@ -282,6 +326,21 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
                 <span className="cmd-title">{u.action.title}</span>
                 {u.action.subtitle && <span className="cmd-sub">{u.action.subtitle}</span>}
                 {u.action.kind === "agent" && <span className="cmd-tag">{t("Agent")}</span>}
+                {u.action.id.startsWith("recent:") && (
+                  <button
+                    type="button"
+                    className="cmd-forget"
+                    title={t("Remove from Recent")}
+                    aria-label={t("Remove from Recent")}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      forget(u.action.id.slice("recent:".length));
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
               </li>
             </Fragment>
           ))}

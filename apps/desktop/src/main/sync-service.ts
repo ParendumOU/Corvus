@@ -3,12 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { MAX_WATCH_STATUS, askList, encodePairing, reachableFromPhone, sentTabs, type DeviceInfo, type SentTab, type SyncCollection, type SyncStateStorage } from "@corvus/shared";
 import { Notification } from "electron";
-import type { CorvusSyncClient, SyncEngine } from "@corvus/sync-core";
+import type { CorvusSyncClient, SyncAdapter, SyncEngine } from "@corvus/sync-core";
 import { extensionSuggestions, webstoreExtensions, type ExtensionSuggestion, type SyncedExtension } from "../shared/extension-suggestions";
 import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncOptions, type SyncStatus } from "../shared/ipc";
 import { OpenTabsPublisher, collectTabs, parseDeviceTabs, type RemoteDeviceTabs } from "../shared/open-tabs";
 import { toWatchStatus } from "../shared/page-watch";
 import { StampedRecord } from "../shared/stamped-record";
+import { CONFLICT_COLLECTIONS, conflictView, freshVersion, type SyncConflictView } from "../shared/sync-conflicts";
 import { answerAsk } from "./ask-relay";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
@@ -17,6 +18,7 @@ import type { ProfileRuntime } from "./profiles";
 import type { SecretCipher } from "./settings-store";
 import { ReadingFiller } from "./reading-fill";
 import { SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
+import { SyncConflictStore } from "./sync-conflict-store";
 import { SyncScheduler } from "./sync-scheduler";
 import { tr } from "./menu-i18n";
 
@@ -35,6 +37,8 @@ interface ProfileSyncState {
   syncWorkflows: boolean;
   /** Sync site memory (per device, default on; off keeps local data). */
   syncSiteMemory: boolean;
+  /** Sync the Command Bar's recents (per device, default on; off keeps local data). */
+  syncCommandHistory: boolean;
   /** Client/engine state written by older versions; moved to sync-kv.json on first start. */
   kv?: Record<string, string>;
 }
@@ -45,6 +49,8 @@ interface Runtime {
   client: CorvusSyncClient;
   scheduler: SyncScheduler;
   tabs: OpenTabsPublisher;
+  /** The engine's adapters (bringing a lost local version back writes through them). */
+  adapters: Partial<Record<SyncCollection, SyncAdapter>>;
   /** Last observed state of things without a change event (see localChanged). */
   seen: { extensionIds: string; meta: string };
   dispose: Array<() => void>;
@@ -127,6 +133,7 @@ export class SyncService {
   private readonly kvFiles = new Map<string, JsonFile<Record<string, string>>>();
   private readonly remotes = new Map<string, SyncRemoteStore>();
   private readonly runtimes = new Map<string, Runtime>();
+  private readonly conflictStores = new Map<string, SyncConflictStore>();
   private readonly errors = new Map<string, string>();
   private readonly filler = new ReadingFiller();
   private readonly memoryPhrases = new Map<string, string>();
@@ -212,6 +219,7 @@ export class SyncService {
         syncServiceUrls: false,
         syncWorkflows: true,
         syncSiteMemory: true,
+        syncCommandHistory: true,
       });
       file = JsonFile.load<ProfileSyncState>(
         path.join(profile.dataDir, "sync.json"),
@@ -295,53 +303,60 @@ export class SyncService {
     // Workflows and site memory are categories the user can leave out on this device.
     const flows = file.get().syncWorkflows ? this.ctx.flows?.storeFor(profile) : undefined;
     const memory = file.get().syncSiteMemory ? this.ctx.flows?.memory.storeFor(profile) : undefined;
+    const commands = file.get().syncCommandHistory ? profile.commands : undefined;
     const published = { key: "", extensions: [] as SyncedExtension[] };
     const watchStatus = new StampedRecord(() => ({
       device: file.get().deviceName,
       platform: process.platform,
       watches: this.ctx.monitor.storeFor(profile).list().slice(0, MAX_WATCH_STATUS).map(toWatchStatus),
     }));
+    const adapters = createSyncAdapters({
+      bookmarks: profile.bookmarks,
+      history: profile.history,
+      credentials: profile.credentials,
+      reading: profile.reading,
+      watches: this.ctx.monitor.storeFor(profile),
+      workspaces: profile.workspaces,
+      annotations: profile.annotations,
+      ...(flows ? { workflows: flows } : {}),
+      ...(memory ? { siteMemory: memory } : {}),
+      ...(commands ? { commands } : {}),
+      settings: this.ctx.settings,
+      includeServiceUrls: () => file.get().syncServiceUrls,
+      profile: {
+        get: () => {
+          const p = this.ctx.profiles.manager.require(id);
+          return p.avatar ? { name: p.name, avatar: p.avatar } : { name: p.name };
+        },
+        set: (meta) => {
+          this.ctx.profiles.setMeta(id, meta);
+          this.ctx.windows.broadcastState();
+        },
+      },
+      remote,
+      ownDeviceId: () => client.getDeviceId(),
+      openTabs: () => {
+        tabs.refresh();
+        return tabs.record();
+      },
+      watchStatus: () => watchStatus.record(),
+      extensions: () => {
+        const key = extensionIdsKey(profile);
+        if (key !== published.key) {
+          published.key = key;
+          published.extensions = webstoreExtensions(profile.extensions.list());
+        }
+        return { device: file.get().deviceName, extensions: published.extensions };
+      },
+    });
+    const conflicts = this.conflictStore(profile);
     const engine = new mod.SyncEngine({
       client,
       storage,
-      adapters: createSyncAdapters({
-        bookmarks: profile.bookmarks,
-        history: profile.history,
-        credentials: profile.credentials,
-        reading: profile.reading,
-        watches: this.ctx.monitor.storeFor(profile),
-        workspaces: profile.workspaces,
-        annotations: profile.annotations,
-        ...(flows ? { workflows: flows } : {}),
-        ...(memory ? { siteMemory: memory } : {}),
-        settings: this.ctx.settings,
-        includeServiceUrls: () => file.get().syncServiceUrls,
-        profile: {
-          get: () => {
-            const p = this.ctx.profiles.manager.require(id);
-            return p.avatar ? { name: p.name, avatar: p.avatar } : { name: p.name };
-          },
-          set: (meta) => {
-            this.ctx.profiles.setMeta(id, meta);
-            this.ctx.windows.broadcastState();
-          },
-        },
-        remote,
-        ownDeviceId: () => client.getDeviceId(),
-        openTabs: () => {
-          tabs.refresh();
-          return tabs.record();
-        },
-        watchStatus: () => watchStatus.record(),
-        extensions: () => {
-          const key = extensionIdsKey(profile);
-          if (key !== published.key) {
-            published.key = key;
-            published.extensions = webstoreExtensions(profile.extensions.list());
-          }
-          return { device: file.get().deviceName, extensions: published.extensions };
-        },
-      }),
+      adapters,
+      // A local change another device's newer change replaced is kept for Settings > Sync.
+      conflictCollections: CONFLICT_COLLECTIONS,
+      onConflict: (conflict) => conflicts.add(conflict),
     });
     const scheduler = new SyncScheduler({
       run: () => this.cycle(profile, engine),
@@ -354,6 +369,7 @@ export class SyncService {
       client,
       scheduler,
       tabs,
+      adapters,
       seen,
       dispose: [
         profile.bookmarks.changes.on(() => scheduler.poke()),
@@ -365,6 +381,7 @@ export class SyncService {
         this.ctx.monitor.storeFor(profile).onChange(() => scheduler.poke()),
         ...(flows ? [flows.onChange(() => scheduler.poke())] : []),
         ...(memory ? [memory.onChange(() => scheduler.poke())] : []),
+        ...(commands ? [commands.onChange(() => scheduler.poke())] : []),
         pollInbox(client, "sent_tabs", INBOX_POLL_MS, () => scheduler.poke()),
         pollInbox(client, "asks", ASKS_POLL_MS, () => void scheduler.trigger().catch(() => undefined)),
       ],
@@ -396,6 +413,7 @@ export class SyncService {
       this.ctx.monitor.storeFor(profile).flush();
       this.ctx.flows?.storeFor(profile).flush();
       this.ctx.flows?.memory.storeFor(profile).flush();
+      profile.commands.flush();
       await engine.sync();
       file.update((s) => ({ ...s, lastSyncAt: Date.now() }));
       this.errors.delete(id);
@@ -510,7 +528,43 @@ export class SyncService {
       syncServiceUrls: s.syncServiceUrls,
       syncWorkflows: s.syncWorkflows,
       syncSiteMemory: s.syncSiteMemory,
+      syncCommandHistory: s.syncCommandHistory,
+      conflicts: this.conflictStore(profile).list().length,
     };
+  }
+
+  private conflictStore(profile: ProfileRuntime): SyncConflictStore {
+    let store = this.conflictStores.get(profile.profile.id);
+    if (!store) {
+      store = new SyncConflictStore(path.join(profile.dataDir, "sync-conflicts.json"));
+      this.conflictStores.set(profile.profile.id, store);
+    }
+    return store;
+  }
+
+  /** This device's changes that a newer change from another device replaced, newest first. */
+  conflicts(profile: ProfileRuntime): SyncConflictView[] {
+    return this.conflictStore(profile).list().map(conflictView);
+  }
+
+  /**
+   * "mine" brings this device's version back: it is written locally and syncs as a new change, so it
+   * wins everywhere. "theirs" keeps the version in use. Either way the conflict is gone.
+   */
+  async resolveConflict(profile: ProfileRuntime, id: string, keep: "mine" | "theirs"): Promise<SyncConflictView[]> {
+    const store = this.conflictStore(profile);
+    const conflict = store.list().find((c) => c.id === id);
+    if (!conflict) return this.conflicts(profile);
+    if (keep === "mine") {
+      const rt = this.state(profile).get().enabled ? await this.active(profile) : undefined;
+      const adapter = rt?.adapters[conflict.collection];
+      if (!rt || !adapter) throw new Error(tr("Turn sync on to bring this version back."));
+      const payload = freshVersion(conflict.local, Date.now());
+      await adapter.apply([{ collection: conflict.collection, id: conflict.recordId, payload, deleted: conflict.local === null }]);
+      rt.scheduler.poke();
+    }
+    store.take(id);
+    return this.conflicts(profile);
   }
 
   async generatePhrase(): Promise<string> {
@@ -590,6 +644,7 @@ export class SyncService {
     this.kv(profile).set({});
     this.kv(profile).flush();
     this.remote(profile).clear();
+    this.conflictStore(profile).clear();
     this.ctx.profiles.setSyncChain(id, undefined);
     this.errors.delete(id);
     return this.status(profile);
@@ -610,9 +665,10 @@ export class SyncService {
     const syncServiceUrls = opts.syncServiceUrls ?? s.syncServiceUrls;
     const syncWorkflows = opts.syncWorkflows ?? s.syncWorkflows;
     const syncSiteMemory = opts.syncSiteMemory ?? s.syncSiteMemory;
-    this.state(profile).update((st) => ({ ...st, intervalMinutes, syncServiceUrls, syncWorkflows, syncSiteMemory }));
+    const syncCommandHistory = opts.syncCommandHistory ?? s.syncCommandHistory;
+    this.state(profile).update((st) => ({ ...st, intervalMinutes, syncServiceUrls, syncWorkflows, syncSiteMemory, syncCommandHistory }));
     const rt = this.runtimes.get(profile.profile.id);
-    if (rt && (syncWorkflows !== s.syncWorkflows || syncSiteMemory !== s.syncSiteMemory)) {
+    if (rt && (syncWorkflows !== s.syncWorkflows || syncSiteMemory !== s.syncSiteMemory || syncCommandHistory !== s.syncCommandHistory)) {
       // The engine's collections are fixed when it is built: rebuild it. A category turned off
       // forgets what it synced (local data stays); turned on, it joins with a full merge. A cycle
       // already running finishes first, so two engines never share the state.

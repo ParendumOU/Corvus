@@ -161,6 +161,10 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
       await chrome.executeJavaScript("document.querySelector('.cmd-input').value = ''; document.querySelector('.cmd-input').dispatchEvent(new Event('input', { bubbles: true }))").catch(() => 0);
     }
 
+    // 1b. An address opened from the bar is remembered: it shows under "Recent" when the bar opens
+    //     empty again, and its × forgets it.
+    await commandBarRecentChecks(win, chrome, url, check);
+
     // 2. A scripted agent run in auto mode ("Ask before risky actions" off): "Buy now" spends money,
     //    so the run panel still asks.
     nativeTheme.themeSource = "light";
@@ -418,6 +422,7 @@ async function mcpSpendSmoke(ctx: AppContext, shopUrl: string, check: Helpers["c
     await session.close();
     session = null;
     await mcpFullChecks(ctx, shopUrl, check);
+    await mcpActivityChecks(ctx, clientName, check);
   } catch (err) {
     check("MCP spend smoke", false, errorDetail(err));
   } finally {
@@ -531,6 +536,47 @@ function errorDetail(err: unknown): string {
   return cause ? `${e.message}: ${cause}` : String(e.message ?? err);
 }
 
+/**
+ * The activity log in Settings > AI agents: the spend session's calls are there with their site and
+ * outcome (a declined spend as an error with its reason), and with the strict rate limit a burst of
+ * calls shows up as calls over the limit.
+ */
+async function mcpActivityChecks(ctx: AppContext, spendClient: string, check: Helpers["check"]): Promise<void> {
+  const clientName = "corvus-smoke-limit";
+  const before = ctx.settings.get().mcp;
+  let session: McpSession | null = null;
+  try {
+    const calls = ctx.mcp.audit.list({ client: spendClient, limit: 1000 });
+    const click = calls.find((e) => e.tool === "click" && e.outcome === "ok");
+    const declined = calls.find((e) => e.outcome === "error" && (e.error ?? "").includes("The user declined"));
+    check(
+      "MCP activity log keeps each call's tool, site and outcome (a declined spend with its reason), never page text",
+      /^127\.0\.0\.1:\d+$/.test(click?.host ?? "") && Boolean(declined) && calls.every((e) => !(e.error ?? "").includes("untrusted_page_content")),
+      { click, declined, count: calls.length },
+    );
+
+    ctx.settings.update({ mcp: { enabled: true, accessLevel: "standard", rateLimit: "strict", approvedClients: [...before.approvedClients.filter((c) => c !== clientName), clientName] } });
+    await ctx.mcp.apply();
+    const status = ctx.mcp.status();
+    session = await openMcpSession(`http://127.0.0.1:${status.port}/mcp`, status.token ?? "", clientName);
+    for (let i = 0; i < 13; i++) await session.tool("tabs_list", {});
+    const view = ctx.mcp.activityView({ client: clientName, problemsOnly: true });
+    const limited = view.entries.filter((e) => e.outcome === "rate-limited");
+    const row = view.summary.find((s) => s.tool === "tabs_list");
+    check(
+      "MCP strict rate limit: a burst goes over the limit and the activity log counts it",
+      limited.length >= 1 && (row?.rateLimited ?? 0) >= limited.length && /^Rate limit exceeded/.test(limited[0]?.error ?? ""),
+      { limited: limited.length, row },
+    );
+  } catch (err) {
+    check("MCP activity log smoke", false, errorDetail(err));
+  } finally {
+    await session?.close();
+    ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, rateLimit: before.rateLimit, approvedClients: before.approvedClients } });
+    await ctx.mcp.apply();
+  }
+}
+
 /** Full access: upload_file onto a file input, pdf into the downloads folder, downloads_list. */
 async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["check"]): Promise<void> {
   const clientName = "corvus-smoke-full";
@@ -575,6 +621,42 @@ async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["c
     fs.rmSync(dir, { recursive: true, force: true });
     ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, approvedClients: before.approvedClients } });
     await ctx.mcp.apply();
+  }
+}
+
+/** The Command Bar's "Recent" list: what Enter opened from the bar comes back there, and × forgets it. */
+async function commandBarRecentChecks(win: BrowserWindowCtl, chrome: WebContents, url: string, check: Helpers["check"]): Promise<void> {
+  const typeInBar = (text: string): string =>
+    `(() => { const el = document.querySelector('.cmd-input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(text)}); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`;
+  try {
+    win.profile.commands.clear();
+    win.sendCommand({ type: "open-command-palette" });
+    await poll(chrome, "document.querySelector('.cmdbar .cmd-input')");
+    await chrome.executeJavaScript(typeInBar(url));
+    await poll(chrome, `(document.querySelector('.cmd-row.sel .cmd-title')?.textContent || '').includes(${JSON.stringify(url)})`);
+    await chrome.executeJavaScript("document.querySelector('.cmd-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))");
+    const remembered = await waitFor(() => win.profile.commands.list()[0]?.text === url, 3000);
+    await poll(chrome, "!document.querySelector('.cmdbar')");
+    win.sendCommand({ type: "open-command-palette" });
+    const listed = await poll(
+      chrome,
+      `document.querySelector('.cmd-section')?.textContent === 'Recent' && document.querySelector('.cmd-row .cmd-title')?.textContent === ${JSON.stringify(url)}`,
+    );
+    await chrome.executeJavaScript("document.querySelector('.cmd-row .cmd-forget')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))");
+    const forgotten = await waitFor(() => win.profile.commands.list().length === 0, 3000);
+    const gone = await poll(chrome, "!document.querySelector('.cmd-section') || document.querySelector('.cmd-section').textContent !== 'Recent'");
+    check("Command Bar remembers an address it opened, lists it under Recent and forgets it with ×", remembered && listed && forgotten && gone, {
+      remembered,
+      listed,
+      forgotten,
+      gone,
+      recents: win.profile.commands.list().map((r) => r.text),
+    });
+  } catch (err) {
+    check("Command Bar recent smoke", false, errorDetail(err));
+  } finally {
+    win.sendCommand({ type: "close-overlays" });
+    win.profile.commands.clear();
   }
 }
 

@@ -35,9 +35,6 @@ importers:
       electron-updater:
         specifier: 6.6.2
         version: 6.6.2
-      pdfjs-dist:
-        specifier: ^6.4.299
-        version: 6.4.299
     devDependencies:
       '@corvus/ai-engine':
         specifier: workspace:*
@@ -84,6 +81,9 @@ importers:
       kdbxweb:
         specifier: 2.1.1
         version: 2.1.1
+      pdfjs-dist:
+        specifier: 6.4.299
+        version: 6.4.299
       png-to-ico:
         specifier: 3.0.2
         version: 3.0.2

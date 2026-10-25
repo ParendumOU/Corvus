@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { McpServerOptions, SearchInsights, SearchResult, Tab, TabGroup } from "@corvus/shared";
+import type { McpServerOptions, McpToolResultEvent, SearchInsights, SearchResult, Tab, TabGroup } from "@corvus/shared";
 import { z } from "zod";
 import { checkAgentUrl, compactJson, truncate, UNTRUSTED_NOTE, wrapUntrusted } from "./content.js";
 import { renderSearch } from "./search-render.js";
@@ -14,6 +14,7 @@ export const SERVER_VERSION = "0.1.0";
 
 export const DEFAULT_RATE_LIMIT: RateLimitOptions = { capacity: 30, refillPerSecond: 5 };
 const MAX_ERROR_CHARS = 300;
+const ERROR_SUMMARY_CHARS = 200;
 
 export interface CreateMcpServerOptions
   extends Pick<McpServerOptions, "controller" | "search" | "allowEvaluate" | "accessLevel" | "onToolCall" | "onToolResult"> {
@@ -67,6 +68,14 @@ function errorMessage(err: unknown): string {
   return truncate(message || "Unknown error", MAX_ERROR_CHARS).text;
 }
 
+/** An error result's own words for the activity log; none when the text carries page content. */
+export function errorSummary(result: CallToolResult): string | undefined {
+  const first = result.content.find((c) => c.type === "text");
+  const text = first?.type === "text" ? first.text.trim() : "";
+  if (!text || text.includes("untrusted_page_content")) return undefined;
+  return truncate(text, ERROR_SUMMARY_CHARS).text;
+}
+
 /** Builds the Corvus MCP server (tools only, no transport). Create one instance per session. */
 export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
   const { controller, search } = opts;
@@ -92,6 +101,7 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
   const register: Register = (name, config, run) => {
     if (!toolAllowed(name, level)) return;
     if (config.requires && typeof controller[config.requires] !== "function") return;
+    const tabScoped = Object.hasOwn(config.inputSchema ?? {}, "tabId");
     mcp.registerTool(
       name,
       {
@@ -100,15 +110,17 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
         ...(config.readOnly ? { annotations: { readOnlyHint: true } } : {}),
       },
       (async (args: never, extra: ToolExtra): Promise<CallToolResult> => {
-        const waitMs = bucket?.take() ?? 0;
-        if (waitMs > 0) {
-          return { isError: true, content: [{ type: "text", text: `Rate limit exceeded; retry in ${Math.ceil(waitMs / 1000)}s` }] };
-        }
         const client = mcp.server.getClientVersion()?.name ?? "unknown";
         const at = Date.now();
+        const waitMs = bucket?.take() ?? 0;
+        if (waitMs > 0) {
+          const text = `Rate limit exceeded; retry in ${Math.ceil(waitMs / 1000)}s`;
+          notifyResult({ client, tool: name, at, durationMs: 0, ok: false, resultChars: 0, outcome: "rate-limited", error: text });
+          return { isError: true, content: [{ type: "text", text }] };
+        }
         let result: CallToolResult;
         try {
-          opts.onToolCall?.({ client, tool: name, args, at });
+          opts.onToolCall?.({ client, tool: name, args, at, tabScoped });
           const locked = RAW_PAGE_TOOLS.has(name) ? await secretFillLock(args) : null;
           result = locked ? { isError: true, content: [{ type: "text", text: locked }] } : await run(args, extra.signal, extra);
         } catch (err) {
@@ -116,16 +128,22 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
         }
         if (opts.onToolResult) {
           const resultChars = result.content.reduce((n, c) => n + (c.type === "text" ? c.text.length : c.type === "image" ? c.data.length : 0), 0);
-          try {
-            opts.onToolResult({ client, tool: name, at, durationMs: Date.now() - at, ok: result.isError !== true, resultChars });
-          } catch {
-            // Observers never break tool calls.
-          }
+          const ok = result.isError !== true;
+          const error = ok ? undefined : errorSummary(result);
+          notifyResult({ client, tool: name, at, durationMs: Date.now() - at, ok, resultChars, outcome: ok ? "ok" : "error", ...(error ? { error } : {}) });
         }
         return result;
       }) as never,
     );
   };
+
+  function notifyResult(event: McpToolResultEvent): void {
+    try {
+      opts.onToolResult?.(event);
+    } catch {
+      // Observers never break tool calls.
+    }
+  }
 
   /** The browser's refusal for raw page access on the target tab (a saved secret was just filled), or null. */
   async function secretFillLock(args: unknown): Promise<string | null> {

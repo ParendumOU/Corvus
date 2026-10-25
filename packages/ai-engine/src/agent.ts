@@ -15,7 +15,8 @@
  * Token use is kept lean: compact transcripts, a per-turn output cap and a total token budget.
  */
 import { tmpdir } from "node:os";
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
+import { lazyAnthropicClient } from "./providers/anthropic.js";
 import type { AIProviderKind } from "@corvus/shared";
 import { CLI_THINKING_HEADROOM, ClaudeCliError, StreamJsonParser } from "./providers/claude-cli.js";
 import { spawnCli } from "./providers/cli-spawn.js";
@@ -255,12 +256,13 @@ export function toAnthropicMessages(messages: AgentMessage[]): Anthropic.Message
 }
 
 export function createAnthropicAgentProvider(opts: AnthropicAgentOptions): AgentModelProvider {
-  const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey, maxRetries: 1, timeout: 120_000 });
+  const injected = opts.client;
+  const client = injected ? async () => injected : lazyAnthropicClient((Sdk) => new Sdk({ apiKey: opts.apiKey, maxRetries: 1, timeout: 120_000 }));
   return {
     kind: "anthropic-api",
     model: opts.model,
     async *streamTurn(req: AgentTurnRequest): AsyncIterable<TurnEvent> {
-      const stream = client.messages.stream(
+      const stream = (await client()).messages.stream(
         {
           model: opts.model,
           max_tokens: req.maxTokens,

@@ -4,6 +4,7 @@
  * WindowState in ./ipc.ts so that file's diff stays small.
  */
 import type { TabId } from "@corvus/shared";
+import type { CommandRecent, CommandRecentKind } from "./command-history";
 import type { CapturedAction } from "./workflow";
 import type { RunSiteHints } from "./site-memory";
 
@@ -83,4 +84,9 @@ export interface CommandBarChromeRpc {
   "agent.approve"(decision: AgentApprovalDecision): void;
   /** Dismiss a finished run from the panel. */
   "agent.clear"(): void;
+  /** The Command Bar's "Recent" list, newest first (empty when remembering is off). */
+  "commands.recent"(): CommandRecent[];
+  /** Remember a task, search or address run from the bar (ignored when remembering is off). */
+  "commands.remember"(kind: CommandRecentKind, text: string): void;
+  "commands.forget"(id: string): CommandRecent[];
 }
