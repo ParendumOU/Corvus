@@ -1101,3 +1101,18 @@ body,
 .chrome-root.private-window .new-tab-btn {
   color: #d9d3ee;
 }
+
+/* Maximized: tabs reach the top edge, so the pointer pushed against the screen's top still finds them. */
+.chrome-root.maximized .tabs {
+  padding-top: 0;
+}
+.chrome-root.maximized .tab {
+  height: 40px;
+  border-top: 6px solid transparent;
+  background-clip: padding-box;
+  border-radius: 9px 9px 0 0 / 15px 15px 0 0;
+}
+.chrome-root.maximized .tab:hover:not(.active) {
+  height: 36px;
+  border-radius: 9px / 15px 15px 9px 9px;
+}

@@ -68,6 +68,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   partition: string;
   /** A private window: nothing of it is kept once it closes. */
   privateWindow: boolean;
+  /** Maximized or full screen: the tabs reach the top edge of the screen. */
+  maximized: boolean;
   tabs: TabView[];
   groups: TabGroup[];
   activeTabId: TabId | null;

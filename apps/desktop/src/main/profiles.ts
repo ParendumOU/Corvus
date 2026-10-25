@@ -114,6 +114,8 @@ export class ProfileRuntime {
   /** Each session's latest proxy change, until Chromium uses it. */
   private readonly connecting = new Map<Session, Promise<void>>();
   private readonly connected = new Set<Session>();
+  /** Sessions Corvus changed the proxy of (the others still use Chromium's own default: the system's). */
+  private readonly proxied = new Set<Session>();
   /** The in-memory session of this profile's private windows, while one is open. */
   private privateSes: Session | null = null;
   private privateRuns = 0;
@@ -201,7 +203,15 @@ export class ProfileRuntime {
   }
 
   private connect(ses: Session, choice: ConnectionChoice): void {
-    const done = applyConnection(ses, choice, this.connections.config())
+    const config = this.connections.config();
+    // A session nobody changed already uses the system's settings: nothing to apply or wait for.
+    if (choice.mode === "system" && config.rules.length === 0 && !this.proxied.has(ses)) {
+      this.connecting.delete(ses);
+      this.connected.add(ses);
+      return;
+    }
+    this.proxied.add(ses);
+    const done = applyConnection(ses, choice, config)
       .catch(() => undefined)
       .then(() => {
         if (this.connecting.get(ses) === done) this.connected.add(ses);
@@ -268,6 +278,7 @@ export class ProfileRuntime {
     this.privateSes = null;
     this.connecting.delete(ses);
     this.connected.delete(ses);
+    this.proxied.delete(ses);
     await ses.clearStorageData().catch(() => undefined);
     await ses.clearCache().catch(() => undefined);
     await ses.clearAuthCache().catch(() => undefined);

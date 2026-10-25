@@ -168,7 +168,7 @@ export function App() {
 
   return (
     <div
-      className={`chrome-root ${mac ? "mac" : ""} ${vertical ? "vertical" : ""} ${vertical && state.sidebarCollapsed ? "sidebar-collapsed" : ""} ${state.privateWindow ? "private-window" : ""}`}
+      className={`chrome-root ${mac ? "mac" : ""} ${vertical ? "vertical" : ""} ${vertical && state.sidebarCollapsed ? "sidebar-collapsed" : ""} ${state.privateWindow ? "private-window" : ""} ${state.maximized ? "maximized" : ""}`}
       style={vertical ? ({ "--sidebar-w": `${state.sidebarCollapsed ? 52 : state.sidebarWidth}px` } as CSSProperties) : undefined}
     >
       <div id="chrome-bar" ref={barRef}>

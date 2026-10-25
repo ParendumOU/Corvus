@@ -200,10 +200,26 @@ export class ConnectionStore {
 }
 
 /** Applies a profile's (or container's) connection to its session; resolves once Chromium uses it. */
+/** Longest wait for Chromium to take a proxy change before tabs load anyway. */
+const APPLY_TIMEOUT_MS = 5000;
+
 export async function applyConnection(session: Session, choice: ConnectionChoice, config: ConnectionsConfig): Promise<void> {
-  await session.setProxy(chromiumProxy(choice, config));
-  // Connections opened before keep their old route otherwise.
-  await session.closeAllConnections().catch(() => undefined);
+  let timer: NodeJS.Timeout | undefined;
+  const applied = session.setProxy(chromiumProxy(choice, config)).then(() => {
+    // Connections opened before keep their old route otherwise (not waited for: it can take long).
+    void session.closeAllConnections().catch(() => undefined);
+  });
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn("[corvus] the proxy change took over 5 s; tabs load anyway");
+      resolve();
+    }, APPLY_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([applied, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** The WebRTC policy for a session's pages: through the proxy only, when it has one and the protection is on. */

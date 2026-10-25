@@ -265,13 +265,17 @@ export class BrowserWindowCtl {
     this.cleanups.push(() => clearTimeout(showFallback));
 
     const relayout = (): void => this.layout();
+    const reshape = (): void => {
+      this.layout();
+      this.pushState();
+    };
     this.win.on("resize", relayout);
-    this.win.on("maximize", relayout);
-    this.win.on("unmaximize", relayout);
-    this.win.on("enter-full-screen", relayout);
+    this.win.on("maximize", reshape);
+    this.win.on("unmaximize", reshape);
+    this.win.on("enter-full-screen", reshape);
     this.win.on("leave-full-screen", () => {
       this.htmlFullscreen = false;
-      this.layout();
+      reshape();
     });
     this.win.on("focus", () => ctx.windows.noteFocus(this));
     // Private windows are never part of the saved session.
@@ -478,6 +482,7 @@ export class BrowserWindowCtl {
       profiles: this.ctx.profiles.list(),
       partition: this.profile.partition,
       privateWindow: this.isPrivate,
+      maximized: this.win.isMaximized() || this.win.isFullScreen(),
       tabs: this.strip.tabs.map((t) => this.tabView(t.id)).filter((t): t is TabView => t !== null),
       groups: this.strip.groups,
       activeTabId: this.strip.activeId,

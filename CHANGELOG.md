@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.20.1
+
+### Fixes
+- **Tabs stayed blank when Corvus started** (0.20.0, seen on Windows): every tab waited for a
+  proxy change Corvus did not need to make. Without a proxy set up, tabs load at once again, and
+  a proxy change never holds tabs for more than a few seconds.
+
+### Browser
+- **Tabs reach the top of the screen** in a maximized or full-screen window, so the pointer pushed
+  against the top edge still lands on a tab.
+
 ## v0.20.0
 
 ### Privacy & connections
