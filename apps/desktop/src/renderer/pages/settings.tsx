@@ -756,6 +756,12 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
           {t("Clear")}
         </button>
       </Row>
+      <Row
+        label={t("Keep captures of agent runs")}
+        hint={t("A small picture of the page after each step, shown with the run in the agent history so you can see what it did. Kept only on this device and deleted with the run.")}
+      >
+        <Toggle label={t("Keep captures of agent runs")} checked={agent.runScreenshots} onChange={(v) => update({ agent: { runScreenshots: v } })} />
+      </Row>
     </Section>
   );
 }

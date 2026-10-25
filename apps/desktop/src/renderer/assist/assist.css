@@ -946,6 +946,44 @@ blockquote {
 .waiting-elsewhere span {
   flex: 1;
 }
+/* Agent tasks under way in the window. */
+.live-tasks ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.live-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+.live-task.awaiting-approval {
+  border-color: color-mix(in srgb, var(--warning) 60%, transparent);
+}
+.live-task-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}
+.live-task-text strong,
+.live-task-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-task-text span {
+  color: var(--text-2);
+}
+
 /* Conversation history. */
 .history {
   display: flex;

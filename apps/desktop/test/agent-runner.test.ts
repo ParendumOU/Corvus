@@ -169,6 +169,49 @@ describe("AgentRunner", () => {
     expect(JSON.stringify(toolResult)).toContain("<untrusted_page_content");
   });
 
+  it("keeps an earlier task running in the background when a new one starts", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller, false);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let turns = 0;
+    // The first task waits on its second turn until released; the second answers at once.
+    const provider: AgentModelProvider = {
+      kind: "claude-code-cli",
+      model: "m",
+      async *streamTurn(req) {
+        turns += 1;
+        const task = JSON.stringify(req.messages[0]);
+        if (task.includes("first") && req.messages.length > 1) await held;
+        if (task.includes("first") && req.messages.length === 1) {
+          yield { type: "tool_use", id: "t1", name: "page_snapshot", input: {} };
+          yield { type: "end", stopReason: "tool_use" };
+          return;
+        }
+        yield { type: "text", text: task.includes("first") ? "First done." : "Second done." };
+        yield { type: "end", stopReason: "end_turn" };
+      },
+    };
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const win = fakeWindow();
+    runner.start(win, "first task");
+    await waitFor(() => turns >= 2);
+    runner.start(win, "second task");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+    const extras = runner.windowExtras(win);
+    expect(extras.agentRun!.task).toBe("second task");
+    expect(extras.agentOthers).toEqual([expect.objectContaining({ task: "first task", status: "running" })]);
+
+    release();
+    await waitFor(() => runner.windowExtras(win).agentOthers[0]?.status === "done");
+    runner.focus(win, extras.agentOthers[0]!.id);
+    expect(runner.windowExtras(win).agentRun!.finalText).toBe("First done.");
+    expect(runner.windowExtras(win).agentOthers.map((o) => o.task)).toEqual(["second task"]);
+    runner.clear(win);
+    expect(runner.windowExtras(win).agentRun!.task).toBe("second task");
+  });
+
   it("asks for approval before a risky click and runs it when approved", async () => {
     const controller = mockController();
     const { ctx } = fakeContext(controller, true);

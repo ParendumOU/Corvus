@@ -307,6 +307,12 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
       during,
       after: live ? { ...live, thumb: Boolean(live.thumb) } : null,
     });
+    ctx.assist.setView(win, "agents");
+    const tasksListed = await poll(panel, "(document.querySelector('[data-live-tasks]')?.innerText || '').includes('Compare the shop')", 3000);
+    if (tasksListed) await capture("assist-live-tasks", panel);
+    check("assist agents view: lists the task under way with Watch and Stop", tasksListed);
+    ctx.assist.setView(win, "assist");
+    await poll(panel, "document.querySelector('[data-working-elsewhere]')", 3000);
     await panel.executeJavaScript("[...document.querySelectorAll('[data-working-elsewhere] button')].find((b) => b.textContent.trim() === 'Watch')?.click()");
     await sleep(150);
     win.closeTab(elsewhere.id);
@@ -349,6 +355,9 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
       shown = win.activeTab()?.id === kept?.id;
       if (!shown) await sleep(100);
     }
+    const researchRun = win.profile.agentRuns.list().find((r) => r.task.startsWith("Compare the shop"));
+    const shotSteps = researchRun?.steps.filter((st) => st.shot) ?? [];
+    check("assist agent: the run history keeps captures of the steps", shotSteps.length >= 1 && Object.keys(win.profile.agentRuns.shots.list(researchRun!.id)).length === shotSteps.length, { shots: shotSteps.map((st) => st.kind) });
     check("assist agent: the left-open chip shows the tab", shown, { active: win.activeTab()?.url });
     const idle = !(await win.chrome.webContents.executeJavaScript("Boolean(document.querySelector('.group-chip.agent-working'))"));
     check("assist agent: the group no longer shows the agent at work once it finished", idle);

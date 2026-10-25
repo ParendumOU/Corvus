@@ -391,6 +391,7 @@ export class AssistService {
       waitingElsewhere: waiting,
       workingElsewhere: waiting ? null : this.workingElsewhere(win),
       keepsHistory: !win.isPrivate,
+      liveTasks: this.ctx.agentRunner.liveRuns(win).map((r) => ({ runId: r.id, task: r.task, source: r.source, status: r.status, step: r.step, tabId: r.tabId })),
     };
   }
 

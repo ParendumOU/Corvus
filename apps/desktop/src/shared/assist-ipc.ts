@@ -127,6 +127,18 @@ export interface AssistPanelState {
   workingElsewhere: AgentLiveView | null;
   /** Conversations are kept in the profile's history (not in a private window). */
   keepsHistory: boolean;
+  /** The window's agent tasks under way (Command Bar, in front or in the background, and Assist). */
+  liveTasks: LiveAgentTask[];
+}
+
+export interface LiveAgentTask {
+  runId: string;
+  task: string;
+  source: "command-bar" | "assist" | "scheduled";
+  status: "running" | "paused" | "awaiting-approval" | "done" | "error" | "stopped";
+  /** Its latest step line. */
+  step: string;
+  tabId: TabId | null;
 }
 
 export interface AgentLiveView {

@@ -385,6 +385,25 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
 
   return (
     <div className="run-panel">
+      {state.agentOthers.length > 0 && (
+        <div className="run-others" data-run-others>
+          <span className="run-others-title">{t("Other tasks")}</span>
+          {state.agentOthers.map((o) => (
+            <button
+              key={o.id}
+              className={`run-other ${o.status}`}
+              title={o.task}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                void api.call("agent.focus", o.id);
+              }}
+            >
+              <span className="run-other-dot" aria-hidden />
+              {o.task}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="run-head">
         <IconAgent size={16} />
         <span className="run-task">{run.task}</span>

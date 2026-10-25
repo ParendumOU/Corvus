@@ -78,6 +78,8 @@ export interface Settings {
     siteMemory: boolean;
     /** Remember what is run from the Command Bar (its "Recent" list). On by default. */
     rememberCommands: boolean;
+    /** Keep a small capture of the page after each step in the run history. On by default. */
+    runScreenshots: boolean;
   };
   passwords: {
     /**
@@ -259,7 +261,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       answerLanguage: "",
       maxOutputTokens: 400,
     },
-    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true },
+    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true, runScreenshots: true },
     passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
     downloads: { directory: "", askWhereToSave: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },

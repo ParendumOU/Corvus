@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.22.0
+
+### AI
+- **Several agent tasks at once**: a new task in the Command Bar no longer stops the one running;
+  that one carries on in the background, in its own tab group, and the Command Bar lists it under
+  "Other tasks" (with its state) so one click shows it again. A background task that needs your OK
+  comes to the front by itself.
+- **See what the agent did, afterwards**: the agent history (corvus://agent-runs) shows a small
+  capture of the page after each step that changed it; click one to enlarge it. Captures stay on
+  this device, go with their run, and can be turned off in Settings → AI.
+- **Every task under way in one place**: the Agents tab of the Assist panel lists the window's agent
+  tasks (the Command Bar's, in front or in the background, and Assist's) with what each is doing,
+  whether it waits for you, "Watch" and "Stop".
+
 ## v0.21.1
 
 ### AI

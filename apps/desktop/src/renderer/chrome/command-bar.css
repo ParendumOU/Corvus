@@ -244,6 +244,60 @@
   max-height: 44vh;
 }
 
+/* The window's other tasks: running in the background or finished; one click shows each. */
+.run-others {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 0;
+}
+.run-others-title {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.run-other {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.run-other:hover {
+  border-color: var(--accent);
+}
+.run-other-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.run-other.running .run-other-dot,
+.run-other.paused .run-other-dot {
+  background: var(--accent);
+}
+.run-other.awaiting-approval .run-other-dot {
+  background: #f29900;
+}
+.run-other.done .run-other-dot {
+  background: #188038;
+}
+.run-other.error .run-other-dot {
+  background: #d93025;
+}
+
 /* The tabs the agent left open: one click shows each. */
 .run-left {
   display: flex;

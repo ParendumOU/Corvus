@@ -14,6 +14,7 @@ import { reviveStep as reviveFlowStep } from "../shared/workflow";
 import type { RunSiteHints } from "../shared/site-memory";
 import { boundTranscript } from "./agent-transcript";
 import { JsonFile } from "./json-file";
+import { AgentRunShots } from "./agent-run-shots";
 
 type Listener = () => void;
 
@@ -57,6 +58,7 @@ function reviveSteps(raw: unknown): AgentRunStep[] {
       kind: r.kind,
       summary: typeof r.summary === "string" ? r.summary : "",
       ...(typeof r.label === "string" ? { label: r.label } : {}),
+      ...(r.shot === true ? { shot: true as const } : {}),
       ...(typeof r.detail === "string" ? { detail: r.detail } : {}),
       status: r.status === "running" || r.status === "error" || r.status === "skipped" ? r.status : "ok",
       ...(typeof r.resultChars === "number" ? { resultChars: r.resultChars } : {}),
@@ -150,9 +152,17 @@ export function toRecordView(run: StoredAgentRun): AgentRunRecord {
 export class AgentRunStore {
   private readonly file: JsonFile<StoredAgentRun[]>;
   private readonly listeners = new Set<Listener>();
+  /** Captures of the page after the runs' steps; they go when their run goes. */
+  readonly shots: AgentRunShots;
 
   constructor(dir: string) {
     this.file = JsonFile.load(path.join(dir, "agent-runs.json"), () => [], revive, 400);
+    this.shots = new AgentRunShots(dir);
+    try {
+      this.shots.keepOnly(new Set(this.file.get().map((r) => r.id)));
+    } catch {
+      // A capture folder that cannot be read is tried again next start.
+    }
   }
 
   onChange(listener: Listener): () => void {
@@ -180,7 +190,9 @@ export class AgentRunStore {
   private write(run: StoredAgentRun): void {
     const bounded: StoredAgentRun = { ...run, transcript: boundTranscript(run.transcript) };
     const rest = this.file.get().filter((r) => r.id !== bounded.id);
-    const list = [bounded, ...rest].sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_STORED_RUNS);
+    const sorted = [bounded, ...rest].sort((a, b) => b.startedAt - a.startedAt);
+    const list = sorted.slice(0, MAX_STORED_RUNS);
+    for (const dropped of sorted.slice(MAX_STORED_RUNS)) this.shots.remove(dropped.id);
     this.file.set(list);
   }
 
@@ -197,12 +209,14 @@ export class AgentRunStore {
 
   remove(id: string): AgentRunRecord[] {
     this.file.set(this.file.get().filter((r) => r.id !== id));
+    this.shots.remove(id);
     this.emit();
     return this.views();
   }
 
   clear(): AgentRunRecord[] {
     this.file.set([]);
+    this.shots.clear();
     this.emit();
     return this.views();
   }

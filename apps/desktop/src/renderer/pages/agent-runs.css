@@ -110,6 +110,27 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.ar-shot {
+  display: block;
+  margin: 6px 0 2px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+  cursor: zoom-in;
+}
+.ar-shot img {
+  display: block;
+  width: 240px;
+  height: auto;
+}
+.ar-shot.big {
+  cursor: zoom-out;
+}
+.ar-shot.big img {
+  width: min(720px, 100%);
+}
 .ar-step-name {
   font-weight: 600;
   font-size: 12px;

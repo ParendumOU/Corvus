@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AgentActivityView, AgentLiveView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
+import type { AgentActivityView, AgentLiveView, LiveAgentTask, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
 import { MAX_COMPARE_TABS, type CompareCandidate } from "../../shared/compare";
 import type { AssistAgentStep, AssistAgentView } from "../../shared/assist-agent";
 import type { AgentLeftTab } from "../../shared/command-bar-ipc";
@@ -88,7 +88,7 @@ export function App() {
           <GlyphClose size={16} />
         </button>
       </header>
-      {state.view === "assist" ? <AssistPane state={state} /> : state.view === "workflows" ? <WorkflowsPane view={state.workflows} /> : <AgentsPane agents={state.agents} />}
+      {state.view === "assist" ? <AssistPane state={state} /> : state.view === "workflows" ? <WorkflowsPane view={state.workflows} /> : <AgentsPane agents={state.agents} tasks={state.liveTasks} />}
     </div>
   );
 }
@@ -809,7 +809,39 @@ function ago(at: number, now: number): string {
   return m < 60 ? tx("{m} min ago", { m }) : clock(at);
 }
 
-function AgentsPane({ agents }: { agents: AgentActivityView }) {
+/** The window's agent tasks under way: what each is doing, to watch or stop it. */
+function LiveTasks({ tasks }: { tasks: LiveAgentTask[] }) {
+  return (
+    <section className="live-tasks" data-live-tasks>
+      <h4>{tx("Tasks under way")}</h4>
+      {tasks.length === 0 ? (
+        <p className="muted small">{tx("No agent task is running in this window.")}</p>
+      ) : (
+        <ul>
+          {tasks.map((task) => (
+            <li key={task.runId} className={`live-task ${task.status}`}>
+              <div className="live-task-text">
+                <strong title={task.task}>{task.task}</strong>
+                <span>
+                  {task.source === "assist" ? tx("Assist") : tx("Command Bar")}
+                  {task.status === "awaiting-approval" ? ` · ${tx("waiting for you")}` : task.step ? ` · ${task.step}` : ""}
+                </span>
+              </div>
+              <div className="row">
+                {task.tabId && (
+                  <button className="btn small" onClick={() => void api().call("assist.showTab", task.tabId!)}>{tx("Watch")}</button>
+                )}
+                <button className="btn small ghost" onClick={() => void api().call("assist.stopRun", task.runId)}>{tx("Stop")}</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function AgentsPane({ agents, tasks }: { agents: AgentActivityView; tasks: LiveAgentTask[] }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 5000);
@@ -834,6 +866,8 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
           {agents.paused ? tx("Resume agents") : tx("Pause agents")}
         </button>
       </section>
+
+      <LiveTasks tasks={tasks} />
 
       <section>
         <h4>{tx("Clients")}</h4>

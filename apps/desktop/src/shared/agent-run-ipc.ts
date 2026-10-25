@@ -17,6 +17,8 @@ export interface AgentRunsInternalRpc {
   "agentRuns.clear"(): AgentRunRecord[];
   /** Continue an interrupted/incomplete run from its saved step state, within the approval gate + caps. */
   "agentRuns.resume"(id: string): AgentResumeResult;
+  /** The captures kept with a run, as data: URLs by step id. */
+  "agentRuns.shots"(id: string): Record<string, string>;
 }
 
 export type AgentRunsInternalEvent = { type: "agent-runs-changed" };

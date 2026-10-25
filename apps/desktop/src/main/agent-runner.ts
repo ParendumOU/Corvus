@@ -40,6 +40,13 @@ import { tr } from "./menu-i18n";
 
 /** Name shown in the shared agent-activity timeline and in each page overlay caption. */
 const AGENT_CLIENT = "Corvus";
+/** Earlier Command Bar tasks a window lists (running ones are never dropped). */
+const MAX_OTHER_TASKS = 6;
+/** Steps after which the run history keeps a capture of the page (they change what it shows). */
+const SHOT_TOOLS = new Set(["navigate", "open_tab", "switch_tab", "click", "type", "click_at", "press_key", "type_text", "run_workflow"]);
+/** The page gets a moment to show the step's effect before the capture. */
+const SHOT_DELAY_MS = 600;
+const SHOT_WIDTH = 360;
 
 interface Run {
   id: string;
@@ -135,6 +142,8 @@ export interface EmbeddedRunOptions {
  */
 export class AgentRunner {
   private readonly runs = new WeakMap<BrowserWindowCtl, Run>();
+  /** Earlier Command Bar tasks of each window, newest last: still running, or finished since. */
+  private readonly others = new WeakMap<BrowserWindowCtl, Run[]>();
   /** Embedded (Assist) runs by id, while they are live. */
   private readonly embedded = new Map<string, Run>();
   private testProvider: AgentModelProvider | null | undefined;
@@ -187,7 +196,12 @@ export class AgentRunner {
   }
 
   windowExtras(win: BrowserWindowCtl): CommandBarWindowExtras {
-    return { agentRun: this.view(win), agentReady: this.setupReason() === null, agentSetupReason: this.setupReason() };
+    return {
+      agentRun: this.view(win),
+      agentOthers: (this.others.get(win) ?? []).map((r) => ({ id: r.id, task: r.task, status: r.status })).reverse(),
+      agentReady: this.setupReason() === null,
+      agentSetupReason: this.setupReason(),
+    };
   }
 
   private view(win: BrowserWindowCtl): AgentRunView | null {
@@ -259,8 +273,7 @@ export class AgentRunner {
   start(win: BrowserWindowCtl, task: string): void {
     const trimmed = task.trim().slice(0, 2000);
     if (!trimmed) return;
-    const existing = this.runs.get(win);
-    if (existing && !isFinished(existing.status)) existing.abort.abort();
+    this.toBackground(win);
 
     const site = this.siteContext(win);
     const provider = this.provider(site.override);
@@ -341,9 +354,49 @@ export class AgentRunner {
     };
   }
 
+  /**
+   * The shown task makes room for a new one: still running, it carries on in the background (in its
+   * own tab group); the list keeps the latest few.
+   */
+  private toBackground(win: BrowserWindowCtl): void {
+    const current = this.runs.get(win);
+    if (!current || isFinished(current.status)) return;
+    const list = [...(this.others.get(win) ?? []).filter((r) => r !== current), current];
+    // Finished ones go first when the list is long; running ones always stay.
+    while (list.length > MAX_OTHER_TASKS) {
+      const done = list.findIndex((r) => isFinished(r.status));
+      if (done < 0) break;
+      list.splice(done, 1);
+    }
+    this.others.set(win, list);
+    this.runs.delete(win);
+  }
+
+  /** Shows another task of the window in the Command Bar (the shown one goes to the list). */
+  focus(win: BrowserWindowCtl, id: string): void {
+    const list = this.others.get(win) ?? [];
+    const target = list.find((r) => r.id === id);
+    if (!target) return;
+    const current = this.runs.get(win);
+    const rest = list.filter((r) => r !== target);
+    this.others.set(win, current ? [...rest, current] : rest);
+    this.runs.set(win, target);
+    win.pushState();
+  }
+
+  /** The window's Command Bar tasks: the shown one and the others. */
+  private windowRuns(win: BrowserWindowCtl): Run[] {
+    const current = this.runs.get(win);
+    return [...(current ? [current] : []), ...(this.others.get(win) ?? [])];
+  }
+
   stop(win: BrowserWindowCtl): void {
     const run = this.runs.get(win);
     if (!run) return;
+    this.stopRunOf(win, run);
+  }
+
+  private stopRunOf(win: BrowserWindowCtl, run: Run): void {
     run.approval?.resolve("stop");
     run.abort.abort();
     if (!isFinished(run.status)) {
@@ -373,12 +426,16 @@ export class AgentRunner {
       run.approval?.resolve("stop");
     }
     this.runs.delete(win);
+    // The next task in the list (a running one first) takes its place.
+    const list = this.others.get(win) ?? [];
+    const next = [...list].reverse().find((r) => !isFinished(r.status)) ?? list.at(-1);
+    if (next) this.focus(win, next.id);
     win.pushState();
   }
 
   private push(win: BrowserWindowCtl, run: Run): void {
     if (run.onUpdate) run.onUpdate(viewOf(run));
-    else if (this.runs.get(win) === run) win.pushState();
+    else if (this.windowRuns(win).includes(run)) win.pushState();
   }
 
   // ----------------------------------------------------------------- the loop
@@ -395,8 +452,7 @@ export class AgentRunner {
     const provider = this.provider(site.override);
     if (!provider) return { ok: false, reason: this.setupReason() ?? "Agent mode is not configured." };
 
-    const existing = this.runs.get(win);
-    if (existing && !isFinished(existing.status)) existing.abort.abort();
+    this.toBackground(win);
 
     const wf = workflowRunContext(this.ctx, win.profile, this.activeUrl(win), site, stored.task);
     const run: Run = {
@@ -499,6 +555,7 @@ export class AgentRunner {
       }
       case "tool_result": {
         run.stepCount += 1;
+        if (SHOT_TOOLS.has(step.name) && !step.result.isError) this.keepShot(win, run, step.id);
         if (step.result.image && run.onScreenshot) run.onScreenshot(step.id, step.result.image);
         const action = noteToolResult(run.wf, run, step.name, step.result.isError === true);
         run.steps = run.steps.map((s) =>
@@ -528,6 +585,29 @@ export class AgentRunner {
     }
     this.push(win, run);
     this.persist(win, run, step.type !== "text" && step.type !== "usage");
+  }
+
+  /**
+   * A small capture of the working tab after the step, kept with the run for its history (when
+   * Settings allows it). A tab that cannot be captured right now is simply skipped.
+   */
+  private keepShot(win: BrowserWindowCtl, run: Run, stepId: string): void {
+    if (!this.ctx.settings.get().agent.runScreenshots || win.isPrivate || !run.tabId) return;
+    const tabId = run.tabId;
+    setTimeout(() => {
+      const wc = this.ctx.windows.findTab(tabId)?.tab.view.webContents;
+      if (!wc || wc.isDestroyed()) return;
+      void wc
+        .capturePage(undefined, { stayHidden: true })
+        .then((image) => {
+          if (image.isEmpty()) return;
+          const small = image.getSize().width > SHOT_WIDTH ? image.resize({ width: SHOT_WIDTH, quality: "good" }) : image;
+          win.profile.agentRuns.shots.save(run.id, stepId, small.toJPEG(58));
+          run.steps = run.steps.map((s) => (s.id === stepId ? { ...s, shot: true as const } : s));
+          this.persist(win, run, true);
+        })
+        .catch(() => undefined);
+    }, SHOT_DELAY_MS);
   }
 
   private persist(win: BrowserWindowCtl, run: Run, notify: boolean): void {
@@ -566,7 +646,7 @@ export class AgentRunner {
    */
   personInput(win: BrowserWindowCtl, tabId: TabId, type: string): void {
     if (!TAKE_OVER_INPUT.has(type)) return;
-    const runs = [this.runs.get(win), ...this.embedded.values()];
+    const runs = [...this.windowRuns(win), ...this.embedded.values()];
     for (const run of runs) {
       if (!run || run.win !== win || run.status !== "running" || run.takenOver || run.acting || Date.now() < run.quietUntil) continue;
       if (run.tabId !== tabId && !run.tabs?.owns(tabId)) continue;
@@ -576,15 +656,23 @@ export class AgentRunner {
   }
 
   /** This window's runs still going: where each works and its latest step, for the live view. */
-  liveRuns(win: BrowserWindowCtl): Array<{ id: string; tabId: TabId | null; step: string }> {
-    return [this.runs.get(win), ...this.embedded.values()]
-      .filter((r): r is Run => Boolean(r) && r!.win === win && !isFinished(r!.status))
-      .map((r) => ({ id: r.id, tabId: r.tabId, step: [...r.steps].reverse().find((s) => s.kind !== "message")?.label ?? "" }));
+  liveRuns(win: BrowserWindowCtl): Array<{ id: string; tabId: TabId | null; step: string; task: string; source: AgentRunSource; status: AgentRunView["status"] }> {
+    return [...this.windowRuns(win), ...this.embedded.values()]
+      .filter((r) => r.win === win && !isFinished(r.status))
+      .map((r) => ({
+        id: r.id,
+        tabId: r.tabId,
+        step: [...r.steps].reverse().find((s) => s.kind !== "message")?.label ?? "",
+        task: r.task,
+        source: r.source,
+        status: r.status,
+      }));
   }
 
   /** Stops a run of this window by id (the live view's Stop). */
   stopRun(win: BrowserWindowCtl, id: string): void {
-    if (this.runs.get(win)?.id === id) this.stop(win);
+    const run = this.windowRuns(win).find((r) => r.id === id);
+    if (run) this.stopRunOf(win, run);
     else this.stopEmbedded(id);
   }
 
@@ -775,6 +863,11 @@ export class AgentRunner {
         resolve: done,
       };
       run.status = "awaiting-approval";
+      // A background task that needs the person comes to the front of the Command Bar.
+      if (run.source === "command-bar" && this.runs.get(win) !== run && this.others.get(win)?.includes(run)) {
+        this.focus(win, run.id);
+        win.sendCommand({ type: "open-command-palette" });
+      }
       this.push(win, run);
     });
   }

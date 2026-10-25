@@ -204,6 +204,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       ctx.agentRunner.approve(w, decision);
     },
     "agent.clear": (w) => ctx.agentRunner.clear(w),
+    "agent.focus": (w, id) => ctx.agentRunner.focus(w, str(id, "id", 128)),
     "agent.handBack": (w) => ctx.agentRunner.handBack(w),
   };
 }
@@ -343,6 +344,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "agentRuns.remove": ["agent-runs"],
   "agentRuns.clear": ["agent-runs"],
   "agentRuns.resume": ["agent-runs"],
+  "agentRuns.shots": ["agent-runs"],
   "crash.reload": ["crash"],
   "crashReports.openFolder": ["settings"],
   "app.openThirdPartyNotices": ["settings"],
@@ -792,6 +794,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     },
     "agentRuns.remove": (c, id) => c.profile.agentRuns.remove(str(id, "id")),
     "agentRuns.clear": (c) => c.profile.agentRuns.clear(),
+    "agentRuns.shots": (c, id) => c.profile.agentRuns.shots.list(str(id, "id")),
     "agentRuns.resume": (c, id) => ctx.agentRunner.resume(c.window, str(id, "id")),
     "crash.reload": (c) => {
       const found = ctx.windows.byTabWebContents(c.sender);

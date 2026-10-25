@@ -42,6 +42,7 @@ export const OPT_IN_SYNCED_SETTINGS = ["ai.searxngUrl", "ai.localBaseUrl"] as co
 /** Every other setting, with the reason it stays on this device. */
 export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "agent.siteMemory": "Whether this device learns about sites is its own choice (what it learned syncs as the site memory category).",
+  "agent.runScreenshots": "Captures of agent runs stay on this device, so keeping them is its own choice.",
   "agent.rememberCommands": "Whether this device keeps a Command Bar history is its own choice (the history syncs as its own category).",
   "phone.telegramBot": "Goes with the bot token, which stays in this device's keychain.",
   "phone.telegramChatId": "Linked on this device with its own bot token.",

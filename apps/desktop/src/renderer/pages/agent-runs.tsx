@@ -148,6 +148,11 @@ function RunRow({
   onSaveWorkflow: () => void;
 }) {
   const live = r.status === "running" || r.status === "paused" || r.status === "awaiting-approval";
+  const [shots, setShots] = useState<Record<string, string>>({});
+  const shotCount = r.steps.filter((s) => s.shot).length;
+  useEffect(() => {
+    if (open && shotCount > 0) void api.call("agentRuns.shots", r.id).then(setShots);
+  }, [open, shotCount, r.id, api]);
   const savable = !live && r.steps.some((s) => s.action !== undefined && s.status === "ok");
   const usedWorkflow = r.steps.some((s) => s.kind === "run_workflow");
   return (
@@ -181,7 +186,7 @@ function RunRow({
         {open && (
           <div className="ar-steps">
             {r.steps.map((s) => (
-              <StepRow key={s.id} step={s} />
+              <StepRow key={s.id} step={s} shot={shots[s.id]} />
             ))}
             <div className="ar-when muted small">{t("started")}{" "}{when(r.startedAt)}{r.endedAt ? t(" · ended {endedAt}", { endedAt: when(r.endedAt) }) : ""}</div>
           </div>
@@ -209,7 +214,8 @@ function RunRow({
   );
 }
 
-function StepRow({ step }: { step: AgentRunStep }) {
+function StepRow({ step, shot }: { step: AgentRunStep; shot?: string | undefined }) {
+  const [big, setBig] = useState(false);
   const isMessage = step.kind === "message";
   return (
     <div className={`ar-step ${step.status} ${isMessage ? "msg" : ""}`}>
@@ -221,6 +227,11 @@ function StepRow({ step }: { step: AgentRunStep }) {
           {step.status === "skipped" && <span className="ar-step-tag">{t("skipped")}</span>}
         </div>
         {step.detail && <div className="ar-step-detail">{step.detail}</div>}
+        {shot && (
+          <button className={`ar-shot ${big ? "big" : ""}`} title={big ? t("Smaller") : t("Larger")} onClick={() => setBig(!big)}>
+            <img src={shot} alt={t("The page after this step")} />
+          </button>
+        )}
       </div>
     </div>
   );

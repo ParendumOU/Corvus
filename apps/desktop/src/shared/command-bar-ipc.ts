@@ -25,6 +25,8 @@ export interface AgentRunStep {
   status: AgentStepStatus;
   /** Size of the tool result handed to the model, in characters. */
   resultChars?: number;
+  /** A capture of the page after this step is kept with the run (see AgentRunShots). */
+  shot?: true;
   at: number;
   /**
    * What a successful click/type/navigate did, in the recorder's (role, name, index) form, so the
@@ -80,8 +82,17 @@ export interface AgentLeftTab {
   url: string;
 }
 
+/** A Command Bar task of this window other than the one shown. */
+export interface AgentTaskSummary {
+  id: string;
+  task: string;
+  status: AgentRunStatus;
+}
+
 export interface CommandBarWindowExtras {
   agentRun: AgentRunView | null;
+  /** The window's other tasks: still running in the background, or finished since. */
+  agentOthers: AgentTaskSummary[];
   /** Agent mode can run because a provider is configured. */
   agentReady: boolean;
   /** Why agent mode is unavailable (no API key, CLI missing), else null. */
@@ -97,6 +108,8 @@ export interface CommandBarChromeRpc {
   "agent.approve"(decision: AgentApprovalDecision): void;
   /** The person is done using the page they took over: the run carries on. */
   "agent.handBack"(): void;
+  /** Show another task of this window in the Command Bar. */
+  "agent.focus"(id: string): void;
   /** Dismiss a finished run from the panel. */
   "agent.clear"(): void;
   /** The Command Bar's "Recent" list, newest first (empty when remembering is off). */
