@@ -1,0 +1,132 @@
+import type { GroupId, Tab, TabId } from "@corvus/shared";
+import { isNewTabUrl, NEW_TAB_URL } from "../shared/internal-urls";
+import { agentGroupTitle, agentTabLine } from "../shared/agent-tabs";
+import type { AppContext } from "./context";
+import type { RunTabsHandle } from "./agent-tools";
+import type { BrowserWindowCtl } from "./window";
+
+/**
+ * The tabs of one interactive agent run (Command Bar or Assist), in the run's window. Each tab the
+ * agent opens joins one group named after the task, so the person sees where it works; the agent
+ * moves between its tabs, closes the ones that led nowhere, and the rest stay open for the person
+ * when the run ends. The tab an Assist run started in is the person's: it is never grouped or closed.
+ */
+export class RunTabs implements RunTabsHandle {
+  private readonly own = new Set<TabId>();
+  private groupId: GroupId | null = null;
+  private title: string;
+  /** The Command Bar's fresh tab, while it still shows the New Tab page. */
+  private blank: TabId | null = null;
+
+  constructor(
+    private readonly ctx: AppContext,
+    private readonly win: BrowserWindowCtl,
+    task: string,
+    private readonly start: TabId | null,
+  ) {
+    this.title = agentGroupTitle(task);
+  }
+
+  /** The Command Bar's own tab: the first open_tab loads there instead of leaving it empty. */
+  adopt(id: TabId): void {
+    this.own.add(id);
+    this.blank = id;
+  }
+
+  async open(url: string, name: string): Promise<Tab> {
+    if (name.trim()) this.title = agentGroupTitle("", name);
+    const blank = this.takeBlank();
+    if (blank) {
+      const tab = await this.ctx.controller.navigate(blank, url);
+      this.group();
+      return tab;
+    }
+    const grouped = this.groupId && this.win.hasGroup(this.groupId) ? this.groupId : null;
+    const fresh = this.win.createTab(NEW_TAB_URL, { activate: true, agent: true, ...(grouped ? { groupId: grouped } : {}) });
+    this.own.add(fresh.id);
+    this.group();
+    try {
+      return await this.ctx.controller.navigate(fresh.id, url);
+    } catch (err) {
+      this.own.delete(fresh.id);
+      if (this.win.hasTab(fresh.id)) this.win.closeTab(fresh.id);
+      throw err;
+    }
+  }
+
+  switchTo(id: TabId): Tab {
+    if (!this.mayUse(id)) throw new Error(`Tab ${id} is not one of your tabs. Use list_tabs: your tabs are marked "yours".`);
+    const found = this.ctx.windows.findTab(id);
+    if (!found) throw new Error(`Tab ${id} is closed.`);
+    found.window.activate(id);
+    return found.window.toTab(found.tab);
+  }
+
+  /** Closes one of the run's tabs; returns the tab to work in next (null: none left). */
+  close(id: TabId, working: TabId | null): TabId | null {
+    if (id === this.start || !this.isOwn(id)) throw new Error(`Tab ${id} is not one you opened; only close your own tabs.`);
+    const found = this.ctx.windows.findTab(id);
+    if (!found) throw new Error(`Tab ${id} is already closed.`);
+    if (found.window.tabIds().length <= 1) throw new Error("This is the window's last tab; leave it open.");
+    this.own.delete(id);
+    if (this.blank === id) this.blank = null;
+    found.window.closeTab(id);
+    if (working !== id && working && this.ctx.windows.findTab(working)) return working;
+    const next = [...this.own].reverse().find((t) => this.ctx.windows.findTab(t)) ?? (this.start && this.ctx.windows.findTab(this.start) ? this.start : null);
+    if (next) this.ctx.windows.findTab(next)?.window.activate(next);
+    return next;
+  }
+
+  list(working: TabId | null): string {
+    return this.ctx.windows
+      .regular()
+      .flatMap((w) => w.listTabs())
+      .map((t) => agentTabLine(t, { working: t.id === working, own: this.isOwn(t.id), start: t.id === this.start }))
+      .join("\n");
+  }
+
+  /** End of the run: the tabs it leaves open are the person's now (no agent badge or agent rules). */
+  release(): void {
+    for (const id of this.ownOpen()) this.ctx.windows.findTab(id)?.window.clearAgentMark(id);
+  }
+
+  private mayUse(id: TabId): boolean {
+    return id === this.start || this.isOwn(id);
+  }
+
+  /** Opened by the run, or by one of its pages (window.open lands in the same group). */
+  private isOwn(id: TabId): boolean {
+    if (this.own.has(id)) return true;
+    return this.groupId !== null && this.win.hasTab(id) && this.win.groupOf(id) === this.groupId;
+  }
+
+  private ownOpen(): TabId[] {
+    const ids = new Set([...this.own].filter((id) => this.ctx.windows.findTab(id)));
+    if (this.groupId) for (const id of this.win.tabIds()) if (this.win.groupOf(id) === this.groupId) ids.add(id);
+    return [...ids];
+  }
+
+  private isBlank(id: TabId): boolean {
+    const wc = this.ctx.windows.findTab(id)?.tab.view.webContents;
+    return Boolean(wc && !wc.isDestroyed() && isNewTabUrl(wc.getURL() || NEW_TAB_URL));
+  }
+
+  private takeBlank(): TabId | null {
+    const id = this.blank;
+    this.blank = null;
+    return id && this.isBlank(id) ? id : null;
+  }
+
+  /** Puts the run's open tabs in this window into its group (created on first use). */
+  private group(): void {
+    const ids = [...this.own].filter((id) => this.win.hasTab(id));
+    if (ids.length === 0) return;
+    if (this.groupId && this.win.hasGroup(this.groupId)) {
+      const loose = ids.filter((id) => this.win.groupOf(id) !== this.groupId);
+      if (loose.length > 0) this.win.addToGroup(loose, this.groupId);
+      if (this.win.listGroups().find((g) => g.id === this.groupId)?.title !== this.title) this.win.updateGroup(this.groupId, { title: this.title });
+      return;
+    }
+    this.groupId = this.win.createGroup(ids, { title: this.title })?.id ?? null;
+  }
+}

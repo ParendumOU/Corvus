@@ -10,6 +10,7 @@ import { chromeApi } from "../common/api";
 import {
   IconAgent,
   IconBell,
+  IconCheck,
   IconClose,
   IconDownload,
   IconEdit,
@@ -321,15 +322,31 @@ export function DownloadsButton({ summary, onOpen }: { summary: DownloadsSummary
   const active = summary.active + (queue?.running ?? 0);
   const ring = summary.active > 0 && summary.progress !== null ? summary.progress : queue && queue.running > 0 ? queue.progress : null;
   const attention = summary.attention || (queue?.attention ?? 0) > 0;
+  // A green check once downloads finish, until the person looks at them (not while others run or wait for them).
+  const done = summary.finished > 0 && active === 0 && !attention;
+  const title =
+    active > 0
+      ? t("Downloads ({active} in progress)", { active })
+      : done
+        ? summary.finished === 1
+          ? t("Download finished")
+          : t("{count} downloads finished", { count: summary.finished })
+        : t("Downloads");
   return (
     <button
-      className={`icon-btn downloads-btn ${active > 0 ? "active" : ""} ${attention ? "attention" : ""}`}
+      className={`icon-btn downloads-btn ${active > 0 ? "active" : ""} ${attention ? "attention" : ""} ${done ? "done" : ""}`}
       data-downloads-button
-      title={active > 0 ? t("Downloads ({active} in progress)", { active }) : t("Downloads")}
+      title={title}
+      aria-label={title}
       style={ring !== null ? ({ "--progress": `${Math.round(ring * 360)}deg` } as CSSProperties) : undefined}
       onClick={(e) => onOpen(e.currentTarget.getBoundingClientRect())}
     >
       <IconDownload size={17} />
+      {done && (
+        <span className="downloads-done" aria-hidden="true">
+          <IconCheck size={9} />
+        </span>
+      )}
     </button>
   );
 }
@@ -359,6 +376,10 @@ function QueueRow({ queue, onOpen }: { queue: QueueSummary; onOpen: () => void }
 
 export function DownloadsBubble({ summary, anchor, onClose }: { summary: DownloadsSummary; anchor: Anchor; onClose: () => void }) {
   const api = chromeApi();
+  // Looking at the bubble counts as having seen the finished downloads, also ones that end while it is open.
+  useEffect(() => {
+    if (summary.finished > 0) void api.call("downloads.markSeen");
+  }, [api, summary.finished]);
   return (
     <div className="popover downloads-bubble" role="dialog" aria-label={t("Recent downloads")} style={placement(anchor)} onMouseDown={stop}>
       <div className="popover-title">{t("Recent downloads")}</div>

@@ -89,7 +89,7 @@ function HistoryPage() {
                       })
                     }
                   />
-                  <span className="mono muted" style={{ width: 48 }}>
+                  <span className="mono muted" style={{ minWidth: 48, whiteSpace: "nowrap" }}>
                     {formatTime(e.visitedAt)}
                   </span>
                   <Favicon url={e.url} src={e.faviconUrl} />

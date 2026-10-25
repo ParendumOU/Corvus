@@ -103,6 +103,8 @@ function fakeContext(controller: ReturnType<typeof mockController>, askBeforeRis
   const ctx = {
     controller,
     agents,
+    // RunTabs looks the run's tabs up here; these runs open none of their own.
+    windows: { findTab: () => undefined, regular: () => [] },
     assist: { open: vi.fn() },
     agentCredentials: credentials.service,
     secretFills,

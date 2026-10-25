@@ -29,6 +29,8 @@ interface ProfileDownloads {
   file: JsonFile<DownloadRecord[]>;
   /** Downloads started since launch: the toolbar bubble only shows these. */
   sessionIds: Set<string>;
+  /** Completed downloads the person has not looked at yet: the toolbar button shows a check. */
+  unseen: Set<string>;
   notifyTimer: NodeJS.Timeout | null;
   /** Downloads of private windows: listed while they are open, never written to downloads.json. */
   ephemeral: DownloadRecord[];
@@ -76,7 +78,7 @@ export class DownloadManager {
     const id = runtime.profile.id;
     if (this.profiles.has(id)) return;
     const file = JsonFile.load(path.join(runtime.dataDir, "downloads.json"), () => [], reviveDownloads, 1000);
-    this.profiles.set(id, { runtime, file, sessionIds: new Set(), notifyTimer: null, ephemeral: [] });
+    this.profiles.set(id, { runtime, file, sessionIds: new Set(), unseen: new Set(), notifyTimer: null, ephemeral: [] });
     runtime.session.on("will-download", (event, item, wc) => this.onWillDownload(runtime, event, item, wc));
   }
 
@@ -169,8 +171,17 @@ export class DownloadManager {
       active: active.length,
       progress: active.length > 0 && known && total > 0 ? active.reduce((sum, d) => sum + d.receivedBytes, 0) / total : null,
       attention: recent.some((d) => d.state === "blocked"),
+      finished: recent.filter((d) => d.state === "completed" && entry?.unseen.has(d.id)).length,
       queue: this.ctx.queue.summary(runtime),
     };
+  }
+
+  /** The person opened the bubble or the downloads page: drop the toolbar's "finished" check. */
+  markSeen(runtime: ProfileRuntime): void {
+    const entry = this.entry(runtime);
+    if (entry.unseen.size === 0) return;
+    entry.unseen.clear();
+    this.notify(entry);
   }
 
   private entry(runtime: ProfileRuntime): ProfileDownloads {
@@ -281,6 +292,7 @@ export class DownloadManager {
         this.mutate(runtime, (list) => removeDownload(list, record.id));
         return;
       }
+      if (state === "completed") this.entry(runtime).unseen.add(record.id);
       this.commit(runtime, { ...next, state, endedAt: Date.now(), canResume: false });
       this.entry(runtime).file.flush();
     });

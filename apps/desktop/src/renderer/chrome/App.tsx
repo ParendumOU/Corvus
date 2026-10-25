@@ -17,7 +17,7 @@ import { isNewTabUrl } from "../../shared/internal-urls";
 import { GROUP_COLORS } from "../../shared/tab-strip";
 import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
-import { IconLock, IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
+import { IconGlobe, IconLock, IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
@@ -234,6 +234,20 @@ export function App() {
               state={state.adblock}
               onOpen={(rect) => setPopover({ kind: "adblock", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })}
             />
+            {state.connection && (
+              <button
+                className="connection-chip"
+                data-connection-chip={state.connection.name}
+                title={state.connection.rule ? tx("This site goes through {name} (a site rule)", { name: state.connection.name }) : tx("Going through {name}", { name: state.connection.name })}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  void api.call("ui.connectionMenu", r.left, r.bottom + 4);
+                }}
+              >
+                <IconGlobe size={13} />
+                <span>{state.connection.name}</span>
+              </button>
+            )}
             <CopiedLinksChip count={state.copiedLinks} />
             <DownloadsButton
               summary={state.downloads}

@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { Bookmark } from "@corvus/shared";
 import { JsonFile } from "./json-file";
-import { countBookmarks, isImportedFolder, type ImportedNode } from "../shared/bookmark-import";
+import { countBookmarks, isImportedFolder, type ImportedNode, type ImportedRoots } from "../shared/bookmark-import";
 import {
   BAR_FOLDER_ID,
+  OTHER_FOLDER_ID,
   ROOT_IDS,
   addNode,
+  childrenOf,
   defaultTree,
   ensureRoots,
   findByUrl,
@@ -65,29 +67,47 @@ export class BookmarkStore {
   readonly changes = new Emitter();
 
   /**
-   * Recreates an imported bookmark tree (a file, another browser) in a new folder under
-   * `parentId`, leaving out empty folders and addresses that are not pages. Returns what was added.
+   * Recreates an imported bookmark tree (a file) in a new folder under `parentId`, leaving out
+   * empty folders and addresses that are not pages. Returns what was added.
    */
   importTree(parentId: string, title: string, nodes: readonly ImportedNode[]): { imported: number; folders: number } {
     const counts = { imported: 0, folders: 0 };
     if (countBookmarks([...nodes]) === 0) return counts;
-    const walk = (parent: string, list: readonly ImportedNode[]): void => {
-      for (const node of list) {
-        if (counts.imported >= MAX_IMPORTED_BOOKMARKS) return;
-        if (isImportedFolder(node)) {
-          if (countBookmarks(node.children) === 0) continue;
-          const folder = this.create({ parentId: parent, kind: "folder", title: node.title || "Imported" });
-          counts.folders++;
-          walk(folder.id, node.children);
-        } else if (/^(https?|ftp|file|corvus):/i.test(node.url)) {
-          this.create({ parentId: parent, kind: "bookmark", title: node.title || node.url, url: node.url });
-          counts.imported++;
-        }
-      }
-    };
     const container = this.create({ parentId, kind: "folder", title: title.slice(0, 120) });
-    walk(container.id, nodes);
+    this.importInto(container.id, nodes, counts);
     return counts;
+  }
+
+  /**
+   * Another browser's bookmarks straight into Corvus's bookmarks bar and Other bookmarks, where
+   * they were there. Importing again adds only what is new: a folder merges into one of the same
+   * name already in place, and a page already in its folder is skipped.
+   */
+  importRoots(roots: ImportedRoots): { imported: number; folders: number } {
+    const counts = { imported: 0, folders: 0 };
+    this.importInto(BAR_FOLDER_ID, roots.bar, counts);
+    this.importInto(OTHER_FOLDER_ID, roots.other, counts);
+    return counts;
+  }
+
+  private importInto(parentId: string, nodes: readonly ImportedNode[], counts: { imported: number; folders: number }): void {
+    for (const node of nodes) {
+      if (counts.imported >= MAX_IMPORTED_BOOKMARKS) return;
+      const siblings = childrenOf(this.file.get(), parentId);
+      if (isImportedFolder(node)) {
+        if (countBookmarks(node.children) === 0) continue;
+        const title = node.title || "Imported";
+        let folder = siblings.find((b) => b.kind === "folder" && b.title === title);
+        if (!folder) {
+          folder = this.create({ parentId, kind: "folder", title });
+          counts.folders++;
+        }
+        this.importInto(folder.id, node.children, counts);
+      } else if (/^(https?|ftp|file|corvus):/i.test(node.url) && !siblings.some((b) => b.kind === "bookmark" && b.url === node.url)) {
+        this.create({ parentId, kind: "bookmark", title: node.title || node.url, url: node.url });
+        counts.imported++;
+      }
+    }
   }
 
   constructor(dir: string) {

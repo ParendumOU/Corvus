@@ -109,25 +109,34 @@ function fromChromeNode(node: ChromeNode): ImportedNode | null {
   return null;
 }
 
-/** Parse a Chrome/Edge `Bookmarks` JSON file into a tree. */
-export function parseChromeJson(text: string): ImportedNode[] {
+/** A browser's bookmarks by where they go in Corvus: its bookmarks bar, and Other bookmarks. */
+export interface ImportedRoots {
+  bar: ImportedNode[];
+  other: ImportedNode[];
+}
+
+/** Chrome/Edge's roots: the bookmarks bar to Corvus's bar, "Other" and the mobile ones to Other bookmarks. */
+export function parseChromeRoots(text: string): ImportedRoots {
   let data: { roots?: Record<string, ChromeNode> };
   try {
     data = JSON.parse(text) as { roots?: Record<string, ChromeNode> };
   } catch {
-    return [];
+    return { bar: [], other: [] };
   }
   const roots = data.roots;
-  if (!roots || typeof roots !== "object") return [];
-  const out: ImportedNode[] = [];
-  for (const key of ["bookmark_bar", "other", "synced"]) {
-    const node = roots[key];
-    if (!node) continue;
-    const parsed = fromChromeNode(node);
-    if (parsed && isImportedFolder(parsed)) out.push(...parsed.children);
-    else if (parsed) out.push(parsed);
-  }
-  return out;
+  if (!roots || typeof roots !== "object") return { bar: [], other: [] };
+  const children = (key: string): ImportedNode[] => {
+    const parsed = roots[key] ? fromChromeNode(roots[key]) : null;
+    if (!parsed) return [];
+    return isImportedFolder(parsed) ? parsed.children : [parsed];
+  };
+  return { bar: children("bookmark_bar"), other: [...children("other"), ...children("synced")] };
+}
+
+/** Parse a Chrome/Edge `Bookmarks` JSON file into a tree. */
+export function parseChromeJson(text: string): ImportedNode[] {
+  const roots = parseChromeRoots(text);
+  return [...roots.bar, ...roots.other];
 }
 
 /** Dispatch on file name / content shape. Returns the imported tree (possibly empty). */

@@ -15,7 +15,7 @@ import {
   type AgentTool,
   type AgentToolResult,
 } from "@corvus/ai-engine";
-import type { AccessLevel, ActionTarget, AIProviderKind, PageSnapshot, SnapshotElement, TabId } from "@corvus/shared";
+import type { AccessLevel, ActionTarget, AIProviderKind, PageSnapshot, SnapshotElement, Tab, TabId } from "@corvus/shared";
 import { NEWTAB_GUIDE, challengeGuidance } from "@corvus/shared";
 import { classifyAction, classifyPointAction, stricterRisk, type ActionRisk } from "../shared/agent-safety";
 import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry } from "../shared/visual-input";
@@ -94,8 +94,8 @@ export function stepPreview(tool: string, content: string): string {
   if (tool === "page_snapshot") {
     const page = snapshotHead(content);
     if (page) return preview(`Read page: ${page.title || hostOf(page.url) || page.url}`);
-  } else if (tool === "navigate" || tool === "open_tab") {
-    const opened = /^Opened (?:a new tab at )?(\S+) — (.*)$/s.exec(content);
+  } else if (tool === "navigate" || tool === "open_tab" || tool === "switch_tab") {
+    const opened = /^(?:Opened|Switched to) (?:a new tab at |tab \S+ at )?(\S+) — (.*)$/s.exec(content);
     if (opened) return preview(`Opened ${opened[2]!.trim() || hostOf(opened[1]!) || opened[1]}`);
   }
   return preview(content);
@@ -111,8 +111,15 @@ export const AGENT_SYSTEM = [
   "pages through the tools provided. Work in small, verified steps:",
   "1. Take a page_snapshot to read the page and get element refs before you click or type.",
   "2. Use the refs from the latest snapshot; after navigation or a click, snapshot again.",
-  "3. Use web_search to find pages; navigate to open a specific URL.",
-  "4. Only take a screenshot when text alone is not enough (it costs more).",
+  "3. The person watches you work in the tab strip, so browse for real. web_search only tells you where to",
+  "   look: open the pages you use and read them there, and never answer about live facts (prices, flights,",
+  "   schedules, stock, availability) from search snippets. To search a site (flights, shops, maps), use its own",
+  "   search form as a person would. navigate opens a URL in the working tab.",
+  "4. To compare or gather from several sites, give each one its own tab with open_tab (name the tab group on",
+  "   the first call) and move between them with switch_tab. Your tabs stay open for the person when you",
+  "   finish: close the ones that led nowhere with close_tab, keep the ones that show the answer, and say",
+  "   which tabs you left open.",
+  "5. Only take a screenshot when text alone is not enough (it costs more).",
   "Stop as soon as the task is done and reply with a short plain-text summary of what you did and found.",
   "Human checks (CAPTCHA, 'verify you are human', Turnstile): solve them yourself. Click the checkbox",
   "once, wait, then re-read the page and take a screenshot. If a tile or image grid appears, select",
@@ -135,8 +142,15 @@ export const ASSIST_AGENT_SYSTEM = [
   "  without calling any tool. Cite the numbered page sections as [n] when you use them.",
   "- When the request needs browsing or acting (find, open, search, compare pages, click, fill forms), work in",
   "  small verified steps: take a page_snapshot to get element refs before you click or type, and snapshot",
-  "  again after navigation or a click. Use web_search to find pages and navigate to open a URL in this tab;",
-  "  use open_tab only when the user wants a new tab or the current page must stay open.",
+  "  again after navigation or a click.",
+  "- The person watches you work, so browse for real. web_search only tells you where to look: open the pages",
+  "  you use and read them there, and never answer about live facts (prices, flights, schedules, stock,",
+  "  availability) from search snippets. To search a site (flights, shops, maps), use its own search form as",
+  "  a person would.",
+  "- Act in the current tab when the request is about its page. For anything elsewhere, open the sites in new",
+  "  tabs with open_tab (one per site you compare; name the tab group on the first call), so the person's",
+  "  page stays as it was, and move between them with switch_tab. Your tabs stay open for the person when you",
+  "  finish: close the ones that led nowhere with close_tab and say which tabs you left open.",
   "- Take a screenshot only when text is not enough (layout, images, charts, canvas, maps).",
   "- Finish with a short plain-text answer in the language given as lang: what you found or did. No preamble.",
   "- Human checks (CAPTCHA, 'verify you are human', Turnstile): solve them yourself. Click the checkbox",
@@ -160,6 +174,31 @@ export const TOOLS: AgentTool[] = [
   { name: "list_tabs", description: "List the browser's open tabs.", inputSchema: { type: "object", properties: {} } },
   { name: "open_tab", description: "Open a new agent tab at an http(s) URL and make it the working tab.", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
   { name: "ask_user", description: "Hand control to the user for a login, a payment, a decision, or a human check you could not finish after two attempts. Explain what they should do.", inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] } },
+];
+
+/**
+ * Interactive runs (Command Bar, Assist) keep their tabs in one group the person can see: open_tab
+ * names it, switch_tab and close_tab move between and tidy the run's tabs. Scheduled runs keep the
+ * plain open_tab above.
+ */
+const RUN_OPEN_TAB: AgentTool = {
+  name: "open_tab",
+  description:
+    "Open an http(s) URL in a new tab and make it the working tab. Your tabs share one tab group the person sees, and stay open for them when you finish. group: a short name for that group (2-4 words, in the person's language), on your first open_tab.",
+  inputSchema: { type: "object", properties: { url: { type: "string" }, group: { type: "string" } }, required: ["url"] },
+};
+
+const RUN_TAB_TOOLS: AgentTool[] = [
+  {
+    name: "switch_tab",
+    description: "Make one of your tabs (marked yours in list_tabs, or the tab you started in) the working tab and show it to the person.",
+    inputSchema: { type: "object", properties: { tabId: { type: "string" } }, required: ["tabId"] },
+  },
+  {
+    name: "close_tab",
+    description: "Close one of the tabs you opened that led nowhere, so the person keeps only the useful ones.",
+    inputSchema: { type: "object", properties: { tabId: { type: "string" } }, required: ["tabId"] },
+  },
 ];
 
 const POINT_PROPS = {
@@ -307,12 +346,13 @@ export const DOWNLOAD_PROMPT = [
 ].join("\n");
 
 /**
- * The interactive agent's tools and prompt (Command Bar and Assist): the browser tools, the visual
+ * The interactive agent's tools and prompt (Command Bar and Assist): the browser tools, its tab tools, the visual
  * tools, the New Tab tools, the download queue, and the credential tools when Settings allows them.
  * `system` replaces the base prompt.
  */
 export function agentToolset(credentials: boolean, system: string = AGENT_SYSTEM): { tools: AgentTool[]; system: string } {
-  const tools = [...TOOLS, ...VISUAL_TOOLS, ...NEWTAB_TOOLS, ...DOWNLOAD_TOOLS, ...(credentials ? CREDENTIAL_AGENT_TOOLS : [])];
+  const browser = TOOLS.map((t) => (t.name === "open_tab" ? RUN_OPEN_TAB : t));
+  const tools = [...browser, ...RUN_TAB_TOOLS, ...VISUAL_TOOLS, ...NEWTAB_TOOLS, ...DOWNLOAD_TOOLS, ...(credentials ? CREDENTIAL_AGENT_TOOLS : [])];
   return { tools, system: [system, VISUAL_PROMPT, NEWTAB_PROMPT, DOWNLOAD_PROMPT, ...(credentials ? [CREDENTIAL_PROMPT] : [])].join("\n") };
 }
 
@@ -331,6 +371,8 @@ export const AGENT_TOOL_ACCESS: Record<string, AccessLevel> = {
   wait: "read",
   web_search: "read",
   list_tabs: "read",
+  switch_tab: "read",
+  close_tab: "read",
   ask_user: "read",
   click: "standard",
   type: "standard",
@@ -402,9 +444,20 @@ export function agentSetupReason(ctx: AppContext): string | null {
   return null;
 }
 
+/** An interactive run's tabs (RunTabs): grouped under the task, left open for the person. */
+export interface RunTabsHandle {
+  open(url: string, group: string): Promise<Tab>;
+  switchTo(id: TabId): Tab;
+  /** Returns the tab to work in next. */
+  close(id: TabId, working: TabId | null): TabId | null;
+  list(working: TabId | null): string;
+}
+
 /** Mutable per-run state the executor reads and advances (the working tab and its latest refs). */
 export interface ToolRunState {
   tabId: TabId | null;
+  /** Interactive runs: the run's tab group (open_tab, switch_tab, close_tab, list_tabs use it). */
+  tabs?: RunTabsHandle;
   elementNames: Map<string, string>;
   /** Workflow capture: elements (ref, role, name) and URL of the latest snapshot. */
   lastElements?: Array<{ ref: string; role: string; name: string }>;
@@ -477,7 +530,7 @@ export async function runAgentTool(
 ): Promise<AgentToolResult> {
   const c = ctx.controller;
   const tabId = state.tabId;
-  if (!tabId && name !== "web_search" && name !== "list_tabs" && name !== "open_tab" && name !== "queue_downloads" && !name.startsWith("newtab_")) throw new Error("No agent tab is open yet.");
+  if (!tabId && !NO_TAB_TOOLS.has(name) && !name.startsWith("newtab_")) throw new Error("No agent tab is open yet.");
   switch (name) {
     case "page_snapshot": {
       const snap = await c.snapshot(tabId!, { maxChars: Math.min(Math.max(num(input, "maxChars", SNAPSHOT_CHARS), 200), 12000) });
@@ -494,9 +547,27 @@ export async function runAgentTool(
       return { content: `Opened ${tab.url} — ${tab.title}` };
     }
     case "open_tab": {
+      if (state.tabs) {
+        const tab = await state.tabs.open(argStr(input, "url"), argStr(input, "group"));
+        switchedTo(state, tab.id);
+        return { content: `Opened tab ${tab.id} at ${tab.url} — ${tab.title}` };
+      }
       const tab = await c.openTab(argStr(input, "url"), { agent: true });
       state.tabId = tab.id;
       return { content: `Opened a new tab at ${tab.url} — ${tab.title}` };
+    }
+    case "switch_tab": {
+      if (!state.tabs) throw new Error("switch_tab is not available here.");
+      const tab = state.tabs.switchTo(argStr(input, "tabId"));
+      switchedTo(state, tab.id);
+      return { content: `Switched to tab ${tab.id} at ${tab.url} — ${tab.title}` };
+    }
+    case "close_tab": {
+      if (!state.tabs) throw new Error("close_tab is not available here.");
+      const id = argStr(input, "tabId");
+      const next = state.tabs.close(id, state.tabId);
+      if (next !== state.tabId) switchedTo(state, next);
+      return { content: next ? `Closed tab ${id}. Working tab: ${next}.` : `Closed tab ${id}. No tab is open for you now; use open_tab.` };
     }
     case "click":
       await c.click(tabId!, argStr(input, "ref"));
@@ -563,6 +634,7 @@ export async function runAgentTool(
     case "wait":
       return { content: await waitTool(ctx, tabId!, input, signal) };
     case "list_tabs": {
+      if (state.tabs) return { content: wrapUntrusted("tabs", state.tabs.list(state.tabId)) };
       const tabs = await c.listTabs();
       return { content: wrapUntrusted("tabs", tabs.map((t) => `${t.id}${t.active ? "*" : ""} ${t.title} — ${t.url}`).join("\n")) };
     }
@@ -577,6 +649,17 @@ export async function runAgentTool(
     default:
       throw new Error(`Unknown tool ${name}`);
   }
+}
+
+/** Tools that work without a working tab. */
+const NO_TAB_TOOLS: ReadonlySet<string> = new Set(["web_search", "list_tabs", "open_tab", "switch_tab", "queue_downloads"]);
+
+/** A new working tab: refs of the previous page no longer apply. */
+function switchedTo(state: ToolRunState, id: TabId | null): void {
+  state.tabId = id;
+  state.elementNames = new Map();
+  state.lastElements = [];
+  delete state.lastShot;
 }
 
 /** queue_downloads: the run panel already asked the person (always), so the files go straight in. */

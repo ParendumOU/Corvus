@@ -301,7 +301,7 @@ function PasswordsPage() {
           <div className="card-head">
             <h2>{form.id ? t("Edit login") : t("Add login")}</h2>
           </div>
-          <div className="card-body pw-form">
+          <div className="card-body padded pw-form">
             <label className="pw-field">
               <span>{t("Site")}</span>
               <input className="input" placeholder={t("https://example.com")} value={form.origin} onChange={(e) => set({ origin: e.target.value })} />
@@ -602,7 +602,7 @@ function KeePassSection({
         <h2>{t("KeePass")}</h2>
         <p className="muted">{t("Use logins and 2FA codes from KeePass (.kdbx) databases. Corvus only reads them and never writes to your databases.")}</p>
       </div>
-      <div className="card-body pw-form">
+      <div className="card-body padded pw-form">
         <div className="pw-gen">
           <button className="btn small" onClick={() => void api.call("keepass.addFiles").then(setState)}>
             <IconFile size={13} />{" "}{t("Add database file")}</button>

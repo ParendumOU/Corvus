@@ -274,6 +274,38 @@
   box-shadow: 0 0 0 2px var(--toolbar);
 }
 
+/* Finished downloads nobody has looked at yet: a green check until the bubble or page is opened. */
+.downloads-btn.done {
+  color: var(--success);
+}
+.downloads-done {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--success);
+  color: var(--toolbar);
+  box-shadow: 0 0 0 2px var(--toolbar);
+  animation: downloads-done-pop 0.25s ease-out;
+}
+.downloads-done svg {
+  stroke-width: 3.5;
+}
+@keyframes downloads-done-pop {
+  from {
+    transform: scale(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .downloads-done {
+    animation: none;
+  }
+}
+
 .dl-list {
   list-style: none;
   margin: 0 -8px;

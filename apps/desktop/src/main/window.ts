@@ -9,10 +9,12 @@ import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type Pi
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
+import { matchesPattern, routeFor } from "../shared/connections";
 import {
   CHROME_EVENT,
   INTERNAL_EVENT,
   type ChromeCommand,
+  type ConnectionBadge,
   type ChromeEventMessage,
   type InternalEvent,
   type TabView,
@@ -79,6 +81,9 @@ export const THEME = {
   /** Private windows, in either theme. */
   private: { strip: "#2a2342", symbol: "#ece8f7" },
 };
+
+/** How long a reload may take to start before the address is loaded again instead. */
+const RELOAD_FALLBACK_MS = 700;
 
 /** Height of the tab strip, also used for the native window-controls overlay. */
 const TAB_STRIP_HEIGHT = 40;
@@ -483,6 +488,7 @@ export class BrowserWindowCtl {
       partition: this.profile.partition,
       privateWindow: this.isPrivate,
       maximized: this.win.isMaximized() || this.win.isFullScreen(),
+      connection: this.connectionBadge(active),
       tabs: this.strip.tabs.map((t) => this.tabView(t.id)).filter((t): t is TabView => t !== null),
       groups: this.strip.groups,
       activeTabId: this.strip.activeId,
@@ -1346,6 +1352,24 @@ export class BrowserWindowCtl {
     else this.createTab(url, { activate: disposition !== "background-tab", ...(active ? { openerId: active.id } : {}) });
   }
 
+  /** The proxy a tab goes through (its profile's, its container's, or a site rule's), if any. */
+  private connectionBadge(tab: TabRuntime | undefined): ConnectionBadge | null {
+    if (!tab || tab.view.webContents.isDestroyed()) return null;
+    const config = this.profile.connections.config();
+    const base = this.profile.choiceFor(tab.view.webContents.session);
+    let host = "";
+    try {
+      host = new URL(tab.url).hostname;
+    } catch {
+      // not a web page
+    }
+    const rule = host !== "" && config.rules.some((r) => matchesPattern(host, r.pattern));
+    const route = host ? routeFor(host, base, config.rules) : base;
+    if (route.mode !== "proxy") return null;
+    const proxy = config.proxies.find((p) => p.id === route.proxyId);
+    return { name: proxy?.name ?? "?", rule };
+  }
+
   /** A new window of the same kind (private from a private window). */
   openInNewWindow(url: string): void {
     if (this.isPrivate) this.ctx.windows.openPrivate(this.profile.profile.id, [url]);
@@ -1390,8 +1414,26 @@ export class BrowserWindowCtl {
     if (tab?.pendingUrl) return this.loadPending(tab);
     const wc = tab?.view.webContents;
     if (!wc) return;
+    // A page a form sent (POST, as after many "checking your browser" pages) does not reload:
+    // Chromium waits for a "resubmit the form?" answer Electron never asks. When nothing starts
+    // loading, the address is opened again instead, as Enter in the address bar does.
+    const url = wc.getURL();
+    let started = false;
+    const onStart = (): void => {
+      started = true;
+    };
+    wc.once("did-start-loading", onStart);
     if (hard) wc.reloadIgnoringCache();
     else wc.reload();
+    setTimeout(() => {
+      if (wc.isDestroyed()) return;
+      wc.removeListener("did-start-loading", onStart);
+      if (!started && !wc.isLoading() && wc.getURL() === url && /^https?:/i.test(url)) {
+        wc.loadURL(url).catch(() => {
+          // Load failures surface through did-fail-load.
+        });
+      }
+    }, RELOAD_FALLBACK_MS);
   }
 
   stop(id: TabId): void {

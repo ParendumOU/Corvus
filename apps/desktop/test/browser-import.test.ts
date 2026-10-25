@@ -7,6 +7,7 @@ import { FIXTURE_NOW, writeBrowserFixtures } from "../src/main/smoke-import-fixt
 import type { ProfileRuntime } from "../src/main/profiles";
 import { BookmarkStore, HistoryStore } from "../src/main/stores";
 import { SiteSearchStore } from "../src/main/site-search-store";
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID, childrenOf } from "../src/shared/bookmark-tree";
 import { WorkspaceStore } from "../src/main/workspace-store";
 import {
   browserLocations,
@@ -208,10 +209,15 @@ describe("BrowserImport", () => {
     const chrome = await service.run(runtime, "chrome", "Default", ["bookmarks", "history"]);
     expect(chrome).toEqual({ bookmarks: { imported: 3, folders: 1 }, history: { imported: 2 }, errors: {} });
     const firefox = await service.run(runtime, "firefox", "abcd1234.default-release", ["bookmarks", "history"]);
-    expect(firefox).toEqual({ bookmarks: { imported: 2, folders: 2 }, history: { imported: 1 }, errors: {} });
+    expect(firefox).toEqual({ bookmarks: { imported: 2, folders: 1 }, history: { imported: 1 }, errors: {} });
 
-    const titles = runtime.bookmarks.list().map((b) => b.title);
-    expect(titles).toEqual(expect.arrayContaining(["Imported from Google Chrome (Personal)", "News", "Daily", "Imported from Firefox", "Bookmarks Toolbar", "Reading"]));
+    // Straight into Corvus's own folders: each browser's bar onto the bar, the rest into Other bookmarks.
+    const titlesIn = (parentId: string): string[] => childrenOf(runtime.bookmarks.list(), parentId).map((b) => b.title);
+    expect(titlesIn(BAR_FOLDER_ID)).toEqual(["Corvus", "News", "MDN Web Docs", "Reading"]);
+    expect(titlesIn(OTHER_FOLDER_ID)).toEqual(["Docs"]);
+    // Importing again adds nothing.
+    expect(await service.run(runtime, "chrome", "Default", ["bookmarks"])).toEqual({ bookmarks: { imported: 0, folders: 0 }, errors: {} });
+    expect(runtime.bookmarks.list().filter((b) => b.url)).toHaveLength(5);
     const history = runtime.history.all();
     expect(history.map((h) => h.url).sort()).toEqual(["https://corvus.example/", "https://firefox.example/", "https://news.example/daily"]);
     expect(history.find((h) => h.url === "https://corvus.example/")).toMatchObject({ title: "Corvus", visitCount: 12, visitedAt: FIXTURE_NOW - 3_600_000 });
@@ -245,5 +251,27 @@ describe("BrowserImport", () => {
       { keyword: "@wikies", name: "Wikipedia (es)", url: "https://es.wikipedia.org/w/index.php?search=%s" },
       { keyword: "bug", name: "bug", url: "https://bugs.example/show_bug.cgi?id=%s" },
     ]);
+  });
+
+  it("reads Chrome's Google account bookmarks next to the profile's own", async () => {
+    const roots = writeBrowserFixtures(tempDir());
+    const chromeDir = path.join(roots.config, "google-chrome");
+    const account = JSON.stringify({ roots: { bookmark_bar: { type: "folder", name: "Bar", children: [{ type: "url", name: "Account", url: "https://account.example/" }] } } });
+    // Signed in without full sync: Chrome keeps only AccountBookmarks for that profile.
+    fs.mkdirSync(path.join(chromeDir, "Profile 2"));
+    fs.writeFileSync(path.join(chromeDir, "Profile 2", "AccountBookmarks"), account);
+    fs.writeFileSync(path.join(chromeDir, "Profile 1", "AccountBookmarks"), account);
+    const service = new BrowserImport();
+    service.setTestRoots(roots);
+    const chrome = (await service.scan()).sources.find((s) => s.id === "chrome");
+    expect(chrome?.profiles.map((p) => [p.dir, p.counts.bookmarks])).toEqual([
+      ["Default", 3],
+      ["Profile 1", 2],
+      ["Profile 2", 1],
+    ]);
+
+    const runtime = { bookmarks: new BookmarkStore(tempDir()) } as unknown as ProfileRuntime;
+    expect(await service.run(runtime, "chrome", "Profile 2", ["bookmarks"])).toEqual({ bookmarks: { imported: 1, folders: 0 }, errors: {} });
+    expect(runtime.bookmarks.list().map((b) => b.url)).toContain("https://account.example/");
   });
 });

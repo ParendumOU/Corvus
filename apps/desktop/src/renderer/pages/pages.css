@@ -22,6 +22,11 @@ body {
 
 /* ---------------------------------------------------------------- shell */
 
+/* Pages are a centered column (--page-width wide at most); the header lines up with it. */
+:root {
+  --page-width: 1440px;
+  --side-nav-width: 232px;
+}
 .page-header {
   position: sticky;
   top: 0;
@@ -30,7 +35,7 @@ body {
   align-items: center;
   gap: 18px;
   height: 64px;
-  padding: 0 24px;
+  padding: 0 max(24px, calc((100% - var(--page-width)) / 2 + 24px));
   background: color-mix(in srgb, var(--bg-2) 88%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-soft);
@@ -39,7 +44,8 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 196px;
+  /* The title starts where the page's content does: side nav width + body gap - header gap. */
+  width: calc(var(--side-nav-width) + 24px - 18px);
   color: var(--text);
   text-decoration: none;
   font-weight: 700;
@@ -67,10 +73,11 @@ body {
   display: flex;
   gap: 24px;
   padding: 24px;
-  max-width: 1240px;
+  max-width: var(--page-width);
+  margin: 0 auto;
 }
 .side-nav {
-  width: 204px;
+  width: var(--side-nav-width);
   flex: none;
   display: flex;
   flex-direction: column;
@@ -149,6 +156,14 @@ body {
 }
 .card-body {
   padding: 4px 0 8px;
+}
+/* A card body with its own content (forms, buttons, text) rather than rows that pad themselves. */
+.card-body.padded {
+  padding: 4px 20px 18px;
+}
+/* A card that is only a line or two of content. */
+.card.card-pad {
+  padding: 14px 20px;
 }
 
 .row {
@@ -269,6 +284,10 @@ body {
   user-select: all;
 }
 
+/* A notice directly in the page is as wide as the cards; inside a card it lines up with the rows. */
+.page-main > .notice {
+  margin: 0;
+}
 .notice {
   margin: 8px 20px 12px;
   padding: 10px 14px;
@@ -391,17 +410,22 @@ body {
   flex-direction: column;
   gap: 1px;
 }
+/* Folders in a page's sidebar (bookmarks): rows as wide as the sidebar, like its links. */
 .tree button {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
+  width: 100%;
+  min-height: 34px;
+  padding-right: 14px;
   border: none;
-  border-radius: 16px;
+  border-radius: 18px;
   background: transparent;
   cursor: pointer;
   text-align: left;
   color: var(--text);
+  font: inherit;
+  font-weight: 500;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -486,6 +510,11 @@ body {
 }
 .ext-install .input {
   flex: 1;
+}
+/* A field and its button side by side share one height. */
+.ext-install .btn,
+.sp-tester-row .btn {
+  height: 34px;
 }
 .ext-errors {
   margin: 0;
@@ -683,4 +712,47 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ---------------------------------------------------------------- page search box */
+.page-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+}
+.page-search:focus-within {
+  border-color: var(--accent);
+}
+.page-search > svg {
+  flex: none;
+  color: var(--text-2);
+}
+.page-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+}
+.page-search-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 18px 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.page-search-status a {
+  color: var(--accent);
 }

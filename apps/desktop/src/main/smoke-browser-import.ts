@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { buildSuggestions } from "../shared/suggest";
 import { writeBrowserFixtures } from "./smoke-import-fixtures";
 import type { BrowserWindowCtl } from "./window";
@@ -26,7 +27,7 @@ async function poll(wc: WebContents, expr: string, timeoutMs = 10_000): Promise<
 
 /**
  * Import from other browsers in Settings: fake Chrome (two profiles) and Firefox folders are found
- * with their counts, and importing one profile brings its bookmarks (in their own folder) and its
+ * with their counts, and importing one profile brings its bookmarks (onto the bar and into Other bookmarks) and its
  * history into Corvus, through Electron's own SQLite.
  */
 export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmokeHelpers): Promise<void> {
@@ -81,9 +82,10 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
     const visited = profile.history.all().filter((e) => !historyBefore.has(e.url));
     const workspace = profile.workspaces.list().find((w) => !workspacesBefore.has(w.id));
     check(
-      "browser import: a profile's bookmarks (in their own folder), history and open tabs (as a workspace) come into Corvus",
+      "browser import: a profile's bookmarks (onto the bar and into Other bookmarks), history and open tabs (as a workspace) come into Corvus",
       done &&
-        added.some((b) => b.title === "Imported from Google Chrome (Personal)") &&
+        added.some((b) => b.title === "News" && b.parentId === BAR_FOLDER_ID) &&
+        added.some((b) => b.title === "Docs" && b.parentId === OTHER_FOLDER_ID) &&
         added.filter((b) => b.url).length === 3 &&
         visited.map((e) => e.url).sort().join() === "https://corvus.example/,https://news.example/daily" &&
         workspace?.name === "Google Chrome (Personal)" &&
@@ -107,7 +109,7 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
   } finally {
     ctx.browserImport.setTestRoots(null);
     if (tabId) win.closeTab(tabId);
-    for (const b of profile.bookmarks.list().filter((x) => !bookmarksBefore.has(x.id) && x.title.startsWith("Imported from "))) profile.bookmarks.remove(b.id);
+    for (const b of profile.bookmarks.list().filter((x) => !bookmarksBefore.has(x.id) && (x.parentId === BAR_FOLDER_ID || x.parentId === OTHER_FOLDER_ID))) profile.bookmarks.remove(b.id);
     profile.history.remove(profile.history.all().filter((e) => !historyBefore.has(e.url)).map((e) => e.id));
     for (const w of profile.workspaces.list().filter((x) => !workspacesBefore.has(x.id))) profile.workspaces.remove(w.id);
     for (const x of profile.siteSearch.list().filter((y) => !shortcutsBefore.has(y.keyword))) profile.siteSearch.remove(x.keyword);

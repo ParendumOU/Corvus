@@ -131,12 +131,12 @@ describe("capAgentTools", () => {
 describe("agentToolset", () => {
   it("offers the credential tools only when agents may use opted-in logins", () => {
     const off = agentToolset(false);
-    expect(off.tools.map((t) => t.name)).toEqual([...[...TOOLS, ...VISUAL_TOOLS].map((t) => t.name), "newtab_layout", "newtab_change", "queue_downloads"]);
+    expect(off.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "switch_tab", "close_tab", ...VISUAL_TOOLS.map((t) => t.name), "newtab_layout", "newtab_change", "queue_downloads"]);
     expect(off.system).not.toContain("fill_totp");
     // File hosts' human checks and sign-in walls go to the person.
     expect(off.system).toMatch(/CAPTCHA or human check, asks you to sign in[\s\S]*call ask_user/);
     const on = agentToolset(true);
-    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "click_at", "hover_at", "scroll_at", "press_key", "type_text", "newtab_layout", "newtab_change", "queue_downloads", "fill_login", "fill_totp"]);
+    expect(on.tools.map((t) => t.name)).toEqual([...TOOLS.map((t) => t.name), "switch_tab", "close_tab", "click_at", "hover_at", "scroll_at", "press_key", "type_text", "newtab_layout", "newtab_change", "queue_downloads", "fill_login", "fill_totp"]);
     expect(on.system).toContain("fill_totp");
     expect(on.system).toContain("ask_user");
   });

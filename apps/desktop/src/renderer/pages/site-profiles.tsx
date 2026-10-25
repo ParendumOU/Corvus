@@ -160,7 +160,7 @@ function Editor({ draft, isEdit, onChange, onSave, onCancel }: { draft: Draft; i
       <div className="card-head">
         <h2>{isEdit ? t("Edit profile") : t("New profile")}</h2>
       </div>
-      <div className="card-body sp-form">
+      <div className="card-body padded sp-form">
         <label className="field">
           <span>{t("Domain pattern")}</span>
           <input className={`input mono ${patternOk ? "" : "bad"}`} placeholder={t("example.com")} spellCheck={false} value={draft.pattern} onChange={(e) => set("pattern", e.target.value)} />
@@ -268,10 +268,10 @@ function Tester({ api }: { api: Api }) {
         <h2>{t("Test a URL")}</h2>
         <p className="muted">{t("See which profile a page would match and the access the agent would run at.")}</p>
       </div>
-      <div className="card-body sp-tester">
+      <div className="card-body padded sp-tester">
         <div className="sp-tester-row">
           <input className="input mono" placeholder={t("https://example.com/page")} value={url} spellCheck={false} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === "Enter" && test()} />
-          <button className="btn small" onClick={test}>{t("Test")}</button>
+          <button className="btn" onClick={test}>{t("Test")}</button>
         </div>
         {err && <div className="notice error">{err}</div>}
         {result && (

@@ -2,8 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { countBookmarks, parseChromeJson, type ImportedNode } from "../shared/bookmark-import";
-import { OTHER_FOLDER_ID } from "../shared/bookmark-tree";
+import { countBookmarks, isImportedFolder, parseChromeRoots, type ImportedNode, type ImportedRoots } from "../shared/bookmark-import";
 import {
   browserLocations,
   chromiumExtensionEntries,
@@ -47,6 +46,28 @@ function readText(p: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Chromium keeps the profile's own bookmarks in "Bookmarks" and, when the person is signed in to a
+ * Google account without full sync, the account's in "AccountBookmarks"; it shows both together.
+ */
+const CHROMIUM_BOOKMARK_FILES = ["Bookmarks", "AccountBookmarks"];
+
+function hasChromiumBookmarks(dir: string): boolean {
+  return CHROMIUM_BOOKMARK_FILES.some((name) => exists(path.join(dir, name)));
+}
+
+async function readChromiumBookmarks(dir: string): Promise<ImportedRoots> {
+  const roots: ImportedRoots = { bar: [], other: [] };
+  for (const name of CHROMIUM_BOOKMARK_FILES) {
+    const file = path.join(dir, name);
+    if (!exists(file)) continue;
+    const found = parseChromeRoots(await fs.promises.readFile(file, "utf8"));
+    roots.bar.push(...found.bar);
+    roots.other.push(...found.other);
+  }
+  return roots;
 }
 
 /** Why a browser file could not be read, for the person. */
@@ -146,10 +167,10 @@ export class BrowserImport {
   }
 
   private chromiumProfiles(dir: string, single: boolean, browser: string): Array<Omit<ImportProfile, "counts" | "extensions">> {
-    if (single) return exists(path.join(dir, "Bookmarks")) || exists(path.join(dir, "History")) ? [{ dir: "", name: browser, path: dir, isDefault: true }] : [];
+    if (single) return hasChromiumBookmarks(dir) || exists(path.join(dir, "History")) ? [{ dir: "", name: browser, path: dir, isDefault: true }] : [];
     let found: string[] = [];
     try {
-      found = fs.readdirSync(dir).filter((d) => isChromiumProfileDir(d) && (exists(path.join(dir, d, "Bookmarks")) || exists(path.join(dir, d, "History"))));
+      found = fs.readdirSync(dir).filter((d) => isChromiumProfileDir(d) && (hasChromiumBookmarks(path.join(dir, d)) || exists(path.join(dir, d, "History"))));
     } catch {
       return [];
     }
@@ -201,7 +222,10 @@ export class BrowserImport {
     if (family === "chromium") {
       return {
         tabs,
-        bookmarks: exists(path.join(dir, "Bookmarks")) ? await safe(async () => countBookmarks(parseChromeJson(await fs.promises.readFile(path.join(dir, "Bookmarks"), "utf8")))) : 0,
+        bookmarks: hasChromiumBookmarks(dir) ? await safe(async () => {
+          const roots = await readChromiumBookmarks(dir);
+          return countBookmarks([...roots.bar, ...roots.other]);
+        }) : 0,
         history: exists(path.join(dir, "History")) ? await safe(() => withDatabase(path.join(dir, "History"), (db) => count(db, CHROMIUM_HISTORY_COUNT))) : 0,
         search: exists(path.join(dir, "Web Data")) ? await safe(async () => (await this.searches(family, dir)).length) : 0,
       };
@@ -251,8 +275,7 @@ export class BrowserImport {
     const result: ImportResult = { errors: {} };
     if (kinds.includes("bookmarks")) {
       try {
-        const tree = await this.bookmarks(source.family, profile.path);
-        result.bookmarks = runtime.bookmarks.importTree(OTHER_FOLDER_ID, `Imported from ${label}`, tree);
+        result.bookmarks = runtime.bookmarks.importRoots(await this.bookmarks(source.family, profile.path));
       } catch (err) {
         result.errors.bookmarks = readError(err, source.name);
       }
@@ -312,18 +335,20 @@ export class BrowserImport {
     return family === "chromium" ? chromiumSession(data) : firefoxSession(JSON.parse(decodeMozLz4(data)) as unknown);
   }
 
-  private async bookmarks(family: Family, dir: string): Promise<ImportedNode[]> {
-    if (family === "chromium") {
-      const file = path.join(dir, "Bookmarks");
-      return exists(file) ? parseChromeJson(await fs.promises.readFile(file, "utf8")) : [];
-    }
+  private async bookmarks(family: Family, dir: string): Promise<ImportedRoots> {
+    if (family === "chromium") return readChromiumBookmarks(dir);
     return withDatabase(path.join(dir, "places.sqlite"), (db) => {
       const rows = db
         .prepare("SELECT b.id AS id, b.parent AS parent, b.type AS type, b.title AS title, p.url AS url, b.position AS position FROM moz_bookmarks b LEFT JOIN moz_places p ON p.id = b.fk")
         .all() as unknown as FirefoxBookmarkRow[];
       const roots: Record<string, number> = {};
       for (const r of db.prepare("SELECT guid, id FROM moz_bookmarks WHERE guid IN ('toolbar_____', 'menu________', 'unfiled_____', 'mobile______')").all() as Array<{ guid: string; id: number }>) roots[r.guid] = Number(r.id);
-      return firefoxBookmarkTree(rows.map((r) => ({ ...r, id: Number(r.id), parent: Number(r.parent), type: Number(r.type), position: Number(r.position) })), roots);
+      const all = rows.map((r) => ({ ...r, id: Number(r.id), parent: Number(r.parent), type: Number(r.type), position: Number(r.position) }));
+      const tree = (guids: string[]): ImportedNode[] => firefoxBookmarkTree(all, Object.fromEntries(guids.filter((g) => g in roots).map((g) => [g, roots[g]!])));
+      const contents = (guid: string): ImportedNode[] => tree([guid]).flatMap((n) => (isImportedFolder(n) ? n.children : [n]));
+      // The toolbar's contents go on Corvus's bar and Other Bookmarks' into Other bookmarks, where the
+      // menu and mobile folders keep their own names.
+      return { bar: contents("toolbar_____"), other: [...contents("unfiled_____"), ...tree(["menu________", "mobile______"])] };
     });
   }
 

@@ -172,7 +172,7 @@ function Editor({ draft, isEdit, onChange, onSave, onCancel }: { draft: Draft; i
       <div className="card-head">
         <h2>{isEdit ? t("Edit schedule") : t("New schedule")}</h2>
       </div>
-      <div className="card-body sched-form">
+      <div className="card-body padded sched-form">
         <label className="field">
           <span>{t("Name")}</span>
           <input className="input" placeholder={t("Morning news check")} value={draft.name} onChange={(e) => set("name", e.target.value)} />

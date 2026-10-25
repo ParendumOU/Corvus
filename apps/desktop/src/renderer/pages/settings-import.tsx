@@ -142,7 +142,7 @@ function ExtensionList({ source, extensions }: { source: ImportSource; extension
 
 /**
  * Import from the other browsers installed here: each browser and profile with what it holds, and
- * which kinds to bring over. Bookmarks land in a folder of their own under Other bookmarks; history
+ * which kinds to bring over. Bookmarks go into Corvus's bookmarks bar and Other bookmarks; history
  * merges with Corvus's.
  */
 export function BrowserImportPanel() {

@@ -70,6 +70,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   privateWindow: boolean;
   /** Maximized or full screen: the tabs reach the top edge of the screen. */
   maximized: boolean;
+  /** The proxy the active tab goes through, when it goes through one. */
+  connection: ConnectionBadge | null;
   tabs: TabView[];
   groups: TabGroup[];
   activeTabId: TabId | null;
@@ -117,6 +119,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "ui.setOverlay"(open: boolean): void;
   "ui.appMenu"(x: number, y: number): void;
   "ui.profileMenu"(x: number, y: number): void;
+  /** The connection chip's menu: how the active tab's profile or container connects. */
+  "ui.connectionMenu"(x: number, y: number): void;
   "ui.tabMenu"(tabId: TabId, x: number, y: number): void;
   "ui.groupMenu"(groupId: GroupId, x: number, y: number): void;
   "ui.bookmarkFolderMenu"(folderId: string, x: number, y: number): void;
@@ -581,3 +585,10 @@ export interface ProxyInputView {
 }
 
 export type ConnectionCheck = { ip: string; country?: string } | { error: string };
+
+export interface ConnectionBadge {
+  /** The proxy's name. */
+  name: string;
+  /** A site rule sends this site through it (not the profile's or container's own choice). */
+  rule: boolean;
+}

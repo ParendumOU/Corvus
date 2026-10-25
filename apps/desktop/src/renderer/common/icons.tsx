@@ -261,6 +261,11 @@ export const IconZoom = (p: IconProps) => (
     <path d="m20 20-3.5-3.5M8 11h6M11 8v6" />
   </Svg>
 );
+export const IconCheck = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M5 12.5l4.5 4.5L19 7.5" />
+  </Svg>
+);
 export const IconMinus = (p: IconProps) => (
   <Svg {...p}>
     <path d="M5 12h14" />

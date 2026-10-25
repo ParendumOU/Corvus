@@ -94,16 +94,20 @@ export async function runConnectionsSmoke(ctx: AppContext, h: ConnectionsSmokeHe
     };
 
     const profilePage = await viaText("http://site-a.test/page");
+    // The toolbar names the proxy of the active tab.
+    win.activate(win.listTabs().find((t) => t.url === "http://site-a.test/page")?.id ?? "");
+    const chipShown = await poll(win.chrome.webContents, `document.querySelector('[data-connection-chip="Smoke A"]')`);
     const rulePage = await viaText("http://x.rule.test/page");
     check(
-      "connections: the profile goes through its proxy, a site rule through another, WebRTC stays on the proxy",
+      "connections: the profile goes through its proxy (named on the toolbar), a site rule through another, WebRTC stays on the proxy",
       profilePage.text === "via A site-a.test" &&
+        chipShown &&
         rulePage.text === "via B x.rule.test" &&
         profilePage.policy === "disable_non_proxied_udp" &&
         a.hits.some((x) => x.host === "site-a.test") &&
         !a.hits.some((x) => x.host === "x.rule.test") &&
         b.hits.some((x) => x.host === "x.rule.test"),
-      { profilePage, rulePage, a: a.hits, b: b.hits },
+      { profilePage, rulePage, chipShown, a: a.hits, b: b.hits },
     );
 
     const container = runtime.containers.add("Proxy smoke", "purple");

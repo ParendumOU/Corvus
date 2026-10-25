@@ -54,31 +54,22 @@ function FindPage() {
   }, [query, run]);
 
   return (
-    <PageShell
-      title={t("Find in my pages")}
-      active="find"
-      toolbar={
-        <input
-          className="input"
-          autoFocus
-          placeholder={t("Find a page you've seen, saved or bookmarked…")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      }
-    >
-      <div className="card">
-        <div className="muted small" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <IconSearch size={14} />
+    <PageShell title={t("Find in my pages")} active="find">
+      <label className="page-search">
+        <IconSearch size={18} />
+        <input autoFocus data-find-input placeholder={t("Find a page you've seen, saved or bookmarked…")} value={query} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      <div className="page-search-status" data-find-status>
+        <span>
+          {status ? t("{count} pages indexed", { count: status.indexed.toLocaleString() }) : t("Loading index…")}
+          {query.trim() && searched ? (usedEmbeddings ? t(" · semantic + keyword ranking") : t(" · keyword ranking")) : ""}
+        </span>
+        {status && !status.embeddingsEnabled && (
           <span>
-            {status ? t("{count} pages indexed", { count: status.indexed.toLocaleString() }) : t("Loading index…")}
-            {query.trim() && searched ? (usedEmbeddings ? t(" · semantic + keyword ranking") : t(" · keyword ranking")) : ""}
-            {status && !status.embeddingsEnabled ? t(" · enable semantic ranking in Settings") : ""}
+            · <a href="corvus://settings/#semantic-search">{t("Enable semantic ranking in Settings")}</a>
           </span>
-        </div>
-        {embeddingError && query.trim() && (
-          <div className="muted small" style={{ marginTop: 6 }}>{t("Semantic re-rank unavailable ({embeddingError}); showing keyword results.", { embeddingError })}</div>
         )}
+        {embeddingError && query.trim() && <span>· {t("Semantic re-rank unavailable ({embeddingError}); showing keyword results.", { embeddingError })}</span>}
       </div>
 
       {query.trim() && searched && hits.length === 0 ? (

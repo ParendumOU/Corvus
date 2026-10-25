@@ -6,6 +6,7 @@ import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { searchUrl } from "../shared/omnibox";
+import type { ConnectionChoice } from "../shared/connections";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
@@ -141,6 +142,39 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
       },
       { type: "separator" },
       { label: tr("Exit"), click: () => app.quit() },
+    ],
+    x,
+    y,
+  );
+}
+
+/** The connection chip: how the active tab's container (or its profile) connects, switched here. */
+export function showConnectionMenu(win: BrowserWindowCtl, x: number, y: number): void {
+  const store = win.profile.connections;
+  const config = store.config();
+  const tab = win.activeTab();
+  const containerId = !win.isPrivate ? tab?.containerId : undefined;
+  const current: ConnectionChoice = containerId ? (config.containers[containerId] ?? config.profile) : config.profile;
+  const pick = (choice: ConnectionChoice): void => {
+    try {
+      if (containerId) store.setContainerChoice(containerId, choice);
+      else store.setProfileChoice(choice);
+    } catch {
+      // a proxy removed meanwhile
+    }
+  };
+  const same = (c: ConnectionChoice): boolean => c.mode === current.mode && (c.mode !== "proxy" || (current.mode === "proxy" && c.proxyId === current.proxyId));
+  const options: ConnectionChoice[] = [{ mode: "system" }, { mode: "direct" }, ...config.proxies.map((p): ConnectionChoice => ({ mode: "proxy", proxyId: p.id }))];
+  const label = (c: ConnectionChoice): string =>
+    c.mode === "system" ? tr("System settings") : c.mode === "direct" ? tr("Direct (no proxy)") : (config.proxies.find((p) => p.id === c.proxyId)?.name ?? "?");
+  const container = containerId ? win.profile.containers.get(containerId) : undefined;
+  popup(
+    win,
+    [
+      { label: container ? tr("Container “{name}” connects", { name: container.name }) : tr("This profile connects"), enabled: false },
+      ...options.map((c): MenuItemConstructorOptions => ({ label: label(c), type: "radio", checked: same(c), click: () => pick(c) })),
+      { type: "separator" },
+      { label: tr("Connection settings…"), click: () => win.openSingleton("corvus://settings/#connections") },
     ],
     x,
     y,

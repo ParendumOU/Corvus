@@ -1116,3 +1116,29 @@ body,
   height: 36px;
   border-radius: 9px / 15px 15px 9px 9px;
 }
+
+/* ---------------------------------------------------------------- connection chip */
+.connection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 13px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.connection-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connection-chip:hover {
+  filter: brightness(0.95);
+}

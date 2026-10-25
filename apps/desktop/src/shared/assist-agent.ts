@@ -83,6 +83,10 @@ export function actionLabel(tool: string, input: unknown, elementName = ""): str
       return `Searched the web for ${quote(str(input, "query"))}`;
     case "list_tabs":
       return "Listed the open tabs";
+    case "switch_tab":
+      return "Switched to another tab";
+    case "close_tab":
+      return "Closed a tab that led nowhere";
     case "ask_user":
       return `Asked you: ${clip(str(input, "message"), 120)}`;
     case "click_at":
@@ -114,6 +118,8 @@ export function actionLabel(tool: string, input: unknown, elementName = ""): str
 export function resultLabel(tool: string, label: string, content: string, isError: boolean): string {
   if (isError) return `${label} (failed: ${clip(content, 90)})`;
   if (RESULT_LABELLED.has(tool) && content.trim()) return clip(content.replace(/\.\s*$/, ""), 140);
+  const switched = tool === "switch_tab" ? /^Switched to tab \S+ at (\S+) — /.exec(content) : null;
+  if (switched) return `Switched to ${hostOf(switched[1]!)}`;
   return label;
 }
 

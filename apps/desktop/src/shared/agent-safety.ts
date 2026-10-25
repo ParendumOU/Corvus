@@ -126,6 +126,9 @@ export function classifyAction(tool: string, input: unknown, elementName = "", c
     case "type_text":
       // Without a live read of the target: the conservative verdict (callers pass the target).
       return classifyPointAction(tool, input, null);
+    case "close_tab":
+      // Only a tab the run itself opened (RunTabs refuses the person's tabs).
+      return SAFE;
     case "navigate":
     case "open_tab": {
       // Opening a checkout page is risky, not a spend: nothing is bought until a button says so.

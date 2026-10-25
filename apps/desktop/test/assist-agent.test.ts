@@ -35,11 +35,14 @@ describe("step labels", () => {
     expect(actionLabel("web_search", { query: "cheapest flight to Lisbon" })).toBe('Searched the web for "cheapest flight to Lisbon"');
     expect(actionLabel("screenshot", {})).toBe("Took a screenshot");
     expect(actionLabel("click_at", { x: 10.4, y: 20.6 })).toBe("Clicked at (10, 21)");
+    expect(actionLabel("open_tab", { url: "https://www.skyscanner.es/vuelos", group: "Vuelos" })).toBe("Opened www.skyscanner.es in a new tab");
+    expect(actionLabel("close_tab", { tabId: "t4" })).toBe("Closed a tab that led nowhere");
   });
 
   it("uses the result sentence for coordinate tools and marks failures", () => {
     expect(resultLabel("click_at", "Clicked at (1, 2)", 'Clicked at (1, 2) on button "Buy now".', false)).toBe('Clicked at (1, 2) on button "Buy now"');
     expect(resultLabel("navigate", "Opened a.test", "Opened https://a.test — A", false)).toBe("Opened a.test");
+    expect(resultLabel("switch_tab", "Switched to another tab", "Switched to tab t3 at https://www.skyscanner.es/x — Skyscanner", false)).toBe("Switched to www.skyscanner.es");
     expect(resultLabel("click", 'Clicked "Go"', "Element e3 not found; take a new page_snapshot", true)).toBe('Clicked "Go" (failed: Element e3 not found; take a new page_snapshot)');
   });
 });

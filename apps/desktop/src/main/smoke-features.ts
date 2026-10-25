@@ -128,9 +128,9 @@ export async function runFeaturesSmoke(ctx: AppContext, h: Helpers): Promise<voi
 
   const findTab = win.createTab("corvus://find/", { activate: true });
   const findWc = findTab.view.webContents;
-  await poll(findWc, "document.querySelector('.input')");
+  await poll(findWc, "document.querySelector('[data-find-input]')");
   await findWc.executeJavaScript(`(() => {
-    const inp = document.querySelector('.input');
+    const inp = document.querySelector('[data-find-input]');
     const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
     set.call(inp, 'black bird northern hemisphere');
     inp.dispatchEvent(new Event('input', { bubbles: true }));

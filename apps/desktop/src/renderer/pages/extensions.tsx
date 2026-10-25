@@ -167,7 +167,7 @@ function ExtensionsPage() {
           onChange={(e) => setStoreInput(e.target.value)}
           spellCheck={false}
         />
-        <button className="btn small primary" type="submit" disabled={busy || !storeInput.trim()}>
+        <button className="btn primary" type="submit" disabled={busy || !storeInput.trim()}>
           {busy ? t("Working…") : t("Install")}
         </button>
       </form>

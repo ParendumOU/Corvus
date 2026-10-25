@@ -113,7 +113,7 @@ export interface Settings {
     /** Absolute folder; empty string = the OS Downloads folder. */
     directory: string;
     askWhereToSave: boolean;
-    /** Offer the download links in copied text (a toolbar chip). Off by default: it reads the clipboard. */
+    /** Offer the download links in copied text (a toolbar chip). Only download links are looked at; nothing else of the clipboard is kept. */
     watchClipboard: boolean;
     /** Files Corvus's download queue fetches at once (1-10). */
     maxParallel: number;
@@ -262,7 +262,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true },
     passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
-    downloads: { directory: "", askWhereToSave: false, watchClipboard: false, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
+    downloads: { directory: "", askWhereToSave: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60 },
     media: { autoPictureInPicture: true },

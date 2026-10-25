@@ -281,10 +281,6 @@
   margin-top: 10px;
 }
 
-.card-body.padded {
-  padding: 4px 20px 16px;
-}
-
 .card-body.padded .mem-stats {
   margin-top: 0;
 }

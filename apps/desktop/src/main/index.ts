@@ -210,6 +210,11 @@ async function main(): Promise<void> {
   profiles.setDelegate(new ExtensionWindowBridge(ctx));
   installConnectionHooks(profiles);
   profiles.onCreated((runtime) => ctx.downloads.attach(runtime));
+  profiles.onCreated((runtime) =>
+    runtime.connections.onChange(() => {
+      for (const w of ctx.windows.forProfile(runtime.profile.id)) w.pushState();
+    }),
+  );
   profiles.onCreated((runtime) => ctx.queue.attach(runtime));
   profiles.onCreated((runtime) => ctx.adblock.attach(runtime.session, runtime.adblock, runtime.profile.id));
   // Container tabs get downloads and the ad blocker like the profile's own tabs.

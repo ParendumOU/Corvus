@@ -65,7 +65,11 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
       if (tab) w.zoomTab(tab, delta);
     },
     "downloads.action": (w, id, a) => ctx.downloads.act(w.profile, str(id, "download"), action(a)),
-    "downloads.openPage": (w) => w.openSingleton("corvus://downloads/"),
+    "downloads.openPage": (w) => {
+      ctx.downloads.markSeen(w.profile);
+      w.openSingleton("corvus://downloads/");
+    },
+    "downloads.markSeen": (w) => ctx.downloads.markSeen(w.profile),
     "grabber.grabCopied": (w) => ctx.grabber.grabCopied(w),
     "grabber.queueCopied": (w) => ctx.grabber.queueCopied(w),
     "grabber.dismissCopied": () => ctx.grabber.dismissCopied(),

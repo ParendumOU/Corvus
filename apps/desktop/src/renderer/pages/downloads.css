@@ -65,6 +65,17 @@
 .grab-add .inline {
   margin-top: 8px;
   gap: 12px;
+  align-items: center;
+}
+.grab-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  cursor: pointer;
+}
+.grab-watch input {
+  margin: 0;
 }
 .grab-all {
   margin: 4px 0 12px;

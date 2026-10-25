@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-25 · current release: **v0.20.1** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-25 · current release: **v0.20.2** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
 
 ---
 
@@ -105,6 +105,8 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 **AI depth (M3)**
 - [x] Inline AI in form/text fields (rewrite, translate, draft) with approval (v0.9.0)
 - [x] Multi-tab agent tasks (agent coordinates across several tabs) (v0.9.0)
+- [x] Visible browsing: the agent opens the sites it uses in its own tab group, named after the task,
+      and leaves the useful tabs open for the person (v0.20.2)
 
 **Data portability (M4)**
 - [x] Full profile export / import (single encrypted bundle) (v0.10.0)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import type { Bookmark } from "@corvus/shared";
-import { BAR_FOLDER_ID, ROOT_IDS, childrenOf, pathTo } from "../../shared/bookmark-tree";
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID, ROOT_IDS, childrenOf, pathTo } from "../../shared/bookmark-tree";
 import { classifyOmnibox } from "../../shared/omnibox";
 import { errorMessage, internalApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFolder, IconPlus, IconTrash } from "../common/icons";
@@ -9,6 +9,13 @@ import { PageShell, mount } from "./shell";
 
 import { t } from "../common/i18n";
 const DRAG_MIME = "application/x-corvus-bookmark";
+
+/** The two root folders keep English names in the data; they are shown in the person's language. */
+function folderTitle(b: { id: string; title: string }): string {
+  if (b.id === BAR_FOLDER_ID) return t("Bookmarks bar");
+  if (b.id === OTHER_FOLDER_ID) return t("Other bookmarks");
+  return b.title;
+}
 
 function normalizeUrl(input: string): string {
   const intent = classifyOmnibox(input);
@@ -45,7 +52,7 @@ function FolderTree({
           <div key={f.id}>
             <button
               className={`${selected === f.id ? "active" : ""} ${over === f.id ? "drop-target" : ""}`}
-              style={{ paddingLeft: 8 + depth * 14 }}
+              style={{ paddingLeft: 14 + depth * 14 }}
               onClick={() => select(f.id)}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes(DRAG_MIME)) {
@@ -69,7 +76,7 @@ function FolderTree({
                 {open ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
               </span>
               <IconFolder size={15} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{f.title}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{folderTitle(f)}</span>
             </button>
             {open && hasChildren && (
               <FolderTree
@@ -192,7 +199,7 @@ function BookmarksPage() {
       }
     >
       <div className="inline" style={{ justifyContent: "space-between" }}>
-        <div className="muted">{query ? t("Results for “{query}”", { query }) : crumbs.map((c) => c.title).join(" › ")}</div>
+        <div className="muted">{query ? t("Results for “{query}”", { query }) : crumbs.map(folderTitle).join(" › ")}</div>
         {!query && (
           <div className="inline">
             <button className="btn small" onClick={() => setEditing({ id: "new-folder", title: "", url: "" })}>

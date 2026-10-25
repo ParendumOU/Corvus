@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.20.2
+
+### AI
+- **You watch the agent browse**: for anything on the web (comparing prices, looking up flights,
+  checking stock) the Command Bar agent and Assist open the sites in their own tabs and use them as
+  you would, instead of answering from search snippets. Those tabs share one tab group named after
+  the task; the agent moves between them, closes the ones that led nowhere, and leaves the useful
+  ones open for you when it finishes. Assist keeps your current page as it was.
+
+### Browser
+- **Corvus's pages look tidier**: History, Bookmarks, Downloads, Passwords, Settings and the rest
+  sit centered in wide windows instead of against the left edge; text, buttons and fields inside
+  their cards have their margins; Find in my pages has its search box in the page; folders in the
+  Bookmarks sidebar highlight across the whole row; a field and its button are the same height;
+  "Bookmarks bar" and "Other bookmarks" follow the interface language.
+- **A check on the downloads button** when a download finishes, until you open the downloads
+  bubble or page, so a finished download is noticed without a pop-up.
+- **The toolbar shows the proxy** a tab goes through (its profile's, its container's, or a site
+  rule's); clicking it switches the connection of that container or profile, or opens Settings →
+  Connections.
+- **Detect links I copy** is on for new installs (the toolbar then offers the download links you
+  copy). Only download links are looked at, and nothing else of what you copy is kept.
+
+### Import
+- **Bookmarks land where they were**: another browser's bookmarks bar goes onto Corvus's bar and
+  the rest into Other bookmarks, instead of an "Imported from …" folder. Importing again adds only
+  what is new: folders merge by name and a page already in its folder is skipped.
+- **Chrome signed in to a Google account** without full sync: that account's bookmarks are
+  imported too (they showed as 0 before).
+
+### Fixes
+- **Reload did nothing** on a page a form had sent (often the page after a "checking your
+  browser" step): the button and F5 now open the address again, as Enter in the address bar does.
+
 ## v0.20.1
 
 ### Fixes

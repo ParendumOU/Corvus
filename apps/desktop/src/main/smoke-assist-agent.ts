@@ -11,7 +11,8 @@ import type { BrowserWindowCtl } from "./window";
  * request typed into the panel navigates and clicks a real button with the steps listed in the
  * conversation; screenshot + click_at hits a target on a canvas (at 100% and at 125% page zoom, so
  * the screenshot -> CSS px -> DIP mapping is exercised); click_at on "Buy now" in auto mode stops at
- * the spend approval inside the panel and Stop there leaves the page untouched.
+ * the spend approval inside the panel and Stop there leaves the page untouched; research elsewhere
+ * opens the agent's own tabs in a group it names, and the useful one stays open for the person.
  */
 
 interface Helpers {
@@ -83,6 +84,18 @@ function refFor(messages: AgentMessage[], name: string): string {
   return "e1";
 }
 
+/** Ids of the tabs open_tab opened in this run, in order ("Opened tab t12 at ..."). */
+function openedTabs(messages: AgentMessage[]): string[] {
+  const ids: string[] = [];
+  for (const m of messages) {
+    for (const block of m.content) {
+      const id = block.type === "tool_result" ? /^Opened tab (\S+) at /.exec(block.content)?.[1] : undefined;
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
 /** Screenshot pixels for a CSS point, read from the latest screenshot result ("1 px = r CSS px"). */
 function shotPoint(messages: AgentMessage[], css: { x: number; y: number }): { x: number; y: number } {
   let ratio = 1;
@@ -139,6 +152,15 @@ function scriptedModel(base: string, seen: Seen): AgentModelProvider {
           () => tool("click_at", shotPoint(req.messages, BUY)),
           () => ({ type: "text", text: "Ordered." }),
         ];
+      } else if (request.startsWith("Compare the shop")) {
+        const opened = openedTabs(req.messages);
+        script = [
+          () => tool("open_tab", { url: `${base}/shop`, group: "Raven research" }),
+          () => tool("open_tab", { url: `${base}/canvas` }),
+          () => tool("switch_tab", { tabId: opened[0] ?? "" }),
+          () => tool("close_tab", { tabId: opened[1] ?? "" }),
+          () => ({ type: "text", text: "The shop lists the price; I left the Raven Shop tab open." }),
+        ];
       } else {
         script = [() => ({ type: "text", text: "I am not sure what to do." })];
       }
@@ -165,6 +187,7 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
   ctx.agentRunner.setTestProvider(scriptedModel(base, seen));
   const tab = win.createTab(`${base}/start`, { activate: true });
   const page = tab.view.webContents;
+  const tabsBefore = new Set(win.tabIds());
   await poll(page, "document.querySelector('h1')");
 
   try {
@@ -239,6 +262,35 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
     check("assist agent: conversation kept across navigations", questions === 5, questions);
     const runs = win.profile.agentRuns.views().filter((r) => r.source === "assist");
     check("assist agent: runs recorded in history as Assist", runs.length >= 5, runs.length);
+
+    // 6. Research elsewhere: the agent's own tabs, in a group it names; the useful one stays open.
+    ctx.assist.activeAction(win, "ask", "Compare the shop and the canvas");
+    const researched = await poll(panel, `(${lastAnswer}?.querySelector('.rich')?.innerText || '').includes('Raven Shop tab open')`, 15_000);
+    const group = win.listGroups().find((g) => g.title === "Raven research");
+    const members = group ? win.tabIds().filter((id) => win.groupOf(id) === group.id) : [];
+    const kept = members.length === 1 ? win.getTab(members[0]!) : undefined;
+    const added = win.tabIds().filter((id) => !tabsBefore.has(id));
+    let released = false;
+    for (let i = 0; i < 40 && !released; i++) {
+      released = kept?.agentControlled === false;
+      if (!released) await sleep(100);
+    }
+    const stepsText = String(await panel.executeJavaScript(`${lastAnswer}?.innerText || ''`));
+    check(
+      "assist agent: research opens its own grouped tabs, keeps the useful one, leaves the person's tab alone",
+      researched &&
+        Boolean(kept?.url.endsWith("/shop")) &&
+        win.activeTab()?.id === kept?.id &&
+        added.length === 1 &&
+        win.groupOf(tab.id) === undefined &&
+        page.getURL().endsWith("/buy") &&
+        released &&
+        stepsText.includes("in a new tab") &&
+        stepsText.includes("Switched to 127.0.0.1") &&
+        stepsText.includes("Closed a tab"),
+      { researched, group, members, kept: kept?.url, added, released, start: page.getURL(), steps: stepsText.slice(0, 500) },
+    );
+    await capture("assist-agent-tabs", win.chrome.webContents);
   } catch (err) {
     check("assist agent smoke", false, (err as Error).stack ?? String(err));
   } finally {
@@ -247,6 +299,7 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
     ctx.agentRunner.setTestProvider(undefined);
     if (!page.isDestroyed()) page.setZoomFactor(1);
     ctx.assist.close(win);
+    for (const id of win.tabIds()) if (!tabsBefore.has(id)) win.closeTab(id);
     win.closeTab(tab.id);
     server.close();
   }

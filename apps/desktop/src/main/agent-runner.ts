@@ -17,6 +17,7 @@ import { actionLabel, resultLabel } from "../shared/assist-agent";
 import { isResumableStatus, recentRunMemoryNote, type AgentRunSource, type AgentRunStopReason, type StoredRunStatus } from "../shared/agent-run";
 import { CREDENTIAL_TOOLS } from "../shared/agent-safety";
 import { NEW_TAB_URL } from "../shared/internal-urls";
+import { RunTabs } from "./agent-tabs";
 import type {
   AgentApprovalDecision,
   AgentApprovalRequest,
@@ -77,8 +78,12 @@ interface Run {
   onScreenshot: ((stepId: string, image: { base64: string; mediaType: string }) => void) | null;
   /** Total token budget for the run (runAgent's default when undefined). */
   tokenBudget: number | undefined;
-  /** The working tab was not agent-driven before an embedded run: drop the AI badge after it. */
+  /** The tab an embedded run started in (the person's tab). */
+  startTab: TabId | null;
+  /** That tab was not agent-driven before the run: drop the AI badge after it. */
   clearAgentMark: boolean;
+  /** The tabs the run opens, grouped under its task (set when the run starts driving). */
+  tabs?: RunTabs;
 }
 
 /** An Assist conversation turn run as a browser agent in the user's current tab. */
@@ -194,6 +199,7 @@ export class AgentRunner {
       tools: wf.tools,
       wf: wf.state,
       tabId: opts.tabId,
+      startTab: opts.tabId,
       source: "assist",
       onUpdate: opts.onUpdate,
       onScreenshot: opts.onScreenshot ?? null,
@@ -299,6 +305,7 @@ export class AgentRunner {
       onUpdate: null,
       onScreenshot: null,
       tokenBudget: undefined,
+      startTab: null,
       clearAgentMark: false,
     };
   }
@@ -393,8 +400,13 @@ export class AgentRunner {
     this.ctx.agents.clientConnected(AGENT_CLIENT, true);
     this.persist(win, run, true);
     try {
-      // Command Bar runs work in a fresh agent tab; Assist runs in the user's current tab.
-      if (run.source === "command-bar") run.tabId = win.createTab(NEW_TAB_URL, { activate: true, agent: true }).id;
+      // Command Bar runs work in a fresh agent tab; Assist runs in the user's current tab. Tabs the
+      // agent opens join one group named after the task and stay open for the person afterwards.
+      run.tabs = new RunTabs(this.ctx, win, run.task, run.source === "assist" ? run.tabId : null);
+      if (run.source === "command-bar") {
+        run.tabId = win.createTab(NEW_TAB_URL, { activate: true, agent: true }).id;
+        run.tabs.adopt(run.tabId);
+      }
       const execute: ToolExecutor = (name, input, signal) => this.execute(win, run, name, input, signal);
       for await (const step of runAgent({
         provider,
@@ -420,10 +432,11 @@ export class AgentRunner {
       this.push(win, run);
       this.persist(win, run, true);
       learnFromRun(this.ctx, win.profile, run.wf, run.status === "done" && run.stopReason === "done");
+      run.tabs?.release();
       if (run.source === "assist") {
         this.embedded.delete(run.id);
-        const working = run.clearAgentMark && run.tabId ? this.ctx.windows.findTab(run.tabId) : undefined;
-        working?.window.clearAgentMark(working.tab.id);
+        const start = run.clearAgentMark && run.startTab ? this.ctx.windows.findTab(run.startTab) : undefined;
+        start?.window.clearAgentMark(start.tab.id);
       }
     }
   }

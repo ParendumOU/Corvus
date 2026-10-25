@@ -44,6 +44,8 @@ export interface DownloadsSummary {
   progress: number | null;
   /** A download needs a decision (e.g. a program requested by an AI agent). */
   attention: boolean;
+  /** Downloads that finished since the person last opened the bubble or the downloads page. */
+  finished: number;
   /** Corvus's download queue, while it has files left. */
   queue: QueueSummary | null;
 }
@@ -118,6 +120,8 @@ export interface BrowserChromeRpc {
   "zoom.step"(delta: 1 | -1 | 0): void;
   "downloads.action"(id: string, action: DownloadAction): void;
   "downloads.openPage"(): void;
+  /** The bubble was opened: finished downloads stop showing the check on the toolbar button. */
+  "downloads.markSeen"(): void;
   /** The copied-links chip: put them in the link grabber and open it, or dismiss them. */
   "grabber.grabCopied"(): number;
   /** The chip's "Download": the copied links go straight to the download queue. */

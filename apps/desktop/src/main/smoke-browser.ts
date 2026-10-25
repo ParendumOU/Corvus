@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import type http from "node:http";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, type WebContents } from "electron";
 import { Request } from "@ghostery/adblocker-electron";
@@ -179,6 +180,33 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   await capture("site-info", chrome);
   win.sendCommand({ type: "close-overlays" });
 
+  // ------------------------------------------------------------------ reload after a form
+  {
+    const hits: string[] = [];
+    const server = http.createServer((req, res) => {
+      hits.push(`${req.method} ${req.url}`);
+      if (req.url === "/form") {
+        res.writeHead(200, { "Content-Type": "text/html" }).end("<!doctype html><form method='post' action='/sent'><button id='go'>Send</button></form>");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "text/html" }).end(`<!doctype html><p id='n'>${hits.length}</p>`);
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const formTab = win.createTab(`${base}/form`);
+    const fwc = formTab.view.webContents;
+    await untilJs(fwc, "document.getElementById('go')");
+    await fwc.executeJavaScript("document.getElementById('go').click()");
+    await waitFor(() => hits.includes("POST /sent") && !fwc.isLoading());
+    const before = hits.length;
+    // The toolbar's Reload, as clicked.
+    win.reload(formTab.id);
+    const reloaded = await waitFor(() => hits.length > before, 5000);
+    check("reload: a page a form sent reloads from the toolbar (the address is opened again)", Boolean(reloaded), hits);
+    win.closeTab(formTab.id);
+    server.close();
+  }
+
   // ------------------------------------------------------------------ downloads
   const dir = path.join(app.getPath("userData"), "smoke-downloads");
   ctx.settings.update({ downloads: { directory: dir, askWhereToSave: false } });
@@ -186,6 +214,13 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   const done = await waitFor(() => ctx.downloads.list(profile).find((d) => d.url.endsWith("/report.txt") && d.state === "completed"));
   const saved = done ? fs.readFileSync(done.savePath, "utf8") : null;
   check("download from local server", Boolean(done) && saved === DOWNLOAD_BODY && path.dirname(done?.savePath ?? "") === dir, done);
+  await sleep(300);
+  check("finished download shows a check on the toolbar", (await chromeHas(".downloads-btn.done .downloads-done")) === true);
+  await capture("downloads-done", chrome);
+  await chrome.executeJavaScript("document.querySelector('.downloads-btn')?.click()");
+  await sleep(500);
+  check("opening the bubble clears the check", (await chromeHas(".downloads-btn.done")) === false && ctx.downloads.summary(profile).finished === 0);
+  win.sendCommand({ type: "close-overlays" });
 
   agentWc?.downloadURL(`${url}setup.exe`);
   const blocked = await waitFor(() => ctx.downloads.list(profile).find((d) => d.url.endsWith("/setup.exe") && d.state === "blocked"));
