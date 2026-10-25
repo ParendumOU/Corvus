@@ -248,9 +248,38 @@ export interface ViewportOverride {
   mobile?: boolean;
 }
 
+/**
+ * What a coordinate action would hit, or the element that has focus, as the spend gate reads it:
+ * role, name, page and form like ActionTarget, plus the tag, the text under the point, and flags.
+ */
+export interface PointTarget extends ActionTarget {
+  tag: string;
+  /** Text of the element under the point when it differs from the control's name. */
+  text?: string;
+  /** A password, one-time-code or card field. */
+  secret?: boolean;
+  /** Inside a CAPTCHA / human-verification widget. */
+  captcha?: boolean;
+  /** A cross-origin frame: its host (the element inside cannot be read). */
+  frame?: string;
+  /** A cross-origin frame served by a payment provider (Stripe, PayPal, Adyen, ...). */
+  payFrame?: boolean;
+  /** Nothing has focus (describeFocused). */
+  none?: boolean;
+}
+
 export interface AgentCapabilities {
   capture?(id: TabId, opts?: CaptureOptions): Promise<Capture>;
+  /**
+   * Coordinate and keyboard input. The MCP server runs click_at, double_click_at, Enter/Space in
+   * press_keys and line breaks in type_text through the spend gate first, which needs describePoint
+   * and describeFocused: without them those inputs are refused.
+   */
   input?(id: TabId, action: AgentInput): Promise<void>;
+  /** What is at a viewport point (CSS px); null when it cannot be read. */
+  describePoint?(id: TabId, point: Point): Promise<PointTarget | null>;
+  /** The element that has focus (`none` when nothing has); null when it cannot be read. */
+  describeFocused?(id: TabId): Promise<PointTarget | null>;
   elementAction?(id: TabId, ref: string, action: ElementAction): Promise<void>;
   fill?(id: TabId, ref: string, value: FieldValue): Promise<void>;
   uploadFiles?(id: TabId, ref: string, paths: string[]): Promise<{ files: number }>;

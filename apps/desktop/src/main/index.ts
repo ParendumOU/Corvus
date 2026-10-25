@@ -16,6 +16,7 @@ import { AutofillService } from "./autofill-service";
 import type { AppContext } from "./context";
 import { AgentCredentialService } from "./agent-credentials";
 import { SpendApprovalService } from "./spend-approvals";
+import { UserActionService } from "./user-actions";
 import { Controller } from "./controller";
 import { KeePassService } from "./keepass-service";
 import { PasswordCheckupService } from "./password-checkup";
@@ -167,6 +168,7 @@ async function main(): Promise<void> {
   ctx.agentRunner = new AgentRunner(ctx);
   ctx.agentCredentials = new AgentCredentialService(ctx);
   ctx.spendApprovals = new SpendApprovalService(ctx);
+  ctx.userActions = new UserActionService();
   ctx.webscope = new WebScopeService(ctx);
   ctx.monitor = new PageMonitor(ctx);
   ctx.newtab = new NewTabService(ctx);

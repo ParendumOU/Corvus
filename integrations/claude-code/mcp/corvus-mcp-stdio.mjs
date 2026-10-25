@@ -31526,6 +31526,37 @@ var SPEND_URL_WORDS = [
   "oplata"
 ];
 var SPEND_URL_RE = new RegExp(`(?:^|[/.\\-_?=&#])${alt(SPEND_URL_WORDS)}(?=$|[/.\\-_?=&#])`, "i");
+var CONFIRM_WORDS = [
+  "buy",
+  "purchase",
+  "pay",
+  "payment",
+  "charge",
+  "charged",
+  "subscribe",
+  "subscription",
+  "donate",
+  "donation",
+  "checkout",
+  "comprar",
+  "compra",
+  "pagar",
+  "pago",
+  "cobrar",
+  "cargo",
+  "suscribirte",
+  "suscribirse",
+  "suscripci\xF3n",
+  "donar",
+  "osta",
+  "ostma",
+  "maksa",
+  "maksma",
+  "makse",
+  "tellimus",
+  "telli"
+];
+var CONFIRM_WORDS_RE = rx(`${S}${alt(CONFIRM_WORDS)}${E}`);
 
 // src/tools/types.ts
 var tabId = external_exports.string().min(1).max(200);

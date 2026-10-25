@@ -2,10 +2,20 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { challengeGuidance, type AgentInput, type Capture, type ChallengeInfo } from "@corvus/shared";
 import { z } from "zod";
 import { compactJson } from "../content.js";
+import { spendGate } from "../spend-gate.js";
 import { coord, defined, need, OK, optionalTabId, ref, type ToolContext } from "./types.js";
 
 const MODIFIERS = ["Alt", "Control", "Meta", "Shift"] as const;
 const modifiers = z.array(z.enum(MODIFIERS)).max(4).optional().describe("Held modifier keys");
+
+/** "Enter" / "Space" when a press_keys entry activates the focused element ("Shift+Enter" too), else null. */
+export function activationKey(key: string): "enter" | "space" | null {
+  if (key === " ") return "space";
+  const base = key.split("+").pop()?.trim().toLowerCase() ?? "";
+  if (base === "enter" || base === "return" || base === "numpadenter") return "enter";
+  if (base === "space" || base === "spacebar") return "space";
+  return null;
+}
 
 /** Trusted guidance appended when a page shows a human-verification challenge. */
 export function challengeNote(c: ChallengeInfo | undefined | null): string | undefined {
@@ -67,9 +77,15 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
   const input = (id: string, action: AgentInput): Promise<void> => need(controller.input?.bind(controller), "Coordinate input")(id, action);
   const point = { x: coord.describe("CSS px from the left of the viewport"), y: coord.describe("CSS px from the top of the viewport") };
 
+  // Clicks that spend money ask the user first, as for click by ref (right clicks only open a menu).
   const clickTool = (name: string, description: string, extra: Partial<Extract<AgentInput, { type: "click" }>>): void =>
     register(name, { description, requires: "input", inputSchema: { ...point, modifiers, tabId: optionalTabId } }, async (a): Promise<CallToolResult> => {
-      await input(await resolveTab(a.tabId), defined({ type: "click" as const, x: a.x, y: a.y, modifiers: a.modifiers, ...extra }));
+      const id = await resolveTab(a.tabId);
+      if (extra.button !== "right") {
+        const refused = await spendGate(controller, id, { kind: "point", x: a.x, y: a.y });
+        if (refused) return refused;
+      }
+      await input(id, defined({ type: "click" as const, x: a.x, y: a.y, modifiers: a.modifiers, ...extra }));
       return OK;
     });
   clickTool("click_at", "Left-click at viewport coordinates (CSS px) with real mouse events.", {});
@@ -119,8 +135,23 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
       requires: "input",
       inputSchema: { keys: z.array(z.string().min(1).max(60)).min(1).max(30), tabId: optionalTabId },
     },
-    async (a) => {
-      await input(await resolveTab(a.tabId), { type: "keys", keys: a.keys });
+    async (a): Promise<CallToolResult> => {
+      const id = await resolveTab(a.tabId);
+      // Keys go in runs; before each Enter or Space the spend gate reads what has focus at that moment.
+      let run: string[] = [];
+      for (const key of a.keys) {
+        const activation = activationKey(key);
+        if (activation) {
+          if (run.length) await input(id, { type: "keys", keys: run });
+          run = [];
+          const refused = await spendGate(controller, id, { kind: "focused", key: activation });
+          if (refused) return refused;
+          await input(id, { type: "keys", keys: [key] });
+        } else {
+          run.push(key);
+        }
+      }
+      if (run.length) await input(id, { type: "keys", keys: run });
       return OK;
     },
   );
@@ -136,8 +167,17 @@ export function registerVisualTools({ controller, register, resolveTab }: ToolCo
         tabId: optionalTabId,
       },
     },
-    async (a) => {
-      await input(await resolveTab(a.tabId), { type: "text", text: a.text, delayMs: a.delayMs });
+    async (a): Promise<CallToolResult> => {
+      const id = await resolveTab(a.tabId);
+      // A line break presses Enter, which can submit a form: the spend gate checks each one.
+      for (const part of a.text.split(/(\r\n|\r|\n)/)) {
+        if (!part) continue;
+        if (/^(\r\n|\r|\n)$/.test(part)) {
+          const refused = await spendGate(controller, id, { kind: "focused", key: "enter" });
+          if (refused) return refused;
+        }
+        await input(id, { type: "text", text: part, delayMs: a.delayMs });
+      }
       return OK;
     },
   );

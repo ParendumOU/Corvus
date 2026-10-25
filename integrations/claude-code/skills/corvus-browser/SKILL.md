@@ -55,7 +55,10 @@ use won't appear:
 
 ## Dialogs, downloads, uploads
 
-- `handle_dialog` answers `alert`/`confirm`/`prompt`/`beforeunload`.
+- A page that opens `alert`/`confirm` waits for an answer: `page_snapshot` shows the question
+  (`dialog`), other actions on that tab are refused, and `handle_dialog` answers it (the user can
+  also answer it in the browser). Accepting a question that spends money asks the user first.
+  Corvus answers `prompt()` with Cancel by itself.
 - `upload_file` (Full) sets a file input from a local path the user gave you.
 - `pdf` (Full) saves the current page to the Downloads folder.
 - `download_queue_add` (Full) hands files to Corvus's download queue: direct links (every volume of

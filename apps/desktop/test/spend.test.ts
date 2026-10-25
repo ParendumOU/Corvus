@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeSpend, isSpendClick, isSpendSubmit, isSpendUrl, normalizeSpendLabel } from "@corvus/shared";
+import { describeSpend, isSpendClick, isSpendConfirm, isSpendSubmit, isSpendUrl, normalizeSpendLabel } from "@corvus/shared";
 import { classifyAction, stricterRisk } from "../src/shared/agent-safety";
 
 const PRODUCT = "https://shop.example/product/42";
@@ -239,6 +239,24 @@ describe("isSpendSubmit", () => {
     expect(isSpendSubmit({ url: PRODUCT })).toBe(false);
     expect(isSpendSubmit({ url: PRODUCT, form: { submitName: "Search", action: "https://shop.example/search" } })).toBe(false);
     expect(isSpendSubmit({ url: "https://shop.example/account/login", form: { submitName: "Sign in" } })).toBe(false);
+  });
+});
+
+describe("isSpendConfirm", () => {
+  it("asks about questions that name money or a purchase", () => {
+    for (const q of ["Buy 2 tickets for $84?", "Place your order now?", "Confirm payment of 12,99 €", "Do you want to subscribe to Pro?", "¿Quieres comprar este artículo?", "Kas soovid tellimuse kinnitada? Telli kohe"]) {
+      expect(isSpendConfirm(q, PRODUCT), q).toBe(true);
+    }
+  });
+
+  it("asks about any question on a checkout or payment page", () => {
+    expect(isSpendConfirm("Are you sure?", CHECKOUT)).toBe(true);
+  });
+
+  it("leaves ordinary questions alone", () => {
+    for (const q of ["Leave this page? Changes you made may not be saved.", "Delete this comment?", "Remove 3 items from your list?", "¿Borrar esta nota?", "Kas oled kindel?"]) {
+      expect(isSpendConfirm(q, PRODUCT), q).toBe(false);
+    }
   });
 });
 

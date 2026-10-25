@@ -4,7 +4,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { nativeTheme, type WebContents } from "electron";
+import { dialog, nativeTheme, type WebContents } from "electron";
 import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
 import type { AppContext } from "./context";
 import { spendDialog } from "./spend-approvals";
@@ -30,6 +30,40 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>
 <p>The Raven travel umbrella is matte-black, wind-tested and folds to 24 cm. It costs 42 dollars and ships worldwide in three days.</p>
 <form onsubmit="return false"><input id="q" name="q" placeholder="Search products"><button id="buy" type="button">Buy now</button></form>
 <div id="out">idle</div><a href="/next">More products</a></main></body></html>`;
+
+/** Form controls for the MCP element tools (check, select_option, fill_form, hover, focus). */
+const FORM_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Corvus Form Smoke</title></head>
+<body><main><h1>Corvus Form Smoke</h1>
+<label><input type="checkbox" id="news"> Send me news</label>
+<label for="size">Size</label><select id="size"><option value="s">Small</option><option value="m">Medium</option><option value="l">Large</option></select>
+<label for="name">Name</label><input id="name">
+<label for="note">Note</label><textarea id="note"></textarea>
+<button id="hov" type="button" onmouseenter="this.textContent='Hovered'">Hover me</button>
+<label for="doc">Attachment</label><input type="file" id="doc" onchange="document.getElementById('files').textContent = Array.from(this.files).map((f) => f.name).join(',')">
+<div id="files">no files</div>
+</main></body></html>`;
+
+/** A button inside a frame (loaded same-origin and, through "localhost", from another origin). */
+const FRAME_INNER = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Inner</title></head>
+<body><button id="inner" type="button" onclick="this.textContent = 'Clicked inside'">Inner button</button></body></html>`;
+
+/** Buttons that open confirm() and alert() and write what the page got back. */
+const DIALOG_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Corvus Dialog Smoke</title></head>
+<body><main><h1>Dialogs</h1>
+<button type="button" onclick="document.getElementById('out').textContent = confirm('Delete this note?') ? 'Answer: deleted' : 'Answer: kept'">Delete note</button>
+<button type="button" onclick="document.getElementById('out').textContent = confirm('Buy the Raven umbrella for $42?') ? 'Answer: bought' : 'Answer: not bought'">Umbrella</button>
+<button type="button" onclick="alert('Saved'); document.getElementById('out').textContent = 'Answer: after alert'">Save</button>
+<p id="out">Answer: none</p>
+</main></body></html>`;
+
+/** One same-origin and one cross-origin iframe. */
+function framesPage(port: number): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Corvus Frames Smoke</title></head>
+<body><main><h1>Frames</h1>
+<iframe src="/frame-inner" title="Same origin" width="320" height="90"></iframe>
+<iframe src="http://localhost:${port}/frame-inner" title="Other origin" width="320" height="90"></iframe>
+</main></body></html>`;
+}
 
 /** Logs to the console and fetches one good and one missing URL shortly after it loads (reading the bodies, so both finish). */
 const DEVTOOLS_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Corvus Devtools Smoke</title></head>
@@ -92,7 +126,20 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
   const themeBefore = nativeTheme.themeSource;
   const server = http.createServer((req, res) => {
     res.writeHead(req.url === "/api/missing" ? 404 : 200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(req.url === "/devtools" ? DEVTOOLS_PAGE : PAGE);
+    const port = req.socket.localPort ?? 0;
+    res.end(
+      req.url === "/devtools"
+        ? DEVTOOLS_PAGE
+        : req.url === "/form"
+          ? FORM_PAGE
+          : req.url === "/frames"
+            ? framesPage(port)
+            : req.url === "/frame-inner"
+              ? FRAME_INNER
+              : req.url === "/dialogs"
+                ? DIALOG_PAGE
+                : PAGE,
+    );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
@@ -213,7 +260,13 @@ export async function openMcpSession(endpoint: string, token: string, clientName
     }
     throw new Error(`MCP: no response to request ${body.id}`);
   };
-  const init = await post({ id: ++seq, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: clientName, version: "1.0.0" } } });
+  const initialize = { method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: clientName, version: "1.0.0" } } };
+  // After a server restart on the same port, fetch may first pick a pooled socket the old server closed.
+  const init = await post({ id: ++seq, ...initialize }).catch(async (err: unknown) => {
+    if (!(err instanceof TypeError)) throw err;
+    await sleep(200);
+    return post({ id: ++seq, ...initialize });
+  });
   protocol = String((init?.result as { protocolVersion?: string } | undefined)?.protocolVersion ?? "");
   await post({ method: "notifications/initialized" });
   return {
@@ -222,11 +275,20 @@ export async function openMcpSession(endpoint: string, token: string, clientName
       return ((res?.result as { tools?: Array<{ name: string }> } | undefined)?.tools ?? []).map((t) => t.name);
     },
     async tool(name, args) {
-      const res = await post({ id: ++seq, method: "tools/call", params: { name, arguments: args } });
-      const error = res?.error as { message?: string } | undefined;
-      if (error) throw new Error(error.message ?? "MCP error");
-      const result = res?.result as { isError?: boolean; content?: Array<{ type: string; text?: string }> } | undefined;
-      return { isError: result?.isError === true, text: (result?.content ?? []).map((c) => c.text ?? "").join("\n") };
+      for (let attempt = 0; ; attempt++) {
+        const res = await post({ id: ++seq, method: "tools/call", params: { name, arguments: args } });
+        const error = res?.error as { message?: string } | undefined;
+        if (error) throw new Error(error.message ?? "MCP error");
+        const result = res?.result as { isError?: boolean; content?: Array<{ type: string; text?: string }> } | undefined;
+        const text = (result?.content ?? []).map((c) => c.text ?? "").join("\n");
+        // The server's rate limit (a burst of 30, then 5 calls a second): wait as it says, like a client would.
+        const wait = result?.isError === true ? /^Rate limit exceeded; retry in (\d+)s/.exec(text) : null;
+        if (wait && attempt < 3) {
+          await sleep(Number(wait[1]) * 1000);
+          continue;
+        }
+        return { isError: result?.isError === true, text };
+      }
     },
     async close() {
       if (session) await fetch(endpoint, { method: "DELETE", headers: headers() }).catch(() => undefined);
@@ -280,13 +342,89 @@ async function mcpSpendSmoke(ctx: AppContext, shopUrl: string, check: Helpers["c
     const plain = await session.tool("click", { ref: linkRef, tabId });
     check("MCP spend: a plain link click does not ask", prompts.length === 2 && !plain.isError, { prompts, plain });
 
+    // Coordinates: boxes from the snapshot, a screenshot sized in CSS px, and the same spend dialog.
+    await session.tool("navigate", { url: shopUrl, tabId });
+    const boxed = await session.tool("page_snapshot", { tabId, boxes: true, maxChars: 0 });
+    const center = (pattern: string): { x: number; y: number } | null => {
+      const m = new RegExp(`\\b(e\\d+) ${pattern}[^\\n]*@(-?\\d+),(-?\\d+),(\\d+),(\\d+)`).exec(boxed.text);
+      return m ? { x: Number(m[2]) + Number(m[4]) / 2, y: Number(m[3]) + Number(m[5]) / 2 } : null;
+    };
+    const buy = center('button "Buy now"');
+    const field = center('(?:textbox|searchbox) "Search products"');
+    const shot = await session.tool("screenshot", { tabId });
+    const names = await session.tools();
+    check(
+      "MCP offers coordinate tools with boxes and a CSS-sized screenshot",
+      ["click_at", "double_click_at", "right_click_at", "hover_at", "drag", "scroll_at", "press_keys", "type_text"].every((n) => names.includes(n)) &&
+        Boolean(buy && field) &&
+        /"scale":1\b/.test(shot.text) &&
+        /"image":"\d+x\d+"/.test(shot.text),
+      { buy, field, shot: shot.text.slice(0, 300) },
+    );
+    allow = true;
+    const coordBuy = buy ? await session.tool("click_at", { tabId, x: buy.x, y: buy.y }) : { isError: true, text: "no box" };
+    check(
+      "MCP click_at on Buy now hits the spend dialog too (allowed once)",
+      prompts.length === 3 && prompts[2] === `An AI client wants to spend money: Click "Buy now" on ${host}.` && !coordBuy.isError,
+      { prompts, coordBuy },
+    );
+    allow = false;
+    const coordDenied = buy ? await session.tool("click_at", { tabId, x: buy.x, y: buy.y }) : { isError: false, text: "no box" };
+    const right = buy ? await session.tool("right_click_at", { tabId, x: buy.x, y: buy.y }) : { isError: true, text: "no box" };
+    check("MCP click_at: Deny refuses; a right click does not ask", prompts.length === 4 && coordDenied.isError && coordDenied.text.includes("The user declined") && !right.isError, {
+      prompts,
+      coordDenied,
+      right,
+    });
+    if (field) await session.tool("click_at", { tabId, x: field.x, y: field.y });
+    const typed = await session.tool("type_text", { tabId, text: "umbrella" });
+    const pressed = await session.tool("press_keys", { tabId, keys: ["Space", "Enter"] });
+    const after = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    check(
+      "MCP click_at + type_text + press_keys type into the field without asking",
+      prompts.length === 4 && !typed.isError && !pressed.isError && /"Search products"[^\n]*="umbrella ?"/.test(after.text),
+      { typed, pressed, after: after.text.slice(-400) },
+    );
+
+    await mcpReadChecks(session, tabId, check);
+    await mcpFormChecks(session, shopUrl, check);
+    await mcpFrameChecks(session, shopUrl, check);
+    await mcpDialogChecks(session, shopUrl, check, {
+      prompts,
+      allow: (yes) => {
+        allow = yes;
+      },
+    });
+    allow = true;
+
+    // request_user_action: the person is asked (answered here by the test hook), Done then Cancel.
+    const handoff: string[] = [];
+    ctx.userActions.setTestAnswer((p) => {
+      handoff.push(`${p.client}|${p.host}|${p.message}`);
+      return handoff.length === 1 ? "done" : "cancelled";
+    });
+    const handled = await session.tool("request_user_action", { tabId, message: "Sign in to your account", timeoutSeconds: 30 });
+    const declined = await session.tool("request_user_action", { tabId, message: "Enter the code we sent you", timeoutSeconds: 30 });
+    ctx.userActions.setTestAnswer(null);
+    check(
+      "MCP request_user_action asks the person in the tab (Done, then Cancel)",
+      handled.text.startsWith("done:") && declined.text.startsWith("cancelled:") && handoff[0] === `${clientName}|${host}|Sign in to your account`,
+      { handled: handled.text, declined: declined.text, handoff },
+    );
+
     await mcpDevtoolsChecks(session, shopUrl, check);
+    // The full-access checks restart the server with another level: this session ends first.
+    await session.tool("tab_close", { tabId }).catch(() => undefined);
+    await session.close();
+    session = null;
+    await mcpFullChecks(ctx, shopUrl, check);
   } catch (err) {
     check("MCP spend smoke", false, errorDetail(err));
   } finally {
     if (session && tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
     await session?.close();
     ctx.spendApprovals.setTestApprover(null);
+    ctx.userActions.setTestAnswer(null);
     ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, allowEvaluate: before.allowEvaluate, approvedClients: before.approvedClients } });
     await ctx.mcp.apply();
   }
@@ -393,6 +531,295 @@ function errorDetail(err: unknown): string {
   return cause ? `${e.message}: ${cause}` : String(e.message ?? err);
 }
 
+/** Full access: upload_file onto a file input, pdf into the downloads folder, downloads_list. */
+async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["check"]): Promise<void> {
+  const clientName = "corvus-smoke-full";
+  const before = ctx.settings.get().mcp;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-upload-"));
+  const file = path.join(dir, "raven-notes.txt");
+  fs.writeFileSync(file, "Ravens are clever.");
+  let session: McpSession | null = null;
+  let tabId = "";
+  let pdfPath = "";
+  try {
+    ctx.settings.update({ mcp: { enabled: true, accessLevel: "full", approvedClients: [...before.approvedClients.filter((c) => c !== clientName), clientName] } });
+    await ctx.mcp.apply();
+    const status = ctx.mcp.status();
+    session = await openMcpSession(`http://127.0.0.1:${status.port}/mcp`, status.token ?? "", clientName);
+    const opened = await session.tool("tab_open", { url: `${baseUrl}form` });
+    tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
+    const snap = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    const doc = /\b(e\d+) textbox "Attachment"/.exec(snap.text)?.[1] ?? "";
+    const uploaded = await session.tool("upload_file", { tabId, ref: doc, paths: [file] });
+    const shown = await session.tool("wait_for", { tabId, text: "raven-notes.txt", timeoutMs: 3000 });
+    const program = await session.tool("upload_file", { tabId, ref: doc, paths: [path.join(dir, "setup.exe")] });
+    check(
+      "MCP upload_file puts a local file on a file input (full access); refuses missing files",
+      Boolean(doc) && uploaded.text === "uploaded 1 file(s)" && !shown.isError && program.isError,
+      { doc, uploaded: uploaded.text, shown: shown.text.slice(-120), program: program.text.slice(-160) },
+    );
+    const printed = await session.tool("pdf", { tabId });
+    pdfPath = /"path":"((?:[^"\\]|\\.)*)"/.exec(printed.text)?.[1]?.replace(/\\\\/g, "\\") ?? "";
+    const listed = await session.tool("downloads_list", { limit: 5 });
+    check(
+      "MCP pdf saves the page into the downloads folder; downloads_list answers",
+      !printed.isError && Boolean(pdfPath) && fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 500 && !listed.isError,
+      { printed: printed.text.slice(-200), listed: listed.text.slice(-200) },
+    );
+  } catch (err) {
+    check("MCP full-access smoke", false, errorDetail(err));
+  } finally {
+    if (session && tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
+    await session?.close();
+    if (pdfPath) fs.rmSync(pdfPath, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+    ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, approvedClients: before.approvedClients } });
+    await ctx.mcp.apply();
+  }
+}
+
+/**
+ * Page dialogs over MCP: a click that opens confirm() leaves the page waiting, page_snapshot shows
+ * the question, other actions are refused until handle_dialog answers it (and the native box the
+ * person sees closes), and accepting a question that spends money asks the person first.
+ */
+async function mcpDialogChecks(
+  session: McpSession,
+  baseUrl: string,
+  check: Helpers["check"],
+  spend: { prompts: string[]; allow: (yes: boolean) => void },
+): Promise<void> {
+  let tabId = "";
+  // Electron opens the native box through dialog.showMessageBox: watch it to see it closed.
+  const boxes: Array<{ message: string; signal?: AbortSignal }> = [];
+  const showMessageBox = dialog.showMessageBox;
+  let spied = false;
+  try {
+    const spy = ((...args: unknown[]) => {
+      const options = args.find((a): a is Electron.MessageBoxOptions => typeof a === "object" && a !== null && "message" in a);
+      if (options) boxes.push({ message: options.message, ...(options.signal ? { signal: options.signal } : {}) });
+      return (showMessageBox as (...a: unknown[]) => unknown).apply(dialog, args);
+    }) as typeof dialog.showMessageBox;
+    dialog.showMessageBox = spy;
+    spied = dialog.showMessageBox === spy;
+  } catch {
+    spied = false;
+  }
+  try {
+    const opened = await session.tool("tab_open", { url: `${baseUrl}dialogs` });
+    tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
+    const snap = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    const ref = (name: string): string => new RegExp(`\\b(e\\d+) button "${name}"`).exec(snap.text)?.[1] ?? "";
+    const [ask, buy, save] = [ref("Delete note"), ref("Umbrella"), ref("Save")];
+    // A click whose page answer waits on a dialog: the click itself may report the dialog.
+    const openWith = async (button: string): Promise<string> => {
+      await session.tool("click", { tabId, ref: button });
+      let text = "";
+      for (const until = Date.now() + 5000; Date.now() < until; await sleep(150)) {
+        text = (await session.tool("page_snapshot", { tabId, maxChars: 0 })).text;
+        if (text.includes('"dialog":')) break;
+      }
+      return text;
+    };
+    const answerShown = async (answer: string): Promise<boolean> => {
+      for (const until = Date.now() + 3000; Date.now() < until; await sleep(150)) {
+        if ((await session.tool("page_snapshot", { tabId, maxChars: 2000 })).text.includes(`Answer: ${answer}`)) return true;
+      }
+      return false;
+    };
+    const closed = (): boolean => !spied || boxes.every((b) => b.signal?.aborted === true);
+
+    const asked = await openWith(ask);
+    const accepted = await session.tool("handle_dialog", { tabId, accept: true });
+    check(
+      "MCP page_snapshot shows the confirm() a click opened; handle_dialog accepts it and closes the native box",
+      asked.includes('"dialog":{"type":"confirm","message":"Delete this note?"}') && !accepted.isError && (await answerShown("deleted")) && closed(),
+      { asked: asked.slice(-300), accepted: accepted.text.slice(-160), spied, boxes: boxes.map((b) => [b.message, b.signal?.aborted]) },
+    );
+
+    await openWith(ask);
+    const blocked = await session.tool("click", { tabId, ref: save });
+    const dismissed = await session.tool("handle_dialog", { tabId, accept: false });
+    check(
+      "MCP refuses other actions while a dialog waits; handle_dialog dismisses it",
+      blocked.isError && blocked.text.includes("dialog open") && !dismissed.isError && (await answerShown("kept")) && closed(),
+      { blocked: blocked.text.slice(-200), dismissed: dismissed.text.slice(-160) },
+    );
+
+    const before = spend.prompts.length;
+    spend.allow(false);
+    const buying = await openWith(buy);
+    const refused = await session.tool("handle_dialog", { tabId, accept: true });
+    const still = (await session.tool("page_snapshot", { tabId, maxChars: 0 })).text;
+    await session.tool("handle_dialog", { tabId, accept: false });
+    spend.allow(true);
+    const asks = spend.prompts.slice(before);
+    check(
+      "MCP handle_dialog asks before accepting a question that spends; Deny keeps it open",
+      buying.includes("Buy the Raven umbrella for $42?") &&
+        refused.isError &&
+        asks.length === 1 &&
+        asks[0]!.includes(`Answer OK to the page's question "Buy the Raven umbrella for $42?"`) &&
+        still.includes('"dialog":') &&
+        (await answerShown("not bought")),
+      { refused: refused.text.slice(-200), asks },
+    );
+
+    const saving = await openWith(save);
+    const ok = await session.tool("handle_dialog", { tabId, accept: true });
+    check(
+      "MCP handle_dialog answers alert()",
+      saving.includes('"dialog":{"type":"alert","message":"Saved"}') && !ok.isError && (await answerShown("after alert")) && closed(),
+      { saving: saving.slice(-200), ok: ok.text.slice(-160) },
+    );
+  } catch (err) {
+    check("MCP dialog smoke", false, errorDetail(err));
+  } finally {
+    if (spied) dialog.showMessageBox = showMessageBox;
+    if (tabId) {
+      // Never leave a page waiting on a dialog behind.
+      await session.tool("handle_dialog", { tabId, accept: false }).catch(() => undefined);
+      await session.tool("tab_close", { tabId }).catch(() => undefined);
+    }
+  }
+}
+
+/**
+ * Frames over MCP: page_snapshot lists the controls of a same-origin frame with refs a click
+ * reaches (the click point includes the frame's offset), and a cross-origin frame as a "frame".
+ */
+async function mcpFrameChecks(session: McpSession, baseUrl: string, check: Helpers["check"]): Promise<void> {
+  let tabId = "";
+  try {
+    const opened = await session.tool("tab_open", { url: `${baseUrl}frames` });
+    tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
+    let snap = { isError: true, text: "" };
+    for (const until = Date.now() + 8000; Date.now() < until; await sleep(200)) {
+      snap = await session.tool("page_snapshot", { tabId, maxChars: 0, boxes: true });
+      if (snap.text.includes('button "Inner button"') && snap.text.includes('frame "Other origin"')) break;
+    }
+    const inner = /\b(e\d+) button "Inner button"/.exec(snap.text)?.[1] ?? "";
+    const other = /\be\d+ frame "Other origin" \[cross-origin\]/.test(snap.text);
+    const clicked = inner ? await session.tool("click", { tabId, ref: inner }) : { isError: true, text: "no ref" };
+    let after = { isError: true, text: "" };
+    for (const until = Date.now() + 3000; Date.now() < until; await sleep(150)) {
+      after = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+      if (after.text.includes('button "Clicked inside"')) break;
+    }
+    check(
+      "MCP page_snapshot reaches into a same-origin frame (clickable ref) and lists a cross-origin frame",
+      Boolean(inner) && other && !clicked.isError && after.text.includes('button "Clicked inside"'),
+      { inner, other, clicked: clicked.text, snap: snap.text.slice(-400), after: after.text.slice(-300) },
+    );
+  } catch (err) {
+    check("MCP frame smoke", false, errorDetail(err));
+  } finally {
+    if (tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
+  }
+}
+
+/** check, select_option, fill_form, focus and hover over MCP on a form page. */
+async function mcpFormChecks(session: McpSession, baseUrl: string, check: Helpers["check"]): Promise<void> {
+  let tabId = "";
+  try {
+    const opened = await session.tool("tab_open", { url: `${baseUrl}form` });
+    tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
+    const snap = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    const ref = (pattern: string): string => new RegExp(`\\b(e\\d+) ${pattern}`).exec(snap.text)?.[1] ?? "";
+    const news = ref('checkbox "Send me news"');
+    const size = ref('combobox "Size"');
+    const name = ref('textbox "Name"');
+    const note = ref('textbox "Note"');
+    const hov = ref('button "Hover me"');
+    const checked = await session.tool("check", { tabId, ref: news, checked: true });
+    const selected = await session.tool("select_option", { tabId, ref: size, values: ["Large"] });
+    const focused = await session.tool("focus", { tabId, ref: name });
+    const filled = await session.tool("fill_form", { tabId, fields: [{ ref: name, value: "Ravena" }, { ref: note, value: "Leave it at the door" }, { ref: size, value: "m" }] });
+    const hovered = await session.tool("hover", { tabId, ref: hov });
+    const after = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    const has = (pattern: string): boolean => new RegExp(pattern).test(after.text);
+    check(
+      "MCP check, select_option, focus, fill_form and hover act on form controls",
+      Boolean(news && size && name && note && hov) &&
+        [checked, selected, focused, hovered].every((r) => !r.isError) &&
+        filled.text === "filled 3/3" &&
+        has('checkbox "Send me news"[^\\n]*="checked"') &&
+        has('combobox "Size"[^\\n]*="m"') &&
+        has('textbox "Name"[^\\n]*="Ravena"') &&
+        has('textbox "Note"[^\\n]*="Leave it at the door"') &&
+        has('button "Hovered"'),
+      { refs: { news, size, name, note, hov }, filled: filled.text, after: after.text.slice(-500) },
+    );
+    const wrong = await session.tool("check", { tabId, ref: name, checked: true });
+    check("MCP check refuses a control that is not a checkbox", wrong.isError && wrong.text.includes("not a checkbox"), wrong.text.slice(-200));
+
+    const zoomed = await session.tool("zoom", { tabId, factor: 1.5 });
+    const phone = await session.tool("set_viewport", { tabId, width: 390, height: 844, mobile: true });
+    // 390x844 CSS px at zoom 1 (260x562 at zoom 1.5); the emulation lands on the next frame.
+    const viewportOf = (t: string): string => /"viewport":"(\d+x\d+)"/.exec(t)?.[1] ?? "";
+    let narrow = "";
+    for (const until = Date.now() + 3000; Date.now() < until; await sleep(150)) {
+      narrow = viewportOf((await session.tool("page_snapshot", { tabId, maxChars: 0 })).text);
+      if (/^(390x844|260x56[23])$/.test(narrow)) break;
+    }
+    const reset = await session.tool("set_viewport", { tabId, reset: true });
+    await session.tool("zoom", { tabId, factor: 1 });
+    check(
+      "MCP zoom and set_viewport (emulated phone, then reset)",
+      zoomed.text === "zoom: 1.5" && !phone.isError && /^(390x844|260x56[23])$/.test(narrow) && !reset.isError,
+      { zoomed: zoomed.text, phone: phone.text, narrow, reset: reset.text },
+    );
+  } catch (err) {
+    check("MCP form smoke", false, errorDetail(err));
+  } finally {
+    if (tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
+  }
+}
+
+/**
+ * Reading and waiting over MCP on the shop page: find by text and selector, the main text, markdown,
+ * links and metadata, trimmed HTML, wait_for text / element / network idle (and its timeout), and
+ * tab_wait_load.
+ */
+async function mcpReadChecks(session: McpSession, tabId: string, check: Helpers["check"]): Promise<void> {
+  try {
+    const byText = await session.tool("find", { tabId, text: "Buy now" });
+    const bySelector = await session.tool("find", { tabId, selector: "#out" });
+    check(
+      "MCP find by text and by selector returns refs with boxes",
+      /\be\d+ button "Buy now" @\d+,\d+,\d+,\d+/.test(byText.text) && /\be\d+ div "idle" @/.test(bySelector.text),
+      { byText: byText.text.slice(-200), bySelector: bySelector.text.slice(-200) },
+    );
+    const text = await session.tool("get_text", { tabId });
+    const markdown = await session.tool("extract", { tabId, kind: "markdown" });
+    const links = await session.tool("extract", { tabId, kind: "links" });
+    const meta = await session.tool("extract", { tabId, kind: "metadata" });
+    check(
+      "MCP get_text and extract (markdown, links, metadata) read the page",
+      text.text.includes("Raven travel umbrella") &&
+        markdown.text.includes("# Corvus Agent Shop") &&
+        /\[More products\]\(http:\/\/127\.0\.0\.1:\d+\/next\)/.test(markdown.text) &&
+        /More products \| http:\/\/127\.0\.0\.1:\d+\/next/.test(links.text) &&
+        meta.text.includes('"title":"Corvus Agent Shop"'),
+      { text: text.text.slice(-200), markdown: markdown.text.slice(-300), links: links.text.slice(-200), meta: meta.text.slice(-200) },
+    );
+    const html = await session.tool("get_html", { tabId, selector: "form" });
+    check("MCP get_html returns trimmed outerHTML", html.text.includes('<input id="q"') && html.text.includes("Buy now") && !html.text.includes("<script"), html.text.slice(-300));
+    const appeared = await session.tool("wait_for", { tabId, text: "umbrella", timeoutMs: 3000 });
+    const element = await session.tool("wait_for", { tabId, selector: "#out", state: "visible", timeoutMs: 3000 });
+    const idle = await session.tool("wait_for", { tabId, networkIdle: true, timeoutMs: 8000 });
+    const missing = await session.tool("wait_for", { tabId, text: "no-such-text-on-this-page", timeoutMs: 600 });
+    const loaded = await session.tool("tab_wait_load", { tabId, timeoutMs: 3000 });
+    check(
+      "MCP wait_for (text, element, network idle, timeout) and tab_wait_load",
+      !appeared.isError && appeared.text.includes('"matched":true') && !element.isError && !idle.isError && missing.isError && missing.text.includes("timed out") && !loaded.isError && loaded.text.includes('"title":"Corvus Agent Shop"') && !loaded.text.includes('"loading":true'),
+      { appeared: appeared.text.slice(-120), element: element.text.slice(-120), idle: idle.text.slice(-160), missing: missing.text.slice(-160), loaded: loaded.text.slice(-200) },
+    );
+  } catch (err) {
+    check("MCP read smoke", false, errorDetail(err));
+  }
+}
+
 /**
  * console_messages and network_requests run on the desktop controller's per-tab logs (recording
  * starts when the agent opens the tab), and tools whose capability this build lacks are not offered.
@@ -402,8 +829,6 @@ async function mcpDevtoolsChecks(session: McpSession, baseUrl: string, check: He
   try {
     const names = await session.tools();
     check("MCP offers console_messages and network_requests", names.includes("console_messages") && names.includes("network_requests"), names);
-    const unsupported = ["find", "wait_for", "get_text", "click_at", "handle_dialog"].filter((n) => names.includes(n));
-    check("MCP does not offer tools this build cannot run", unsupported.length === 0, unsupported);
 
     const opened = await session.tool("tab_open", { url: `${baseUrl}devtools` });
     tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";

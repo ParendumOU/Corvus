@@ -105,6 +105,12 @@ export class TabLogs {
     });
   }
 
+  /** Requests the tab has in flight (wait_for networkIdle), or null while network events are not recorded. */
+  inFlight(wc: WebContents): number | null {
+    const log = this.logs.get(wc);
+    return log?.cdp ? log.inflight.size : null;
+  }
+
   consoleMessages(wc: WebContents, opts: { level?: string; limit?: number; clear?: boolean } = {}): ConsoleEntry[] {
     const log = this.logs.get(wc);
     if (!log) return [];

@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-24 · current release: **v0.15.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-25 · current release: **v0.16.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
 
 ---
 
@@ -66,6 +66,9 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 **For agents (MCP)**
 - [x] Local MCP server, full browser toolset (visual + semantic control, forms, extract,
       dialogs, screenshots), three access levels (read-only / standard / full)
+- [x] Every connector tool runs in Corvus itself (v0.16.0): coordinates and keys, reading and
+      waiting, form controls, frames, page dialogs, uploads/PDF, handing a step to the person; clicks,
+      keys and page questions that spend money ask the person first
 - [x] CAPTCHA solving by the agent (checkbox, tile grids with the visual tools) with human handoff
       after two failed attempts or when the check needs a phone number or e-mail code; 2FA stays with
       the user, except codes the user
@@ -110,7 +113,7 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 **Downloads & switching**
 - [x] Download manager: link grabber, package queue, parallel connections, checksums, and joining and extracting split archives with their password (v0.13.0); "Download with AI" and the `download_queue` MCP tools
 - [x] Default browser: register for web links and files, ask once per launch while it is not (v0.14.0)
-- [~] Import from Chrome, Edge, Brave, Opera, Vivaldi and Firefox: bookmarks, history, open tabs with their groups, and passwords from a CSV (Settings > Import, welcome); next, the installed-extensions list and cookies where they can be read
+- [x] Import from Chrome, Edge, Brave, Opera, Vivaldi and Firefox: bookmarks, history, open tabs with their groups, passwords from a CSV, search shortcuts and the extensions list (Settings > Import, welcome). Cookies are not imported: people sign in again with their imported passwords
 
 **Automation (M5)**
 - [ ] WebScope depth: active checks opt-in, match/replace rules UI, session export/import

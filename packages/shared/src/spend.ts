@@ -17,6 +17,9 @@
  * - "Subscribe" spends only with a price, a paid-plan word or on a checkout or payment page, so a
  *   newsletter signup does not;
  * - generic commit verbs ("Confirm", "Submit", "Kinnita") spend on a checkout or payment page.
+ *
+ * A page's own confirm() question is read whole (isSpendConfirm): an amount, a strong phrase or a
+ * purchase word anywhere in it, or a checkout page, and accepting it asks the person.
  */
 
 /** The page and form around an element, as far as the spend rules need them. */
@@ -297,6 +300,14 @@ const SPEND_URL_WORDS = [
 ];
 const SPEND_URL_RE = new RegExp(`(?:^|[/.\\-_?=&#])${alt(SPEND_URL_WORDS)}(?=$|[/.\\-_?=&#])`, "i");
 
+/** Purchase words that make a page's confirm() question a spend wherever they appear. */
+const CONFIRM_WORDS = [
+  "buy", "purchase", "pay", "payment", "charge", "charged", "subscribe", "subscription", "donate", "donation", "checkout",
+  "comprar", "compra", "pagar", "pago", "cobrar", "cargo", "suscribirte", "suscribirse", "suscripción", "donar",
+  "osta", "ostma", "maksa", "maksma", "makse", "tellimus", "telli",
+];
+const CONFIRM_WORDS_RE = rx(`${S}${alt(CONFIRM_WORDS)}${E}`);
+
 /** Lowercase, collapse spaces and drop leading/trailing icons and punctuation. */
 export function normalizeSpendLabel(name: string): string {
   return name
@@ -352,6 +363,16 @@ export function isSpendSubmit(ctx: SpendContext = {}): boolean {
   if (isSpendUrl(ctx.url) || isSpendUrl(ctx.form?.action)) return true;
   const submit = ctx.form?.submitName;
   return Boolean(submit) && isSpendClick(submit!, { role: ctx.form?.submitRole || "button", ...(ctx.url ? { url: ctx.url } : {}) });
+}
+
+/**
+ * Whether accepting a page's confirm() (or prompt()) question spends money: it names an amount, a
+ * strong spend phrase or a purchase word ("Buy 2 tickets?", "Pay now?"), or the page is a checkout
+ * or payment page. Errs towards asking: a wrong yes costs the person one more question.
+ */
+export function isSpendConfirm(message: string, url?: string): boolean {
+  const n = message.normalize("NFKC").toLowerCase().replace(/\s+/g, " ");
+  return MONEY_RE.test(n) || STRONG_ANYWHERE_RE.test(n) || CONFIRM_WORDS_RE.test(n) || isSpendUrl(url);
 }
 
 /** Host of a URL for prompts ("shop.example"), or "" when it has none. */

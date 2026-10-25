@@ -18,6 +18,7 @@ import type { FlowService } from "./flow-service";
 import type { KeePassService } from "./keepass-service";
 import type { SecretFillGuard } from "./secret-fill-guard";
 import type { SpendApprovalService } from "./spend-approvals";
+import type { UserActionService } from "./user-actions";
 import type { McpService } from "./mcp-service";
 import type { PageMonitor } from "./page-monitor";
 import type { PasswordCheckupService } from "./password-checkup";
@@ -66,6 +67,8 @@ export interface AppContext {
   agentCredentials: AgentCredentialService;
   /** Native "Allow once / Deny" prompt for MCP clients that want to spend money. */
   spendApprovals: SpendApprovalService;
+  /** Native "Done / Cancel" request when an MCP client asks the person to do a step (request_user_action). */
+  userActions: UserActionService;
   adblock: AdblockService;
   webscope: WebScopeService;
   monitor: PageMonitor;

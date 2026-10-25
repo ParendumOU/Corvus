@@ -8,20 +8,34 @@
 export const AGENT_WORLD_ID = 1717;
 
 export const MAX_SNAPSHOT_ELEMENTS = 250;
+/** The most elements page_snapshot may ask for (maxElements). */
+export const MAX_SNAPSHOT_ELEMENTS_CAP = 1000;
 
 export interface RawSnapshot {
   url: string;
   title: string;
   text: string;
   truncated: boolean;
-  elements: Array<{ ref: string; role: string; name: string; value?: string }>;
+  elements: Array<{ ref: string; role: string; name: string; value?: string; bbox?: [number, number, number, number] }>;
+  viewport: { width: number; height: number; devicePixelRatio: number; scrollX: number; scrollY: number };
+}
+
+/** What page_snapshot asks for besides the text budget. */
+export interface SnapshotScriptOptions {
+  /** Bounding boxes ([x, y, width, height], viewport CSS px) for coordinate tools. */
+  boxes?: boolean;
+  /** Only elements that intersect the viewport. */
+  viewportOnly?: boolean;
+  maxElements?: number;
+  /** Include the main text (default true). */
+  text?: boolean;
 }
 
 /**
  * clean / roleOf / nameOf exactly as page_snapshot computes them, shared with describeTargetScript so
  * a live read of one element gives the same role and name the agent saw in the snapshot.
  */
-const ROLE_NAME_FNS = `
+export const ROLE_NAME_FNS = `
   const clean = (s) => (s || "").replace(/\\s+/g, " ").trim();
   const roleOf = (el) => {
     const explicit = el.getAttribute("role");
@@ -58,10 +72,14 @@ const ROLE_NAME_FNS = `
     return clean(el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("alt") || (img && img.getAttribute("alt")) || el.getAttribute("name") || own);
   };`;
 
-export function snapshotScript(maxChars: number): string {
+export function snapshotScript(maxChars: number, opts: SnapshotScriptOptions = {}): string {
+  const maxElements = Math.max(1, Math.min(MAX_SNAPSHOT_ELEMENTS_CAP, Math.floor(opts.maxElements ?? MAX_SNAPSHOT_ELEMENTS)));
   return `(() => {
   const MAX_CHARS = ${Math.max(200, Math.floor(maxChars))};
-  const MAX_ELEMENTS = ${MAX_SNAPSHOT_ELEMENTS};
+  const MAX_ELEMENTS = ${maxElements};
+  const BOXES = ${opts.boxes === true};
+  const VIEWPORT_ONLY = ${opts.viewportOnly === true};
+  const WITH_TEXT = ${opts.text !== false};
   const doc = document;
   window.__corvusRefSeq = window.__corvusRefSeq || 0;
 
@@ -75,13 +93,13 @@ ${ROLE_NAME_FNS}
 
   const main = doc.querySelector("main, [role=main], article");
   const chromeLike = "nav, header, footer, aside, script, style, noscript, template, [aria-hidden=true]";
-  let raw = main
+  let raw = !WITH_TEXT ? "" : main
     ? main.innerText
     : Array.from(doc.body ? doc.body.children : [])
         .filter((c) => !c.matches(chromeLike))
         .map((c) => c.innerText || "")
         .join("\\n");
-  if (!(raw || "").trim() && doc.body) raw = doc.body.innerText;
+  if (WITH_TEXT && !(raw || "").trim() && doc.body) raw = doc.body.innerText;
   let text = (raw || "")
     .replace(/[ \\t\\f\\v\\u00a0]+/g, " ")
     .replace(/\\n\\s*\\n\\s*/g, "\\n\\n")
@@ -96,16 +114,26 @@ ${ROLE_NAME_FNS}
     "[contenteditable='']", "[contenteditable=true]",
   ].join(",");
   const elements = [];
-  for (const el of doc.querySelectorAll(selector)) {
-    if (elements.length >= MAX_ELEMENTS) break;
-    if (el.disabled || !visible(el) || el.closest("[aria-hidden=true]")) continue;
+  const refFor = (el) => {
     let ref = el.getAttribute("data-corvus-ref");
     if (!ref) {
       window.__corvusRefSeq += 1;
       ref = "e" + window.__corvusRefSeq;
       el.setAttribute("data-corvus-ref", ref);
     }
+    return ref;
+  };
+  const frames = [];
+  const collect = (root, ox, oy, depth) => {
+  for (const el of root.querySelectorAll(selector)) {
+    if (elements.length >= MAX_ELEMENTS) break;
+    if (el.disabled || !visible(el) || el.closest("[aria-hidden=true]")) continue;
+    const r = el.getBoundingClientRect();
+    const box = { left: r.left + ox, top: r.top + oy, width: r.width, height: r.height, right: r.right + ox, bottom: r.bottom + oy };
+    if (VIEWPORT_ONLY && (box.bottom < 0 || box.right < 0 || box.top > innerHeight || box.left > innerWidth)) continue;
+    const ref = refFor(el);
     const item = { ref, role: roleOf(el), name: nameOf(el).slice(0, 80) };
+    if (BOXES) item.bbox = [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)];
     const tag = el.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
       const type = (el.getAttribute("type") || "").toLowerCase();
@@ -120,12 +148,63 @@ ${ROLE_NAME_FNS}
     }
     elements.push(item);
   }
-  return { url: location.href, title: doc.title, text, truncated, elements };
+  if (depth >= 3) return;
+  for (const frame of root.querySelectorAll("iframe, frame")) {
+    if (elements.length >= MAX_ELEMENTS || !visible(frame) || frame.closest("[aria-hidden=true]")) continue;
+    const r = frame.getBoundingClientRect();
+    const fx = ox + r.left + frame.clientLeft;
+    const fy = oy + r.top + frame.clientTop;
+    let inner = null;
+    try { inner = frame.contentDocument; } catch (e) {}
+    if (inner && inner.body) {
+      collect(inner, fx, fy, depth + 1);
+      continue;
+    }
+    // Another origin: its content cannot be read; click_at reaches inside it.
+    let host = "";
+    try { host = new URL(frame.getAttribute("src") || "", location.href).host; } catch (e) {}
+    const item = { ref: refFor(frame), role: "frame", name: clean(frame.getAttribute("title") || frame.getAttribute("name") || host || "embedded frame").slice(0, 80), states: ["cross-origin"] };
+    if (BOXES) item.bbox = [Math.round(ox + r.left), Math.round(oy + r.top), Math.round(r.width), Math.round(r.height)];
+    elements.push(item);
+  }
+  };
+  collect(doc, 0, 0, 0);
+  const viewport = { width: innerWidth, height: innerHeight, devicePixelRatio: devicePixelRatio || 1, scrollX: scrollX, scrollY: scrollY };
+  return { url: location.href, title: doc.title, text, truncated, elements, viewport };
 })()`;
 }
 
-const findRef = (ref: string): string =>
-  `document.querySelector('[data-corvus-ref="' + ${JSON.stringify(ref)}.replace(/["\\\\]/g, "") + '"]')`;
+/**
+ * The element with a ref, in the page or in a same-origin frame (page_snapshot gives refs to both).
+ * Cross-origin frames cannot be read: coordinate tools reach inside them.
+ */
+export const findRef = (ref: string): string =>
+  `((q) => {
+    const look = (doc, depth) => {
+      const hit = doc.querySelector(q);
+      if (hit || depth >= 3) return hit;
+      for (const frame of doc.querySelectorAll("iframe, frame")) {
+        let inner = null;
+        try { inner = frame.contentDocument; } catch (e) {}
+        const found = inner ? look(inner, depth + 1) : null;
+        if (found) return found;
+      }
+      return null;
+    };
+    return look(document, 0);
+  })('[data-corvus-ref="' + ${JSON.stringify(ref)}.replace(/["\\\\]/g, "") + '"]')`;
+
+/** Where an element's frame sits in the top-level viewport (0, 0 for the page itself). */
+const FRAME_OFFSET_FN = `
+  const frameOffset = (el) => {
+    let x = 0, y = 0;
+    for (let w = el.ownerDocument.defaultView; w && w.frameElement; w = w.parent) {
+      const r = w.frameElement.getBoundingClientRect();
+      x += r.left + w.frameElement.clientLeft;
+      y += r.top + w.frameElement.clientTop;
+    }
+    return { x, y };
+  };`;
 
 /**
  * Role, accessible name and page URL of one element (as page_snapshot computes them), plus its form's
@@ -164,8 +243,10 @@ export function locateScript(ref: string): string {
   const el = ${findRef(ref)};
   if (!el) return null;
   el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  ${FRAME_OFFSET_FN}
   const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: innerWidth, h: innerHeight };
+  const o = frameOffset(el);
+  return { x: o.x + r.left + r.width / 2, y: o.y + r.top + r.height / 2, w: innerWidth, h: innerHeight };
 })()`;
 }
 
@@ -352,17 +433,60 @@ export function viewportScript(): string {
   return `(() => ({ width: innerWidth, height: innerHeight, scrollY: Math.round(scrollY), maxScrollY: Math.max(0, document.documentElement.scrollHeight - innerHeight) }))()`;
 }
 
+/** Viewport, scroll and page size in CSS px, and the device pixel ratio (the screenshot tool's metadata). */
+export function viewportInfoScript(): string {
+  return `(() => {
+  const d = document.documentElement;
+  return {
+    width: innerWidth, height: innerHeight, dpr: devicePixelRatio || 1, scrollX: scrollX, scrollY: scrollY,
+    scrollWidth: Math.max(d.scrollWidth, innerWidth), scrollHeight: Math.max(d.scrollHeight, document.body ? document.body.scrollHeight : 0, innerHeight),
+  };
+})()`;
+}
+
+/** Scroll the element into view and return its box in viewport CSS px, or null. */
+export function rectScript(ref: string): string {
+  return `(() => {
+  const el = ${findRef(ref)};
+  if (!el) return null;
+  el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  ${FRAME_OFFSET_FN}
+  const r = el.getBoundingClientRect();
+  const o = frameOffset(el);
+  return { x: o.x + r.left, y: o.y + r.top, width: r.width, height: r.height };
+})()`;
+}
+
 /**
  * Background-tab fallback for click_at / hover_at / scroll_at (sendInputEvent needs a painted, visible
  * view): dispatches synthetic pointer events at the element under the point. Returns false when
  * nothing is there.
  */
-export function pointerFallbackScript(action: "click" | "hover" | "scroll", x: number, y: number, dx = 0, dy = 0): string {
+export function pointerFallbackScript(action: "click" | "hover" | "scroll" | "double" | "right", x: number, y: number, dx = 0, dy = 0): string {
   return `(() => {
   const x = ${Number(x) || 0}, y = ${Number(y) || 0};
   const el = document.elementFromPoint(x, y);
   if (!el) return false;
   const opts = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, view: window };
+  if (${JSON.stringify(action)} === "right") {
+    const r = Object.assign({}, opts, { button: 2, buttons: 2 });
+    el.dispatchEvent(new PointerEvent("pointerdown", r));
+    el.dispatchEvent(new MouseEvent("mousedown", r));
+    el.dispatchEvent(new PointerEvent("pointerup", r));
+    el.dispatchEvent(new MouseEvent("mouseup", r));
+    el.dispatchEvent(new MouseEvent("contextmenu", r));
+    return true;
+  }
+  if (${JSON.stringify(action)} === "double") {
+    for (const detail of [1, 2]) {
+      const c = Object.assign({}, opts, { detail });
+      el.dispatchEvent(new MouseEvent("mousedown", c));
+      el.dispatchEvent(new MouseEvent("mouseup", c));
+      el.dispatchEvent(new MouseEvent("click", c));
+    }
+    el.dispatchEvent(new MouseEvent("dblclick", Object.assign({}, opts, { detail: 2 })));
+    return true;
+  }
   if (${JSON.stringify(action)} === "scroll") {
     let s = el;
     while (s && s !== document.body && !(s.scrollHeight > s.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(s).overflowY))) s = s.parentElement;

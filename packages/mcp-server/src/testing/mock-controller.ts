@@ -29,6 +29,8 @@ import type {
   GroupId,
   HistoryEntry,
   PageSnapshot,
+  Point,
+  PointTarget,
   SpendApprovalRequest,
   Tab,
   TabGroup,
@@ -421,6 +423,36 @@ export class MockBrowserController implements BrowserController {
       const el = this.elementAt(id, action.x, action.y);
       if (el && (el.role === "textbox" || el.role === "searchbox")) s.inputs.set("__focus", el.ref);
     }
+  }
+
+  /**
+   * What is at a point, as the browser's describePoint: the element whose box holds it (with its form
+   * from MockPage.forms), or the page body. An element with role "frame" stands for a cross-origin
+   * frame named by its host; a payment provider's host makes it a payment frame.
+   */
+  async describePoint(id: TabId, point: Point): Promise<PointTarget | null> {
+    this.record("describePoint", id, point);
+    const s = this.state(id);
+    const el = this.elementAt(id, point.x, point.y);
+    return el ? this.pointTarget(s, el) : { url: s.tab.url, role: "", name: "", tag: "body" };
+  }
+
+  /** The focused element (a field clicked or focused before), or none. */
+  async describeFocused(id: TabId): Promise<PointTarget | null> {
+    this.record("describeFocused", id);
+    const s = this.state(id);
+    const ref = s.inputs.get("__focus");
+    const el = ref ? (this.page(s.tab.url).elements ?? []).find((e) => e.ref === ref) : undefined;
+    return el ? this.pointTarget(s, el) : { url: s.tab.url, role: "", name: "", tag: "body", none: true };
+  }
+
+  private pointTarget(s: TabState, el: SnapshotElement): PointTarget {
+    if (el.role === "frame") {
+      return { url: s.tab.url, role: "frame", name: el.name, tag: "iframe", frame: el.name, ...(/stripe|paypal|adyen/i.test(el.name) ? { payFrame: true } : {}) };
+    }
+    const form = this.page(s.tab.url).forms?.[el.ref];
+    const tag = el.role === "link" ? "a" : el.role === "button" ? "button" : el.role === "textbox" || el.role === "searchbox" ? "input" : "div";
+    return { url: s.tab.url, role: el.role, name: el.name, tag, ...(form ? { form: { ...form } } : {}) };
   }
 
   private blockedByDialog(s: TabState): void {

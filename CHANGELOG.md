@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.16.0
+
+### AI agents in other apps (MCP)
+- **Every connector tool now works in Corvus**: the desktop controller implements the capabilities
+  the MCP server registers tools for, so agents get screenshots of the viewport, one element or the
+  full page (CSS-sized for the coordinate tools), element boxes and same-origin frames in
+  `page_snapshot` (cross-origin frames listed as `frame`), `find`, `get_text`, `extract`,
+  `get_html`, `wait_for`, `tab_wait_load`, `click_at`, `double_click_at`, `right_click_at`,
+  `hover_at`, `drag`, `press_keys`, `type_text`, `scroll_at`, `hover`, `focus`, `check`,
+  `select_option`, `fill_form`, `fill_fields`, `zoom`, `set_viewport` and, with Full access,
+  `upload_file` (absolute paths, no programs, up to 20 files and 200 MB), `pdf` and
+  `downloads_list`.
+- **`request_user_action`**: the agent hands a step to the person (sign-in, a code) in a native
+  Done/Cancel prompt next to the tab it brings forward.
+- **`handle_dialog`**: an `alert`/`confirm` in a tab an agent works in shows in `page_snapshot`;
+  other actions on that tab are refused until it is answered, by the agent or by the person in the
+  native box (which closes either way). Corvus answers `prompt()` with Cancel, as before.
+- **Spend gate**: clicks at coordinates, Enter/Space, line breaks typed into a field and accepting a
+  page question that spends money (an amount, a purchase word, or a checkout page) ask the person in
+  the same **Allow once / Deny** dialog; a click inside a payment iframe always asks.
+
 ## v0.15.0
 
 ### Your phone

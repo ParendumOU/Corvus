@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { compactJson, truncate } from "../content.js";
+import { spendGate } from "../spend-gate.js";
 import { defined, need, optionalTabId, untrusted, type ToolContext } from "./types.js";
 
 function size(bytes: number | undefined): string {
@@ -71,7 +72,12 @@ export function registerDevtoolsTools({ controller, register, resolveTab }: Tool
     },
     async (a) => {
       const id = await resolveTab(a.tabId);
-      const dialog = await need(controller.handleDialog?.bind(controller), "handle_dialog")(id, defined({ accept: a.accept, promptText: a.promptText }));
+      const handle = need(controller.handleDialog?.bind(controller), "handle_dialog");
+      if (a.accept) {
+        const refused = await spendGate(controller, id, { kind: "dialog" });
+        if (refused) return refused;
+      }
+      const dialog = await handle(id, defined({ accept: a.accept, promptText: a.promptText }));
       const extra = dialog.type === "beforeunload" && a.accept ? " Leaving is now allowed: retry the navigation or tab_close." : "";
       return untrusted(dialog.url, compactJson({ handled: dialog.type, accepted: a.accept, message: dialog.message }), extra ? extra.trim() : undefined);
     },
