@@ -305,7 +305,11 @@ function Usage({ m }: { m: AssistMessage }) {
   const secs = (u.ms / 1000).toFixed(1);
   return (
     <div className="usage" title={u.model}>
-      {u.cached ? tx("From cache, no tokens used ({model})", { model: modelName(u.model) }) : tx("{nf} tokens in, {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), nf2: nf.format(u.outputTokens), secs, model: modelName(u.model) })}
+      {u.cached
+        ? tx("From cache, no tokens used ({model})", { model: modelName(u.model) })
+        : u.cachedInputTokens
+          ? tx("{nf} tokens in ({cached} reused from the prompt cache), {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), cached: nf.format(u.cachedInputTokens), nf2: nf.format(u.outputTokens), secs, model: modelName(u.model) })
+          : tx("{nf} tokens in, {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), nf2: nf.format(u.outputTokens), secs, model: modelName(u.model) })}
     </div>
   );
 }

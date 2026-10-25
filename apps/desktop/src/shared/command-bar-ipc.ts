@@ -53,6 +53,8 @@ export interface AgentRunView {
   stepCount: number;
   maxSteps: number;
   inputTokens: number;
+  /** Of inputTokens, those read from the prompt cache (a tenth of the price). */
+  cachedInputTokens?: number;
   outputTokens: number;
   provider: string;
   model: string;

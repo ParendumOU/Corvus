@@ -68,9 +68,21 @@ drafts="$(GH_TOKEN="$token" gh api "repos/$PUBLIC_REPO/releases" --jq "[.[] | se
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/corvus-release.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
-echo "Downloading the assets of draft $tag to compute checksums..."
-GH_TOKEN="$token" gh release download "$tag" -R "$PUBLIC_REPO" -D "$work/assets"
-rm -f "$work/assets/SHA256SUMS.txt"
+mkdir -p "$work/assets"
+# The checksums cover every asset of the draft. An asset built here (same name and size) is hashed
+# from the local file electron-builder uploaded; anything else (macOS, added later) is downloaded.
+local_dir="apps/desktop/release"
+fetched=0
+while IFS=$'\t' read -r name size; do
+  [ "$name" = "SHA256SUMS.txt" ] && continue
+  if [ -f "$local_dir/$name" ] && [ "$(wc -c <"$local_dir/$name" | tr -d ' ')" = "$size" ]; then
+    cp "$local_dir/$name" "$work/assets/$name"
+  else
+    GH_TOKEN="$token" gh release download "$tag" -R "$PUBLIC_REPO" -D "$work/assets" -p "$name" --clobber
+    fetched=$((fetched + 1))
+  fi
+done < <(GH_TOKEN="$token" gh release view "$tag" -R "$PUBLIC_REPO" --json assets --jq '.assets[] | "\(.name)\t\(.size)"')
+echo "Checksums of draft $tag: $(ls "$work/assets" | wc -l | tr -d ' ') assets, $fetched downloaded."
 # The website links to these names under releases/download/$tag/; the yml files are the update feed.
 for f in "Corvus-Setup-$version.exe" "Corvus-Portable-$version.exe" "Corvus-$version-x86_64.AppImage" \
   "corvus_${version}_amd64.deb" latest.yml latest-linux.yml; do

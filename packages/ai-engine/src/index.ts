@@ -75,6 +75,8 @@ export {
   DEFAULT_MAX_STEPS,
   DEFAULT_MAX_TURN_TOKENS,
   DEFAULT_TOKEN_BUDGET,
+  CACHED_TOKEN_WEIGHT,
+  MAX_CLI_IMAGES,
 } from "./agent.js";
 export type {
   AgentTool,
@@ -93,5 +95,6 @@ export type {
   ClaudeCliAgentOptions,
   LocalAgentOptions,
   RenderTranscriptOptions,
+  TranscriptBlock,
   RenderedTranscript,
 } from "./agent.js";

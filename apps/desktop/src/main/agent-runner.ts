@@ -51,6 +51,7 @@ interface Run {
   stepCount: number;
   maxSteps: number;
   inputTokens: number;
+  cachedInputTokens: number;
   outputTokens: number;
   provider: string;
   model: string;
@@ -308,6 +309,7 @@ export class AgentRunner {
       stepCount: 0,
       maxSteps: this.ctx.settings.get().agent.maxSteps,
       inputTokens: 0,
+      cachedInputTokens: 0,
       outputTokens: 0,
       provider: "",
       model: "",
@@ -515,6 +517,7 @@ export class AgentRunner {
       }
       case "usage":
         run.inputTokens = step.totalInputTokens;
+        run.cachedInputTokens = step.totalCachedInputTokens;
         run.outputTokens = step.totalOutputTokens;
         break;
       case "stop":
@@ -816,6 +819,7 @@ function viewOf(run: Run): AgentRunView {
     stepCount: run.stepCount,
     maxSteps: run.maxSteps,
     inputTokens: run.inputTokens,
+    ...(run.cachedInputTokens > 0 ? { cachedInputTokens: run.cachedInputTokens } : {}),
     outputTokens: run.outputTokens,
     provider: run.provider,
     model: run.model,

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.21.1
+
+### AI
+- **Agent runs cost far less**: each step now reuses what the model already read from the prompt
+  cache instead of paying for the whole conversation again. With your Claude Code login the
+  transcript goes in as blocks that only grow (measured: the second step read 29,000 of 30,700
+  tokens from the cache, where before every step wrote all of them at a higher price); with an API
+  key the conversation carries a cache breakpoint. Steps also start sooner. Assist's usage line
+  says how many tokens came from the cache, and the token budget of a run counts those at their
+  price (a tenth), so long research tasks are not cut short.
+- **Faster agent steps with your Claude Code login**: one Claude Code process serves the whole run and
+  each step sends it only the new results, instead of starting Claude Code again and handing it the
+  whole conversation (measured: a step's reply in 1.6 s instead of 3.1 s).
+
 ## v0.21.0
 
 ### AI

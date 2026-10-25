@@ -1442,6 +1442,8 @@ export const ES_UI: Record<string, string> = {
   "No conversation matches.": "Ninguna conversación coincide.",
   "Your conversations with Assist show up here, with the page they were on.": "Aquí aparecen tus conversaciones con Assist, con la página en la que estaban.",
   "Click again to clear the whole history": "Haz clic otra vez para borrar todo el historial",
+  "{nf} tokens in ({cached} reused from the prompt cache), {nf2} out, {secs} s with {model}": "{nf} tokens de entrada ({cached} reutilizados de la caché), {nf2} de salida, {secs} s con {model}",
+  "{cached} input tokens reused from the prompt cache": "{cached} tokens de entrada reutilizados de la caché",
   // <title> of internal pages (translated when served, see main/protocol.ts)
   "New Tab": "Nueva pestaña",
   "PDF": "PDF",

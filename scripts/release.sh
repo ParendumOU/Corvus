@@ -33,16 +33,43 @@ else
 fi
 
 pnpm install --frozen-lockfile
-pnpm -r --filter "!@corvus/desktop" run build
+# Only what the desktop app is made of (not the sync server or the mobile app).
+pnpm --filter "@corvus/desktop^..." run build
 pnpm --filter @corvus/desktop run build
 cd apps/desktop
+version="$(node -p 'require("./package.json").version')"
+
+# This build's artifacts only: earlier versions are on GitHub and in $root/release, and copying
+# gigabytes of them through the Docker bind mount was most of a release's time.
+rm -rf release
+
+# Each platform packages in its own process, at the same time (they write to their own *-unpacked
+# folders and update feeds; the draft release already exists, so their uploads land in it).
+logs="$(mktemp -d)"
+declare -A pids=()
 for t in "${targets[@]}"; do
   case "$t" in
-    win)   pnpm exec electron-builder --win nsis portable --x64 --publish "$publish" ;;
-    linux) pnpm exec electron-builder --linux AppImage deb --x64 --publish "$publish" ;;
-    mac)   pnpm exec electron-builder --mac dmg zip --publish "$publish" ;; # needs a macOS host
+    win)   pnpm exec electron-builder --win nsis portable --x64 --publish "$publish" >"$logs/$t.log" 2>&1 & ;;
+    linux) pnpm exec electron-builder --linux AppImage deb --x64 --publish "$publish" >"$logs/$t.log" 2>&1 & ;;
+    mac)   pnpm exec electron-builder --mac dmg zip --publish "$publish" >"$logs/$t.log" 2>&1 & ;; # needs a macOS host
     *)     echo "unknown target: $t" >&2; exit 1 ;;
   esac
+  pids[$t]=$!
 done
+failed=()
+for t in "${!pids[@]}"; do
+  if wait "${pids[$t]}"; then
+    echo "== $t: packaged"
+  else
+    failed+=("$t")
+    echo "== $t: FAILED" >&2
+  fi
+  tail -n 25 "$logs/$t.log"
+done
+[ ${#failed[@]} -eq 0 ] || { echo "electron-builder failed for: ${failed[*]} (logs in $logs)" >&2; exit 1; }
+
 mkdir -p "$root/release"
-cp -v release/*.exe release/*.AppImage release/*.deb release/*.dmg release/*.zip "$root/release/" 2>/dev/null || true
+for f in release/*"$version"*.exe release/*"$version"*.AppImage release/*"$version"*.deb release/*"$version"*.dmg release/*"$version"*.zip; do
+  [ -f "$f" ] && cp -v "$f" "$root/release/"
+done
+true

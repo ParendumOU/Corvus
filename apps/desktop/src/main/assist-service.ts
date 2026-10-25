@@ -917,7 +917,7 @@ export class AssistService {
         text: answer,
         status,
         ...(status === "error" ? { error: view.error ?? "The assistant stopped with an error." } : {}),
-        ...(done ? { usage: { inputTokens: view.inputTokens, outputTokens: view.outputTokens, model: view.model, cached: false, ms: Date.now() - started } } : {}),
+        ...(done ? { usage: { inputTokens: view.inputTokens, ...(view.cachedInputTokens ? { cachedInputTokens: view.cachedInputTokens } : {}), outputTokens: view.outputTokens, model: view.model, cached: false, ms: Date.now() - started } } : {}),
       });
       // The conversation follows the agent into a tab it opened, so the panel keeps showing it there.
       if (view.tabId && view.tabId !== tab.id && !this.tabs.has(view.tabId)) this.tabs.set(view.tabId, entry);

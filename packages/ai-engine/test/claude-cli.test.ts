@@ -24,7 +24,7 @@ describe("StreamJsonParser", () => {
     const events = [...parser.push(fixture), ...parser.end()];
     const text = events.flatMap((e) => (e.type === "delta" ? [e.text] : [])).join("");
     expect(text).toBe("Rust is a general-purpose language focused on memory safety [1]; the official book is free online [3].");
-    expect(events.at(-1)).toEqual({ type: "usage", inputTokens: 412 + 724, outputTokens: 31, model: "claude-haiku-5-5" });
+    expect(events.at(-1)).toEqual({ type: "usage", inputTokens: 412 + 724, outputTokens: 31, cachedInputTokens: 0, model: "claude-haiku-5-5" });
     expect(parser.done).toBe(true);
   });
 

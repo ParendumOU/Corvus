@@ -27,6 +27,8 @@ export type AssistActionKind = "summarize" | "ask" | "explain" | "translate-sele
 
 export interface AssistUsage {
   inputTokens: number;
+  /** Of inputTokens, those read from the prompt cache. */
+  cachedInputTokens?: number;
   outputTokens: number;
   model: string;
   cached: boolean;

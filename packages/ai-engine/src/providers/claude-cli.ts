@@ -139,6 +139,7 @@ export class StreamJsonParser {
             inputTokens:
               (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0),
             outputTokens: usage.output_tokens ?? 0,
+            cachedInputTokens: usage.cache_read_input_tokens ?? 0,
             model,
           },
         ];

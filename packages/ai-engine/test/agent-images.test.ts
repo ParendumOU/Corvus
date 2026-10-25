@@ -3,6 +3,7 @@ import {
   buildClaudeCliAgentArgs,
   cliStreamJsonInput,
   createLocalAgentProvider,
+  MAX_CLI_IMAGES,
   MAX_CONTEXT_IMAGES,
   renderTranscript,
   toAnthropicMessages,
@@ -25,6 +26,16 @@ function transcript(images: string[]): AgentMessage[] {
   return out;
 }
 
+describe("anthropic prompt cache", () => {
+  it("puts a cache breakpoint on the last block only", () => {
+    const params = toAnthropicMessages(transcript(["AAA"]));
+    const blocks = params.flatMap((m) => (Array.isArray(m.content) ? m.content : []));
+    const marked = blocks.filter((b) => "cache_control" in b && b.cache_control);
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toBe(blocks.at(-1));
+  });
+});
+
 describe("anthropic image blocks", () => {
   it("sends the latest screenshots as image blocks and replaces older ones with a note", () => {
     const params = toAnthropicMessages(transcript(["AAA", "BBB", "CCC"]));
@@ -38,17 +49,26 @@ describe("anthropic image blocks", () => {
 });
 
 describe("claude-code-cli images", () => {
-  it("passes the caller's system prompt and attaches only the latest screenshot", () => {
-    const r = renderTranscript(transcript(["AAA", "BBB"]), tools, { system: "You are Corvus Assist.", images: "attach" });
+  it("passes the caller's system prompt and puts each recent screenshot right after its result", () => {
+    const r = renderTranscript(transcript(["AAA", "BBB", "CCC", "DDD"]), tools, { system: "You are Corvus Assist.", images: "attach" });
     expect(r.system.startsWith("You are Corvus Assist.")).toBe(true);
     expect(r.system).toContain("one tool per reply");
-    expect(r.image).toEqual(shot("BBB"));
-    expect(r.user).toContain("shot 1\n(this screenshot is attached to this message as an image)");
-    expect(r.user).toContain("shot 0\n(an earlier screenshot, omitted to save tokens)");
+    const kinds = r.blocks.map((b) => (b.type === "image" ? `img:${b.image.base64}` : b.text.split("\n")[0]));
+    expect(kinds).toEqual(["Task: look at the page", 'You called screenshot with {}', "Result of s0:", 'You called screenshot with {}', "Result of s1:", "img:BBB", 'You called screenshot with {}', "Result of s2:", "img:CCC", 'You called screenshot with {}', "Result of s3:", "img:DDD"]);
+    expect(r.blocks.filter((b) => b.type === "image")).toHaveLength(MAX_CLI_IMAGES);
+    expect(r.blocks[2]).toMatchObject({ type: "text", text: "Result of s0:\nshot 0\n(an earlier screenshot, omitted to save tokens)" });
+    expect(r.blocks[4]).toMatchObject({ type: "text", text: "Result of s1:\nshot 1\n(the screenshot follows)" });
   });
 
-  it("builds a stream-json user message with a text block and a base64 image block", () => {
-    const line = cliStreamJsonInput("Task: look", shot("QUJD"));
+  it("only appends blocks from one turn to the next, so the prompt cache serves what was sent", () => {
+    const before = renderTranscript(transcript(["AAA"]), tools, { images: "attach" }).blocks;
+    const after = renderTranscript(transcript(["AAA", "BBB"]), tools, { images: "attach" }).blocks;
+    expect(after.slice(0, before.length)).toEqual(before);
+    expect(after.length).toBeGreaterThan(before.length);
+  });
+
+  it("builds a stream-json user message from the blocks, images as base64", () => {
+    const line = cliStreamJsonInput([{ type: "text", text: "Task: look" }, { type: "image", image: shot("QUJD") }]);
     expect(line.endsWith("\n")).toBe(true);
     expect(JSON.parse(line)).toEqual({
       type: "user",
@@ -62,9 +82,8 @@ describe("claude-code-cli images", () => {
     });
   });
 
-  it("switches the CLI to stream-json input only when an image goes along", () => {
-    expect(buildClaudeCliAgentArgs("m", "sys")).not.toContain("--input-format");
-    const args = buildClaudeCliAgentArgs("m", "sys", true);
+  it("always reads the transcript as stream-json from stdin", () => {
+    const args = buildClaudeCliAgentArgs("m", "sys");
     expect(args.slice(args.indexOf("--input-format"), args.indexOf("--input-format") + 2)).toEqual(["--input-format", "stream-json"]);
     expect(args).toContain("--output-format");
     expect(args.at(-1)).toBe("sys");
@@ -72,8 +91,8 @@ describe("claude-code-cli images", () => {
 
   it("degrades to a text note (no image) for text-only models", () => {
     const r = renderTranscript(transcript(["AAA"]), tools);
-    expect(r.image).toBeNull();
-    expect(r.user).toContain("cannot view images");
+    expect(r.blocks.some((b) => b.type === "image")).toBe(false);
+    expect(JSON.stringify(r.blocks)).toContain("cannot view images");
     expect(r.system.startsWith("You are Corvus, an AI agent")).toBe(true);
   });
 });

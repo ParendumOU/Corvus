@@ -3,7 +3,8 @@ import type { BuiltPrompt } from "../prompt.js";
 
 export type ProviderEvent =
   | { type: "delta"; text: string }
-  | { type: "usage"; inputTokens: number; outputTokens: number; model: string };
+  /** inputTokens counts every input token; cachedInputTokens the part read from the prompt cache. */
+  | { type: "usage"; inputTokens: number; outputTokens: number; model: string; cachedInputTokens?: number };
 
 export interface AnswerRequest {
   prompt: BuiltPrompt;

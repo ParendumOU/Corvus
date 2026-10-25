@@ -1,5 +1,10 @@
+import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  createClaudeCliAgentProvider,
   AgentStopError,
   parseToolCall,
   renderTranscript,
@@ -142,6 +147,22 @@ describe("runAgent loop", () => {
     expect(steps.at(-1)).toEqual({ type: "stop", reason: "budget" });
   });
 
+  it("counts tokens read from the prompt cache at a tenth toward the budget", async () => {
+    const usage = (input: number, cached: number): TurnEvent => ({ type: "usage", inputTokens: input, outputTokens: 0, model: "fake", cachedInputTokens: cached });
+    const { provider } = scriptedProvider([
+      [{ type: "tool_use", id: "a", name: "snapshot", input: {} }, usage(1000, 900)],
+      [{ type: "tool_use", id: "b", name: "snapshot", input: {} }, usage(1000, 900)],
+      [{ type: "text", text: "done" }],
+    ]);
+    // Weighted: (2000 - 1800) + 1800 * 0.1 = 380 tokens, under a 500 budget (2000 raw would be over).
+    const steps = await collect(
+      runAgent({ provider, system: "s", task: "t", tools, tokenBudget: 500, signal: new AbortController().signal, execute: async () => ({ content: "r" }) }),
+    );
+    expect(steps.at(-1)).toEqual({ type: "stop", reason: "done" });
+    const last = steps.filter((s) => s.type === "usage").at(-1) as { totalInputTokens: number; totalCachedInputTokens: number };
+    expect(last).toMatchObject({ totalInputTokens: 2000, totalCachedInputTokens: 1800 });
+  });
+
   it("forwards image tool results as content blocks", async () => {
     const { provider, seen } = scriptedProvider([
       [{ type: "tool_use", id: "a", name: "screenshot", input: {} }],
@@ -215,7 +236,7 @@ describe("parseToolCall", () => {
 
 describe("renderTranscript", () => {
   it("documents tools and serializes the running conversation", () => {
-    const { system, user } = renderTranscript(
+    const { system, blocks } = renderTranscript(
       [
         { role: "user", content: [{ type: "text", text: "find the price" }] },
         { role: "assistant", content: [{ type: "tool_use", id: "a", name: "navigate", input: { url: "https://shop" } }] },
@@ -225,9 +246,35 @@ describe("renderTranscript", () => {
     );
     expect(system).toContain("navigate: Open a URL");
     expect(system).toContain("one tool per reply");
-    expect(user).toContain("Task: find the price");
-    expect(user).toContain("You called navigate");
-    expect(user).toContain("page text");
-    expect(user).toContain("Continue.");
+    expect(system).toContain("ends with the latest result");
+    const text = blocks.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+    expect(text).toContain("Task: find the price");
+    expect(text).toContain("You called navigate");
+    expect(text).toContain("page text");
+    expect(blocks).toHaveLength(3);
+  });
+});
+
+describe("claude-code-cli session", () => {
+  const fake = fileURLToPath(new URL("./fixtures/fake-claude-agent.mjs", import.meta.url));
+
+  it("keeps one process for the run and sends each turn only the new results", async () => {
+    chmodSync(fake, 0o755);
+    const starts = path.join(mkdtempSync(path.join(os.tmpdir(), "corvus-cli-")), "starts");
+    process.env.FAKE_CLAUDE_STARTS = starts;
+    try {
+      const provider = createClaudeCliAgentProvider({ model: "m", cliPath: fake, timeoutMs: 10_000 });
+      const steps = await collect(
+        runAgent({ provider, system: "s", task: "find the price", tools, signal: new AbortController().signal, execute: async () => ({ content: "page text" }) }),
+      );
+      const answer = steps.filter((s) => s.type === "text").map((s) => (s as { text: string }).text).join("");
+      // Turn 2 got only the tool result, not the task or its own call again.
+      expect(answer.startsWith("received 1 blocks, first: Result of ")).toBe(true);
+      expect(readFileSync(starts, "utf8").trim().split("\n")).toHaveLength(1);
+      expect(steps.filter((s) => s.type === "usage").at(-1)).toMatchObject({ totalCachedInputTokens: 100 });
+      expect(steps.at(-1)).toEqual({ type: "stop", reason: "done" });
+    } finally {
+      delete process.env.FAKE_CLAUDE_STARTS;
+    }
   });
 });
