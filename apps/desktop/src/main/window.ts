@@ -183,6 +183,8 @@ export class BrowserWindowCtl {
   readonly chrome: WebContentsView;
   private strip: TabStripState = emptyStrip();
   private readonly tabs = new Map<TabId, TabRuntime>();
+  /** Groups an agent run is working in (see setAgentGroup). */
+  private readonly agentGroups = new Set<GroupId>();
   private closedTabs: ClosedTab[] = [];
   private chromeHeight = 112;
   private overlay = false;
@@ -491,6 +493,7 @@ export class BrowserWindowCtl {
       connection: this.connectionBadge(active),
       tabs: this.strip.tabs.map((t) => this.tabView(t.id)).filter((t): t is TabView => t !== null),
       groups: this.strip.groups,
+      agentGroups: [...this.agentGroups].filter((id) => this.hasGroup(id)),
       activeTabId: this.strip.activeId,
       activeBookmarked: active ? this.profile.bookmarks.isBookmarked(active.url) : false,
       bookmarksBar: childrenOf(this.profile.bookmarks.list(), BAR_FOLDER_ID),
@@ -802,6 +805,8 @@ export class BrowserWindowCtl {
   private wire(tab: TabRuntime): void {
     const wc = tab.view.webContents;
     const push = (): void => this.pushState();
+    // A click or key press in a tab an agent works in: the person takes over (see AgentRunner).
+    wc.on("input-event", (_event, input) => this.ctx.agentRunner.personInput(this, tab.id, input.type));
     followSignInUserAgent(wc, this.profile.userAgents);
     wc.on("did-start-loading", () => {
       tab.loading = true;
@@ -1593,6 +1598,14 @@ export class BrowserWindowCtl {
 
   hasGroup(groupId: GroupId): boolean {
     return this.strip.groups.some((g) => g.id === groupId);
+  }
+
+  /** An agent run works in this group (its chip shows it) or has finished there. */
+  setAgentGroup(groupId: GroupId, working: boolean): void {
+    if (working === this.agentGroups.has(groupId)) return;
+    if (working) this.agentGroups.add(groupId);
+    else this.agentGroups.delete(groupId);
+    this.pushState();
   }
 
   // ---------------------------------------------------------------- commands

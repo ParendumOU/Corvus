@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { actionLabel, assistAgentView, historyActions, resultLabel } from "../src/shared/assist-agent";
 import type { AgentRunStep, AgentRunView } from "../src/shared/command-bar-ipc";
+import { translate } from "../src/shared/i18n-es";
 import { describeFocusedScript, describePointScript, pointerFallbackScript, viewportScript } from "../src/main/page-scripts";
 
 function run(steps: AgentRunStep[], patch: Partial<AgentRunView> = {}): AgentRunView {
@@ -85,5 +86,42 @@ describe("page scripts for the coordinate tools", () => {
     const code = describePointScript(1, 1);
     expect(code).toContain("challenges\\.cloudflare\\.com");
     expect(code).toContain(".split(/\\s+/)");
+  });
+});
+
+describe("step labels in Spanish", () => {
+  const es = (text: string, vars?: Record<string, string | number>): string => translate("es", text, vars);
+
+  it("translates the line and keeps names, hosts and quotes as they are", () => {
+    expect(actionLabel("navigate", { url: "https://www.skyscanner.es/vuelos" }, "", es)).toBe("Abrió www.skyscanner.es");
+    expect(actionLabel("open_tab", { url: "https://www.google.com/travel/flights" }, "", es)).toBe("Abrió www.google.com en una pestaña nueva");
+    expect(actionLabel("web_search", { query: "vuelo barato Lisboa" }, "", es)).toBe('Buscó en la web "vuelo barato Lisboa"');
+    expect(actionLabel("type", { ref: "e2", text: "Lisboa", submit: true }, "Destino", es)).toBe('Escribió "Lisboa" en "Destino" y lo envió');
+    expect(actionLabel("scroll_at", { x: 1, y: 2, direction: "left" }, "", es)).toBe("Desplazó hacia la izquierda en un punto");
+  });
+
+  it("translates result lines and failures", () => {
+    expect(resultLabel("click_at", "x", 'Clicked at (1, 2) on button "Buy now".', false, es)).toBe('Hizo clic en (1, 2) sobre button "Buy now"');
+    expect(resultLabel("scroll_at", "x", "Scrolled down at (3, 4) over a canvas; page scroll 400/1200 px.", false, es)).toBe(
+      "Desplazó hacia abajo en (3, 4) sobre a canvas; la página va por 400/1200 px",
+    );
+    expect(resultLabel("switch_tab", "x", "Switched to tab t3 at https://www.skyscanner.es/x — Skyscanner", false, es)).toBe("Cambió a www.skyscanner.es");
+    expect(resultLabel("click", "Hizo clic en e3", "Element e3 not found", true, es)).toBe("Hizo clic en e3 (falló: Element e3 not found)");
+  });
+
+  it("keeps the English lines of coordinate tools", () => {
+    expect(resultLabel("hover_at", "x", "Moved the mouse to (5, 6) over a canvas.", false)).toBe("Pointed at (5, 6) over a canvas");
+    expect(resultLabel("press_key", "x", 'Pressed Enter in textbox "Search".', false)).toBe('Pressed Enter in textbox "Search"');
+    expect(resultLabel("type_text", "x", 'Typed 6 characters into textbox "To".', false)).toBe('Typed 6 characters into textbox "To"');
+    expect(resultLabel("fill_login", "Filled your saved login", "Filled the saved login for ana. You cannot read the password.", false)).toBe("Filled your saved login");
+    expect(resultLabel("fill_login", "Filled your saved login", "The person no longer allows agents to use this login.", false)).toBe("The person no longer allows agents to use this login");
+  });
+});
+
+describe("tabs left open", () => {
+  it("are offered under the answer once the run ends", () => {
+    const leftTabs = [{ id: "t5", title: "Skyscanner", url: "https://www.skyscanner.es/" }];
+    expect(assistAgentView(run([step("s1", "open_tab")], { leftTabs })).view.leftTabs).toEqual(leftTabs);
+    expect(assistAgentView(run([step("s1", "open_tab")])).view.leftTabs).toBeUndefined();
   });
 });

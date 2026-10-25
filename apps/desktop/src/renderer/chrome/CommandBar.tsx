@@ -406,6 +406,30 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
         <div ref={bottomRef} />
       </div>
 
+      {run.leftTabs && run.leftTabs.length > 0 && (
+        <div className="run-left" data-run-left>
+          <span className="run-left-title">{t("Left open for you")}</span>
+          {run.leftTabs.map((tab) => (
+            <button key={tab.id} className="run-left-tab" title={tab.url} onMouseDown={(e) => { e.preventDefault(); void api.call("tabs.activate", tab.id); }}>
+              {tab.title || tab.url}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {run.takenOver && !run.approval && (
+        <div className="run-approval" data-took-over>
+          <div className="appr-text">
+            <strong>{t("You took over")}</strong>
+            <span>{t("Corvus waits while you use the page. Hand it back when you are done.")}</span>
+          </div>
+          <div className="appr-actions">
+            <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.handBack"); }}>{t("Hand it back")}</button>
+            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.stop"); }}>{t("Stop")}</button>
+          </div>
+        </div>
+      )}
+
       {run.approval && (
         <div className="run-approval">
           <div className="appr-text">
@@ -467,8 +491,8 @@ function StepRow({ step }: { step: AgentRunStep }) {
       <span className="step-dot" aria-hidden />
       <div className="step-body">
         <div className="step-line">
-          <span className="step-name">{isMessage ? t("Corvus") : prettyTool(step.kind)}</span>
-          {step.summary && <span className="step-args">{step.summary}</span>}
+          <span className="step-name">{isMessage ? t("Corvus") : (step.label ?? prettyTool(step.kind))}</span>
+          {!step.label && step.summary && <span className="step-args">{step.summary}</span>}
           {typeof step.resultChars === "number" && step.resultChars > 0 && <span className="step-size">{formatBytes(step.resultChars)}</span>}
         </div>
         {step.detail && <div className="step-detail">{step.detail}</div>}

@@ -216,8 +216,8 @@ function StepRow({ step }: { step: AgentRunStep }) {
       <span className="ar-step-dot" aria-hidden />
       <div className="ar-step-body">
         <div className="ar-step-line">
-          <span className="ar-step-name">{isMessage ? t("Corvus") : prettyTool(step.kind)}</span>
-          {step.summary && <span className="ar-step-args">{step.summary}</span>}
+          <span className="ar-step-name">{isMessage ? t("Corvus") : (step.label ?? prettyTool(step.kind))}</span>
+          {!step.label && step.summary && <span className="ar-step-args">{step.summary}</span>}
           {step.status === "skipped" && <span className="ar-step-tag">{t("skipped")}</span>}
         </div>
         {step.detail && <div className="ar-step-detail">{step.detail}</div>}

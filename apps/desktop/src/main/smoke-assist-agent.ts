@@ -12,7 +12,8 @@ import type { BrowserWindowCtl } from "./window";
  * conversation; screenshot + click_at hits a target on a canvas (at 100% and at 125% page zoom, so
  * the screenshot -> CSS px -> DIP mapping is exercised); click_at on "Buy now" in auto mode stops at
  * the spend approval inside the panel and Stop there leaves the page untouched; research elsewhere
- * opens the agent's own tabs in a group it names, and the useful one stays open for the person.
+ * opens the agent's own tabs in a group it names, and the useful one stays open for the person; a
+ * click in the agent's tab between two steps holds the run until the person hands the page back.
  */
 
 interface Helpers {
@@ -154,12 +155,24 @@ function scriptedModel(base: string, seen: Seen): AgentModelProvider {
         ];
       } else if (request.startsWith("Compare the shop")) {
         const opened = openedTabs(req.messages);
+        // A pause after the second tab: the smoke looks at another tab and watches the live view.
+        if (done === 2) await sleep(7000);
         script = [
           () => tool("open_tab", { url: `${base}/shop`, group: "Raven research" }),
           () => tool("open_tab", { url: `${base}/canvas` }),
           () => tool("switch_tab", { tabId: opened[0] ?? "" }),
           () => tool("close_tab", { tabId: opened[1] ?? "" }),
           () => ({ type: "text", text: "The shop lists the price; I left the Raven Shop tab open." }),
+        ];
+      } else if (request.startsWith("Wait for me")) {
+        const last = req.messages.at(-1)?.content.find((c) => c.type === "tool_result");
+        const handed = last?.type === "tool_result" && last.content.includes("handed it back");
+        // Thinking between the two steps: the smoke clicks in the page meanwhile.
+        if (done === 1) await sleep(1500);
+        script = [
+          () => tool("navigate", { url: `${base}/shop` }),
+          () => tool("page_snapshot", {}),
+          () => ({ type: "text", text: handed ? "Got the page back; carrying on." : "No hand-back seen." }),
         ];
       } else {
         script = [() => ({ type: "text", text: "I am not sure what to do." })];
@@ -265,6 +278,38 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
 
     // 6. Research elsewhere: the agent's own tabs, in a group it names; the useful one stays open.
     ctx.assist.activeAction(win, "ask", "Compare the shop and the canvas");
+    const busy = await poll(win.chrome.webContents, "document.querySelector('.group-chip.agent-working')?.textContent.includes('Raven research')", 10_000);
+    // The person goes back to their own tab while the agent works: the panel shows the agent's tab live.
+    let opened2 = false;
+    for (let i = 0; i < 80 && !opened2; i++) {
+      opened2 = win.tabIds().filter((id) => !tabsBefore.has(id)).length === 2;
+      if (!opened2) await sleep(100);
+    }
+    const elsewhere = win.createTab(`${base}/start`, { activate: true });
+    await sleep(700);
+    const during = {
+      active: win.activeTab()?.id,
+      runs: ctx.agentRunner.liveRuns(win),
+      live: (() => {
+        const l = ctx.assist.panelState(win).workingElsewhere;
+        return l ? { ...l, thumb: Boolean(l.thumb) } : null;
+      })(),
+      card: String(await panel.executeJavaScript("document.querySelector('[data-working-elsewhere]')?.innerText ?? 'no card'")).slice(0, 200),
+    };
+    const liveShown = await poll(panel, "document.querySelector('[data-working-elsewhere] img') && (document.querySelector('[data-working-elsewhere]')?.innerText || '').includes('Raven research')", 9000);
+    const stayed = win.activeTab()?.id === elsewhere.id;
+    if (liveShown) await capture("assist-agent-live", panel);
+    const live = ctx.assist.panelState(win).workingElsewhere;
+    check("assist agent: the panel shows the agent's tab live while the person looks elsewhere", opened2 && liveShown && stayed, {
+      opened2,
+      liveShown,
+      stayed,
+      during,
+      after: live ? { ...live, thumb: Boolean(live.thumb) } : null,
+    });
+    await panel.executeJavaScript("[...document.querySelectorAll('[data-working-elsewhere] button')].find((b) => b.textContent.trim() === 'Watch')?.click()");
+    await sleep(150);
+    win.closeTab(elsewhere.id);
     const researched = await poll(panel, `(${lastAnswer}?.querySelector('.rich')?.innerText || '').includes('Raven Shop tab open')`, 15_000);
     const group = win.listGroups().find((g) => g.title === "Raven research");
     const members = group ? win.tabIds().filter((id) => win.groupOf(id) === group.id) : [];
@@ -276,9 +321,11 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
       if (!released) await sleep(100);
     }
     const stepsText = String(await panel.executeJavaScript(`${lastAnswer}?.innerText || ''`));
+    const chip = String(await panel.executeJavaScript(`${lastAnswer}?.querySelector('[data-agent-left]')?.innerText || ''`));
     check(
       "assist agent: research opens its own grouped tabs, keeps the useful one, leaves the person's tab alone",
       researched &&
+        busy &&
         Boolean(kept?.url.endsWith("/shop")) &&
         win.activeTab()?.id === kept?.id &&
         added.length === 1 &&
@@ -287,10 +334,71 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
         released &&
         stepsText.includes("in a new tab") &&
         stepsText.includes("Switched to 127.0.0.1") &&
-        stepsText.includes("Closed a tab"),
-      { researched, group, members, kept: kept?.url, added, released, start: page.getURL(), steps: stepsText.slice(0, 500) },
+        stepsText.includes("Closed a tab") &&
+        chip.includes("Left open for you") &&
+        chip.includes("Raven Shop"),
+      { researched, busy, group, members, kept: kept?.url, added, released, start: page.getURL(), steps: stepsText.slice(0, 500), chip },
     );
-    await capture("assist-agent-tabs", win.chrome.webContents);
+    await capture("assist-agent-tabs", panel);
+    // The chip brings the tab back after the person went elsewhere.
+    win.activate(tab.id);
+    await sleep(200);
+    await panel.executeJavaScript(`${lastAnswer}?.querySelector(".agent-left-tab")?.click()`);
+    let shown = false;
+    for (let i = 0; i < 20 && !shown; i++) {
+      shown = win.activeTab()?.id === kept?.id;
+      if (!shown) await sleep(100);
+    }
+    check("assist agent: the left-open chip shows the tab", shown, { active: win.activeTab()?.url });
+    const idle = !(await win.chrome.webContents.executeJavaScript("Boolean(document.querySelector('.group-chip.agent-working'))"));
+    check("assist agent: the group no longer shows the agent at work once it finished", idle);
+
+    // 7. Taking over: a click in the agent's tab between two steps holds the run until handed back.
+    const mine = win.activeTab();
+    if (mine) {
+      const mineWc = mine.view.webContents;
+      ctx.assist.activeAction(win, "ask", "Wait for me while I look");
+      const navigated = await poll(panel, `${lastAnswer}?.querySelector('.astep.ok[data-tool="navigate"]')`, 8000);
+      await sleep(450);
+      mineWc.sendInputEvent({ type: "mouseDown", x: 20, y: 20, button: "left", clickCount: 1 });
+      mineWc.sendInputEvent({ type: "mouseUp", x: 20, y: 20, button: "left", clickCount: 1 });
+      const tookOver = await poll(panel, `${lastAnswer}?.querySelector('[data-took-over]')`, 8000);
+      if (tookOver) await capture("assist-agent-took-over", panel);
+      await panel.executeJavaScript(`[...(${lastAnswer}?.querySelectorAll('[data-took-over] button') ?? [])].find((b) => b.textContent.trim() === 'Hand it back')?.click()`);
+      const carriedOn = await poll(panel, `(${lastAnswer}?.querySelector('.rich')?.innerText || '').includes('Got the page back')`, 8000);
+      const skipped = (await panel.executeJavaScript(`Boolean(${lastAnswer}?.querySelector('.astep.skipped[data-tool="page_snapshot"]'))`)) === true;
+      check("assist agent: a click in the agent's tab takes over until the person hands it back", navigated && tookOver && carriedOn && skipped, {
+        navigated,
+        tookOver,
+        carriedOn,
+        skipped,
+        steps: String(await panel.executeJavaScript(`${lastAnswer}?.innerText || ''`)).slice(0, 400),
+      });
+    }
+
+    // 8. The panel's gear opens the AI settings; the toolbar has no separate agent indicator.
+    await panel.executeJavaScript("document.querySelector('[data-panel-settings]')?.click()");
+    let settings = false;
+    for (let i = 0; i < 30 && !settings; i++) {
+      settings = (win.activeTab()?.url ?? "").startsWith("corvus://settings");
+      if (!settings) await sleep(100);
+    }
+    const noIndicator = !(await win.chrome.webContents.executeJavaScript("Boolean(document.querySelector('.agent-indicator'))"));
+    check("assist panel: the gear opens the AI settings", settings && noIndicator, { active: win.activeTab()?.url, noIndicator });
+
+    // 9. "New conversation" keeps the old one in the history; opening it carries it on, on its page.
+    win.activate(tab.id);
+    await poll(panel, "document.querySelector('[data-new-conversation]')", 3000);
+    await panel.executeJavaScript("document.querySelector('[data-new-conversation]')?.click()");
+    const fresh = await poll(panel, "document.querySelectorAll('.thread .question').length === 0", 3000);
+    await panel.executeJavaScript("document.querySelector('[data-history-button]')?.click()");
+    const listed = await poll(panel, "(document.querySelector('[data-assist-history]')?.innerText || '').includes('What does this page sell')", 5000);
+    if (listed) await capture("assist-history", panel);
+    const before = new Set(win.tabIds());
+    await panel.executeJavaScript("document.querySelector('[data-assist-history] .history-open')?.click()");
+    const reopened = await poll(panel, "document.querySelectorAll('.thread .question').length >= 5", 5000);
+    const onPage = (win.activeTab()?.url ?? "").startsWith(base) && !before.has(win.activeTab()?.id ?? "");
+    check("assist history: a new conversation keeps the old one, which reopens on its page", fresh && listed && reopened && onPage, { fresh, listed, reopened, active: win.activeTab()?.url });
   } catch (err) {
     check("assist agent smoke", false, (err as Error).stack ?? String(err));
   } finally {

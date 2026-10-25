@@ -29,6 +29,8 @@ const sourcesIn = (dir: string, ext: RegExp): string[] =>
 const RENDERER = sourcesIn(fileURLToPath(new URL("../src/renderer", import.meta.url)), /\.tsx?$/);
 /** Main-process sources (native menus and dialogs translate with tr("…")). */
 const MAIN = sourcesIn(fileURLToPath(new URL("../src/main", import.meta.url)), /\.ts$/);
+/** Agent step labels: templates the agent runner fills in Corvus's language (t is its translator). */
+const STEP_LABELS = readFileSync(fileURLToPath(new URL("../src/shared/assist-agent.ts", import.meta.url)), "utf8");
 
 const HTML = fileURLToPath(new URL("../src/renderer", import.meta.url));
 /** The <title> of each internal page, which main/protocol.ts translates when it serves the page. */
@@ -68,7 +70,7 @@ describe("UI language", () => {
   });
 
   it("has a Spanish string for every translated text in the browser UI, its pages and native dialogs", () => {
-    const texts = [...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals)];
+    const texts = [...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals), ...tLiterals(STEP_LABELS)];
     expect(texts.length).toBeGreaterThan(1500);
     expect([...new Set(texts)].filter((text) => !(text in ES))).toEqual([]);
   });
@@ -111,7 +113,7 @@ describe("UI language", () => {
   });
 
   it("has no Spanish strings left behind by removed texts", () => {
-    const used = new Set([...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals), ...menuLabels()]);
+    const used = new Set([...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals), ...tLiterals(STEP_LABELS), ...menuLabels()]);
     for (const title of htmlTitles()) used.add(title);
     for (const p of Object.values(PERMISSION_LABELS)) used.add(p.title);
     expect(Object.keys(ES).filter((key) => !used.has(key))).toEqual([]);

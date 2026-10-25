@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
 import type { PageSnapshot, Tab } from "@corvus/shared";
 import { AgentRunStore } from "../src/main/agent-run-store";
-import { AgentRunner } from "../src/main/agent-runner";
+import { AgentRunner, HANDED_BACK } from "../src/main/agent-runner";
 import type { CredentialFillOptions } from "../src/main/agent-credentials";
 import type { AppContext } from "../src/main/context";
 import { SECRET_FILL_LOCK_MESSAGE, SecretFillGuard } from "../src/main/secret-fill-guard";
@@ -624,6 +624,104 @@ describe("AgentRunner embedded (Assist) runs", () => {
     await waitFor(() => views.at(-1)?.status === "done");
     expect(sent.map((e) => `${e.type}@${e.x},${e.y}`)).toEqual(["mouseMove@120,80", "mouseDown@120,80", "mouseUp@120,80"]);
     expect(views.at(-1)!.steps[0]!.label).toBe('Clicked at (120, 80) on button "Buy now"');
+  });
+
+  it("holds the run when the person clicks in its tab, until they hand the page back", async () => {
+    const { ctx, controller, win } = embeddedContext(false, null);
+    let release!: () => void;
+    const thinking = new Promise<void>((r) => (release = r));
+    const seen: AgentTurnRequest[] = [];
+    let turn = 0;
+    const provider: AgentModelProvider = {
+      kind: "claude-code-cli",
+      model: "m",
+      async *streamTurn(req) {
+        seen.push(req);
+        turn += 1;
+        if (turn === 1) {
+          yield { type: "tool_use", id: "t1", name: "page_snapshot", input: {} };
+          yield { type: "end", stopReason: "tool_use" };
+          return;
+        }
+        if (turn === 2) {
+          await thinking;
+          yield { type: "tool_use", id: "t2", name: "click", input: { ref: "e2" } };
+          yield { type: "end", stopReason: "tool_use" };
+          return;
+        }
+        yield { type: "text", text: "Carrying on." };
+        yield { type: "end", stopReason: "end_turn" };
+      },
+    };
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const views: Array<{ status: string; approval: unknown; takenOver?: boolean; steps: Array<{ kind: string; label?: string; status?: string }> }> = [];
+    const started = start(runner, win, views) as { id: string };
+    await waitFor(() => turn === 2);
+    // Past the quiet moment after the snapshot, while the model thinks.
+    await new Promise((r) => setTimeout(r, 350));
+    runner.personInput(win, "another-tab", "mouseDown");
+    runner.personInput(win, "user1", "mouseMove");
+    expect(views.at(-1)?.takenOver).toBeUndefined();
+    runner.personInput(win, "user1", "mouseDown");
+    expect(views.at(-1)?.takenOver).toBe(true);
+
+    release();
+    await waitFor(() => views.at(-1)?.steps.some((s) => s.kind === "click") === true);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(controller.calls).toEqual(["snapshot"]);
+    runner.handBackEmbedded(started.id);
+    await waitFor(() => views.at(-1)?.status === "done");
+    expect(controller.calls).toEqual(["snapshot"]);
+    expect(views.at(-1)!.steps.find((s) => s.kind === "click")?.status).toBe("skipped");
+    expect(views.at(-1)?.takenOver).toBeUndefined();
+    const results = seen[2]!.messages.flatMap((m) => m.content).filter((c) => c.type === "tool_result");
+    expect(results.at(-1)).toMatchObject({ content: HANDED_BACK });
+  });
+
+  it("handing the page back before the next action still makes the agent re-read it", async () => {
+    const { ctx, controller, win } = embeddedContext(false, null);
+    let release!: () => void;
+    const thinking = new Promise<void>((r) => (release = r));
+    const seen: AgentTurnRequest[] = [];
+    let turn = 0;
+    const provider: AgentModelProvider = {
+      kind: "claude-code-cli",
+      model: "m",
+      async *streamTurn(req) {
+        seen.push(req);
+        turn += 1;
+        if (turn === 1) {
+          yield { type: "tool_use", id: "t1", name: "page_snapshot", input: {} };
+          yield { type: "end", stopReason: "tool_use" };
+          return;
+        }
+        if (turn === 2) {
+          await thinking;
+          yield { type: "tool_use", id: "t2", name: "click", input: { ref: "e2" } };
+          yield { type: "end", stopReason: "tool_use" };
+          return;
+        }
+        yield { type: "text", text: "Carrying on." };
+        yield { type: "end", stopReason: "end_turn" };
+      },
+    };
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    const views: Array<{ status: string; approval: unknown; takenOver?: boolean; steps: Array<{ kind: string; label?: string; status?: string }> }> = [];
+    const started = start(runner, win, views) as { id: string };
+    await waitFor(() => turn === 2);
+    await new Promise((r) => setTimeout(r, 350));
+    runner.personInput(win, "user1", "rawKeyDown");
+    expect(views.at(-1)?.takenOver).toBe(true);
+    runner.handBackEmbedded(started.id);
+    expect(views.at(-1)?.takenOver).toBeUndefined();
+    release();
+    await waitFor(() => views.at(-1)?.status === "done");
+    expect(controller.calls).toEqual(["snapshot"]);
+    expect(views.at(-1)!.steps.find((s) => s.kind === "click")?.status).toBe("skipped");
+    const results = seen[2]!.messages.flatMap((m) => m.content).filter((c) => c.type === "tool_result");
+    expect(results.at(-1)).toMatchObject({ content: HANDED_BACK });
   });
 
   it("stops from the conversation", async () => {

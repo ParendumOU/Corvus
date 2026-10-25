@@ -259,6 +259,31 @@ body,
 .group-chip.collapsed {
   opacity: 0.85;
 }
+/* An agent is working in the group: a pulsing dot before its name. */
+.group-chip.agent-working::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 6px 1px 0;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+  animation: agent-working 1.2s ease-in-out infinite;
+}
+.group-chip.untitled.agent-working::before {
+  display: none;
+}
+@keyframes agent-working {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .group-chip.agent-working::before {
+    animation: none;
+  }
+}
 
 .new-tab-btn {
   -webkit-app-region: no-drag;
@@ -385,22 +410,6 @@ body,
   height: 1px;
   margin: 6px 0;
   background: var(--border-soft);
-}
-
-.agent-indicator {
-  color: var(--accent);
-  position: relative;
-}
-.agent-indicator::after {
-  content: "";
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 2px var(--toolbar);
 }
 
 .avatar-btn {

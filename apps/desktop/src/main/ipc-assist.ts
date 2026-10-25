@@ -75,9 +75,15 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
       if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index > 1000) throw new IpcError("Invalid section");
       return ctx.assist.jumpToSection(w, index);
     },
-    "assist.openSettings": (w) => w.openSingleton("corvus://settings/#ai"),
+    "assist.openSettings": (w, section) => w.openSingleton(section === "agents" ? "corvus://settings/#agents" : "corvus://settings/#ai"),
     "assist.approve": (w, decision) => ctx.assist.approve(w, agentDecision(decision)),
-    "assist.showTab": (w, tabId) => ctx.assist.showTab(w, text(tabId, "tab", 128)),
+    "assist.handBack": (w) => ctx.assist.handBack(w),
+    "assist.showTab": (w, tabId, url) => ctx.assist.showTab(w, text(tabId, "tab", 128), typeof url === "string" ? url.slice(0, 4096) : undefined),
+    "history.list": (w, query) => ctx.assist.historyList(w, typeof query === "string" ? query.slice(0, 200) : ""),
+    "history.open": (w, id) => ctx.assist.openConversation(w, text(id, "conversation", 128)),
+    "history.remove": (w, id) => ctx.assist.removeConversation(w, text(id, "conversation", 128)),
+    "history.clear": (w) => ctx.assist.clearHistory(w),
+    "assist.stopRun": (w, runId) => ctx.agentRunner.stopRun(w, text(runId, "run", 128)),
     "agents.pause": (_w, paused) => ctx.agents.setPaused(paused === true),
     "agents.revoke": (_w, client) => ctx.agents.revoke(text(client, "client", 200)),
     "agents.clear": () => ctx.agents.clear(),

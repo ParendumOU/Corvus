@@ -65,6 +65,17 @@ export interface AgentRunView {
   siteHints?: RunSiteHints;
   /** Why the model loop ended, once it has (step cap, token budget, ...). */
   stopReason?: "done" | "max_steps" | "aborted" | "error" | "budget";
+  /** Tabs the run opened and left open for the person, once it ended. */
+  leftTabs?: AgentLeftTab[];
+  /** The person clicked or typed in the run's tab: it waits until they hand it back. */
+  takenOver?: boolean;
+}
+
+/** A tab an agent run opened and left open for the person. */
+export interface AgentLeftTab {
+  id: TabId;
+  title: string;
+  url: string;
 }
 
 export interface CommandBarWindowExtras {
@@ -82,6 +93,8 @@ export interface CommandBarChromeRpc {
   "agent.stop"(): void;
   "agent.pause"(paused: boolean): void;
   "agent.approve"(decision: AgentApprovalDecision): void;
+  /** The person is done using the page they took over: the run carries on. */
+  "agent.handBack"(): void;
   /** Dismiss a finished run from the panel. */
   "agent.clear"(): void;
   /** The Command Bar's "Recent" list, newest first (empty when remembering is off). */

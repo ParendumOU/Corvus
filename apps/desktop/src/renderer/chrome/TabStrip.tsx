@@ -119,6 +119,7 @@ function HorizontalTabStrip({
     void api.call("tabs.move", draggedTab, Math.max(0, first), group.id);
   };
 
+  const working = new Set(state.agentGroups);
   const items: JSX.Element[] = [];
   let lastGroup: string | undefined;
   for (const tab of state.tabs) {
@@ -129,10 +130,10 @@ function HorizontalTabStrip({
         <div
           key={`group-${group.id}`}
           data-group-id={group.id}
-          className={`group-chip ${group.collapsed ? "collapsed" : ""} ${group.title ? "" : "untitled"}`}
+          className={`group-chip ${group.collapsed ? "collapsed" : ""} ${group.title ? "" : "untitled"} ${working.has(group.id) ? "agent-working" : ""}`}
           style={{ "--group-color": color } as CSSProperties}
           draggable
-          title={group.title || tx("Unnamed group")}
+          title={working.has(group.id) ? tx("Corvus is working in these tabs") : group.title || tx("Unnamed group")}
           onDragStart={(e) => {
             e.dataTransfer.setData(GROUP_MIME, group.id);
             e.dataTransfer.effectAllowed = "move";

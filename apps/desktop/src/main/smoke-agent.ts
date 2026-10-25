@@ -202,7 +202,7 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
     const owc = overlay.webContents;
     const overlayShown = owc ? await poll(owc, "document.querySelector('.caption.show') || document.querySelector('.cursor.show')", 4000) : false;
     check("agent overlay drawn", overlayShown || (runView()?.stepCount ?? 0) >= 2);
-    const stepsRendered = await poll(chrome, "document.querySelector('.cmdbar .run-panel .run-steps .step')");
+    const stepsRendered = await poll(chrome, "[...document.querySelectorAll('.cmdbar .run-panel .run-steps .step-name')].some((n) => /^(Opened|Read the page)/.test(n.textContent))");
     check("RunPanel rendered (steps)", stepsRendered, stepsRendered ? undefined : await chrome.executeJavaScript("document.querySelector('.cmdbar')?.innerText?.slice(0,160) ?? 'cmdbar gone (DebugBoundary rendered null)'"));
     await sleep(150);
     await capture("command-agent-run", chrome);

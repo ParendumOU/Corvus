@@ -33,6 +33,7 @@ function fakeWindow() {
   let n = 1;
   const tabs: Array<{ id: string; url: string; groupId?: string; agent: boolean }> = [{ id: "t1", url: "https://news.example/", agent: false }];
   const groups: TabGroup[] = [];
+  const working = new Set<string>();
   let active = "t1";
   const toTab = (t: { id: string; url: string; agent: boolean }): Tab => ({ id: t.id, windowId: "w1", url: t.url, title: t.url, pinned: false, active: t.id === active, loading: false, agentControlled: t.agent });
   const runtime = (id: string) => {
@@ -40,12 +41,13 @@ function fakeWindow() {
     return t ? { id, view: { webContents: { isDestroyed: () => false, getURL: () => t.url } } } : undefined;
   };
   const win = {
-    createTab: (url: string, opts: { groupId?: string; agent?: boolean } = {}) => {
+    createTab: (url: string, opts: { groupId?: string; agent?: boolean; activate?: boolean } = {}) => {
       const t = { id: `t${++n}`, url, agent: opts.agent === true, ...(opts.groupId ? { groupId: opts.groupId } : {}) };
       tabs.push(t);
-      active = t.id;
+      if (opts.activate !== false) active = t.id;
       return runtime(t.id)!;
     },
+    activeTab: () => ({ id: active }),
     hasTab: (id: string) => tabs.some((t) => t.id === id),
     hasGroup: (id: string) => groups.some((g) => g.id === id),
     groupOf: (id: string) => tabs.find((t) => t.id === id)?.groupId,
@@ -71,6 +73,7 @@ function fakeWindow() {
       if (t) t.agent = false;
     },
     toTab: (rt: { id: string }) => toTab(tabs.find((t) => t.id === rt.id)!),
+    setAgentGroup: (id: string, on: boolean) => (on ? working.add(id) : working.delete(id)),
   };
   const ctx = {
     windows: {
@@ -89,10 +92,31 @@ function fakeWindow() {
       },
     },
   } as unknown as AppContext;
-  return { win: win as unknown as BrowserWindowCtl, ctx, tabs, groups, active: () => active };
+  return { win: win as unknown as BrowserWindowCtl, ctx, tabs, groups, working, active: () => active };
 }
 
 describe("RunTabs", () => {
+  it("works in the background once the person has gone to another tab", async () => {
+    const f = fakeWindow();
+    const own = f.win.createTab("https://mine.example/");
+    const run = new RunTabs(f.ctx, f.win, "compare", "t1");
+    (f.win as unknown as { activate: (id: string) => void }).activate("t1");
+    const a = await run.open("https://a.example/", "Compare");
+    expect(f.active()).toBe(a.id);
+    // The person reads their own tab: new tabs and switches stay in the background.
+    (f.win as unknown as { activate: (id: string) => void }).activate(own.id);
+    const b = await run.open("https://b.example/", "");
+    expect(f.active()).toBe(own.id);
+    run.switchTo(a.id);
+    expect(f.active()).toBe(own.id);
+    expect(run.close(b.id, b.id)).toBe(a.id);
+    expect(f.active()).toBe(own.id);
+    // Back on one of the run's tabs: it shows its tabs again.
+    (f.win as unknown as { activate: (id: string) => void }).activate(a.id);
+    const c = await run.open("https://c.example/", "");
+    expect(f.active()).toBe(c.id);
+  });
+
   it("groups the tabs an Assist run opens and never touches the person's tab", async () => {
     const f = fakeWindow();
     const run = new RunTabs(f.ctx, f.win, "busca el vuelo más barato a Lisboa", "t1");
@@ -101,6 +125,7 @@ describe("RunTabs", () => {
     expect(f.groups).toEqual([expect.objectContaining({ title: "Vuelos a Lisboa" })]);
     expect(f.tabs.filter((t) => t.groupId === "g1").map((t) => t.id)).toEqual([a.id, b.id]);
     expect(f.tabs.find((t) => t.id === "t1")?.groupId).toBeUndefined();
+    expect([...f.working]).toEqual(["g1"]);
 
     expect(run.switchTo(a.id).id).toBe(a.id);
     expect(f.active()).toBe(a.id);
@@ -112,8 +137,9 @@ describe("RunTabs", () => {
     expect(run.list(a.id)).toContain(`${a.id}* [working, yours]`);
     expect(run.list(a.id)).toContain("t1 [started here]");
 
-    run.release();
+    expect(run.release()).toEqual([{ id: a.id, title: "https://www.google.com/travel/flights", url: "https://www.google.com/travel/flights" }]);
     expect(f.tabs.find((t) => t.id === a.id)?.agent).toBe(false);
+    expect(f.working.size).toBe(0);
   });
 
   it("loads the Command Bar's empty tab first instead of leaving it blank", async () => {

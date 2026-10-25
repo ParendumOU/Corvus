@@ -14,6 +14,7 @@ import { KeePassStore } from "./keepass-store";
 import { LoginSources, vaultProvider } from "./login-sources";
 import { PermissionManager, type PermissionHost } from "./permissions";
 import { AgentRunStore } from "./agent-run-store";
+import { AssistHistoryStore } from "./assist-history-store";
 import { CommandHistoryStore } from "./command-history-store";
 import { ProfileManager } from "./profile-manager";
 import { handleInternalProtocol } from "./protocol";
@@ -90,6 +91,7 @@ export class ProfileRuntime {
   readonly reading: ReadingStore;
   readonly annotations: AnnotationStore;
   readonly agentRuns: AgentRunStore;
+  readonly assistHistory: AssistHistoryStore;
   /** What the person ran from the Command Bar (its "Recent" list). */
   readonly commands: CommandHistoryStore;
   readonly siteProfiles: SiteProfileStore;
@@ -148,6 +150,7 @@ export class ProfileRuntime {
     this.reading = new ReadingStore(dataDir);
     this.annotations = new AnnotationStore(dataDir);
     this.agentRuns = new AgentRunStore(dataDir);
+    this.assistHistory = new AssistHistoryStore(dataDir);
     this.commands = new CommandHistoryStore(dataDir);
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
@@ -311,6 +314,7 @@ export class ProfileRuntime {
     this.reading.flush();
     this.annotations.flush();
     this.agentRuns.flush();
+    this.assistHistory.flush();
     this.commands.flush();
     this.siteProfiles.flush();
     this.semanticIndex.flush();

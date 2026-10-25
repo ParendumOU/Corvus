@@ -244,6 +244,37 @@
   max-height: 44vh;
 }
 
+/* The tabs the agent left open: one click shows each. */
+.run-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 14px 10px;
+}
+.run-left-title {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.run-left-tab {
+  max-width: 220px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.run-left-tab:hover {
+  border-color: var(--accent);
+}
+
 /* A vertical "trail" the agent leaves as it works: dots joined by a hairline. */
 .step {
   position: relative;
@@ -311,9 +342,13 @@
   gap: 8px;
 }
 .step-name {
+  min-width: 0;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .step.msg .step-name {
   color: var(--accent);

@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AgentActivityView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
+import type { AgentActivityView, AgentLiveView, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
 import { MAX_COMPARE_TABS, type CompareCandidate } from "../../shared/compare";
 import type { AssistAgentStep, AssistAgentView } from "../../shared/assist-agent";
+import type { AgentLeftTab } from "../../shared/command-bar-ipc";
+import type { AssistConversationSummary } from "../../shared/assist-history";
 import type { FlowView } from "../../shared/flow-ipc";
 import { editOf } from "../../shared/workflow";
-import { OriginBadge, UsageLine, WorkflowEditor, WorkflowRunForm, WorkflowStepList } from "../common/workflows";
+import { OriginBadge, UsageLine, WorkflowEditor, WorkflowRunForm, WorkflowStepList, ago as timeAgo } from "../common/workflows";
 import { LearnedSite, StatsLine } from "../common/site-memory";
 import { prettyClientName } from "../../shared/agent-activity";
 import { Favicon, Toggle, hostOf } from "../common/ui";
 import {
   AssistMark,
-  GlyphBroom,
   GlyphClose,
   GlyphCompare,
+  GlyphGear,
+  GlyphHistory,
+  GlyphNewChat,
   GlyphPause,
   GlyphPen,
   GlyphPlay,
@@ -72,6 +76,14 @@ export function App() {
           <button role="tab" aria-selected={state.view === "workflows"} className={state.view === "workflows" ? "on" : ""} onClick={() => void api().call("panel.setView", "workflows")}>{tx("Workflows")}</button>
         </div>
         <span className="grow" />
+        <button
+          className="icon-btn"
+          data-panel-settings
+          title={state.view === "assist" ? tx("AI settings") : tx("AI agent settings")}
+          onClick={() => void api().call("assist.openSettings", state.view === "assist" ? "ai" : "agents")}
+        >
+          <GlyphGear size={16} />
+        </button>
         <button className="icon-btn" title={tx("Close (Ctrl+Shift+A)")} onClick={() => void api().call("panel.close")}>
           <GlyphClose size={16} />
         </button>
@@ -106,6 +118,7 @@ function AssistPane({ state }: { state: AssistPanelState }) {
   const tab = state.tab;
   const listRef = useRef<HTMLDivElement>(null);
   const last = tab?.messages.at(-1);
+  const [history, setHistory] = useState(false);
 
   useLayoutEffect(() => {
     const el = listRef.current;
@@ -118,13 +131,18 @@ function AssistPane({ state }: { state: AssistPanelState }) {
   const waiting = state.waitingElsewhere;
   return (
     <>
-      <PageContext tab={tab} state={state} />
+      <PageContext tab={tab} state={state} history={history} onHistory={() => setHistory(!history)} />
+      {history && state.keepsHistory ? (
+        <HistoryList onClose={() => setHistory(false)} />
+      ) : (
+        <>
       {waiting && (
         <div className="waiting-elsewhere">
           <span>{tx("Corvus is waiting for you in “{title}”.", { title: waiting.title || tx("another tab") })}</span>
           <button className="btn small" onClick={() => void api().call("assist.showTab", waiting.tabId)}>{tx("Show")}</button>
         </div>
       )}
+      {state.workingElsewhere && <LiveView live={state.workingElsewhere} />}
       {tab.comparePicker && <ComparePicker key={tab.comparePicker.map((c) => c.tabId).join()} candidates={tab.comparePicker} />}
       <div className="thread" ref={listRef}>
         {tab.messages.length === 0 ? (
@@ -134,7 +152,79 @@ function AssistPane({ state }: { state: AssistPanelState }) {
         )}
       </div>
       <Composer tab={tab} focusToken={state.focusToken} />
+        </>
+      )}
     </>
+  );
+}
+
+/** Past conversations of the profile: search, carry one on (on its page), or forget it. */
+function HistoryList({ onClose }: { onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<AssistConversationSummary[] | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const load = useCallback((q: string) => void api().call("history.list", q).then(setItems), []);
+  useEffect(() => {
+    const timer = setTimeout(() => load(query), query ? 150 : 0);
+    return () => clearTimeout(timer);
+  }, [query, load]);
+  const label = (c: AssistConversationSummary): string =>
+    c.title ||
+    (c.kind === "summarize"
+      ? tx("Summary of “{title}”", { title: c.pageTitle || hostOf(c.url) })
+      : c.kind === "compare"
+        ? tx("Comparison of tabs")
+        : tx("About “{title}”", { title: c.pageTitle || hostOf(c.url) }));
+  return (
+    <div className="history" data-assist-history>
+      <div className="history-head">
+        <strong>{tx("Conversation history")}</strong>
+        <button className="link-btn" onClick={onClose}>{tx("Back to the conversation")}</button>
+      </div>
+      <input className="history-search" type="search" placeholder={tx("Search conversations")} value={query} autoFocus onChange={(e) => setQuery(e.target.value)} />
+      <ul className="history-list">
+        {items?.map((c) => (
+          <li key={c.id} className="history-item">
+            <button
+              className="history-open"
+              title={c.url}
+              onClick={() => {
+                void api().call("history.open", c.id);
+                onClose();
+              }}
+            >
+              <span className="history-title">{label(c)}</span>
+              <span className="history-meta">
+                <Favicon url={c.url} size={12} />
+                <span>{c.pageTitle || hostOf(c.url)}</span>
+                <span>·</span>
+                <span>{timeAgo(c.updatedAt)}</span>
+              </span>
+            </button>
+            <button
+              className="icon-btn small"
+              title={tx("Remove from history")}
+              onClick={() => void api().call("history.remove", c.id).then(() => load(query))}
+            >
+              <GlyphClose size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      {items && items.length === 0 && <p className="muted small history-empty">{query ? tx("No conversation matches.") : tx("Your conversations with Assist show up here, with the page they were on.")}</p>}
+      {items && items.length > 0 && !query && (
+        <button
+          className={`link-btn history-clear ${confirmClear ? "danger" : ""}`}
+          onClick={() => {
+            if (!confirmClear) return setConfirmClear(true);
+            void api().call("history.clear").then(() => load(""));
+            setConfirmClear(false);
+          }}
+        >
+          {confirmClear ? tx("Click again to clear the whole history") : tx("Clear history")}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -152,13 +242,23 @@ function SetupState({ reason }: { reason: string | null }) {
   );
 }
 
-function PageContext({ tab, state }: { tab: AssistTabView; state: AssistPanelState }) {
+function PageContext({ tab, state, history, onHistory }: { tab: AssistTabView; state: AssistPanelState; history: boolean; onHistory: () => void }) {
   const translating = tab.translation === "working";
   return (
     <div className="context">
       <div className="context-page" title={tab.url}>
         <Favicon url={tab.url} {...(tab.faviconUrl ? { src: tab.faviconUrl } : {})} size={16} />
         <span className="context-title">{tab.title || hostOf(tab.url)}</span>
+        {tab.messages.length > 0 && !history && (
+          <button className="icon-btn small" data-new-conversation title={tx("New conversation (this one stays in the history)")} onClick={() => void api().call("assist.clear")}>
+            <GlyphNewChat size={15} />
+          </button>
+        )}
+        {state.keepsHistory && (
+          <button className={`icon-btn small ${history ? "on" : ""}`} data-history-button aria-pressed={history} title={tx("Conversation history")} onClick={onHistory}>
+            <GlyphHistory size={15} />
+          </button>
+        )}
       </div>
       {tab.readable ? (
         <div className="actions">
@@ -170,11 +270,6 @@ function PageContext({ tab, state }: { tab: AssistTabView; state: AssistPanelSta
           ) : (
             <button className="chip-btn" disabled={tab.busy || translating} onClick={() => void api().call("assist.translatePage")}>
               <GlyphTranslate size={15} />{" "}{tx("Translate to {langName}", { langName: langName(state.lang) })}</button>
-          )}
-          {tab.messages.length > 0 && (
-            <button className="icon-btn small" title={tx("Clear this conversation")} onClick={() => void api().call("assist.clear")}>
-              <GlyphBroom size={15} />
-            </button>
           )}
         </div>
       ) : tab.canAct ? (
@@ -419,8 +514,10 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
         <article className="msg ask agent">
           <AgentSteps agent={agent} />
           {agent.approval && <AgentApproval agent={agent} />}
+          {agent.takenOver && !agent.approval && <TookOver />}
           {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} video={m.video} /> : null}
-          {streaming && !agent.approval && <Streaming />}
+          {agent.leftTabs && <LeftTabs tabs={agent.leftTabs} />}
+          {streaming && !agent.approval && !agent.takenOver && <Streaming />}
           {agent.limit && (
             <p className="muted small">
               {agent.limit === "max_steps" ? tx("Stopped after {stepCount} steps, the limit for one request.", { stepCount: agent.stepCount }) : tx("Stopped at the token budget for one request.")}{" "}{tx("Say “continue” to keep going.")}</p>
@@ -535,6 +632,59 @@ function AgentStepRow({ s }: { s: AssistAgentStep }) {
       {s.status === "skipped" && <span className="astep-flag">{tx("skipped")}</span>}
       {s.thumb && <img className="astep-thumb" src={s.thumb} alt={tx("Screenshot the assistant took")} />}
     </li>
+  );
+}
+
+/** The agent works in a tab the person is not looking at: a live capture of it, to watch or stop. */
+function LiveView({ live }: { live: AgentLiveView }) {
+  const show = (): void => void api().call("assist.showTab", live.tabId);
+  return (
+    <div className="live-view" data-working-elsewhere>
+      {live.thumb ? (
+        <button className="live-thumb" title={tx("Watch")} onClick={show}>
+          <img src={live.thumb} alt={tx("Live view of the tab Corvus is working in")} />
+        </button>
+      ) : null}
+      <div className="live-text">
+        <strong>{tx("Corvus is working in “{title}”", { title: live.title || tx("another tab") })}</strong>
+        {live.step && <span>{live.step}</span>}
+      </div>
+      <div className="row">
+        <button className="btn small primary" onClick={show}>{tx("Watch")}</button>
+        <button className="btn small ghost" onClick={() => void api().call("assist.stopRun", live.runId)}>{tx("Stop")}</button>
+      </div>
+    </div>
+  );
+}
+
+/** The tabs the agent left open for the person: one click shows each. */
+function LeftTabs({ tabs }: { tabs: AgentLeftTab[] }) {
+  return (
+    <div className="agent-left" data-agent-left>
+      <span className="agent-left-title">{tx("Left open for you")}</span>
+      <div className="agent-left-list">
+        {tabs.map((tab) => (
+          <button key={tab.id} className="agent-left-tab" title={tab.url} onClick={() => void api().call("assist.showTab", tab.id, tab.url)}>
+            <Favicon url={tab.url} />
+            <span>{tab.title || hostOf(tab.url)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The person clicked or typed in the agent's tab: it waits until they hand the page back. */
+function TookOver() {
+  return (
+    <div className="agent-approval handoff" role="status" data-took-over>
+      <strong>{tx("You took over")}</strong>
+      <p>{tx("Corvus waits while you use the page. Hand it back when you are done.")}</p>
+      <div className="row">
+        <button className="btn small primary" onClick={() => void api().call("assist.handBack")}>{tx("Hand it back")}</button>
+        <button className="btn small ghost" onClick={() => void api().call("assist.cancel")}>{tx("Stop")}</button>
+      </div>
+    </div>
   );
 }
 

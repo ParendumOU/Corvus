@@ -56,6 +56,7 @@ function reviveSteps(raw: unknown): AgentRunStep[] {
       id: r.id,
       kind: r.kind,
       summary: typeof r.summary === "string" ? r.summary : "",
+      ...(typeof r.label === "string" ? { label: r.label } : {}),
       ...(typeof r.detail === "string" ? { detail: r.detail } : {}),
       status: r.status === "running" || r.status === "error" || r.status === "skipped" ? r.status : "ok",
       ...(typeof r.resultChars === "number" ? { resultChars: r.resultChars } : {}),

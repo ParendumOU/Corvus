@@ -204,6 +204,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       ctx.agentRunner.approve(w, decision);
     },
     "agent.clear": (w) => ctx.agentRunner.clear(w),
+    "agent.handBack": (w) => ctx.agentRunner.handBack(w),
   };
 }
 

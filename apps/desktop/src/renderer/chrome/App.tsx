@@ -17,7 +17,7 @@ import { isNewTabUrl } from "../../shared/internal-urls";
 import { GROUP_COLORS } from "../../shared/tab-strip";
 import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
-import { IconGlobe, IconLock, IconAgent, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
+import { IconGlobe, IconLock, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
@@ -263,18 +263,19 @@ export function App() {
             <ExtensionsToolbar partition={state.partition} tabId={active?.webContentsId ?? -1} onOpenChange={setExtMenuOpen} />
             <button
               className={`icon-btn assist-btn ${state.assistOpen ? "on" : ""}`}
-              title={state.agentsPaused ? tx("Corvus Assist (agents paused)") : tx("Corvus Assist (Ctrl+Shift+A)")}
+              title={
+                state.agentsPaused
+                  ? tx("Corvus Assist (agents paused)")
+                  : state.mcpRunning
+                    ? tx("Corvus Assist (Ctrl+Shift+A). AI agents can connect.")
+                    : tx("Corvus Assist (Ctrl+Shift+A)")
+              }
               aria-pressed={state.assistOpen}
               onClick={() => void api.call("assist.toggle")}
             >
               <IconSparkle size={17} />
               {state.agentsPaused ? <span className="assist-live paused" /> : state.agentActive ? <span className="assist-live" /> : null}
             </button>
-            {state.mcpRunning && (
-              <button className="icon-btn agent-indicator" title={tx("AI agents can connect (MCP server running)")} onClick={() => void api.call("tabs.openUrl", "corvus://settings/#agents", "new-tab")}>
-                <IconAgent size={17} />
-              </button>
-            )}
             {state.privateWindow && (
               <span className="private-badge" data-private-badge title={tx("Private window: Corvus keeps no history, cookies or site data of it once it closes")}>
                 <IconLock size={13} />

@@ -1,4 +1,5 @@
 import type { GroupId, Tab, TabId } from "@corvus/shared";
+import type { AgentLeftTab } from "../shared/command-bar-ipc";
 import { isNewTabUrl, NEW_TAB_URL } from "../shared/internal-urls";
 import { agentGroupTitle, agentTabLine } from "../shared/agent-tabs";
 import type { AppContext } from "./context";
@@ -42,7 +43,7 @@ export class RunTabs implements RunTabsHandle {
       return tab;
     }
     const grouped = this.groupId && this.win.hasGroup(this.groupId) ? this.groupId : null;
-    const fresh = this.win.createTab(NEW_TAB_URL, { activate: true, agent: true, ...(grouped ? { groupId: grouped } : {}) });
+    const fresh = this.win.createTab(NEW_TAB_URL, { activate: this.watched(), agent: true, ...(grouped ? { groupId: grouped } : {}) });
     this.own.add(fresh.id);
     this.group();
     try {
@@ -58,7 +59,7 @@ export class RunTabs implements RunTabsHandle {
     if (!this.mayUse(id)) throw new Error(`Tab ${id} is not one of your tabs. Use list_tabs: your tabs are marked "yours".`);
     const found = this.ctx.windows.findTab(id);
     if (!found) throw new Error(`Tab ${id} is closed.`);
-    found.window.activate(id);
+    if (this.watched()) found.window.activate(id);
     return found.window.toTab(found.tab);
   }
 
@@ -73,7 +74,7 @@ export class RunTabs implements RunTabsHandle {
     found.window.closeTab(id);
     if (working !== id && working && this.ctx.windows.findTab(working)) return working;
     const next = [...this.own].reverse().find((t) => this.ctx.windows.findTab(t)) ?? (this.start && this.ctx.windows.findTab(this.start) ? this.start : null);
-    if (next) this.ctx.windows.findTab(next)?.window.activate(next);
+    if (next && this.watched()) this.ctx.windows.findTab(next)?.window.activate(next);
     return next;
   }
 
@@ -85,16 +86,43 @@ export class RunTabs implements RunTabsHandle {
       .join("\n");
   }
 
-  /** End of the run: the tabs it leaves open are the person's now (no agent badge or agent rules). */
-  release(): void {
-    for (const id of this.ownOpen()) this.ctx.windows.findTab(id)?.window.clearAgentMark(id);
+  /**
+   * End of the run: the tabs it leaves open are the person's now (no agent badge or agent rules).
+   * Returns them, so the panel can offer them; an untouched New Tab page is not worth offering.
+   */
+  release(): AgentLeftTab[] {
+    if (this.groupId) this.win.setAgentGroup(this.groupId, false);
+    const left: AgentLeftTab[] = [];
+    for (const id of this.ownOpen()) {
+      const found = this.ctx.windows.findTab(id);
+      if (!found) continue;
+      found.window.clearAgentMark(id);
+      if (this.isBlank(id)) continue;
+      const tab = found.window.toTab(found.tab);
+      left.push({ id, title: tab.title, url: tab.url });
+    }
+    return left;
+  }
+
+  /**
+   * The person is looking at the run: one of its tabs, or the tab it started in, is on screen. Then
+   * the tabs it opens or moves to come to the front; once the person has gone to another tab, it
+   * works in the background (the Assist panel shows it live) instead of pulling them back.
+   */
+  private watched(): boolean {
+    const active = this.win.activeTab()?.id;
+    return !active || active === this.start || this.isOwn(active);
   }
 
   private mayUse(id: TabId): boolean {
     return id === this.start || this.isOwn(id);
   }
 
-  /** Opened by the run, or by one of its pages (window.open lands in the same group). */
+  /** A tab the run opened, or one its pages opened (window.open lands in the same group). */
+  owns(id: TabId): boolean {
+    return this.isOwn(id);
+  }
+
   private isOwn(id: TabId): boolean {
     if (this.own.has(id)) return true;
     return this.groupId !== null && this.win.hasTab(id) && this.win.groupOf(id) === this.groupId;
@@ -128,5 +156,6 @@ export class RunTabs implements RunTabsHandle {
       return;
     }
     this.groupId = this.win.createGroup(ids, { title: this.title })?.id ?? null;
+    if (this.groupId) this.win.setAgentGroup(this.groupId, true);
   }
 }

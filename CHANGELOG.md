@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.21.0
+
+### AI
+- **The agent's steps in your language**: the step lines in Assist and in the run history ("Opened
+  skyscanner.es", "Typed "Lisboa" into "Destination"") follow the interface language.
+- **Tabs left open for you**: when a run ends, Assist (under its answer) and the Command Bar list
+  the tabs the agent kept open; one click brings each one back. The Command Bar shows the same
+  readable step lines as Assist.
+- **The agent's tab group shows it is at work**: a pulsing dot before the group's name while the
+  agent works in those tabs, gone when it finishes.
+- **Take over from the agent**: click or type in a tab the agent is working in and it stops before
+  its next step; "Hand it back" in Assist or the Command Bar lets it carry on, and it reads the
+  page again first, since you may have changed it.
+- **Watch the agent from another tab**: when you go to one of your own tabs while the agent works,
+  the Assist panel shows its tab live (refreshed every few seconds) with its latest step, "Watch"
+  and "Stop", and the agent no longer pulls its tabs to the front until you come back to them.
+- **Assist keeps your conversations**: the clock button on the page line of the Assist panel lists
+  them, newest first, with the page each was on; search them, and open one to carry on where you
+  left it (on that page). "New conversation" starts afresh and keeps the last one in the history.
+  Private windows keep none. The tabs an agent left open reopen from a past conversation too.
+
+### Browser
+- **Fewer toolbar buttons**: the AI agents indicator is gone. The gear next to the Assist panel's
+  close button opens the AI settings (or the AI agents settings from the Agents tab), and the Assist
+  button says when AI agents can connect.
+
 ## v0.20.2
 
 ### AI

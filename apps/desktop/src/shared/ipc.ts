@@ -74,6 +74,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   connection: ConnectionBadge | null;
   tabs: TabView[];
   groups: TabGroup[];
+  /** Groups an agent run is working in right now (their chip shows it). */
+  agentGroups: GroupId[];
   activeTabId: TabId | null;
   activeBookmarked: boolean;
   bookmarksBar: Bookmark[];

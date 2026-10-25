@@ -3,7 +3,7 @@
  * ("Opened github.com", "Clicked "Sign in""), the closing answer, and the approval waiting for the
  * person. Pure, so the main process and tests share it.
  */
-import type { AgentApprovalRequest, AgentRunStep, AgentRunView, AgentStepStatus } from "./command-bar-ipc";
+import type { AgentApprovalRequest, AgentLeftTab, AgentRunStep, AgentRunView, AgentStepStatus } from "./command-bar-ipc";
 
 /** Assist runs get at least this many tool steps (the Command Bar setting is often lower). */
 export const ASSIST_MIN_STEPS = 40;
@@ -31,6 +31,10 @@ export interface AssistAgentView {
   maxSteps: number;
   /** Why the run ended early (step or token cap), shown under the answer. */
   limit: "max_steps" | "budget" | null;
+  /** The agent's tabs it left open for the person, offered under the answer. */
+  leftTabs?: AgentLeftTab[];
+  /** The person took over the page: the turn waits until they hand it back. */
+  takenOver?: boolean;
 }
 
 function clip(text: string, max: number): string {
@@ -53,73 +57,131 @@ function str(input: unknown, key: string): string {
 
 const quote = (s: string, max = 48): string => `"${clip(s, max)}"`;
 
-/** Tools whose result text is itself the best step line ("Clicked at (120, 80) on button "Buy now"."). */
-const RESULT_LABELLED = new Set(["click_at", "hover_at", "scroll_at", "press_key", "type_text", "fill_login", "fill_totp"]);
+/** Fills a label template; the agent runner passes its translator instead (Corvus's language). */
+export type LabelTranslate = (text: string, vars?: Record<string, string | number>) => string;
+
+const english: LabelTranslate = (text, vars) => (vars ? text.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : text);
+
+const coord = (input: unknown, key: "x" | "y"): number => Math.round(Number((input as Record<string, unknown> | null)?.[key]) || 0);
 
 /** One past-tense line for a tool call, from its input and the target's name in the latest snapshot. */
-export function actionLabel(tool: string, input: unknown, elementName = ""): string {
+export function actionLabel(tool: string, input: unknown, elementName = "", t: LabelTranslate = english): string {
   switch (tool) {
     case "navigate":
-      return `Opened ${hostOf(str(input, "url"))}`;
+      return t("Opened {host}", { host: hostOf(str(input, "url")) });
     case "open_tab":
-      return `Opened ${hostOf(str(input, "url"))} in a new tab`;
+      return t("Opened {host} in a new tab", { host: hostOf(str(input, "url")) });
     case "page_snapshot":
-      return "Read the page";
+      return t("Read the page");
     case "extract":
-      return "Read the page text";
+      return t("Read the page text");
     case "screenshot":
-      return "Took a screenshot";
+      return t("Took a screenshot");
     case "click":
-      return `Clicked ${elementName ? quote(elementName) : str(input, "ref") || "an element"}`;
+      return elementName ? t("Clicked {target}", { target: quote(elementName) }) : str(input, "ref") ? t("Clicked {target}", { target: str(input, "ref") }) : t("Clicked an element");
     case "type": {
-      const into = elementName ? ` into ${quote(elementName, 32)}` : "";
-      return `Typed ${quote(str(input, "text"), 32)}${into}${(input as { submit?: unknown })?.submit === true ? " and submitted" : ""}`;
+      const text = quote(str(input, "text"), 32);
+      const submit = (input as { submit?: unknown })?.submit === true;
+      if (elementName) {
+        const field = quote(elementName, 32);
+        return submit ? t("Typed {text} into {field} and submitted", { text, field }) : t("Typed {text} into {field}", { text, field });
+      }
+      return submit ? t("Typed {text} and submitted", { text }) : t("Typed {text}", { text });
     }
     case "scroll":
-      return `Scrolled ${str(input, "direction") === "up" ? "up" : "down"}`;
+      return str(input, "direction") === "up" ? t("Scrolled up") : t("Scrolled down");
     case "wait":
-      return str(input, "text") ? `Waited for ${quote(str(input, "text"))}` : "Waited for the page";
+      return str(input, "text") ? t("Waited for {text}", { text: quote(str(input, "text")) }) : t("Waited for the page");
     case "web_search":
-      return `Searched the web for ${quote(str(input, "query"))}`;
+      return t("Searched the web for {query}", { query: quote(str(input, "query")) });
     case "list_tabs":
-      return "Listed the open tabs";
+      return t("Listed the open tabs");
     case "switch_tab":
-      return "Switched to another tab";
+      return t("Switched to another tab");
     case "close_tab":
-      return "Closed a tab that led nowhere";
+      return t("Closed a tab that led nowhere");
     case "ask_user":
-      return `Asked you: ${clip(str(input, "message"), 120)}`;
+      return t("Asked you: {message}", { message: clip(str(input, "message"), 120) });
     case "click_at":
-      return `Clicked at (${Math.round(Number((input as { x?: unknown })?.x) || 0)}, ${Math.round(Number((input as { y?: unknown })?.y) || 0)})`;
+      return t("Clicked at ({x}, {y})", { x: coord(input, "x"), y: coord(input, "y") });
     case "hover_at":
-      return "Pointed at the page";
+      return t("Pointed at the page");
     case "scroll_at":
-      return `Scrolled ${str(input, "direction") || "down"} at a point`;
+      return t("Scrolled {direction} at a point", { direction: direction(str(input, "direction") || "down", t) });
     case "press_key":
-      return `Pressed ${str(input, "key") || "a key"}`;
+      return str(input, "key") ? t("Pressed {key}", { key: str(input, "key") }) : t("Pressed a key");
     case "type_text":
-      return `Typed ${quote(str(input, "text"), 32)}`;
+      return t("Typed {text}", { text: quote(str(input, "text"), 32) });
     case "fill_login":
-      return "Filled your saved login";
+      return t("Filled your saved login");
     case "fill_totp":
-      return "Filled your 2FA code";
+      return t("Filled your 2FA code");
     case "list_workflows":
-      return "Listed saved workflows";
+      return t("Listed saved workflows");
     case "read_workflow":
-      return "Read a saved workflow";
+      return t("Read a saved workflow");
     case "run_workflow":
-      return "Ran a saved workflow";
+      return t("Ran a saved workflow");
+    case "queue_downloads":
+      return t("Added files to the download queue");
+    case "newtab_layout":
+      return t("Read your New Tab page");
+    case "newtab_change":
+      return t("Changed your New Tab page");
     default:
       return tool.replace(/_/g, " ");
   }
 }
 
-/** The finished line: result-described tools use their result sentence; failures say so. */
-export function resultLabel(tool: string, label: string, content: string, isError: boolean): string {
-  if (isError) return `${label} (failed: ${clip(content, 90)})`;
-  if (RESULT_LABELLED.has(tool) && content.trim()) return clip(content.replace(/\.\s*$/, ""), 140);
-  const switched = tool === "switch_tab" ? /^Switched to tab \S+ at (\S+) — /.exec(content) : null;
-  if (switched) return `Switched to ${hostOf(switched[1]!)}`;
+function direction(dir: string, t: LabelTranslate): string {
+  switch (dir) {
+    case "up":
+      return t("up");
+    case "left":
+      return t("left");
+    case "right":
+      return t("right");
+    default:
+      return t("down");
+  }
+}
+
+/**
+ * The finished line. Coordinate and keyboard tools say what they hit, read back from the result
+ * sentence the model got ('Clicked at (120, 80) on button "Buy now".'); failures say so.
+ */
+export function resultLabel(tool: string, label: string, content: string, isError: boolean, t: LabelTranslate = english): string {
+  if (isError) return t("{label} (failed: {error})", { label, error: clip(content, 90) });
+  const text = content.trim().replace(/\.\s*$/, "");
+  let m: RegExpExecArray | null;
+  switch (tool) {
+    case "click_at":
+      if ((m = /^Clicked at \((-?\d+), (-?\d+)\) on (.+)$/s.exec(text))) return t("Clicked at ({x}, {y}) on {target}", { x: m[1]!, y: m[2]!, target: clip(m[3]!, 100) });
+      break;
+    case "hover_at":
+      if ((m = /^Moved the mouse to \((-?\d+), (-?\d+)\) over (.+)$/s.exec(text))) return t("Pointed at ({x}, {y}) over {target}", { x: m[1]!, y: m[2]!, target: clip(m[3]!, 100) });
+      break;
+    case "scroll_at":
+      if ((m = /^Scrolled (\w+) at \((-?\d+), (-?\d+)\) over (.+?); page scroll (\S+) px$/s.exec(text))) {
+        return t("Scrolled {direction} at ({x}, {y}) over {target}; page scroll {scroll} px", { direction: direction(m[1]!, t), x: m[2]!, y: m[3]!, target: clip(m[4]!, 80), scroll: m[5]! });
+      }
+      break;
+    case "press_key":
+      if ((m = /^Pressed (.+?) in (.+)$/s.exec(text))) return t("Pressed {key} in {target}", { key: m[1]!, target: clip(m[2]!, 100) });
+      if ((m = /^Pressed (.+)$/s.exec(text))) return t("Pressed {key}", { key: m[1]! });
+      break;
+    case "type_text":
+      if ((m = /^Typed (\d+) characters into (.+)$/s.exec(text))) return t("Typed {count} characters into {target}", { count: m[1]!, target: clip(m[2]!, 100) });
+      break;
+    case "fill_login":
+    case "fill_totp":
+      // "Filled …" keeps the plain label; anything else (a handoff) is what the person needs to know.
+      if (text && !text.startsWith("Filled")) return clip(text, 140);
+      break;
+    case "switch_tab":
+      if ((m = /^Switched to tab \S+ at (\S+) — /.exec(content))) return t("Switched to {host}", { host: hostOf(m[1]!) });
+      break;
+  }
   return label;
 }
 
@@ -152,6 +214,8 @@ export function assistAgentView(run: AgentRunView, thumbs: ReadonlyMap<string, s
       stepCount: run.stepCount,
       maxSteps: run.maxSteps,
       limit: run.stopReason === "max_steps" || run.stopReason === "budget" ? run.stopReason : null,
+      ...(run.leftTabs?.length ? { leftTabs: run.leftTabs } : {}),
+      ...(run.takenOver ? { takenOver: true } : {}),
     },
     answer: answer.trim(),
   };

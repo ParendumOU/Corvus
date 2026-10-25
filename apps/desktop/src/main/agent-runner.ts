@@ -21,6 +21,7 @@ import { RunTabs } from "./agent-tabs";
 import type {
   AgentApprovalDecision,
   AgentApprovalRequest,
+  AgentLeftTab,
   AgentRunStep,
   AgentRunView,
   CommandBarWindowExtras,
@@ -84,7 +85,28 @@ interface Run {
   clearAgentMark: boolean;
   /** The tabs the run opens, grouped under its task (set when the run starts driving). */
   tabs?: RunTabs;
+  /** Its tabs still open when it ended, offered to the person in the panel. */
+  leftTabs: AgentLeftTab[];
+  /** The window the run works in, while it drives. */
+  win: BrowserWindowCtl | null;
+  /** A tool call is under way (its own input events are not the person's)... */
+  acting: boolean;
+  /** ...or ended just now. */
+  quietUntil: number;
+  /** The person took over the page: the next action waits for handBack. */
+  takenOver: boolean;
+  handBack: (() => void) | null;
+  /** They handed it back before the next action: that action is dropped so the agent re-reads. */
+  handedBack: boolean;
 }
+
+/** Input that means the person is using the page (pointer moves and wheel scrolls do not). */
+const TAKE_OVER_INPUT = new Set(["mouseDown", "rawKeyDown", "keyDown", "touchStart", "gestureTap"]);
+/** The agent's own synthetic input can land a moment after its tool call returns. */
+const QUIET_AFTER_ACTION_MS = 300;
+/** What the agent hears when the person hands the page back. */
+export const HANDED_BACK =
+  "The person used the page while you waited and handed it back; this action was not carried out. The page may have changed: take a new page_snapshot (or a screenshot) before you act.";
 
 /** An Assist conversation turn run as a browser agent in the user's current tab. */
 export interface EmbeddedRunOptions {
@@ -307,6 +329,13 @@ export class AgentRunner {
       tokenBudget: undefined,
       startTab: null,
       clearAgentMark: false,
+      leftTabs: [],
+      win: null,
+      acting: false,
+      quietUntil: 0,
+      takenOver: false,
+      handBack: null,
+      handedBack: false,
     };
   }
 
@@ -397,6 +426,7 @@ export class AgentRunner {
     seed?: { messages: AgentMessage[]; steps: number; tokens: { input: number; output: number } },
   ): Promise<void> {
     if (run.source === "command-bar") this.ctx.assist.open(win, "agents");
+    run.win = win;
     this.ctx.agents.clientConnected(AGENT_CLIENT, true);
     this.persist(win, run, true);
     try {
@@ -429,10 +459,14 @@ export class AgentRunner {
     } finally {
       if (!isFinished(run.status)) run.status = run.abort.signal.aborted ? "stopped" : "done";
       run.approval = null;
+      run.takenOver = false;
+      run.handBack = null;
+      run.handedBack = false;
+      run.win = null;
+      run.leftTabs = run.tabs?.release() ?? [];
       this.push(win, run);
       this.persist(win, run, true);
       learnFromRun(this.ctx, win.profile, run.wf, run.status === "done" && run.stopReason === "done");
-      run.tabs?.release();
       if (run.source === "assist") {
         this.embedded.delete(run.id);
         const start = run.clearAgentMark && run.startTab ? this.ctx.windows.findTab(run.startTab) : undefined;
@@ -457,7 +491,7 @@ export class AgentRunner {
       }
       case "tool_use": {
         run.messageStepId = null;
-        const label = actionLabel(step.name, step.input, run.elementNames.get(argStr(step.input, "ref")) ?? "");
+        const label = actionLabel(step.name, step.input, run.elementNames.get(argStr(step.input, "ref")) ?? "", tr);
         run.steps = [...run.steps, { id: step.id, kind: step.name, summary: summarizeArgs(step.name, step.input), label, status: "running", at: Date.now() }];
         break;
       }
@@ -471,7 +505,7 @@ export class AgentRunner {
                 ...s,
                 status: step.result.isError ? "error" : s.status === "skipped" ? "skipped" : "ok",
                 detail: stepPreview(step.name, step.result.content),
-                label: s.status === "skipped" ? (s.label ?? s.summary) : resultLabel(step.name, s.label ?? s.summary, step.result.content, step.result.isError === true),
+                label: s.status === "skipped" ? (s.label ?? s.summary) : resultLabel(step.name, s.label ?? s.summary, step.result.content, step.result.isError === true, tr),
                 resultChars: step.result.content.length,
                 ...(action && s.status !== "skipped" ? { action } : {}),
               }
@@ -503,6 +537,90 @@ export class AgentRunner {
   // ----------------------------------------------------------------- execution
 
   private async execute(win: BrowserWindowCtl, run: Run, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
+    if (run.takenOver) {
+      await this.waitForHandBack(win, run, signal);
+      if (signal.aborted) throw new AgentStopError("aborted");
+      run.handedBack = true;
+    }
+    if (run.handedBack) {
+      run.handedBack = false;
+      run.steps = run.steps.map((s) => (s.id === findRunningId(run, name) ? { ...s, status: "skipped" } : s));
+      return { content: HANDED_BACK };
+    }
+    run.acting = true;
+    try {
+      return await this.executeStep(win, run, name, input, signal);
+    } finally {
+      run.acting = false;
+      run.quietUntil = Date.now() + QUIET_AFTER_ACTION_MS;
+    }
+  }
+
+  /**
+   * The person clicked or typed in a tab of this window. A run working in that tab (its working tab
+   * or one it opened) between two actions stops there: the person has taken over, and the run's
+   * next action waits until they hand the page back.
+   */
+  personInput(win: BrowserWindowCtl, tabId: TabId, type: string): void {
+    if (!TAKE_OVER_INPUT.has(type)) return;
+    const runs = [this.runs.get(win), ...this.embedded.values()];
+    for (const run of runs) {
+      if (!run || run.win !== win || run.status !== "running" || run.takenOver || run.acting || Date.now() < run.quietUntil) continue;
+      if (run.tabId !== tabId && !run.tabs?.owns(tabId)) continue;
+      run.takenOver = true;
+      this.push(win, run);
+    }
+  }
+
+  /** This window's runs still going: where each works and its latest step, for the live view. */
+  liveRuns(win: BrowserWindowCtl): Array<{ id: string; tabId: TabId | null; step: string }> {
+    return [this.runs.get(win), ...this.embedded.values()]
+      .filter((r): r is Run => Boolean(r) && r!.win === win && !isFinished(r!.status))
+      .map((r) => ({ id: r.id, tabId: r.tabId, step: [...r.steps].reverse().find((s) => s.kind !== "message")?.label ?? "" }));
+  }
+
+  /** Stops a run of this window by id (the live view's Stop). */
+  stopRun(win: BrowserWindowCtl, id: string): void {
+    if (this.runs.get(win)?.id === id) this.stop(win);
+    else this.stopEmbedded(id);
+  }
+
+  handBack(win: BrowserWindowCtl): void {
+    const run = this.runs.get(win);
+    if (run) this.handBackRun(win, run);
+  }
+
+  handBackEmbedded(id: string): void {
+    const run = this.embedded.get(id);
+    if (run?.win) this.handBackRun(run.win, run);
+  }
+
+  /** The person is done: a waiting action is released, or the next one learns the page changed. */
+  private handBackRun(win: BrowserWindowCtl, run: Run): void {
+    if (run.handBack) return run.handBack();
+    if (!run.takenOver) return;
+    run.takenOver = false;
+    run.handedBack = true;
+    this.push(win, run);
+  }
+
+  private waitForHandBack(win: BrowserWindowCtl, run: Run, signal: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = (): void => {
+        signal.removeEventListener("abort", done);
+        run.handBack = null;
+        run.takenOver = false;
+        this.push(win, run);
+        resolve();
+      };
+      if (signal.aborted) return done();
+      signal.addEventListener("abort", done, { once: true });
+      run.handBack = done;
+      this.push(win, run);
+    });
+  }
+
+  private async executeStep(win: BrowserWindowCtl, run: Run, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
     await this.waitWhilePaused(run, signal);
     if (signal.aborted) throw new AgentStopError("aborted");
     run.wf.captured = null;
@@ -707,6 +825,8 @@ function viewOf(run: Run): AgentRunView {
     ...(run.wf.offer ? { offerWorkflow: true } : {}),
     ...(run.wf.hints ? { siteHints: run.wf.hints } : {}),
     ...(run.stopReason ? { stopReason: run.stopReason } : {}),
+    ...(run.leftTabs.length > 0 ? { leftTabs: run.leftTabs } : {}),
+    ...(run.takenOver ? { takenOver: true } : {}),
   };
 }
 

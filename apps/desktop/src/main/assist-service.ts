@@ -16,6 +16,8 @@ import {
 } from "@corvus/ai-engine";
 import type { TabId } from "@corvus/shared";
 import { ASSIST_MAX_THUMBS, ASSIST_MIN_STEPS, ASSIST_TOKEN_BUDGET, assistAgentView, historyActions } from "../shared/assist-agent";
+import { keptMessages, matchesConversation, type AssistConversationSummary } from "../shared/assist-history";
+import { isNewTabUrl } from "../shared/internal-urls";
 import type { AgentApprovalDecision, AgentRunView } from "../shared/command-bar-ipc";
 import { commandForInput } from "../shared/shortcuts";
 import { matchSiteProfile, type SiteProfile } from "../shared/site-profiles";
@@ -27,6 +29,7 @@ import {
   ASSIST_MIN_WIDTH,
   type AssistActionKind,
   type AssistMessage,
+  type AgentLiveView,
   type AssistPanelState,
   type AssistTabView,
   type AssistView,
@@ -70,6 +73,21 @@ const SCRIPT_TIMEOUT_MS = 8000;
 /** Longest request the agentic chat takes (instructions can be longer than a question). */
 const AGENT_REQUEST_CHARS = 2000;
 const THUMB_WIDTH = 280;
+/** The live view of an agent's tab: width of the capture and how often it is taken. */
+const LIVE_WIDTH = 360;
+const LIVE_EVERY_MS = 1200;
+
+/** A capture through the DevTools protocol gives up after this long. */
+const LIVE_CDP_TIMEOUT_MS = 8000;
+
+/** The live view of one window: the tab it captures and its latest capture. */
+interface LiveCapture {
+  tabId: TabId;
+  thumb: string | null;
+  timer: NodeJS.Timeout;
+  /** A capture is under way (the next tick skips). */
+  busy: boolean;
+}
 
 interface TabAssist {
   messages: AssistMessage[];
@@ -87,6 +105,16 @@ interface TabAssist {
   writeTokens?: Map<string, string>;
   /** "Compare tabs" is choosing which tabs to compare. */
   comparePicker?: CompareCandidate[] | null;
+  /** The conversation's id in the profile's history, once kept. */
+  conversationId?: string;
+  /** What was last kept, to write the history only when the conversation changed. */
+  savedSignature?: string;
+}
+
+/** Changes when a kept conversation gains or finishes a message. */
+function conversationSignature(kept: AssistMessage[]): string {
+  const last = kept.at(-1);
+  return last ? `${kept.length}:${last.id}:${last.status}:${last.text.length}` : "";
 }
 
 type GroupsInput = Array<{ name: string; color: string; tabIds: string[] }>;
@@ -155,6 +183,7 @@ export class AssistService {
   private readonly summaries = new Map<string, { text: string; model: string }>();
   private readonly organizerCache = new Map<string, { groups: Array<{ name: string; color: string; tabs: number[] }>; model: string }>();
   private readonly timers = new WeakMap<BrowserWindowCtl, NodeJS.Timeout>();
+  private readonly live = new Map<BrowserWindowCtl, LiveCapture>();
   private provider: { key: string; value: AnswerProvider | null } | null = null;
   private testProvider: AnswerProvider | null | undefined;
 
@@ -281,6 +310,7 @@ export class AssistService {
   close(win: BrowserWindowCtl): void {
     const panel = this.panels.get(win);
     if (!panel?.open) return;
+    this.stopLive(win);
     panel.setOpen(false);
     win.relayout();
     win.focusContent();
@@ -315,6 +345,7 @@ export class AssistService {
   }
 
   disposeWindow(win: BrowserWindowCtl): void {
+    this.stopLive(win);
     this.panels.get(win)?.dispose();
     this.panels.delete(win);
     this.ctx.agents.disposeWindow(win);
@@ -326,6 +357,7 @@ export class AssistService {
 
   /** Pushes fresh panel state (coalesced) when the panel is open. */
   refresh(win: BrowserWindowCtl): void {
+    this.keepConversations(win);
     const panel = this.panels.get(win);
     if (!panel?.open || this.timers.has(win)) return;
     this.timers.set(
@@ -339,6 +371,7 @@ export class AssistService {
 
   panelState(win: BrowserWindowCtl): AssistPanelState {
     const panel = this.panel(win);
+    const waiting = this.waitingElsewhere(win);
     const provider = this.currentProvider();
     const ai = this.ctx.settings.get().ai;
     const ready = provider !== null || this.ctx.agentRunner.ready();
@@ -355,8 +388,155 @@ export class AssistService {
       agents: this.ctx.agents.view(),
       workflows: panel.current === "workflows" ? this.workflowsView(win) : null,
       focusToken: panel.focusToken,
-      waitingElsewhere: this.waitingElsewhere(win),
+      waitingElsewhere: waiting,
+      workingElsewhere: waiting ? null : this.workingElsewhere(win),
+      keepsHistory: !win.isPrivate,
     };
+  }
+
+  /**
+   * Keeps this window's finished conversations in the profile's history (never a private window's),
+   * with the page they are on; a conversation an agent spread over several tabs is kept with the one
+   * on screen. Only conversations that changed are written.
+   */
+  private keepConversations(win: BrowserWindowCtl): void {
+    if (win.isPrivate || win.isDisposed()) return;
+    const seen = new Set<TabAssist>();
+    for (const t of [...win.listTabs()].sort((a, b) => Number(b.active) - Number(a.active))) {
+      const entry = this.tabs.get(t.id);
+      if (!entry || seen.has(entry)) continue;
+      seen.add(entry);
+      if (entry.messages.some((m) => m.status === "streaming")) continue;
+      const kept = keptMessages(entry.messages);
+      const signature = conversationSignature(kept);
+      if (!signature || entry.savedSignature === signature) continue;
+      entry.savedSignature = signature;
+      entry.conversationId ??= crypto.randomUUID();
+      win.profile.assistHistory.save({ id: entry.conversationId, url: t.url, pageTitle: t.title, createdAt: kept[0]!.at, updatedAt: Date.now(), messages: kept });
+    }
+  }
+
+  historyList(win: BrowserWindowCtl, query: string): AssistConversationSummary[] {
+    if (win.isPrivate) return [];
+    return win.profile.assistHistory
+      .summaries()
+      .filter((s) => matchesConversation(s, query))
+      .slice(0, 100);
+  }
+
+  /** Carries on a past conversation: on its page (a new tab, or this one when it is empty) or where it is open already. */
+  openConversation(win: BrowserWindowCtl, id: string): void {
+    const record = win.isPrivate ? undefined : win.profile.assistHistory.get(id);
+    if (!record) return;
+    for (const [tabId, entry] of this.tabs) {
+      if (entry.conversationId === id && win.hasTab(tabId)) {
+        win.activate(tabId);
+        this.open(win, "assist");
+        return;
+      }
+    }
+    const active = win.activeTab();
+    const activeUrl = active ? (active.view.webContents.isDestroyed() ? active.url : active.view.webContents.getURL() || active.url) : "";
+    const free = active && !this.tabs.get(active.id)?.messages.length;
+    let tabId: TabId;
+    if (active && free && activeUrl === record.url) tabId = active.id;
+    else if (active && free && isNewTabUrl(activeUrl)) {
+      tabId = active.id;
+      win.loadUrl(tabId, record.url);
+    } else tabId = win.createTab(record.url, { activate: true }).id;
+    const messages = record.messages.map((m) => ({ ...m }));
+    this.tabs.set(tabId, {
+      messages,
+      abort: null,
+      runId: null,
+      translation: "none",
+      translatedUrl: "",
+      conversationId: record.id,
+      savedSignature: conversationSignature(messages),
+    });
+    this.open(win, "assist");
+    this.refresh(win);
+  }
+
+  removeConversation(win: BrowserWindowCtl, id: string): void {
+    win.profile.assistHistory.remove(id);
+    // Still open in a tab: kept again only if the person carries on with it.
+    for (const entry of this.tabs.values()) if (entry.conversationId === id) entry.conversationId = undefined;
+  }
+
+  clearHistory(win: BrowserWindowCtl): void {
+    win.profile.assistHistory.clear();
+    for (const entry of this.tabs.values()) entry.conversationId = undefined;
+  }
+
+  /**
+   * An agent run of this window working in a tab the person is not looking at, with a capture of
+   * that tab taken every second or so while the panel is open.
+   */
+  private workingElsewhere(win: BrowserWindowCtl): AgentLiveView | null {
+    const active = win.activeTab()?.id;
+    const run = this.ctx.agentRunner.liveRuns(win).find((r) => r.tabId && r.tabId !== active && win.hasTab(r.tabId));
+    if (!run?.tabId) {
+      this.stopLive(win);
+      return null;
+    }
+    const live = this.startLive(win, run.tabId);
+    const groupId = win.groupOf(run.tabId);
+    const group = groupId ? win.listGroups().find((g) => g.id === groupId)?.title : "";
+    const title = group || win.listTabs().find((t) => t.id === run.tabId)?.title || "";
+    return { runId: run.id, tabId: run.tabId, title, step: run.step, thumb: live.thumb };
+  }
+
+  private startLive(win: BrowserWindowCtl, tabId: TabId): LiveCapture {
+    const current = this.live.get(win);
+    if (current?.tabId === tabId) return current;
+    this.stopLive(win);
+    const live: LiveCapture = { tabId, thumb: null, busy: false, timer: setInterval(() => void this.captureLive(win, live), LIVE_EVERY_MS) };
+    this.live.set(win, live);
+    void this.captureLive(win, live);
+    return live;
+  }
+
+  private stopLive(win: BrowserWindowCtl): void {
+    const live = this.live.get(win);
+    if (!live) return;
+    clearInterval(live.timer);
+    this.live.delete(win);
+  }
+
+  private async captureLive(win: BrowserWindowCtl, live: LiveCapture): Promise<void> {
+    if (win.isDisposed() || !this.panels.get(win)?.open) return this.stopLive(win);
+    const wc = win.getTab(live.tabId)?.view.webContents;
+    if (!wc || wc.isDestroyed() || live.busy) return;
+    live.busy = true;
+    try {
+      const image = await this.captureHidden(wc);
+      if (!image || image.isEmpty() || this.live.get(win) !== live) return;
+      const small = image.getSize().width > LIVE_WIDTH ? image.resize({ width: LIVE_WIDTH, quality: "good" }) : image;
+      live.thumb = `data:image/jpeg;base64,${small.toJPEG(60).toString("base64")}`;
+      this.refresh(win);
+    } catch {
+      // The tab is closing or busy; the next capture tries again.
+    } finally {
+      live.busy = false;
+    }
+  }
+
+  /**
+   * A capture of a tab that is not on screen. capturePage needs the tab's last frame, which a tab
+   * hidden before it painted (or for long) no longer has; the DevTools protocol renders one.
+   */
+  private async captureHidden(wc: WebContents): Promise<Electron.NativeImage | null> {
+    const image = await wc.capturePage(undefined, { stayHidden: true }).catch(() => null);
+    if (image && !image.isEmpty()) return image;
+    // Agent tabs have the debugger attached already (tab logs); it stays attached, as elsewhere.
+    const dbg = wc.debugger;
+    if (!dbg.isAttached()) dbg.attach("1.3");
+    const shot = (await Promise.race([
+      dbg.sendCommand("Page.captureScreenshot", { format: "jpeg", quality: 60 }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), LIVE_CDP_TIMEOUT_MS)),
+    ])) as { data: string } | null;
+    return shot ? nativeImage.createFromBuffer(Buffer.from(shot.data, "base64")) : null;
   }
 
   /** Another tab of the window whose Assist agent turn waits for an approval (the panel shows the active tab). */
@@ -672,8 +852,15 @@ export class AssistService {
     if (runId) this.ctx.agentRunner.approveEmbedded(runId, decision);
   }
 
-  showTab(win: BrowserWindowCtl, tabId: TabId): void {
+  handBack(win: BrowserWindowCtl): void {
+    const tab = win.activeTab();
+    const runId = tab ? this.tabs.get(tab.id)?.runId : null;
+    if (runId) this.ctx.agentRunner.handBackEmbedded(runId);
+  }
+
+  showTab(win: BrowserWindowCtl, tabId: TabId, url?: string): void {
     if (win.hasTab(tabId)) win.activate(tabId);
+    else if (url && /^https?:\/\//i.test(url)) win.createTab(url, { activate: true });
   }
 
   /**
@@ -772,7 +959,12 @@ export class AssistService {
     if (!tab) return;
     const entry = this.tabs.get(tab.id);
     entry?.abort?.abort();
-    if (entry) entry.messages = [];
+    // A new conversation: the one before stays in the history.
+    if (entry) {
+      entry.messages = [];
+      entry.conversationId = undefined;
+      entry.savedSignature = undefined;
+    }
     this.refresh(win);
   }
 

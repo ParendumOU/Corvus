@@ -7,6 +7,7 @@ import type { TabId } from "@corvus/shared";
 import type { AgentCall, AgentClient } from "./agent-activity";
 import type { AssistAgentView } from "./assist-agent";
 import type { CompareCandidate, ComparisonTable } from "./compare";
+import type { AssistConversationSummary } from "./assist-history";
 import type { AgentApprovalDecision } from "./command-bar-ipc";
 import type { GroupProposal, OrganizerProposal } from "./tab-organizer";
 import type { FlowApprovalDecision, FlowView, SiteMemoryPaneView, WorkflowDraftView } from "./flow-ipc";
@@ -120,6 +121,21 @@ export interface AssistPanelState {
   focusToken: number;
   /** An Assist run in another tab of this window is waiting for the person's approval. */
   waitingElsewhere: { tabId: TabId; title: string } | null;
+  /** An agent run works in a tab the person is not looking at: shown live. */
+  workingElsewhere: AgentLiveView | null;
+  /** Conversations are kept in the profile's history (not in a private window). */
+  keepsHistory: boolean;
+}
+
+export interface AgentLiveView {
+  runId: string;
+  tabId: TabId;
+  /** The agent's tab group, or the tab's title. */
+  title: string;
+  /** Its latest step line. */
+  step: string;
+  /** data: URL of a recent capture of the tab (refreshed every second or so). */
+  thumb: string | null;
 }
 
 export type AssistEventMessage = { type: "state"; state: AssistPanelState };
@@ -149,11 +165,22 @@ export interface AssistRpc {
   "assist.copyComparison"(messageId: string): void;
   "assist.clear"(): void;
   "assist.jumpToSection"(index: number): void;
-  "assist.openSettings"(): void;
+  /** Settings, AI (the default) or AI agents. */
+  "assist.openSettings"(section?: "ai" | "agents"): void;
   /** Answer the approval prompt of the active tab's running Assist agent turn. */
   "assist.approve"(decision: AgentApprovalDecision): void;
-  /** Bring a tab of this window to the front (an Assist run there needs attention). */
-  "assist.showTab"(tabId: TabId): void;
+  /** Hand the page back to the active tab's Assist agent turn the person took over. */
+  "assist.handBack"(): void;
+  /** Stop an agent run of this window (the live view). */
+  "assist.stopRun"(runId: string): void;
+  /** Bring a tab of this window to the front; if it is gone, open `url` (a page an agent left open). */
+  "assist.showTab"(tabId: TabId, url?: string): void;
+  /** Past conversations of the profile matching the search, newest first. */
+  "history.list"(query: string): AssistConversationSummary[];
+  /** Carry on a past conversation on its page. */
+  "history.open"(id: string): void;
+  "history.remove"(id: string): void;
+  "history.clear"(): void;
   "agents.pause"(paused: boolean): void;
   "agents.revoke"(client: string): void;
   "agents.clear"(): void;
