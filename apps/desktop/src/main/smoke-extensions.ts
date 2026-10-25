@@ -3,7 +3,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { nativeImage, type WebContents } from "electron";
+import { nativeImage, webContents as allWebContents, type WebContents } from "electron";
 import type { AppContext } from "./context";
 import { setInstallPrompt, type ExtensionHost, type InstallRequest } from "./extensions";
 import type { BrowserWindowCtl } from "./window";
@@ -153,6 +153,8 @@ async function runSecurity(fixtureTabId) {
         action: { default_popup: "popup.html", default_title: "Corvus Probe", default_icon: { "16": "icon.png", "32": "icon.png" } },
         icons: { "32": "icon.png", "48": "icon.png" },
         options_page: "options.html",
+        side_panel: { default_path: "panel.html" },
+        commands: { "probe-command": { suggested_key: { default: "Alt+Shift+P" }, description: "Probe command" } },
         permissions: [
           "storage",
           "tabs",
@@ -167,6 +169,10 @@ async function runSecurity(fixtureTabId) {
           "downloads",
           "history",
           "bookmarks",
+          "tabGroups",
+          "sessions",
+          "sidePanel",
+          "topSites",
           "cookies",
           "webRequest",
         ],
@@ -185,6 +191,7 @@ chrome.runtime.sendMessage({ type: "content", url: location.href }).catch(() => 
 <body><h1>Corvus Probe</h1><p>Active tab:</p><p id="tab">…</p><script src="popup.js"></script></body></html>`,
     "popup.js": `chrome.tabs.query({ active: true, currentWindow: true }).then(([t]) => { document.getElementById("tab").textContent = t ? t.url : "no tab"; });`,
     "options.html": `<!doctype html><html><head><meta charset="utf-8"><title>Probe options</title></head><body><h1>Probe options</h1></body></html>`,
+    "panel.html": `<!doctype html><html><head><meta charset="utf-8"><title>Probe panel</title></head><body><h1>Probe panel</h1></body></html>`,
     "rules.json": JSON.stringify([
       { id: 1, priority: 1, action: { type: "block" }, condition: { urlFilter: "blocked-by-probe", resourceTypes: ["script", "xmlhttprequest", "image"] } },
     ]),
@@ -286,6 +293,10 @@ export async function runExtensionSmoke(ctx: AppContext, h: SmokeHelpers): Promi
         }
         res.writeHead(204, { "Access-Control-Allow-Origin": "*" }).end();
       });
+      return;
+    }
+    if (url.pathname === "/probe-file.txt" || url.pathname === "/probe-tool.bin") {
+      res.writeHead(200, { "Content-Type": "application/octet-stream" }).end("corvus probe download");
       return;
     }
     const html = url.pathname === "/ads" ? ADS_PAGE : FIXTURE_PAGE;
@@ -403,7 +414,241 @@ export async function runExtensionSmoke(ctx: AppContext, h: SmokeHelpers): Promi
     const optionsTab = await waitFor(() => win.activeTab()?.view.webContents.getURL().startsWith(`chrome-extension://${id}/options.html`) && win.activeTab(), 5000);
     const optionsTitle = optionsTab ? await waitFor(() => optionsTab.view.webContents.executeJavaScript("document.title"), 5000) : null;
     h.check("ext: options page opens in a tab", optionsTitle === "Probe options", optionsTitle);
-    if (optionsTab) win.closeTab(optionsTab.id);
+    if (optionsTab) {
+      // chrome.bookmarks and chrome.history, added by Corvus, from an extension page.
+      const apis = (await optionsTab.view.webContents
+        .executeJavaScript(
+          `(async () => {
+            const out = { bookmarks: typeof chrome.bookmarks, history: typeof chrome.history, events: [] };
+            try {
+              chrome.bookmarks.onCreated.addListener((id, node) => out.events.push(node.title));
+              const created = await chrome.bookmarks.create({ title: "Probe mark", url: "https://probe.example/" });
+              const tree = await chrome.bookmarks.getTree();
+              out.root = tree[0].id;
+              out.roots = tree[0].children.length;
+              out.found = (await chrome.bookmarks.search("Probe mark")).length;
+              await new Promise((r) => setTimeout(r, 300));
+              await chrome.bookmarks.remove(created.id);
+              await chrome.history.addUrl({ url: "https://probe.example/visited" });
+              out.history = (await chrome.history.search({ text: "probe.example" })).map((i) => i.url);
+              await chrome.history.deleteUrl({ url: "https://probe.example/visited" });
+            } catch (e) {
+              out.error = String((e && e.message) || e);
+            }
+            return out;
+          })()`,
+        )
+        .catch((err: unknown) => ({ error: String(err) }))) as Record<string, unknown>;
+      const profile = win.profile;
+      const left = profile.bookmarks.list().some((b) => b.title === "Probe mark") || profile.history.all().some((e) => e.url === "https://probe.example/visited");
+      h.check(
+        "ext: chrome.bookmarks and chrome.history work from an extension page, with events, over the profile's own data",
+        apis.bookmarks === "object" &&
+          apis.root === "0" &&
+          apis.roots === 2 &&
+          apis.found === 1 &&
+          JSON.stringify(apis.events) === JSON.stringify(["Probe mark"]) &&
+          JSON.stringify(apis.history) === JSON.stringify(["https://probe.example/visited"]) &&
+          !apis.error &&
+          !left,
+        { ...apis, left },
+      );
+      // chrome.tabs.group and chrome.tabGroups on the options page's own tab.
+      const groups = (await optionsTab.view.webContents
+        .executeJavaScript(
+          `(async () => {
+            const out = { tabGroups: typeof chrome.tabGroups, group: typeof (chrome.tabs && chrome.tabs.group), updates: [] };
+            try {
+              chrome.tabGroups.onUpdated.addListener((g) => out.updates.push(g.title));
+              const tab = await chrome.tabs.getCurrent();
+              const id = await chrome.tabs.group({ tabIds: tab.id });
+              out.updated = (await chrome.tabGroups.update(id, { title: "Probe group", color: "cyan" })).title;
+              out.found = (await chrome.tabGroups.query({ title: "Probe*" })).length;
+              out.groupId = (await chrome.tabs.get(tab.id)).groupId === id;
+              await new Promise((r) => setTimeout(r, 800));
+              await chrome.tabs.ungroup(tab.id);
+            } catch (e) {
+              out.error = String((e && e.message) || e);
+            }
+            return out;
+          })()`,
+        )
+        .catch((err: unknown) => ({ error: String(err) }))) as Record<string, unknown>;
+      const leftGroup = win.listGroups().some((g) => g.title === "Probe group");
+      h.check(
+        "ext: chrome.tabs.group and chrome.tabGroups group, rename, find and ungroup a tab, with events",
+        groups.tabGroups === "object" &&
+          groups.group === "function" &&
+          groups.updated === "Probe group" &&
+          groups.found === 1 &&
+          groups.groupId === true &&
+          (groups.updates as string[] | undefined)?.includes("Probe group") === true &&
+          !groups.error &&
+          !leftGroup,
+        { ...groups, leftGroup },
+      );
+      // chrome.sessions: a tab the extension closes is in getRecentlyClosed, and restore reopens it.
+      const fixtureUrl = `${origin}/sessions-fixture`;
+      const sessions = (await optionsTab.view.webContents
+        .executeJavaScript(
+          `(async () => {
+            const out = { sessions: typeof chrome.sessions, changed: 0 };
+            try {
+              chrome.sessions.onChanged.addListener(() => { out.changed += 1; });
+              const opened = await chrome.tabs.create({ url: ${JSON.stringify(fixtureUrl)}, active: false });
+              await new Promise((r) => setTimeout(r, 600));
+              await chrome.tabs.remove(opened.id);
+              await new Promise((r) => setTimeout(r, 400));
+              const closed = await chrome.sessions.getRecentlyClosed({ maxResults: 5 });
+              out.closedUrl = closed[0] && closed[0].tab && closed[0].tab.url;
+              out.seconds = closed[0] && closed[0].lastModified < 1e11;
+              const restored = await chrome.sessions.restore(closed[0].tab.sessionId);
+              out.restoredUrl = restored.tab.url;
+              out.restoredId = typeof restored.tab.id;
+              await chrome.tabs.remove(restored.tab.id);
+              out.devices = Array.isArray(await chrome.sessions.getDevices());
+              await new Promise((r) => setTimeout(r, 300));
+            } catch (e) {
+              out.error = String((e && e.message) || e);
+            }
+            return out;
+          })()`,
+        )
+        .catch((err: unknown) => ({ error: String(err) }))) as Record<string, unknown>;
+      h.check(
+        "ext: chrome.sessions lists a closed tab, restores it and reports the change",
+        sessions.sessions === "object" &&
+          sessions.closedUrl === fixtureUrl &&
+          sessions.seconds === true &&
+          sessions.restoredUrl === fixtureUrl &&
+          sessions.restoredId === "number" &&
+          sessions.devices === true &&
+          (sessions.changed as number) >= 2 &&
+          !sessions.error,
+        sessions,
+      );
+      // chrome.sidePanel: open the manifest's panel from the page, then close it with the bar's ✕.
+      const panelEvents = (await optionsTab.view.webContents
+        .executeJavaScript(
+          `(async () => {
+            window.__panel = { opened: 0, closed: 0 };
+            chrome.sidePanel.onOpened.addListener(() => { window.__panel.opened += 1; });
+            chrome.sidePanel.onClosed.addListener(() => { window.__panel.closed += 1; });
+            try {
+              const tab = await chrome.tabs.getCurrent();
+              await chrome.sidePanel.open({ tabId: tab.id });
+              return { sidePanel: typeof chrome.sidePanel, options: await chrome.sidePanel.getOptions({}) };
+            } catch (e) {
+              return { error: String((e && e.message) || e) };
+            }
+          })()`,
+        )
+        .catch((err: unknown) => ({ error: String(err) }))) as Record<string, unknown>;
+      const panelPage = await waitFor(() => allWebContents.getAllWebContents().find((w) => w.getURL() === `chrome-extension://${id}/panel.html`), 5000);
+      const docked = win.dockedPanel() !== null;
+      const header = allWebContents.getAllWebContents().find((w) => w.getURL().startsWith("data:text/html") && decodeURIComponent(w.getURL()).includes("Corvus Probe"));
+      await header?.executeJavaScript("document.querySelector('a').click()").catch(() => undefined);
+      const undocked = await waitFor(() => win.dockedPanel() === null, 3000);
+      await sleep(300);
+      const counts = await optionsTab.view.webContents.executeJavaScript("window.__panel").catch(() => null);
+      h.check(
+        "ext: chrome.sidePanel opens the extension's panel in the window and its ✕ closes it, with events",
+        panelEvents.sidePanel === "object" && !panelEvents.error && Boolean(panelPage) && docked && Boolean(header) && undocked === true && JSON.stringify(counts) === JSON.stringify({ opened: 1, closed: 1 }),
+        { ...panelEvents, page: Boolean(panelPage), docked, header: Boolean(header), undocked, counts },
+      );
+      // chrome.commands: the shortcut Alt+Shift+P in the page reaches the extension as onCommand.
+      const listed = (await optionsTab.view.webContents
+        .executeJavaScript(
+          `(async () => {
+            window.__commands = [];
+            chrome.commands.onCommand.addListener((name, tab) => window.__commands.push([name, Boolean(tab && tab.id)]));
+            return (await chrome.commands.getAll()).map((c) => c.name + "=" + c.shortcut);
+          })()`,
+        )
+        .catch((err: unknown) => [String(err)])) as string[];
+      win.activate(optionsTab.id);
+      await sleep(200);
+      optionsTab.view.webContents.focus();
+      optionsTab.view.webContents.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: ["alt", "shift"] });
+      optionsTab.view.webContents.sendInputEvent({ type: "keyUp", keyCode: "P", modifiers: ["alt", "shift"] });
+      const heard = await waitFor(async () => {
+        const got = (await optionsTab.view.webContents.executeJavaScript("window.__commands").catch(() => [])) as unknown[];
+        return got.length > 0 ? got : undefined;
+      }, 3000);
+      h.check(
+        "ext: chrome.commands lists the manifest shortcut and Alt+Shift+P reaches onCommand with the tab",
+        listed.includes("probe-command=Alt+Shift+P") && JSON.stringify(heard) === JSON.stringify([["probe-command", true]]),
+        { listed, heard },
+      );
+      // chrome.downloads: a file lands in the downloads folder under the name the extension gives,
+      // with events; a program waits for the person; open needs "downloads.open" (not granted).
+      const downloadSettings = ctx.settings.get().downloads;
+      const downloadDir = path.join(os.tmpdir(), `corvus-smoke-ext-downloads-${process.pid}`);
+      ctx.settings.update({ downloads: { directory: downloadDir, askWhereToSave: false } });
+      const downloads = (await optionsTab.view.webContents
+        .executeJavaScript(
+          `(async () => {
+            const out = { downloads: typeof chrome.downloads, created: 0, completed: 0, erased: 0 };
+            try {
+              chrome.downloads.onCreated.addListener(() => { out.created += 1; });
+              chrome.downloads.onChanged.addListener((d) => { if (d.state && d.state.current === "complete") out.completed += 1; });
+              chrome.downloads.onErased.addListener(() => { out.erased += 1; });
+              const id = await chrome.downloads.download({ url: ${JSON.stringify(`${origin}/probe-file.txt`)}, filename: "corvus-probe/kept.txt" });
+              out.id = typeof id;
+              for (let i = 0; i < 50 && out.completed === 0; i++) await new Promise((r) => setTimeout(r, 100));
+              const [item] = await chrome.downloads.search({ id });
+              out.item = item && { state: item.state, filename: item.filename, exists: item.exists, byExtensionId: item.byExtensionId === chrome.runtime.id };
+              out.open = await chrome.downloads.open(id).then(() => "opened", (e) => "refused");
+              out.topSites = Array.isArray(await chrome.topSites.get());
+              const programId = await chrome.downloads.download({ url: ${JSON.stringify(`${origin}/probe-tool.bin`)} });
+              const [program] = await chrome.downloads.search({ id: programId });
+              out.program = program && { state: program.state, danger: program.danger };
+              out.accept = await chrome.downloads.acceptDanger(programId).then(() => "accepted", () => "refused");
+              await chrome.downloads.cancel(programId);
+              out.programLeft = (await chrome.downloads.search({ id: programId })).length;
+              const erasedIds = await chrome.downloads.erase({ id });
+              out.erasedSelf = erasedIds.length === 1 && erasedIds[0] === id;
+              await new Promise((r) => setTimeout(r, 300));
+            } catch (e) {
+              out.error = String((e && e.message) || e);
+            }
+            return out;
+          })()`,
+        )
+        .catch((err: unknown) => ({ error: String(err) }))) as Record<string, unknown>;
+      win.sendCommand({ type: "close-overlays" });
+      const savedFile = path.join(downloadDir, "corvus-probe", "kept.txt");
+      const item = downloads.item as { state?: string; filename?: string; exists?: boolean; byExtensionId?: boolean } | undefined;
+      const program = downloads.program as { state?: string; danger?: string } | undefined;
+      const programOnDisk = fs.existsSync(path.join(downloadDir, "probe-tool.bin"));
+      const savedBody = fs.existsSync(savedFile) ? fs.readFileSync(savedFile, "utf8") : null;
+      h.check(
+        "ext: chrome.downloads saves under the extension's name with events, holds programs back and refuses open without its permission; chrome.topSites answers",
+        downloads.downloads === "object" &&
+          downloads.id === "number" &&
+          item?.state === "complete" &&
+          item.filename === savedFile &&
+          item.exists === true &&
+          item.byExtensionId === true &&
+          savedBody === "corvus probe download" &&
+          downloads.open === "refused" &&
+          program?.state === "in_progress" &&
+          program.danger === "file" &&
+          downloads.accept === "refused" &&
+          downloads.topSites === true &&
+          downloads.programLeft === 0 &&
+          !programOnDisk &&
+          downloads.erasedSelf === true &&
+          (downloads.created as number) >= 2 &&
+          (downloads.completed as number) >= 1 &&
+          (downloads.erased as number) >= 2 &&
+          !downloads.error,
+        { ...downloads, savedBody, programOnDisk },
+      );
+      ctx.settings.update({ downloads: downloadSettings });
+      fs.rmSync(downloadDir, { recursive: true, force: true });
+      win.closeTab(optionsTab.id);
+    }
 
     // puzzle menu, unpin
     host.setPinned(id, false);

@@ -67,6 +67,7 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
     "downloads.action": (w, id, a) => ctx.downloads.act(w.profile, str(id, "download"), action(a)),
     "downloads.openPage": (w) => w.openSingleton("corvus://downloads/"),
     "grabber.grabCopied": (w) => ctx.grabber.grabCopied(w),
+    "grabber.queueCopied": (w) => ctx.grabber.queueCopied(w),
     "grabber.dismissCopied": () => ctx.grabber.dismissCopied(),
     "defaultBrowser.answer": (w, choice) => {
       if (choice !== "make" && choice !== "later" && choice !== "never") throw new IpcError("Invalid answer");
@@ -98,6 +99,7 @@ export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, read
   "grabber.addText": ["downloads"],
   "grabber.remove": ["downloads"],
   "grabber.clear": ["downloads"],
+  "grabber.watchClipboard": ["downloads"],
   "grabber.download": ["downloads"],
   "grabber.downloadWithAi": ["downloads"],
   "defaultBrowser.status": ["settings"],
@@ -108,6 +110,7 @@ export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, read
   "queue.move": ["downloads"],
   "queue.clearDone": ["downloads"],
   "queue.extract": ["downloads"],
+  "queue.openPage": ["downloads"],
   "sitePermissions.list": ["settings"],
   "sitePermissions.set": ["settings"],
   "sitePermissions.reset": ["settings"],
@@ -122,6 +125,10 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
     "grabber.addText": (c, text) => ctx.grabber.addText(c.profile, str(text, "text", 200_000), "pasted"),
     "grabber.remove": (c, list) => ctx.grabber.remove(c.profile, ids(list)),
     "grabber.clear": (c) => ctx.grabber.clear(c.profile),
+    "grabber.watchClipboard": (_c, on) => {
+      if (typeof on === "boolean") ctx.settings.update({ downloads: { watchClipboard: on } });
+      return ctx.settings.get().downloads.watchClipboard;
+    },
     "grabber.download": (c, list) => {
       if (!c.window) throw new IpcError("No browser window");
       return ctx.grabber.download(c.window, ids(list));
@@ -146,6 +153,10 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
     },
     "queue.move": (c, id, delta) => ctx.queue.move(c.profile, str(id, "id", 64), delta === -1 ? -1 : 1),
     "queue.clearDone": (c) => ctx.queue.clearDone(c.profile),
+    "queue.openPage": (c, id) => {
+      if (!c.window) throw new IpcError("No browser window");
+      ctx.queue.openPage(c.window, str(id, "id", 64));
+    },
     "queue.extract": (c, id, password) => ctx.queue.extract(c.profile, str(id, "id", 64), password === undefined || password === null ? undefined : str(password, "password", 200)),
     "downloads.chooseDirectory": async (c) => {
       const options: Electron.OpenDialogOptions = {

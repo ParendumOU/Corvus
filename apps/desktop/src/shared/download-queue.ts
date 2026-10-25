@@ -3,9 +3,24 @@
  * one-file downloads), a few at a time and at most a couple per host, resumable after a pause or a
  * restart, with progress, speed and time left. Pure, so the scheduling rules are unit tested.
  */
-import type { GrabbedPackage, LinkKind } from "./link-grabber";
+import { hosterFor, type HosterReason } from "./hosters";
+import { filenameOf, splitArchive, type GrabbedPackage, type LinkKind } from "./link-grabber";
 
-export type QueueItemState = "queued" | "running" | "paused" | "done" | "failed";
+/**
+ * "waiting": a file host asked to wait (it starts again at retryAt); "attention": only the person
+ * can go on (a CAPTCHA, a sign-in, a password), from the host's page.
+ */
+export type QueueItemState = "queued" | "running" | "paused" | "waiting" | "attention" | "done" | "failed";
+
+/** Where a hoster link's file really is, once found. */
+export interface ResolvedLink {
+  url: string;
+  at: number;
+  /** MEGA: the file arrives encrypted (AES-128-CTR key and counter, hex). */
+  mega?: { key: string; iv: string };
+  /** One connection only (free downloads). */
+  single?: boolean;
+}
 
 /** A byte range of a file fetched on its own connection (end inclusive). */
 export interface Segment {
@@ -36,6 +51,31 @@ export interface QueueItem {
   segments?: Segment[];
   /** Result of the package's checksum file (.sfv, .md5, .sha1, .sha256) for this file. */
   checked?: "ok" | "mismatch";
+  /** File host name ("MEGA"), for hoster links. */
+  hoster?: string;
+  /** Files at once from its host (free accounts get one or two). */
+  slots?: number;
+  /** Looking for the file on the host's page right now. */
+  resolving?: boolean;
+  resolved?: ResolvedLink;
+  /** Why it waits, needs the person, or failed on the host. */
+  reason?: HosterReason;
+  /** "waiting": when it goes back to the queue. */
+  retryAt?: number;
+  /** The person's browser tab downloads it (after "Open page"). */
+  inPage?: boolean;
+}
+
+/** A file name that stays inside the package folder. */
+export function safeFileName(name: string): string {
+  const base = (name.split(/[\\/]/).pop() ?? "").replace(/[:*?"<>|\u0000-\u001f]/g, "_").trim().slice(0, 255);
+  return base && base !== "." && base !== ".." ? base : "download";
+}
+
+/** Hoster fields of a queue item for an address. */
+function hosterFields(url: string): Pick<QueueItem, "hoster" | "slots"> {
+  const hoster = hosterFor(url);
+  return hoster ? { hoster: hoster.name, slots: hoster.slots } : {};
 }
 
 /** One archive of a finished package, after extracting it. */
@@ -94,7 +134,7 @@ export function safeName(name: string): string {
   return /^(con|prn|aux|nul|com\d|lpt\d)$/i.test(cleaned) || !cleaned ? "Download" : cleaned;
 }
 
-/** A grabbed package as queued: file links only (hoster pages need their page, handled apart). */
+/** A grabbed package as queued: file links download as they are, hoster links once resolved. */
 export function queueFromGrabbed(pkg: GrabbedPackage, downloadsDir: string, join: (...parts: string[]) => string): QueuePackage {
   return {
     id: pkg.id,
@@ -103,14 +143,13 @@ export function queueFromGrabbed(pkg: GrabbedPackage, downloadsDir: string, join
     passwords: [...pkg.passwords],
     dir: join(downloadsDir, safeName(pkg.name)),
     addedAt: pkg.addedAt,
-    items: pkg.links
-      .filter((l) => l.kind !== "hoster")
-      .map((l) => ({
+    items: pkg.links.map((l) => ({
         id: l.id,
         url: l.url,
-        filename: l.filename || "download",
+        filename: safeFileName(l.filename || filenameOf(l.url) || "download"),
         host: l.host,
         kind: l.kind,
+        ...(l.kind === "hoster" ? hosterFields(l.url) : {}),
         ...(l.part !== undefined ? { part: l.part } : {}),
         state: "queued" as const,
         receivedBytes: 0,
@@ -135,7 +174,7 @@ export function nextToStart(packages: readonly QueuePackage[], limits: QueueLimi
       if (free <= 0) return out;
       if (item.state !== "queued") continue;
       const onHost = perHost.get(item.host) ?? 0;
-      if (onHost >= limits.perHost) continue;
+      if (onHost >= Math.min(limits.perHost, item.slots ?? limits.perHost)) continue;
       perHost.set(item.host, onHost + 1);
       out.push(item);
       free--;
@@ -151,7 +190,16 @@ export function nextToStart(packages: readonly QueuePackage[], limits: QueueLimi
 export function reviveQueue(packages: readonly QueuePackage[]): QueuePackage[] {
   return packages.map((p) => ({
     ...p,
-    items: p.items.map((i) => (i.state === "running" ? { ...i, state: "queued" as const } : i)),
+    items: p.items.map((i) => {
+      if (i.state !== "running") return i;
+      // The page's download stopped with Corvus: the person opens the page again.
+      if (i.inPage) {
+        const { inPage: _inPage, ...rest } = i;
+        return { ...rest, state: "attention" as const, reason: "expired" as const };
+      }
+      const { resolving: _resolving, ...rest } = i;
+      return { ...rest, state: "queued" as const };
+    }),
     ...(p.extraction?.state === "running" ? { extraction: { ...p.extraction, state: "failed" as const, error: "Corvus closed while extracting" } } : {}),
   }));
 }
@@ -206,13 +254,15 @@ export function applyQueueAction(
         if (item.state === "running") stop.push(item.id);
         continue;
       }
-      if (action === "pause" && (item.state === "queued" || item.state === "running")) {
+      if (action === "pause" && (item.state === "queued" || item.state === "running" || item.state === "waiting" || item.state === "attention")) {
         if (item.state === "running") stop.push(item.id);
-        items.push({ ...item, state: "paused" });
+        const { retryAt: _retryAt, resolving: _resolving, ...rest } = item;
+        items.push({ ...rest, state: "paused" });
       } else if (action === "resume" && item.state === "paused") {
         items.push({ ...item, state: "queued" });
-      } else if (action === "retry" && item.state === "failed") {
-        const { error: _error, checked, segments, ...rest } = item;
+      } else if (action === "retry" && (item.state === "failed" || item.state === "attention" || item.state === "waiting")) {
+        // A hoster link is looked up again.
+        const { error: _error, checked, segments, reason: _reason, retryAt: _retryAt, resolved: _resolved, ...rest } = item;
         // A file that failed its checksum starts over; a network failure resumes.
         items.push(checked === "mismatch" ? { ...rest, state: "queued", attempts: 0, receivedBytes: 0 } : { ...rest, ...(segments ? { segments } : {}), state: "queued", attempts: 0 });
       } else {
@@ -231,6 +281,9 @@ export interface PackageProgress {
   done: number;
   failed: number;
   running: number;
+  /** Waiting for their host, or for the person. */
+  waiting: number;
+  attention: number;
   count: number;
 }
 
@@ -256,14 +309,18 @@ export function packageProgress(pkg: QueuePackage): PackageProgress {
   let done = 0;
   let failed = 0;
   let running = 0;
+  let waiting = 0;
+  let attention = 0;
   for (const i of pkg.items) {
     received += i.receivedBytes;
     total = total === null || i.totalBytes === null ? null : total + i.totalBytes;
     if (i.state === "done") done++;
     if (i.state === "failed") failed++;
     if (i.state === "running") running++;
+    if (i.state === "waiting") waiting++;
+    if (i.state === "attention") attention++;
   }
-  return { received, total, done, failed, running, count: pkg.items.length };
+  return { received, total, done, failed, running, waiting, attention, count: pkg.items.length };
 }
 
 /** Download speed over a sliding window of byte counts. */
@@ -369,4 +426,79 @@ export function formatBytes(bytes: number): string {
     unit++;
   }
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** A file found inside a folder link. */
+export interface FolderFile {
+  url: string;
+  filename?: string;
+  size?: number;
+  /** The address is the file itself (no host page to resolve). */
+  direct?: boolean;
+}
+
+/**
+ * Replaces a folder link (MEGA, MediaFire, Google Drive, …) with its files, in the same place of
+ * the package. A package made of that one link takes the folder's name, while nothing is saved yet.
+ */
+export function expandFolder(
+  packages: readonly QueuePackage[],
+  itemId: string,
+  files: readonly FolderFile[],
+  opts: { newId: () => string; folderName?: string; join: (...parts: string[]) => string; dirname: (p: string) => string },
+): QueuePackage[] {
+  return packages.map((pkg) => {
+    const index = pkg.items.findIndex((i) => i.id === itemId);
+    if (index < 0) return pkg;
+    const folder = pkg.items[index]!;
+    const known = new Set(pkg.items.map((i) => i.url));
+    const added: QueueItem[] = [];
+    for (const f of files) {
+      if (known.has(f.url)) continue;
+      known.add(f.url);
+      const filename = safeFileName(f.filename || filenameOf(f.url) || "download");
+      const split = splitArchive(filename);
+      added.push({
+        id: opts.newId(),
+        url: f.url,
+        filename,
+        host: folder.host,
+        kind: f.direct ? "file" : "hoster",
+        ...(folder.hoster ? { hoster: folder.hoster } : {}),
+        ...(folder.slots !== undefined ? { slots: folder.slots } : {}),
+        ...(split ? { part: split.part } : /\.rar$/i.test(filename) ? { part: 1 } : {}),
+        state: "queued",
+        receivedBytes: 0,
+        totalBytes: f.size ?? null,
+        attempts: 0,
+      });
+    }
+    added.sort((a, b) => a.filename.localeCompare(b.filename) || (a.part ?? 0) - (b.part ?? 0));
+    const items = [...pkg.items.slice(0, index), ...added, ...pkg.items.slice(index + 1)];
+    const rename = opts.folderName && pkg.items.length === 1 && !pkg.items.some((i) => i.savePath);
+    return rename ? { ...pkg, name: opts.folderName!, dir: opts.join(opts.dirname(pkg.dir), safeName(opts.folderName!)), items } : { ...pkg, items };
+  });
+}
+
+/** The earliest time a waiting item goes back to the queue, or null. */
+export function nextWake(packages: readonly QueuePackage[]): number | null {
+  let next: number | null = null;
+  for (const p of packages) for (const i of p.items) if (i.state === "waiting" && i.retryAt !== undefined && (next === null || i.retryAt < next)) next = i.retryAt;
+  return next;
+}
+
+/** Waiting items whose time has come go back to the queue. */
+export function wakeWaiting(packages: readonly QueuePackage[], now: number): QueuePackage[] {
+  return packages.map((p) =>
+    p.items.some((i) => i.state === "waiting" && (i.retryAt ?? 0) <= now)
+      ? {
+          ...p,
+          items: p.items.map((i) => {
+            if (i.state !== "waiting" || (i.retryAt ?? 0) > now) return i;
+            const { retryAt: _retryAt, reason: _reason, ...rest } = i;
+            return { ...rest, state: "queued" as const };
+          }),
+        }
+      : p,
+  );
 }

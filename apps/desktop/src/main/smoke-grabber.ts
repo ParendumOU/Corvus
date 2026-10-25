@@ -55,6 +55,7 @@ export async function runGrabberSmoke(ctx: AppContext, h: GrabberSmokeHelpers): 
   const profile = win.profile;
   const ranges: string[] = [];
   const segRanges: string[] = [];
+  let busyHits = 0;
   const server = http.createServer((req, res) => {
     const route = (req.url ?? "/").split("?")[0] ?? "/";
     if (route === "/seg/Large.bin") {
@@ -125,6 +126,32 @@ export async function runGrabberSmoke(ctx: AppContext, h: GrabberSmokeHelpers): 
       req.on("close", () => clearInterval(timer));
       return;
     }
+    // A file host's pages: one with its download link, one whose file is busy at first, one behind a CAPTCHA.
+    if (route === "/host/page42" || route === "/host/busy") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      const file = route === "/host/busy" ? "/busy/Busy.bin" : "/files/Hosted.zip";
+      res.end(`<!doctype html><title>File host</title><a href="/">Home</a> <a class="btn" href="${file}">Download</a>`);
+      return;
+    }
+    if (route === "/busy/Busy.bin") {
+      busyHits++;
+      if (busyHits === 1) {
+        res.writeHead(503, { "Retry-After": "1", "Content-Type": "text/plain" }).end("busy");
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/octet-stream" }).end("corvus busy host file\n");
+      return;
+    }
+    if (route === "/host/captcha") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<!doctype html><title>Prove you're human</title><div class="g-recaptcha" data-sitekey="smoke"></div>
+        <button id="go" onclick="location.href='/dl/Captcha.zip'">Download</button>`);
+      return;
+    }
+    if (route === "/dl/Captcha.zip") {
+      res.writeHead(200, { "Content-Type": "application/zip", "Content-Disposition": 'attachment; filename="Captcha.zip"' }).end("corvus file after the captcha\n");
+      return;
+    }
     if (route === "/grab") {
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(`<!doctype html><title>Release thread</title><body>
@@ -182,6 +209,16 @@ export async function runGrabberSmoke(ctx: AppContext, h: GrabberSmokeHelpers): 
       "link grabber: the chip puts the copied links in the grabber",
       other?.links.map((l) => l.part).join() === "1,2" && other.passwords.join() === "other-pw" && ctx.grabber.copiedLinks() === 0,
       other,
+    );
+    clipboard.writeText(`Get it: ${base}/files/Copied.zip`);
+    await ctx.grabber.pollClipboard();
+    await poll(win.chrome.webContents, "document.querySelector('[data-copied-queue]') !== null");
+    await win.chrome.webContents.executeJavaScript("document.querySelector('[data-copied-queue]')?.click()");
+    const copiedDone = await waitFor(() => ctx.queue.list(profile).packages.find((p) => p.name === "Copied" && p.items[0]?.state === "done"), 15_000);
+    check(
+      "link grabber: the chip's Download sends the copied links straight to the queue",
+      copiedDone !== undefined && !ctx.grabber.list(profile).some((p) => p.name === "Copied") && ctx.grabber.copiedLinks() === 0,
+      copiedDone?.items,
     );
     ctx.settings.update({ downloads: { watchClipboard: false } });
 
@@ -300,6 +337,60 @@ export async function runGrabberSmoke(ctx: AppContext, h: GrabberSmokeHelpers): 
       { asks: asks?.extraction, asksShown, opened: opened?.extraction, saved: ctx.settings.get().downloads.archivePasswords },
     );
     ctx.settings.update({ downloads: { deleteArchives: false, archivePasswords: [] } });
+
+    // ------------------------------------------------------------------ file host pages, in the background
+    const tabsBefore = win.listTabs().length;
+    const hostedCount = ctx.grabber.queueLinks(win, [`${base}/host/page42`], `${base}/thread`);
+    const hosted = await waitFor(() => ctx.queue.list(profile).packages.flatMap((p) => p.items).find((i) => i.url.endsWith("/host/page42") && i.state === "done"), 15_000);
+    check(
+      "download queue: a page link is resolved in the background (no tab) into its file, which downloads",
+      hostedCount === 1 &&
+        hosted?.kind === "hoster" &&
+        hosted.filename === "Hosted.zip" &&
+        hosted.resolved?.url === `${base}/files/Hosted.zip` &&
+        fs.readFileSync(hosted.savePath ?? "", "utf8") === "corvus grabber smoke /files/Hosted.zip\n" &&
+        win.listTabs().length === tabsBefore,
+      hosted,
+    );
+
+    ctx.grabber.queueLinks(win, [`${base}/host/busy`], `${base}/thread`);
+    const busyItem = () => ctx.queue.list(profile).packages.flatMap((p) => p.items).find((i) => i.url.endsWith("/host/busy"));
+    const waited = await waitFor(() => busyItem()?.state === "waiting", 10_000);
+    const busyDone = await waitFor(() => (busyItem()?.state === "done" ? busyItem() : undefined), 15_000);
+    check(
+      "download queue: a host that answers 503 Retry-After makes the file wait, then it downloads",
+      waited === true && busyDone !== undefined && busyHits === 2 && fs.readFileSync(busyDone.savePath ?? "", "utf8") === "corvus busy host file\n",
+      { waited, busyHits, item: busyItem() },
+    );
+
+    ctx.grabber.queueLinks(win, [`${base}/host/captcha`], `${base}/thread`);
+    const captchaItem = () => ctx.queue.list(profile).packages.flatMap((p) => p.items).find((i) => i.url.endsWith("/host/captcha"));
+    const needs = await waitFor(() => (captchaItem()?.state === "attention" ? captchaItem() : undefined), 10_000);
+    const flagged = await poll(win.chrome.webContents, "document.querySelector('[data-downloads-button].attention') !== null");
+    await grabber.view.webContents.executeJavaScript("location.hash = ''");
+    const openShown = await poll(grabber.view.webContents, "document.querySelector('[data-queue-open-page]') !== null && document.body.innerText.includes('CAPTCHA')");
+    await capture("download-queue-needs-you", grabber.view.webContents);
+    await grabber.view.webContents.executeJavaScript("document.querySelector('[data-queue-open-page]')?.click()");
+    const hostTab = await waitFor(() => win.listTabs().find((t) => t.url === `${base}/host/captcha`));
+    const pageError = await grabber.view.webContents.executeJavaScript("document.querySelector('.notice.error')?.innerText ?? null").catch(() => null);
+    const hostWc = hostTab ? win.getTab(hostTab.id)?.view.webContents : undefined;
+    if (hostWc) await poll(hostWc, "document.getElementById('go') !== null");
+    // The person solves the CAPTCHA and presses the page's button.
+    await hostWc?.executeJavaScript("document.getElementById('go').click()");
+    const fromPage = await waitFor(() => (captchaItem()?.state === "done" ? captchaItem() : undefined), 15_000);
+    check(
+      "download queue: a page behind a CAPTCHA needs the person; Open page, and what the page downloads lands in the queue item",
+      needs?.reason === "captcha" &&
+        flagged &&
+        openShown &&
+        hostTab !== undefined &&
+        fromPage?.filename === "Captcha.zip" &&
+        fs.readFileSync(fromPage.savePath ?? "", "utf8") === "corvus file after the captcha\n" &&
+        path.dirname(fromPage.savePath ?? "") === ctx.queue.list(profile).packages.find((p) => p.items.some((i) => i.id === fromPage.id))?.dir &&
+        !ctx.downloads.list(profile).some((d) => d.filename === "Captcha.zip"),
+      { needs, flagged, openShown, tab: hostTab?.url ?? null, tabs: win.listTabs().map((t) => t.url), pageError, fromPage: fromPage ?? captchaItem() },
+    );
+    if (hostTab) win.closeTab(hostTab.id);
 
     for (const p of ctx.queue.list(profile).packages) ctx.queue.act(profile, p.id, "remove");
     win.closeTab(grabber.id);

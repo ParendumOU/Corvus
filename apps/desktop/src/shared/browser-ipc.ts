@@ -44,6 +44,18 @@ export interface DownloadsSummary {
   progress: number | null;
   /** A download needs a decision (e.g. a program requested by an AI agent). */
   attention: boolean;
+  /** Corvus's download queue, while it has files left. */
+  queue: QueueSummary | null;
+}
+
+export interface QueueSummary {
+  /** Files not finished yet (failed ones aside). */
+  left: number;
+  running: number;
+  /** Files whose host needs the person (a CAPTCHA, a sign-in). */
+  attention: number;
+  /** Progress of the files left (0..1), null when sizes are unknown. */
+  progress: number | null;
 }
 
 export interface BrowserWindowExtras {
@@ -108,6 +120,8 @@ export interface BrowserChromeRpc {
   "downloads.openPage"(): void;
   /** The copied-links chip: put them in the link grabber and open it, or dismiss them. */
   "grabber.grabCopied"(): number;
+  /** The chip's "Download": the copied links go straight to the download queue. */
+  "grabber.queueCopied"(): number;
   "grabber.dismissCopied"(): void;
   /** The default-browser bar: Make default, Not now, Don't ask again. */
   "defaultBrowser.answer"(choice: DefaultBrowserAnswer): MakeDefaultResult | null;
@@ -130,6 +144,8 @@ export interface BrowserInternalRpc {
   "grabber.addText"(text: string): number;
   "grabber.remove"(ids: string[]): void;
   "grabber.clear"(): void;
+  /** Watching the clipboard for download links: the setting, changed when `on` is given. */
+  "grabber.watchClipboard"(on?: boolean): boolean;
   /** Starts packages or links (by id) and takes them out of the grabber; returns how many started. */
   "grabber.download"(ids: string[]): number;
   /** "Download with AI": Corvus's agent finds the real files of these packages or links and queues them. */
@@ -147,6 +163,8 @@ export interface BrowserInternalRpc {
   "queue.clearDone"(): void;
   /** Extracts a finished package's archives now, trying the password first when one is given. */
   "queue.extract"(id: string, password?: string): void;
+  /** Opens the page of a file that needs the person; what it downloads goes to that queue item. */
+  "queue.openPage"(id: string): void;
   "sitePermissions.list"(): SitePermissionEntry[];
   "sitePermissions.set"(origin: string, kind: PermissionKind, decision: PermissionDecision | null): SitePermissionEntry[];
   "sitePermissions.reset"(origin: string): SitePermissionEntry[];

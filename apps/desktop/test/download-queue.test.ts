@@ -84,7 +84,7 @@ describe("download queue", () => {
     expect(reviveQueue(list)[0]?.items.map((i) => i.state)).toEqual(["queued", "done"]);
     expect(movePackage(list, "B", -1).map((p) => p.id)).toEqual(["B", "A"]);
     expect(movePackage(list, "A", -1).map((p) => p.id)).toEqual(["A", "B"]);
-    expect(packageProgress(list[0]!)).toEqual({ received: 150, total: 200, done: 1, failed: 0, running: 1, count: 2 });
+    expect(packageProgress(list[0]!)).toEqual({ received: 150, total: 200, done: 1, failed: 0, running: 1, waiting: 0, attention: 0, count: 2 });
   });
 
   it("measures speed and time left", () => {

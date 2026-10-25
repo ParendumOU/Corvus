@@ -7,6 +7,7 @@ import { containerPartition } from "../shared/containers";
 import { ContainerStore } from "./containers";
 import { CredentialVault } from "./credential-store";
 import { ExtensionHost, type ExtensionWindowDelegate } from "./extensions";
+import { registerCommandApis, registerDownloadApis, registerExtensionApis, registerSessionApis, registerSidePanelApis, registerTabGroupApis } from "./extension-apis";
 import { KeePassStore } from "./keepass-store";
 import { LoginSources, vaultProvider } from "./login-sources";
 import { PermissionManager, type PermissionHost } from "./permissions";
@@ -141,6 +142,13 @@ export class ProfileRuntime {
     const keepassLogins = this.keepass.provider();
     this.logins = new LoginSources(() => [vaultLogins, keepassLogins]);
     this.extensions = new ExtensionHost(profile.id, this.session, dataDir, delegate);
+    // chrome.bookmarks and chrome.history for extensions, over this profile's stores.
+    registerExtensionApis(this.extensions, this.bookmarks, this.history);
+    if (delegate.tabGroups) registerTabGroupApis(this.extensions, delegate.tabGroups(profile.id));
+    if (delegate.sessions) registerSessionApis(this.extensions, delegate.sessions(profile.id));
+    if (delegate.sidePanels) registerSidePanelApis(this.extensions, delegate.sidePanels(profile.id));
+    if (delegate.downloads) registerDownloadApis(this.extensions, delegate.downloads(profile.id));
+    registerCommandApis(this.extensions, process.platform);
     this.adblock = new AdblockController(dataDir);
     this.containers = new ContainerStore(dataDir);
     // Extensions that filter requests keep doing it unless the built-in blocker, whose own

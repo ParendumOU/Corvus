@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { hosterFor } from "../../shared/hosters";
 import type { GrabbedLink, GrabbedPackage } from "../../shared/link-grabber";
 import { errorMessage, internalApi } from "../common/api";
 import { IconAgent, IconClose, IconDownload, IconTrash } from "../common/icons";
@@ -9,7 +10,8 @@ type GrabberCall = "grabber.download" | "grabber.downloadWithAi" | "grabber.remo
 
 function kindLabel(link: GrabbedLink): string {
   if (link.part !== undefined) return t("part {part}", { part: link.part });
-  return link.kind === "hoster" ? t("file host page") : t("file");
+  if (link.kind !== "hoster") return t("file");
+  return hosterFor(link.url)?.name ?? t("page");
 }
 
 function PackageCard({ pkg, act }: { pkg: GrabbedPackage; act: (call: GrabberCall, ids: string[]) => void }) {
@@ -70,6 +72,9 @@ export function GrabberView() {
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [watching, setWatching] = useState<boolean | null>(null);
+  useEffect(() => void api.call("grabber.watchClipboard").then(setWatching), [api]);
+  const toggleWatch = (on: boolean): void => void api.call("grabber.watchClipboard", on).then(setWatching);
 
   const load = useCallback(() => void api.call("grabber.list").then(setPackages), [api]);
   useEffect(() => {
@@ -117,7 +122,13 @@ export function GrabberView() {
         />
         <div className="inline">
           <button className="btn small" disabled={!text.trim()} data-grab-add onClick={addText}>{t("Add links")}</button>
-          <span className="muted small">{t("Or right-click a tab and choose Grab download links. With \"Offer copied download links\" on in Settings, links you copy show up in the toolbar.")}</span>
+          <span className="muted small grow">{t("Or right-click a link (Add link to download queue), a selection or a tab (Grab download links).")}</span>
+          {watching !== null && (
+            <label className="inline small grab-watch" title={t("Corvus looks at what you copy for download links (file hosts, archives) and offers them in the toolbar. Nothing else is kept.")}>
+              <input type="checkbox" data-grab-watch checked={watching} onChange={(e) => toggleWatch(e.target.checked)} />
+              {t("Detect links I copy")}
+            </label>
+          )}
         </div>
       </div>
       {notice && <div className="notice">{notice}</div>}
@@ -131,7 +142,7 @@ export function GrabberView() {
       )}
       {packages && all.length === 0 && (
         <div className="card">
-          <div className="empty">{t("No links waiting. Grab them from a page, paste them above, or copy them with the clipboard offer on.")}</div>
+          <div className="empty">{t("No links waiting. Grab them from a page, paste them above, or copy them with “Detect links I copy” on.")}</div>
         </div>
       )}
       {all.map((pkg) => (

@@ -1,8 +1,9 @@
 // Preload for extension contexts (MV3 service workers and chrome-extension:// pages), registered
-// BEFORE electron-chrome-extensions' preload: that one freezes `chrome`, so namespaces Corvus adds
-// (bookmarks, history, tabGroups, sessions, search, sidePanel) must exist by then. Calls and events
-// travel over electron-chrome-extensions' own IPC ("crx-msg", "crx-add-listener"), whose router in
-// the main process checks the manifest permission of every call (see main/extension-apis.ts).
+// BEFORE electron-chrome-extensions' preload: that one freezes `chrome`, so what Corvus adds
+// (bookmarks, history, tabGroups, sessions, sidePanel, tabs.group) must exist by then.
+// Calls and events travel over electron-chrome-extensions' own IPC ("crx-msg", "crx-add-listener"),
+// whose router in the main process checks the manifest permission of every call (see
+// main/extension-apis.ts).
 import { contextBridge, ipcRenderer } from "electron";
 import { EXTENSION_API_BRIDGE } from "../shared/extension-manifest";
 
@@ -103,7 +104,6 @@ if (isWorker || (typeof location !== "undefined" && location.protocol === "chrom
             Color: { GREY: "grey", BLUE: "blue", RED: "red", YELLOW: "yellow", GREEN: "green", PINK: "pink", PURPLE: "purple", CYAN: "cyan", ORANGE: "orange" },
           }),
         sessions: () => ns("sessions", ["getRecentlyClosed", "getDevices", "restore"], ["onChanged"], { MAX_SESSION_RESULTS: 25 }),
-        search: () => ns("search", ["query"], [], { Disposition: { CURRENT_TAB: "CURRENT_TAB", NEW_TAB: "NEW_TAB", NEW_WINDOW: "NEW_WINDOW" } }),
         sidePanel: () => ns("sidePanel", ["setOptions", "getOptions", "setPanelBehavior", "getPanelBehavior", "open", "close"], ["onOpened", "onClosed"]),
       };
       for (const [name, build] of Object.entries(namespaces)) {
@@ -112,6 +112,19 @@ if (isWorker || (typeof location !== "undefined" && location.protocol === "chrom
           Object.defineProperty(chrome, name, { value: build(), enumerable: true, configurable: true });
         } catch (err) {
           console.error(`Corvus: chrome.${name} unavailable`, err);
+        }
+      }
+      // chrome.tabs.group / ungroup need no permission in Chrome. electron-chrome-extensions builds
+      // chrome.tabs on top of the object it finds here, so they survive it.
+      const tabs = chrome.tabs as Record<string, unknown> | undefined;
+      if (tabs && typeof tabs.group !== "function") {
+        try {
+          // Every own property of the native object (enumerable or not), as the library spreads it.
+          const copy: Record<string, unknown> = {};
+          for (const key of Object.getOwnPropertyNames(tabs)) copy[key] = tabs[key];
+          Object.defineProperty(chrome, "tabs", { value: { ...copy, group: fn("tabs.group"), ungroup: fn("tabs.ungroup") }, enumerable: true, configurable: true });
+        } catch (err) {
+          console.error("Corvus: chrome.tabs.group unavailable", err);
         }
       }
     },

@@ -33,6 +33,8 @@ import type { ExtensionError, ExtensionInfo, ToolbarExtension } from "../shared/
 import { JsonFile } from "./json-file";
 import { paths } from "./paths";
 import { tr } from "./menu-i18n";
+import type { DownloadsAccess, SessionsAccess, SidePanelAccess, TabGroupAccess } from "./extension-apis";
+import { activeShortcuts, matchesShortcut } from "../shared/extension-commands";
 
 type Manifest = ManifestLike & Record<string, unknown>;
 
@@ -61,6 +63,14 @@ export interface ExtensionWindowDelegate {
   describeTab(webContents: WebContents): TabPlacement | null;
   windowOf(webContents: WebContents): BaseWindow | null;
   extensionsChanged(profileId: string): void;
+  /** chrome.tabGroups over the profile's windows (absent: the API stays unanswered). */
+  tabGroups?(profileId: string): TabGroupAccess;
+  /** chrome.sessions over the profile's windows and sync (absent: the API stays unanswered). */
+  sessions?(profileId: string): SessionsAccess;
+  /** chrome.sidePanel's docked views (absent: the API stays unanswered). */
+  sidePanels?(profileId: string): SidePanelAccess;
+  /** chrome.downloads over the profile's download list (absent: the library's stubs answer). */
+  downloads?(profileId: string): DownloadsAccess;
 }
 
 export interface InstallRequest {
@@ -737,6 +747,20 @@ export class ExtensionHost {
   /** Sends an extension event to one extension (only delivered if it listens for it). */
   sendTo(extensionId: string, event: string, ...args: unknown[]): void {
     (this.router() as RouterInternals & { sendEvent(id: string, event: string, ...args: unknown[]): void }).sendEvent(extensionId, event, ...args);
+  }
+
+  /**
+   * The extension command a key press triggers (the window checks Corvus's own shortcuts first,
+   * and activeShortcuts leaves out the ones that clash with them).
+   */
+  commandForInput(input: Electron.Input): { extensionId: string; name: string } | null {
+    if (input.type !== "keyDown" || !(input.control || input.alt || input.meta)) return null;
+    for (const ext of this.session.extensions.getAllExtensions()) {
+      for (const c of activeShortcuts(ext.manifest, process.platform)) {
+        if (matchesShortcut(input, c.shortcut)) return { extensionId: ext.id, name: c.name };
+      }
+    }
+    return null;
   }
 
   /** Called by the window layer after a window's tabs or groups changed. */

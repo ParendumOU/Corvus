@@ -56,7 +56,7 @@ describe("permission warnings", () => {
 
 describe("manifest helpers", () => {
   it("flags permissions Corvus does not implement", () => {
-    expect(unsupportedPermissions({ permissions: ["storage", "history", "bookmarks", "tabs", "sidePanel", "userScripts", "tts", "https://a.com/*"] })).toEqual([
+    expect(unsupportedPermissions({ permissions: ["storage", "history", "bookmarks", "tabGroups", "tabs", "sidePanel", "userScripts", "tts", "https://a.com/*"] })).toEqual([
       "userScripts",
       "tts",
     ]);

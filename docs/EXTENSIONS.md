@@ -60,9 +60,13 @@ Probed in a live MV3 worker (`typeof chrome.<ns>`), plus the library sources.
 | `action` / `browserAction` | library | badges, titles, popups; `setIcon` with `imageData` unsupported in MV3 |
 | `declarativeNetRequest` | native | dynamic/session rules and small static rulesets block; large rulesets (uBO Lite) do not (open issue) |
 | `alarms`, `idle`, `offscreen`, `management` (read), `webRequest` | native | `webRequest` is shadowed when the app sets `session.webRequest` handlers |
-| `contextMenus`, `notifications`, `cookies`, `permissions`, `webNavigation`, `commands` (`getAll` only) | library | no keyboard shortcuts for `commands` |
-| `downloads`, `privacy`, `topSites` | stubs | calls resolve without effect |
-| `history`, `bookmarks`, `sessions`, `tabGroups`, `sidePanel`, `userScripts`, `fontSettings`, `proxy`, `identity`, `search`, `tts`, `system.*`, `declarativeContent` | missing | `typeof` is `undefined`; the extension card lists the ones a manifest asks for |
+| `contextMenus`, `notifications`, `cookies`, `permissions`, `webNavigation` | library | |
+| `commands` | library + Corvus | the manifest's suggested shortcuts work in tabs and the browser bar (Ctrl is Command on macOS); a shortcut Corvus already uses stays Corvus's and `getAll` reports it empty; `_execute_action` opens the toolbar button; global shortcuts are not offered |
+| `bookmarks`, `history`, `tabGroups` + `tabs.group`/`ungroup`, `sessions`, `sidePanel` | Corvus | over the profile's own bookmarks, history, tab groups, recently closed tabs and other devices' tabs from sync, and a side panel docked on the right under a bar with the extension's name and ✕ (one per window; `openPanelOnActionClick` makes the toolbar button toggle it) (all methods; events for changes made anywhere: the person, sync, an extension); extensions may bookmark or add http(s), ftp and file addresses only; `history.getVisits` returns the last visit Corvus keeps |
+| `downloads` | Corvus | over the profile's download list: `download` (GET only; `filename` stays inside the downloads folder), `search`, `pause`/`resume`/`cancel`, `erase`, `show`, `showDefaultFolder`, `getFileIcon`, and `onCreated`/`onChanged`/`onErased` for every download; programs an extension asks for wait for the person like an agent's, `acceptDanger` is refused, `open` (needs `downloads.open`) never opens a program; `removeFile` and `onDeterminingFilename` are not supported |
+| `topSites` | Corvus | the most visited sites from the profile's history |
+| `privacy` | stubs | calls resolve without effect |
+| `userScripts`, `fontSettings`, `proxy`, `identity`, `search`, `tts`, `system.*`, `declarativeContent` | missing | `typeof` is `undefined`; the extension card lists the ones a manifest asks for |
 
 ## Known gaps vs Chrome
 
@@ -74,8 +78,7 @@ Probed in a live MV3 worker (`typeof chrome.<ns>`), plus the library sources.
   `googlesyndication.com`/`doubleclick.net` load, also from a real site. A 1-rule static ruleset
   blocks fine, so large static rulesets are likely not indexed (or exceed a rule budget Electron does
   not allocate). Candidate for a Corvus-side DNR engine on `session.webRequest` or the Chromium fork.
-- No `chrome.sidePanel`, `userScripts`, `history`, `bookmarks`, `tabGroups`: Bitwarden's side panel,
-  uBO Lite's custom filters and history/bookmark managers lose those features.
+- No `chrome.userScripts`: uBO Lite's custom filters and userscript managers lose that feature.
 - `activeTab` grants are not tracked; extensions rely on their host permissions.
 - `options_ui` always opens in a tab (no embedded dialog); `windows.create({type: "popup"})`
   opens a normal window.

@@ -2,26 +2,31 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import type { ProfileId } from "@corvus/shared";
+import { Notification, type DownloadItem } from "electron";
+import type { ProfileId, TabId } from "@corvus/shared";
 import {
   DEFAULT_LIMITS,
   MAX_ATTEMPTS,
   SpeedMeter,
   applyQueueAction,
   etaSeconds,
+  expandFolder,
   extractionState,
   filenameFromDisposition,
   isChecksumFile,
   movePackage,
   nextToStart,
+  nextWake,
   packageComplete,
   packageProgress,
   parseChecksums,
   planSegments,
   queueFromGrabbed,
   reviveQueue,
+  safeFileName,
   segmentsReceived,
   shouldAutoExtract,
+  wakeWaiting,
   type ArchiveResult,
   type ChecksumAlgorithm,
   type PackageExtraction,
@@ -34,18 +39,27 @@ import {
 import { archiveSets, cleanPasswords, passwordCandidates, type ArchiveSet } from "../shared/archives";
 import { agentPackages, describeAgentLinks, parseAgentDownloadRequest, splitAgentLinks, type AgentDownloadRequest } from "../shared/download-ai";
 import { isExecutableFilename, uniqueFilename } from "../shared/downloads";
-import type { GrabbedPackage } from "../shared/link-grabber";
+import type { HosterReason } from "../shared/hosters";
+import { filenameOf, looksLikeFile, type GrabbedPackage } from "../shared/link-grabber";
 import { askNativeApproval, type NativeApproval } from "./approval-dialog";
 import { SevenZipProcess, extractArchive } from "./archive-extractor";
+import type { QueueSummary } from "../shared/browser-ipc";
 import type { AppContext } from "./context";
+import { resolveLink } from "./hosters";
+import { megaDecryptor } from "./hosters/mega";
+import { sessionNet } from "./hosters/session-net";
+import type { MegaCipher } from "./hosters/types";
 import { JsonFile } from "./json-file";
 import type { ProfileRuntime } from "./profiles";
 import { tr } from "./menu-i18n";
+import type { BrowserWindowCtl } from "./window";
 
 interface ProfileQueue {
   runtime: ProfileRuntime;
   file: JsonFile<QueuePackage[]>;
   notifyTimer: NodeJS.Timeout | null;
+  /** Wakes the items a file host made wait. */
+  wakeTimer: NodeJS.Timeout | null;
 }
 
 interface Running {
@@ -56,6 +70,45 @@ interface Running {
 
 /** A failure retrying cannot fix (the download stops at once). */
 class FatalDownloadError extends Error {}
+
+/** A hoster link's file address stopped working: it is looked up again. */
+class LinkExpiredError extends Error {}
+
+/** The file host asks to come back later. */
+class HostWaitError extends Error {
+  constructor(
+    readonly seconds: number,
+    readonly reason: HosterReason,
+  ) {
+    super("The file host asks to wait");
+  }
+}
+
+/** A hoster link's file address is looked up again after this long (they expire). */
+const RESOLVED_TTL_MS = 20 * 60 * 1000;
+
+/** What the notification says when a file host needs the person (the downloads page words them the same). */
+const REASON_TEXT: Record<HosterReason, string> = {
+  captcha: "The free download needs a CAPTCHA",
+  challenge: "The site checks that you're a person",
+  login: "The file host asks you to sign in",
+  premium: "Only premium accounts can download this file",
+  password: "The file has a password",
+  protector: "The links are behind a link protector",
+  page: "Corvus didn't find the file on the page",
+  expired: "The download from the page stopped",
+  limit: "Free download limit reached",
+  quota: "The host's transfer quota is used up for now",
+  countdown: "The host makes free downloads wait",
+  busy: "The host is busy",
+  offline: "The file is no longer on the host",
+};
+
+/** Seconds in a Retry-After header, when it has a number. */
+function retryAfter(res: Response): number | null {
+  const n = Number(res.headers.get("retry-after"));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 6 * 3600) : null;
+}
 
 /** What an AI agent's queued downloads became. */
 export interface AgentQueueResult {
@@ -112,13 +165,16 @@ export class DownloadQueue {
   private extractor: SevenZipProcess | null = null;
   /** Smoke tests answer the "AI agent wants to download" dialog. */
   private testApprover: ((approval: NativeApproval) => boolean) | null = null;
+  /** Tabs opened with "Open page": what they download goes to that queue item. */
+  private readonly pageTabs = new Map<TabId, { profileId: ProfileId; itemId: string }>();
+  private lastAsk = 0;
 
   constructor(private readonly ctx: AppContext) {}
 
   private entry(runtime: ProfileRuntime): ProfileQueue {
     let entry = this.profiles.get(runtime.profile.id);
     if (!entry) {
-      entry = { runtime, file: JsonFile.load(path.join(runtime.dataDir, "download-queue.json"), () => [], revive, 500), notifyTimer: null };
+      entry = { runtime, file: JsonFile.load(path.join(runtime.dataDir, "download-queue.json"), () => [], revive, 500), notifyTimer: null, wakeTimer: null };
       this.profiles.set(runtime.profile.id, entry);
     }
     return entry;
@@ -126,7 +182,9 @@ export class DownloadQueue {
 
   /** Resumes what was queued when Corvus last closed. */
   attach(runtime: ProfileRuntime): void {
-    this.pump(this.entry(runtime));
+    const entry = this.entry(runtime);
+    this.pump(entry);
+    this.scheduleWake(entry);
   }
 
   private limits(): typeof DEFAULT_LIMITS {
@@ -145,6 +203,23 @@ export class DownloadQueue {
         return { ...p, progress, speed, eta: etaSeconds(progress.received, progress.total, speed), archives: packageArchives(p).length };
       }),
       speeds,
+    };
+  }
+
+  /** The toolbar's view of the queue, null when nothing is left to download. */
+  summary(runtime: ProfileRuntime): QueueSummary | null {
+    const left = this.entry(runtime)
+      .file.get()
+      .flatMap((p) => p.items)
+      .filter((i) => i.state !== "done" && i.state !== "failed");
+    if (left.length === 0) return null;
+    const sized = left.every((i) => i.totalBytes !== null && i.totalBytes > 0);
+    const total = left.reduce((n, i) => n + (i.totalBytes ?? 0), 0);
+    return {
+      left: left.length,
+      running: left.filter((i) => i.state === "running").length,
+      attention: left.filter((i) => i.state === "attention").length,
+      progress: sized && total > 0 ? left.reduce((n, i) => n + i.receivedBytes, 0) / total : null,
     };
   }
 
@@ -241,6 +316,9 @@ export class DownloadQueue {
         id: i.id,
         name: i.filename,
         state: i.state,
+        ...(i.hoster ? { host: i.hoster } : {}),
+        ...(i.reason ? { reason: REASON_TEXT[i.reason] } : {}),
+        ...(i.state === "waiting" && i.retryAt ? { secondsToWait: Math.max(0, Math.ceil((i.retryAt - Date.now()) / 1000)) } : {}),
         received: i.receivedBytes,
         total: i.totalBytes,
         ...(i.error ? { error: i.error } : {}),
@@ -261,6 +339,7 @@ export class DownloadQueue {
     const { packages, stop } = applyQueueAction(before, id, action);
     entry.file.set(packages);
     for (const itemId of stop) this.running.get(itemId)?.abort.abort();
+    this.scheduleWake(entry);
     // A removed download that never finished leaves no part file behind.
     for (const item of removed) {
       if (item.state !== "done" && item.savePath) fs.rm(`${item.savePath}.part`, { force: true }, () => undefined);
@@ -319,14 +398,20 @@ export class DownloadQueue {
     this.running.set(itemId, { abort, meter, profileId: entry.runtime.profile.id });
     let packageId: string | null = null;
     try {
-      const found = this.find(entry, itemId);
+      let found = this.find(entry, itemId);
       if (!found) return;
+      packageId = found.pkg.id;
+      const resolved = found.item.resolved;
+      if (found.item.kind === "hoster" && (!resolved || Date.now() - resolved.at > RESOLVED_TTL_MS)) {
+        // Waiting, needing the person, a folder's files queued instead, or gone: nothing to fetch now.
+        found = (await this.lookUp(entry, itemId, abort.signal)) ?? undefined;
+        if (!found) return;
+      }
       const { pkg, item } = found;
-      packageId = pkg.id;
       fs.mkdirSync(pkg.dir, { recursive: true });
       const savePath =
         item.segments && item.segments.length > 0 && item.savePath && item.totalBytes !== null
-          ? await this.fetchSegments(entry, itemId, item.url, item.savePath, item.segments, abort.signal, meter)
+          ? await this.fetchSegments(entry, itemId, item.resolved?.url ?? item.url, item.savePath, item.segments, abort.signal, meter, item.resolved?.mega)
           : await this.fetchFile(entry, pkg, itemId, abort.signal, meter);
       fs.renameSync(`${savePath}.part`, savePath);
       this.reserved.delete(savePath);
@@ -336,11 +421,16 @@ export class DownloadQueue {
       if (this.closing) return;
       const current = this.find(entry, itemId)?.item;
       // Paused or removed: the action already set the state.
-      if (current && current.state === "running") {
+      if (current && current.state === "running" && err instanceof HostWaitError) {
+        this.update(entry, itemId, { state: "waiting", retryAt: Date.now() + err.seconds * 1000, reason: err.reason });
+        this.scheduleWake(entry);
+      } else if (current && current.state === "running") {
         const attempts = current.attempts + 1;
         const message = abort.signal.aborted ? "Stopped" : err instanceof Error ? err.message : String(err);
+        // An expired file address is looked up again on the next try.
+        const expired = err instanceof LinkExpiredError ? { resolved: undefined } : {};
         if (attempts < MAX_ATTEMPTS && !abort.signal.aborted && !(err instanceof FatalDownloadError)) {
-          this.update(entry, itemId, { state: "paused", attempts, error: message });
+          this.update(entry, itemId, { ...expired, state: "paused", attempts, error: message });
           // Retry after a short wait (longer each time), from where it stopped.
           setTimeout(() => {
             const again = this.find(entry, itemId)?.item;
@@ -349,6 +439,9 @@ export class DownloadQueue {
               this.pump(entry);
             }
           }, 2000 * attempts).unref();
+        } else if (err instanceof LinkExpiredError) {
+          this.update(entry, itemId, { ...expired, state: "attention", reason: "page", attempts, error: message });
+          this.askPerson(entry, itemId);
         } else {
           this.update(entry, itemId, { state: "failed", attempts, error: message });
         }
@@ -370,10 +463,13 @@ export class DownloadQueue {
    */
   private async fetchFile(entry: ProfileQueue, pkg: QueuePackage, itemId: string, signal: AbortSignal, meter: SpeedMeter): Promise<string> {
     const item = this.find(entry, itemId)!.item;
+    const url = item.resolved?.url ?? item.url;
+    const mega = item.resolved?.mega;
     let savePath = item.savePath;
     const offset = savePath && fs.existsSync(`${savePath}.part`) ? fs.statSync(`${savePath}.part`).size : 0;
     // Asking for a range from the start tells whether the server serves ranges at all.
-    const res = await entry.runtime.session.fetch(item.url, { headers: { Range: `bytes=${offset}-` }, signal });
+    const res = await entry.runtime.session.fetch(url, { headers: { Range: `bytes=${offset}-` }, signal });
+    if (item.kind === "hoster") await this.checkHostAnswer(res);
     if (!res.ok) throw new Error(`The server answered ${res.status}`);
     const ranged = res.status === 206;
     if (!savePath) {
@@ -390,16 +486,17 @@ export class DownloadQueue {
     const total = ranged ? totalFromRange(res.headers.get("content-range")) : Number.isFinite(length) && length > 0 ? length : null;
 
     const wanted = this.ctx.settings.get().downloads.segments;
-    if (ranged && offset === 0 && total !== null && wanted > 1) {
+    if (ranged && offset === 0 && total !== null && wanted > 1 && !item.resolved?.single) {
       const segments = planSegments(total, wanted);
       if (segments.length > 1) {
         this.update(entry, itemId, { savePath, filename: path.basename(savePath), totalBytes: total, receivedBytes: 0, segments });
-        return this.fetchSegments(entry, itemId, item.url, savePath, segments, signal, meter, res);
+        return this.fetchSegments(entry, itemId, url, savePath, segments, signal, meter, mega, res);
       }
     }
 
     const resumed = ranged && offset > 0;
     let received = resumed ? offset : 0;
+    const decrypt = mega ? megaDecryptor(mega, received) : null;
     this.update(entry, itemId, { savePath, filename: path.basename(savePath), totalBytes: total, receivedBytes: received });
     this.notify(entry);
     const out = fs.createWriteStream(`${savePath}.part`, { flags: resumed ? "a" : "w" });
@@ -410,7 +507,7 @@ export class DownloadQueue {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (!out.write(value)) await new Promise<void>((r) => out.once("drain", () => r()));
+        if (!out.write(decrypt ? decrypt(value) : value)) await new Promise<void>((r) => out.once("drain", () => r()));
         received += value.byteLength;
         const now = Date.now();
         meter.add(value.byteLength, now);
@@ -441,6 +538,7 @@ export class DownloadQueue {
     planned: readonly Segment[],
     signal: AbortSignal,
     meter: SpeedMeter,
+    mega?: MegaCipher,
     first?: Response,
   ): Promise<string> {
     const part = `${savePath}.part`;
@@ -463,6 +561,7 @@ export class DownloadQueue {
       let pos = seg.start + seg.received;
       const res = index === 0 && first && pos === 0 ? first : await entry.runtime.session.fetch(url, { headers: { Range: `bytes=${pos}-${seg.end}` }, signal: local.signal });
       if (res !== first && res.status !== 206) throw new Error(`The server stopped serving byte ranges (${res.status})`);
+      const decrypt = mega ? megaDecryptor(mega, pos) : null;
       const reader = res.body?.getReader();
       if (!reader) throw new Error("The server sent no file");
       for (;;) {
@@ -470,7 +569,8 @@ export class DownloadQueue {
         if (done) break;
         // The first response is open-ended: keep only this range's bytes.
         const chunk = value.byteLength > seg.end - pos + 1 ? value.subarray(0, seg.end - pos + 1) : value;
-        await fh.write(chunk, 0, chunk.byteLength, pos);
+        const data = decrypt ? decrypt(chunk) : chunk;
+        await fh.write(data, 0, data.byteLength, pos);
         pos += chunk.byteLength;
         seg.received += chunk.byteLength;
         meter.add(chunk.byteLength, Date.now());
@@ -492,6 +592,183 @@ export class DownloadQueue {
       save(true);
     }
     return savePath;
+  }
+
+  /**
+   * Finds the file behind a hoster link (through the profile's session, so the person's sign-ins
+   * count). Returns the item ready to fetch, or null when it waits, needs the person, became its
+   * folder's files, or is gone (its state says which).
+   */
+  private async lookUp(entry: ProfileQueue, itemId: string, signal: AbortSignal): Promise<{ pkg: QueuePackage; item: QueueItem } | null> {
+    const item = this.find(entry, itemId)!.item;
+    this.update(entry, itemId, { resolving: true });
+    this.notify(entry);
+    let result;
+    try {
+      result = await resolveLink(item.url, sessionNet(entry.runtime.session, signal));
+    } finally {
+      this.update(entry, itemId, { resolving: undefined });
+    }
+    if (signal.aborted) throw new Error("Stopped");
+    switch (result.type) {
+      case "file": {
+        const current = this.find(entry, itemId)?.item;
+        if (!current) return null;
+        const named = result.filename ?? (looksLikeFile(result.url) ? filenameOf(result.url) : undefined);
+        this.update(entry, itemId, {
+          resolved: { url: result.url, at: Date.now(), ...(result.mega ? { mega: result.mega } : {}), ...(result.segments === false ? { single: true } : {}) },
+          // The host's name for the file, unless saving it already started under another.
+          ...(named && !current.savePath ? { filename: safeFileName(named) } : {}),
+          ...(result.size !== undefined && current.totalBytes === null ? { totalBytes: result.size } : {}),
+          reason: undefined,
+        });
+        return this.find(entry, itemId) ?? null;
+      }
+      case "folder":
+        entry.file.set(
+          expandFolder(entry.file.get(), itemId, result.entries, {
+            newId: () => crypto.randomUUID(),
+            ...(result.name ? { folderName: result.name } : {}),
+            join: path.join,
+            dirname: path.dirname,
+          }),
+        );
+        return null;
+      case "wait":
+        this.update(entry, itemId, { state: "waiting", retryAt: Date.now() + result.seconds * 1000, reason: result.reason });
+        this.scheduleWake(entry);
+        return null;
+      case "attention":
+        this.update(entry, itemId, { state: "attention", reason: result.reason });
+        this.askPerson(entry, itemId);
+        return null;
+      case "offline":
+        this.update(entry, itemId, { state: "failed", reason: "offline", error: REASON_TEXT.offline });
+        return null;
+    }
+  }
+
+  /** A hoster's file address that answers "wait", "gone" or with a page instead of the file. */
+  private async checkHostAnswer(res: Response): Promise<void> {
+    const drop = (): Promise<void> => res.body?.cancel().catch(() => undefined) ?? Promise.resolve();
+    if (res.status === 429 || res.status === 503 || res.status === 509) {
+      await drop();
+      throw new HostWaitError(retryAfter(res) ?? (res.status === 509 ? 30 * 60 : 60), res.status === 509 ? "quota" : "busy");
+    }
+    if (res.status === 401 || res.status === 403 || res.status === 404 || res.status === 410) {
+      await drop();
+      throw new LinkExpiredError(`The file host answered ${res.status}`);
+    }
+    const type = res.headers.get("content-type") ?? "";
+    if (res.ok && /text\/html/i.test(type) && !/attachment/i.test(res.headers.get("content-disposition") ?? "")) {
+      await drop();
+      throw new LinkExpiredError("The file host sent a page instead of the file");
+    }
+  }
+
+  /** Puts the items whose wait is over back in the queue, at the right time. */
+  private scheduleWake(entry: ProfileQueue): void {
+    if (entry.wakeTimer) clearTimeout(entry.wakeTimer);
+    entry.wakeTimer = null;
+    const at = nextWake(entry.file.get());
+    if (at === null || this.closing) return;
+    entry.wakeTimer = setTimeout(() => {
+      entry.wakeTimer = null;
+      entry.file.set(wakeWaiting(entry.file.get(), Date.now()));
+      this.pump(entry);
+      this.notify(entry);
+      this.scheduleWake(entry);
+    }, Math.min(Math.max(0, at - Date.now()), 2 ** 31 - 1));
+    entry.wakeTimer.unref();
+  }
+
+  /** A file host needs the person: a notification when Corvus is in the background (at most one a minute). */
+  private askPerson(entry: ProfileQueue, itemId: string): void {
+    const item = this.find(entry, itemId)?.item;
+    const windows = this.ctx.windows.forProfile(entry.runtime.profile.id);
+    if (!item || windows.some((w) => !w.win.isDestroyed() && w.win.isFocused()) || !Notification.isSupported() || Date.now() - this.lastAsk < 60_000) return;
+    this.lastAsk = Date.now();
+    const n = new Notification({ title: tr("A file host needs you"), body: `${item.hoster ?? item.host}: ${tr(REASON_TEXT[item.reason ?? "page"])}` });
+    n.on("click", () => {
+      const win = windows.find((w) => !w.win.isDestroyed());
+      if (!win) return;
+      win.win.show();
+      win.win.focus();
+      win.openSingleton("corvus://downloads/");
+    });
+    n.show();
+  }
+
+  /**
+   * "Open page" on a file that needs the person: its page opens in a tab, and the download the
+   * page starts there (or in a tab it opens) lands in the queue item, in the package's folder.
+   */
+  openPage(win: BrowserWindowCtl, itemId: string): void {
+    const found = this.find(this.entry(win.profile), itemId);
+    if (!found) throw new Error("No such file in the queue");
+    const tab = win.createTab(found.item.url, { activate: true });
+    this.pageTabs.set(tab.id, { profileId: win.profile.profile.id, itemId });
+  }
+
+  /** The browser started a download in a tab opened with "Open page": the queue takes it. */
+  claimDownload(runtime: ProfileRuntime, win: BrowserWindowCtl, tabId: TabId, download: DownloadItem): boolean {
+    const opener = win.openerOf(tabId);
+    const link = this.pageTabs.get(tabId) ?? (opener ? this.pageTabs.get(opener) : undefined);
+    if (!link || link.profileId !== runtime.profile.id) return false;
+    const entry = this.entry(runtime);
+    const found = this.find(entry, link.itemId);
+    if (!found || found.item.state === "done" || found.item.state === "running") return false;
+    const { pkg, item } = found;
+    const name = safeFileName(download.getFilename() || item.filename);
+    // Programs for an AI agent's package go through the browser's own check instead.
+    if (pkg.addedBy && isExecutableFilename(name)) return false;
+    for (const [tab, l] of this.pageTabs) if (l.itemId === item.id) this.pageTabs.delete(tab);
+    fs.mkdirSync(pkg.dir, { recursive: true });
+    const savePath = path.join(pkg.dir, uniqueFilename(name, (n) => this.reserved.has(path.join(pkg.dir, n)) || fs.existsSync(path.join(pkg.dir, n))));
+    this.reserved.add(savePath);
+    download.setSavePath(savePath);
+    const abort = new AbortController();
+    const meter = new SpeedMeter();
+    abort.signal.addEventListener("abort", () => download.cancel());
+    this.running.set(item.id, { abort, meter, profileId: runtime.profile.id });
+    this.update(entry, item.id, {
+      state: "running",
+      inPage: true,
+      reason: undefined,
+      error: undefined,
+      retryAt: undefined,
+      segments: undefined,
+      savePath,
+      filename: path.basename(savePath),
+      receivedBytes: 0,
+      totalBytes: download.getTotalBytes() || null,
+    });
+    let last = 0;
+    download.on("updated", () => {
+      const received = download.getReceivedBytes();
+      meter.add(Math.max(0, received - last), Date.now());
+      last = received;
+      this.update(entry, item.id, { receivedBytes: received, totalBytes: download.getTotalBytes() || null });
+      this.notify(entry);
+    });
+    download.once("done", (_event, state) => {
+      this.running.delete(item.id);
+      this.reserved.delete(savePath);
+      const current = this.find(entry, item.id)?.item;
+      if (current && state === "completed") {
+        const size = fs.existsSync(savePath) ? fs.statSync(savePath).size : download.getReceivedBytes();
+        this.update(entry, item.id, { state: "done", inPage: undefined, receivedBytes: size, totalBytes: size, finishedAt: Date.now(), attempts: 0 });
+      } else if (current && current.state === "running") {
+        this.update(entry, item.id, { state: "attention", inPage: undefined, reason: "expired" });
+      } else if (current) {
+        this.update(entry, item.id, { inPage: undefined });
+      }
+      this.pump(entry);
+      this.notify(entry);
+      void this.finishPackage(entry, pkg.id);
+    });
+    this.notify(entry);
+    return true;
   }
 
   /**
@@ -595,17 +872,21 @@ export class DownloadQueue {
     }
   }
 
-  /** Refresh corvus://downloads at most a few times a second. */
+  /** Refresh corvus://downloads and the toolbar's downloads button at most a few times a second. */
   private notify(entry: ProfileQueue): void {
     if (entry.notifyTimer) return;
     entry.notifyTimer = setTimeout(() => {
       entry.notifyTimer = null;
-      for (const w of this.ctx.windows.forProfile(entry.runtime.profile.id)) w.notifyInternalPages({ type: "downloads-changed" }, ["downloads"]);
+      for (const w of this.ctx.windows.forProfile(entry.runtime.profile.id)) {
+        w.notifyInternalPages({ type: "downloads-changed" }, ["downloads"]);
+        w.pushState();
+      }
     }, 250);
   }
 
   flush(): void {
     this.closing = true;
+    for (const entry of this.profiles.values()) if (entry.wakeTimer) clearTimeout(entry.wakeTimer);
     for (const r of this.running.values()) r.abort.abort();
     this.extractor?.close();
     for (const entry of this.profiles.values()) entry.file.flush();

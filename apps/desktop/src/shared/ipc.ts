@@ -99,7 +99,9 @@ export type ChromeCommand =
   | { type: "open-workspaces" }
   | BrowserChromeCommand
   | AssistChromeCommand
-  | { type: "extensions-changed" };
+  | { type: "extensions-changed" }
+  /** An extension's _execute_action shortcut: open its toolbar button (popup or onClicked). */
+  | { type: "activate-extension"; extensionId: string };
 
 export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceChromeRpc, WatchChromeRpc, ReaderChromeRpc, CommandBarChromeRpc, AutofillChromeRpc, SemanticSearchChromeRpc, FlowChromeRpc {
   "ui.setTabLayout"(layout: TabLayout): void;

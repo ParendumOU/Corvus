@@ -1,5 +1,57 @@
 # Changelog
 
+## v0.19.0
+
+### Downloads
+- **File hosts download in the background**: links to MEGA, MediaFire, Google Drive, Dropbox,
+  OneDrive, WeTransfer, Gofile, Pixeldrain, Yandex Disk, SourceForge, 1fichier, KrakenFiles,
+  SendSpace, Solidfiles, BuzzHeavier and the hosts built on XFileSharing (Send.cm, Katfile,
+  DDownload and others) no longer open tabs: the download queue finds the file behind each page
+  and downloads it with the rest of the package, with its progress in corvus://downloads. Folder
+  links (MEGA, MediaFire, Google Drive, Gofile, Pixeldrain lists, OneDrive) become their files, in
+  a package named after the folder. MEGA files are decrypted as they arrive, and the parts of a
+  large one can come in parallel.
+- **Waits and limits**: when a host asks to wait (a countdown, a free-download limit, MEGA's
+  transfer quota, "busy, retry later"), the file waits in the queue with the time left and starts
+  again on its own. Free hosts get one file at a time.
+- **When a host needs you**: a CAPTCHA, a sign-in, a password or a premium-only file puts the file
+  on **Needs you** with the reason; **Open page** opens its page, and what you download there lands
+  in that file's place in the queue. A notification tells you when Corvus is in the background.
+  Sites you are signed in to (premium accounts) work as in the browser. Corvus never solves
+  CAPTCHAs.
+- **Any page, from its menu**: right-click a link and choose **Add link to download queue**
+  (Corvus finds the file on the page it leads to), or right-click a selection and choose
+  **Grab download links in selection**. Shorteners that lead to a known host are followed.
+- **Copied links**: the toolbar offer for copied download links has **Download** (straight to the
+  queue), and the link grabber has **Detect links I copy** to turn it on or off where you use it.
+- **The toolbar's downloads button** shows the queue too: its progress, the files left, and the
+  ones that need you.
+- Fixed: a file host's page named like an archive part (`….part1.rar.html`) was downloaded as if it
+  were the archive.
+
+### Extensions
+- **`chrome.bookmarks` and `chrome.history`**: extensions that ask for them (bookmark and history
+  managers, tab savers) now work in Corvus, over the profile's own bookmarks and history, with
+  Chrome's events for changes made anywhere (by you, by sync or by an extension). Extensions may
+  bookmark or add web and file addresses only, never `javascript:` bookmarklets.
+- **`chrome.tabGroups` and `chrome.tabs.group` / `ungroup`**: tab managers can group, name, color,
+  collapse and move Corvus's tab groups and hear about their changes. Groups keep Chrome's colors.
+- **`chrome.sessions`**: recently closed tabs (restore reopens them where they were) and the tabs
+  open on your other devices when sync is on.
+- **`chrome.sidePanel`**: an extension's side panel (Bitwarden, AI sidebars, notes) docks on the
+  right of the window under a bar with its name and ✕; its toolbar button opens and closes it when
+  the extension asks for that.
+- **Extension keyboard shortcuts** (`chrome.commands`): the shortcuts an extension suggests work
+  in Corvus (its toolbar button for `_execute_action`, `onCommand` for the rest), unless Corvus
+  already uses that key; `commands.getAll` says which ones work.
+- **`chrome.downloads`**: download managers and "save all" extensions now work: what they start
+  lands in your downloads list and folder (under the name they suggest, never outside the folder),
+  and they can pause, resume, cancel, search and clear downloads and hear about them. A program an
+  extension asks for waits for you, like one an agent asks for, and extensions never open programs.
+- **`chrome.topSites`** answers with your most visited sites (it failed before).
+- Extensions that ask for `search` now see it as missing (and the extension card lists it) instead
+  of finding an API that never answered.
+
 ## v0.18.0
 
 ### Faster and smaller

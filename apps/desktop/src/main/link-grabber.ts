@@ -13,6 +13,21 @@ const CLIPBOARD_POLL_MS = 1500;
 const MAX_PACKAGES = 500;
 const MAX_LINKS_PER_GRAB = 2000;
 
+/** Runs in the page (isolated world): the links and text of the selection. */
+const COLLECT_SELECTION = `(() => {
+  const sel = getSelection();
+  if (!sel || sel.rangeCount === 0) return { links: [], text: '' };
+  const links = [];
+  for (let i = 0; i < sel.rangeCount; i++) {
+    const range = sel.getRangeAt(i);
+    const root = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+    const own = root && root.closest ? root.closest('a[href]') : null;
+    if (own) links.push(own.href);
+    if (root) for (const a of root.querySelectorAll('a[href]')) if (sel.containsNode(a, true)) links.push(a.href);
+  }
+  return { links: links.filter((h) => /^https?:/i.test(h)).slice(0, ${MAX_LINKS_PER_GRAB}), text: String(sel).slice(0, 200000) };
+})()`;
+
 /** Runs in the page (isolated world): every link's address, and the page text for passwords. */
 const COLLECT_LINKS = `(() => {
   const links = Array.from(document.querySelectorAll('a[href]'), (a) => a.href).filter((h) => /^https?:/i.test(h)).slice(0, ${MAX_LINKS_PER_GRAB});
@@ -73,6 +88,29 @@ export class LinkGrabber {
     return this.add(win.profile, links, tab.url, typeof page?.text === "string" ? page.text : "");
   }
 
+  /**
+   * The download links in the page's selection (links and addresses written in it) go to the
+   * grabber; returns how many new links were added.
+   */
+  async grabSelection(win: BrowserWindowCtl, tabId: string): Promise<number> {
+    const tab = win.getTab(tabId);
+    const wc = tab?.view.webContents;
+    if (!tab || !wc || wc.isDestroyed()) return 0;
+    const picked = (await wc.executeJavaScriptInIsolatedWorld(990, [{ code: COLLECT_SELECTION }]).catch(() => null)) as { links?: unknown; text?: unknown } | null;
+    const text = typeof picked?.text === "string" ? picked.text : "";
+    const links = Array.isArray(picked?.links) ? picked.links.filter((l): l is string => typeof l === "string") : [];
+    return this.add(win.profile, [...links, ...downloadLinksIn(text)], tab.url, text);
+  }
+
+  /**
+   * Links the person picked (a link's menu, the toolbar offer): straight to the download queue,
+   * which finds the file behind a file host's page (or any page) in the background.
+   */
+  queueLinks(win: BrowserWindowCtl, urls: readonly string[], source: string, text = ""): number {
+    const packages = buildPackages(urls, { source, text, now: Date.now(), newId: () => crypto.randomUUID(), all: true });
+    return this.ctx.queue.addGrabbed(win.profile, packages);
+  }
+
   /** Grabs the download links of pasted or copied text. */
   addText(runtime: ProfileRuntime, text: string, source = "clipboard"): number {
     return this.add(runtime, downloadLinksIn(text), source, text);
@@ -97,22 +135,17 @@ export class LinkGrabber {
   }
 
   /**
-   * Starts the chosen packages or links and takes them out of the grabber. File links go to the
-   * download queue as packages; a hoster page opens in a background tab, where its real download
-   * starts.
+   * Starts the chosen packages or links and takes them out of the grabber: all of them go to the
+   * download queue, which finds the file behind each file host's page in the background.
    */
   download(win: BrowserWindowCtl, ids: readonly string[]): number {
     const pick = new Set(ids);
     const chosen: GrabbedPackage[] = [];
-    let started = 0;
     for (const pkg of this.list(win.profile)) {
       const links = pkg.links.filter((l) => pick.has(pkg.id) || pick.has(l.id));
-      if (links.length === 0) continue;
-      for (const link of links) if (link.kind === "hoster") win.createTab(link.url, { activate: false });
-      started += links.filter((l) => l.kind === "hoster").length;
-      chosen.push({ ...pkg, links });
+      if (links.length > 0) chosen.push({ ...pkg, links });
     }
-    started += this.ctx.queue.addGrabbed(win.profile, chosen);
+    const started = this.ctx.queue.addGrabbed(win.profile, chosen);
     if (chosen.length > 0) this.remove(win.profile, ids);
     return started;
   }
@@ -164,6 +197,17 @@ export class LinkGrabber {
   /** How many download links the copied text has (the toolbar chip), 0 when none. */
   copiedLinks(): number {
     return this.copied?.links.length ?? 0;
+  }
+
+  /** "Download" on the chip: the copied links go straight to the queue. */
+  queueCopied(win: BrowserWindowCtl): number {
+    const copied = this.copied;
+    this.copied = null;
+    this.pushChrome();
+    if (!copied) return 0;
+    const count = this.queueLinks(win, copied.links, "clipboard", copied.text);
+    win.openSingleton("corvus://downloads/");
+    return count;
   }
 
   /** The chip was clicked: the copied links go to the grabber, which opens. */

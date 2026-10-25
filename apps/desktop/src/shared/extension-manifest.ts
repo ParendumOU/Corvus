@@ -164,9 +164,9 @@ export const SUPPORTED_APIS: ReadonlySet<string> = new Set([
   "history",
   "tabGroups",
   "sessions",
-  "search",
   "sidePanel",
   "topSites",
+  "downloads",
   // Web platform permissions granted through the session permission handler
   "clipboardWrite",
   "clipboardRead",

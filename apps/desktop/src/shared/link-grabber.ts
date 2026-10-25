@@ -4,7 +4,9 @@
  * package, and picks up archive passwords written next to the links ("Password: abc").
  * Pure, so the rules are unit tested.
  */
+import { isHosterDownloadLink } from "./hosters";
 
+/** "hoster": a file host's page (or any page added by hand), resolved into its file by the queue. */
 export type LinkKind = "file" | "archive-part" | "hoster";
 
 export interface GrabbedLink {
@@ -28,34 +30,6 @@ export interface GrabbedPackage {
   passwords: string[];
   addedAt: number;
 }
-
-/** Hosts that serve files from a landing page (the real file link appears there, often after a wait). */
-const HOSTERS = [
-  "mega.nz",
-  "mega.io",
-  "mediafire.com",
-  "1fichier.com",
-  "rapidgator.net",
-  "rg.to",
-  "nitroflare.com",
-  "turbobit.net",
-  "katfile.com",
-  "ddownload.com",
-  "uptobox.com",
-  "filefactory.com",
-  "pixeldrain.com",
-  "gofile.io",
-  "krakenfiles.com",
-  "send.cm",
-  "uploadhaven.com",
-  "workupload.com",
-  "drive.google.com",
-  "dropbox.com",
-  "onedrive.live.com",
-  "1drv.ms",
-  "we.tl",
-  "wetransfer.com",
-];
 
 const FILE_EXT =
   /\.(zip|rar|7z|tar|gz|tgz|bz2|xz|zst|iso|img|dmg|exe|msi|apk|deb|rpm|appimage|pdf|epub|mobi|cbz|cbr|mp3|flac|wav|ogg|m4a|mp4|mkv|avi|mov|webm|wmv|m4v|ts|jpg|jpeg|png|gif|webp|psd|docx?|xlsx?|pptx?|csv|srt|torrent|bin|cue|sfv|md5|sha256)$/i;
@@ -92,7 +66,9 @@ function hostOf(url: URL): string {
 export function filenameOf(raw: string): string {
   try {
     const url = new URL(raw);
-    const last = url.pathname.split("/").filter(Boolean).pop() ?? "";
+    const segments = url.pathname.split("/").filter(Boolean);
+    // MediaFire: /file/<key>/<name>/file
+    const last = (segments.length >= 3 && segments[segments.length - 1] === "file" && segments[0] === "file" ? segments[segments.length - 2] : segments.pop()) ?? "";
     let name = decodeURIComponent(last);
     if (/\.(html?|php)$/i.test(name) && FILE_EXT.test(name.replace(/\.(html?|php)$/i, ""))) name = name.replace(/\.(html?|php)$/i, "");
     return name.slice(0, 255);
@@ -110,12 +86,18 @@ export function classifyLink(raw: string): LinkKind | null {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  // A hoster page named like an archive part is still a page: the queue resolves it first.
+  if (isHosterDownloadLink(raw)) return "hoster";
   const name = filenameOf(raw);
   if (splitArchive(name)) return "archive-part";
-  const host = hostOf(url);
-  if (HOSTERS.some((h) => host === h || host.endsWith(`.${h}`))) return "hoster";
   if (FILE_EXT.test(name)) return "file";
   return null;
+}
+
+/** The address ends in a file name (an archive part or a known file type). */
+export function looksLikeFile(raw: string): boolean {
+  const name = filenameOf(raw);
+  return Boolean(splitArchive(name)) || FILE_EXT.test(name);
 }
 
 /** Web addresses in free text, trailing punctuation removed, in order, without repeats. */
@@ -151,6 +133,8 @@ export interface GrabOptions {
   text?: string;
   now: number;
   newId: () => string;
+  /** Links the person picked one by one: an ordinary page is kept, and the queue looks for its file. */
+  all?: boolean;
 }
 
 /**
@@ -163,7 +147,7 @@ export function buildPackages(urls: readonly string[], opts: GrabOptions): Grabb
   const packages = new Map<string, GrabbedPackage>();
   const seen = new Set<string>();
   for (const raw of urls) {
-    const kind = classifyLink(raw);
+    const kind = classifyLink(raw) ?? (opts.all && /^https?:\/\//i.test(raw) ? "hoster" : null);
     if (!kind || seen.has(raw)) continue;
     seen.add(raw);
     const url = new URL(raw);

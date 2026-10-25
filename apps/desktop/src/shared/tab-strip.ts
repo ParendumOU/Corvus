@@ -326,6 +326,10 @@ export function computeDropTarget(
 }
 
 export interface ClosedTab {
+  /** Stable id (chrome.sessions restores by it). */
+  id?: string;
+  /** When it was closed (ms). */
+  closedAt?: number;
   url: string;
   title: string;
   index: number;

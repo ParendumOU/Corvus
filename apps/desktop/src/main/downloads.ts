@@ -11,6 +11,7 @@ import {
   isExecutableFilename,
   removeDownload,
   reviveDownloads,
+  safeDownloadPath,
   uniqueFilename,
   upsertDownload,
   type DownloadAction,
@@ -33,6 +34,19 @@ interface ProfileDownloads {
 
 export class DownloadError extends Error {}
 
+/** How long a download an extension asked for may take to start. */
+const EXTENSION_START_TIMEOUT_MS = 30_000;
+
+type DownloadListListener = (profileId: string, before: readonly DownloadRecord[], after: readonly DownloadRecord[]) => void;
+
+interface ExtensionRequest {
+  extensionId: string;
+  /** Relative path inside the downloads folder (safeDownloadPath). */
+  filename?: string;
+  saveAs: boolean;
+  resolve(id: string): void;
+}
+
 /**
  * Downloads for every profile session: save location (OS Downloads folder, a chosen folder or a
  * save dialog), progress, pause/resume/cancel, and a persisted per-profile list. Executables
@@ -43,10 +57,16 @@ export class DownloadManager {
   private readonly live = new Map<string, DownloadItem>();
   /** Save paths of running downloads, so concurrent downloads never pick the same name. */
   private readonly reserved = new Set<string>();
-  /** `${profileId}|${url}`: executables the user chose to keep after an agent requested them. */
-  private readonly approved = new Set<string>();
+  /**
+   * `${profileId}|${url}`: programs the user chose to keep after an agent (null) or an extension
+   * (its id) requested them.
+   */
+  private readonly approved = new Map<string, string | null>();
   /** URLs downloaded through "Save … as": always ask where to save. */
   private readonly saveAsUrls = new Set<string>();
+  /** `${profileId}|${url}`: downloads extensions asked for, until the browser starts them. */
+  private readonly extensionRequests = new Map<string, ExtensionRequest[]>();
+  private readonly listeners = new Set<DownloadListListener>();
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -69,6 +89,49 @@ export class DownloadManager {
     wc.downloadURL(url);
   }
 
+  /** Called with the profile's id and its list before and after every change. */
+  onChange(listener: DownloadListListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * chrome.downloads.download: starts a download for an extension and resolves with its id once
+   * the browser has started it (or held it back, for a program).
+   */
+  downloadForExtension(runtime: ProfileRuntime, extensionId: string, url: string, opts: { filename?: string; saveAs?: boolean } = {}): Promise<string> {
+    if (!/^(https?|ftp|data):/i.test(url)) return Promise.reject(new DownloadError("Invalid URL."));
+    const filename = opts.filename === undefined ? undefined : safeDownloadPath(opts.filename);
+    if (filename === null) return Promise.reject(new DownloadError("Invalid filename."));
+    const key = `${runtime.profile.id}|${url}`;
+    return new Promise<string>((resolve, reject) => {
+      const request: ExtensionRequest = {
+        extensionId,
+        ...(filename ? { filename } : {}),
+        saveAs: opts.saveAs === true,
+        resolve: (id) => {
+          clearTimeout(timer);
+          resolve(id);
+        },
+      };
+      const timer = setTimeout(() => {
+        const list = this.extensionRequests.get(key) ?? [];
+        this.extensionRequests.set(key, list.filter((r) => r !== request));
+        reject(new DownloadError("The download did not start."));
+      }, EXTENSION_START_TIMEOUT_MS);
+      this.extensionRequests.set(key, [...(this.extensionRequests.get(key) ?? []), request]);
+      runtime.session.downloadURL(url);
+    });
+  }
+
+  private takeExtensionRequest(profileId: string, url: string): ExtensionRequest | undefined {
+    const key = `${profileId}|${url}`;
+    const [first, ...rest] = this.extensionRequests.get(key) ?? [];
+    if (rest.length > 0) this.extensionRequests.set(key, rest);
+    else this.extensionRequests.delete(key);
+    return first;
+  }
+
   directory(): string {
     const chosen = this.ctx.settings.get().downloads.directory.trim();
     return chosen && path.isAbsolute(chosen) ? chosen : app.getPath("downloads");
@@ -89,6 +152,7 @@ export class DownloadManager {
       active: active.length,
       progress: active.length > 0 && known && total > 0 ? active.reduce((sum, d) => sum + d.receivedBytes, 0) / total : null,
       attention: recent.some((d) => d.state === "blocked"),
+      queue: this.ctx.queue.summary(runtime),
     };
   }
 
@@ -101,18 +165,29 @@ export class DownloadManager {
     const url = item.getURL();
     const filename = item.getFilename() || "download";
     const tab = wc && !wc.isDestroyed() ? this.ctx.windows.byTabWebContents(wc) : undefined;
-    if (maybeInterceptPdf(this.ctx, item, tab, this.saveAsUrls)) {
+    // A tab opened from the download queue ("Open page"): its download belongs to the queue.
+    if (tab && this.ctx.queue.claimDownload(runtime, tab.window, tab.tab.id, item)) return;
+    // Matched on the address the extension gave, before any redirect.
+    const request = [...new Set([...item.getURLChain(), url])].reduce<ExtensionRequest | undefined>((found, u) => found ?? this.takeExtensionRequest(runtime.profile.id, u), undefined);
+    if (!request && maybeInterceptPdf(this.ctx, item, tab, this.saveAsUrls)) {
       event.preventDefault();
       return;
     }
     const approvalKey = `${runtime.profile.id}|${url}`;
-    const approved = this.approved.delete(approvalKey);
-    const agent = approved || tab?.tab.agentControlled === true;
+    const approval = this.approved.get(approvalKey);
+    this.approved.delete(approvalKey);
+    const approved = approval !== undefined;
+    const agent = approval === null || tab?.tab.agentControlled === true;
+    const extensionId = request?.extensionId ?? approval ?? undefined;
+    // An extension may name the file, inside the downloads folder.
+    const suggested = request?.filename;
 
-    if (agent && !approved && isExecutableFilename(filename)) {
+    // Programs an agent or an extension asked for wait until the person keeps them.
+    if ((agent || request) && !approved && (isExecutableFilename(filename) || (suggested !== undefined && isExecutableFilename(path.basename(suggested))))) {
       event.preventDefault();
+      const blockedId = crypto.randomUUID();
       this.commit(runtime, {
-        id: crypto.randomUUID(),
+        id: blockedId,
         url,
         filename,
         savePath: "",
@@ -121,22 +196,26 @@ export class DownloadManager {
         receivedBytes: 0,
         state: "blocked",
         startedAt: Date.now(),
-        agent: true,
+        agent,
+        ...(extensionId ? { extensionId } : {}),
         canResume: false,
       });
+      request?.resolve(blockedId);
       const window = tab?.window ?? this.ctx.windows.forProfile(runtime.profile.id)[0];
       window?.sendCommand({ type: "open-downloads" });
       return;
     }
 
     const dir = this.directory();
-    const ask = this.saveAsUrls.delete(url) || this.ctx.settings.get().downloads.askWhereToSave;
+    const ask = this.saveAsUrls.delete(url) || request?.saveAs === true || this.ctx.settings.get().downloads.askWhereToSave;
     if (ask) {
-      item.setSaveDialogOptions({ defaultPath: path.join(dir, filename) });
+      item.setSaveDialogOptions({ defaultPath: path.join(dir, suggested ?? filename) });
     } else {
-      fs.mkdirSync(dir, { recursive: true });
-      const name = uniqueFilename(filename, (n) => this.reserved.has(path.join(dir, n)) || fs.existsSync(path.join(dir, n)));
-      item.setSavePath(path.join(dir, name));
+      const folder = suggested ? path.join(dir, path.dirname(suggested)) : dir;
+      fs.mkdirSync(folder, { recursive: true });
+      const base = suggested ? path.basename(suggested) : filename;
+      const name = uniqueFilename(base, (n) => this.reserved.has(path.join(folder, n)) || fs.existsSync(path.join(folder, n)));
+      item.setSavePath(path.join(folder, name));
     }
 
     const record: DownloadRecord = {
@@ -150,11 +229,13 @@ export class DownloadManager {
       state: "progressing",
       startedAt: Date.now(),
       agent,
+      ...(extensionId ? { extensionId } : {}),
       canResume: false,
     };
     this.live.set(record.id, item);
     if (record.savePath) this.reserved.add(record.savePath);
     this.commit(runtime, record);
+    request?.resolve(record.id);
 
     const snapshot = (): DownloadRecord => {
       const savePath = item.getSavePath();
@@ -193,7 +274,10 @@ export class DownloadManager {
 
   private mutate(runtime: ProfileRuntime, fn: (list: DownloadRecord[]) => DownloadRecord[]): void {
     const entry = this.entry(runtime);
-    entry.file.set(fn(entry.file.get()));
+    const before = entry.file.get();
+    const after = fn(before);
+    entry.file.set(after);
+    for (const l of this.listeners) l(runtime.profile.id, before, after);
     this.notify(entry);
   }
 
@@ -239,7 +323,7 @@ export class DownloadManager {
       case "keep":
         if (record.state !== "blocked") break;
         this.mutate(runtime, (list) => removeDownload(list, id));
-        this.approved.add(`${runtime.profile.id}|${record.url}`);
+        this.approved.set(`${runtime.profile.id}|${record.url}`, record.extensionId ?? null);
         runtime.session.downloadURL(record.url);
         break;
       case "retry":

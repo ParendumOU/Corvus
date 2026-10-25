@@ -107,6 +107,13 @@
 .queue-item.failed .sub {
   color: var(--danger);
 }
+.queue-item.attention .sub {
+  color: var(--warning);
+}
+.queue-hoster {
+  margin-left: 8px;
+  vertical-align: 1px;
+}
 .queue-item.done .title {
   color: var(--text-2);
 }

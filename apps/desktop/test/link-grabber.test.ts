@@ -31,7 +31,7 @@ describe("links", () => {
   it("knows file links, archive parts and file hosters, and leaves ordinary pages out", () => {
     expect(classifyLink("https://cdn.example/files/setup.exe")).toBe("file");
     expect(classifyLink("https://cdn.example/a/Movie.part2.rar?token=1")).toBe("archive-part");
-    expect(classifyLink("https://rapidgator.net/file/abc123/Movie.part1.rar.html")).toBe("archive-part");
+    expect(classifyLink("https://rapidgator.net/file/abc123/Movie.part1.rar.html")).toBe("hoster");
     expect(classifyLink("https://mega.nz/file/AbCd#key")).toBe("hoster");
     expect(classifyLink("https://www.mediafire.com/file/x/thing")).toBe("hoster");
     expect(classifyLink("https://news.example/article")).toBeNull();

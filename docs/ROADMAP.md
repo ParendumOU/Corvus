@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-25 · current release: **v0.18.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-25 · current release: **v0.19.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
 
 ---
 
@@ -113,6 +113,7 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Downloads & switching**
 - [x] Download manager: link grabber, package queue, parallel connections, checksums, and joining and extracting split archives with their password (v0.13.0); "Download with AI" and the `download_queue` MCP tools
+- [x] File hosts in the background (JDownloader-style): MEGA (decrypted), MediaFire, Google Drive, Dropbox, OneDrive, WeTransfer, Gofile, Pixeldrain, Yandex Disk, SourceForge, 1fichier, KrakenFiles and XFileSharing hosts resolved without tabs, folders expanded, waits honoured, CAPTCHAs left to the person through "Open page"; "Add link to download queue" in the page menu
 - [x] Default browser: register for web links and files, ask once per launch while it is not (v0.14.0)
 - [x] Import from Chrome, Edge, Brave, Opera, Vivaldi and Firefox: bookmarks, history, open tabs with their groups, passwords from a CSV, search shortcuts and the extensions list (Settings > Import, welcome). Cookies are not imported: people sign in again with their imported passwords
 
@@ -125,8 +126,8 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [~] Mobile companion: Corvus for mobile 0.3.0, an Android preview (pair with a computer, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, watched pages, notifications, English and Spanish); iOS once an Apple developer account is set up (docs/MOBILE.md)
 - [x] Evaluate Chromium fork vs Electron for full extension-API coverage: stay on Electron and add
       the missing APIs in Corvus: a fork costs builds, a security cadence and a port out of scale
-- [ ] Extension APIs Corvus adds itself: `bookmarks` + `history`, then `tabGroups` + `sessions`, a
-      `sidePanel` host, `commands` shortcuts and real `downloads`; DNR at scale only if needed
+- [~] Extension APIs Corvus adds itself: `bookmarks`, `history`, `tabGroups` + `tabs.group`, `sessions`,
+      `sidePanel`, `commands` shortcuts, `downloads` done; DNR at scale only if needed
 
 ---
 

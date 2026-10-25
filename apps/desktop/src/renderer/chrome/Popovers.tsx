@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import type { AdblockBarState } from "../../shared/adblock";
-import type { DownloadsSummary, PermissionPromptView, SiteInfo } from "../../shared/browser-ipc";
+import type { DownloadsSummary, PermissionPromptView, QueueSummary, SiteInfo } from "../../shared/browser-ipc";
 import { downloadActions, downloadProgress, downloadStatus, type DownloadAction, type DownloadRecord } from "../../shared/downloads";
 import { PERMISSION_LABELS, type PermissionDecision } from "../../shared/permissions";
 import type { WatchBarState } from "../../shared/watch-ipc";
@@ -292,7 +292,7 @@ export function DefaultBrowserBar() {
   );
 }
 
-/** Download links in the text just copied: one click puts them in the link grabber. */
+/** Download links in the text just copied: download them, look at them in the link grabber, or ask the AI. */
 export function CopiedLinksChip({ count }: { count: number }) {
   const api = chromeApi();
   if (count <= 0) return null;
@@ -301,6 +301,10 @@ export function CopiedLinksChip({ count }: { count: number }) {
       <button className="copied-links-main" title={t("Download links copied: add them to the link grabber")} onClick={() => void api.call("grabber.grabCopied")}>
         <IconSparkle size={14} />
         {count === 1 ? t("1 link") : t("{count} links", { count })}
+      </button>
+      <button className="copied-links-queue" data-copied-queue title={t("Download them now with Corvus's download queue")} onClick={() => void api.call("grabber.queueCopied")}>
+        <IconDownload size={13} />
+        {t("Download")}
       </button>
       <button className="copied-links-ai" title={t("Download with AI: Corvus finds the real files behind these links and queues them")} onClick={() => void api.call("grabber.downloadCopiedWithAi")}>
         <IconAgent size={13} />{t("AI")}</button>
@@ -312,16 +316,43 @@ export function CopiedLinksChip({ count }: { count: number }) {
 }
 
 export function DownloadsButton({ summary, onOpen }: { summary: DownloadsSummary; onOpen: (rect: DOMRect) => void }) {
-  if (summary.recent.length === 0) return null;
-  const ring = summary.active > 0 && summary.progress !== null ? summary.progress : null;
+  const queue = summary.queue;
+  if (summary.recent.length === 0 && !queue) return null;
+  const active = summary.active + (queue?.running ?? 0);
+  const ring = summary.active > 0 && summary.progress !== null ? summary.progress : queue && queue.running > 0 ? queue.progress : null;
+  const attention = summary.attention || (queue?.attention ?? 0) > 0;
   return (
     <button
-      className={`icon-btn downloads-btn ${summary.active > 0 ? "active" : ""} ${summary.attention ? "attention" : ""}`}
-      title={summary.active > 0 ? t("Downloads ({active} in progress)", { active: summary.active }) : t("Downloads")}
+      className={`icon-btn downloads-btn ${active > 0 ? "active" : ""} ${attention ? "attention" : ""}`}
+      data-downloads-button
+      title={active > 0 ? t("Downloads ({active} in progress)", { active }) : t("Downloads")}
       style={ring !== null ? ({ "--progress": `${Math.round(ring * 360)}deg` } as CSSProperties) : undefined}
       onClick={(e) => onOpen(e.currentTarget.getBoundingClientRect())}
     >
       <IconDownload size={17} />
+    </button>
+  );
+}
+
+/** The download queue in the downloads bubble: files left, progress, files that need the person. */
+function QueueRow({ queue, onOpen }: { queue: QueueSummary; onOpen: () => void }) {
+  const api = chromeApi();
+  const parts = [queue.left === 1 ? t("1 file left") : t("{n} files left", { n: queue.left })];
+  if (queue.running > 0 && queue.progress !== null) parts.push(`${Math.floor(queue.progress * 100)}%`);
+  return (
+    <button
+      className={`dl-queue-row ${queue.attention > 0 ? "attention" : ""}`}
+      data-bubble-queue
+      onClick={() => {
+        void api.call("downloads.openPage");
+        onOpen();
+      }}
+    >
+      <span className="grow">
+        <strong>{t("Download queue")}</strong>
+        <span className="muted small">{parts.join(" · ")}</span>
+      </span>
+      {queue.attention > 0 && <span className="pill">{queue.attention === 1 ? t("1 needs you") : t("{n} need you", { n: queue.attention })}</span>}
     </button>
   );
 }
@@ -331,7 +362,8 @@ export function DownloadsBubble({ summary, anchor, onClose }: { summary: Downloa
   return (
     <div className="popover downloads-bubble" role="dialog" aria-label={t("Recent downloads")} style={placement(anchor)} onMouseDown={stop}>
       <div className="popover-title">{t("Recent downloads")}</div>
-      {summary.recent.length === 0 ? (
+      {summary.queue && <QueueRow queue={summary.queue} onOpen={onClose} />}
+      {summary.recent.length === 0 && summary.queue ? null : summary.recent.length === 0 ? (
         <div className="muted small site-empty">{t("No downloads yet.")}</div>
       ) : (
         <ul className="dl-list">

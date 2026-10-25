@@ -17,8 +17,9 @@ if (isWorker || (typeof location !== "undefined" && location.protocol === "chrom
     func: (bridgeName: string) => {
       const g = globalThis as unknown as Record<string, unknown> & { chrome?: Record<string, unknown>; browser?: Record<string, unknown> };
       const { chrome, browser } = g;
-      // electron-chrome-extensions defines chrome.topSites as a stub returning []; `chrome` is
-      // frozen by now but the namespace object is not, so point get() at the Corvus history.
+      // electron-chrome-extensions defines chrome.topSites and chrome.downloads as stubs; `chrome`
+      // is frozen by now but the namespace objects are not, so point them at Corvus (topSites at the
+      // history, downloads at the download list; main/extension-apis.ts).
       const bridge = g[bridgeName] as { invoke(id: string, name: string, args: unknown[]): Promise<unknown> } | undefined;
       delete g[bridgeName];
       const runtime = chrome?.runtime as { id?: string; getManifest?: () => { permissions?: unknown } } | undefined;
@@ -32,6 +33,24 @@ if (isWorker || (typeof location !== "undefined" && location.protocol === "chrom
           result.then(callback, () => callback([]));
           return undefined;
         };
+      }
+      const downloads = chrome?.downloads as Record<string, unknown> | undefined;
+      if (bridge && runtime?.id && downloads && Array.isArray(permissions) && permissions.includes("downloads")) {
+        const id = runtime.id;
+        const methods = ["download", "search", "pause", "resume", "cancel", "erase", "open", "show", "showDefaultFolder", "getFileIcon", "acceptDanger", "removeFile", "setUiOptions"];
+        for (const name of methods) {
+          // An optional trailing callback, else a promise (like every chrome.* function).
+          downloads[name] = (...args: unknown[]) => {
+            const callback = typeof args[args.length - 1] === "function" ? (args.pop() as (result?: unknown) => void) : undefined;
+            const result = bridge.invoke(id, `downloads.${name}`, args);
+            if (!callback) return result;
+            result.then(callback, (err: unknown) => {
+              console.error(`downloads.${name}: ${(err as Error).message}`);
+              callback(undefined);
+            });
+            return undefined;
+          };
+        }
       }
       if (!chrome || !browser || chrome === browser) return;
       for (const key of Object.keys(chrome)) {

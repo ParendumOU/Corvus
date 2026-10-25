@@ -31,6 +31,7 @@ import { siteSearchUrl } from "../shared/site-search";
 import { pageBaseColor } from "../shared/page-base";
 import { homePageUrl } from "../shared/settings";
 import { commandForInput, type BrowserCommand } from "../shared/shortcuts";
+import { ACTION_COMMANDS } from "../shared/extension-commands";
 import { workspaceOpenPlan, type LiveTab } from "../shared/workspaces";
 import type { WorkspaceView } from "../shared/workspace-ipc";
 import {
@@ -85,6 +86,12 @@ const UNRESPONSIVE_GRACE_MS = 10_000;
 
 /** Width of an extension side panel (chrome.sidePanel) docked on the right. */
 const SIDE_PANEL_WIDTH = 360;
+
+/** A view docked on the right, which lays out its own children in the bounds it is given. */
+export interface DockedPanel {
+  view: View;
+  layout(bounds: { x: number; y: number; width: number; height: number }): void;
+}
 
 /** Vertical tabs: collapsed sidebar width, and the top band left for the window caption buttons. */
 const SIDEBAR_COLLAPSED_WIDTH = 52;
@@ -182,7 +189,7 @@ export class BrowserWindowCtl {
   private disposed = false;
   private readonly startMaximized: boolean;
   private readonly cleanups: Array<() => void> = [];
-  private sidePanel: WebContentsView | null = null;
+  private sidePanel: DockedPanel | null = null;
   /** Where keyboard focus belongs: the chrome UI or a shown tab (restored after a stray grab). */
   private lastFocused: WebContents | null = null;
   private focusRestoreQueued = false;
@@ -313,8 +320,12 @@ export class BrowserWindowCtl {
     // Right docks, outermost first: Corvus Assist panel, then an extension side panel inset to its left.
     const side = fullscreen ? 0 : this.ctx.assist.reservedWidth(this, width);
     const panel = this.sidePanel && !fullscreen ? Math.min(SIDE_PANEL_WIDTH, Math.floor((width - left - side) / 2)) : 0;
-    this.sidePanel?.setVisible(panel > 0);
-    this.sidePanel?.setBounds({ x: width - side - panel, y: top, width: panel, height: Math.max(0, height - top) });
+    this.sidePanel?.view.setVisible(panel > 0);
+    if (this.sidePanel) {
+      const bounds = { x: width - side - panel, y: top, width: panel, height: Math.max(0, height - top) };
+      this.sidePanel.view.setBounds(bounds);
+      this.sidePanel.layout(bounds);
+    }
     const content = { x: left, y: top, width: Math.max(0, width - left - side - panel), height: Math.max(0, height - top) };
     const active = this.activeTab();
     if (this.splitShown()) {
@@ -336,14 +347,19 @@ export class BrowserWindowCtl {
     this.layout();
   }
 
-  /** Docks an extension side panel on the right (null removes it). The caller owns the view. */
-  setSidePanel(view: WebContentsView | null): void {
-    if (this.disposed || view === this.sidePanel) return;
-    if (this.sidePanel) this.win.contentView.removeChildView(this.sidePanel);
-    this.sidePanel = view;
+  /** Docks an extension side panel on the right (null removes it). The caller owns its views. */
+  setSidePanel(panel: DockedPanel | null): void {
+    if (this.disposed || panel === this.sidePanel) return;
+    if (this.sidePanel) this.win.contentView.removeChildView(this.sidePanel.view);
+    this.sidePanel = panel;
     // Below the chrome UI so its popovers still cover the panel.
-    if (view) this.win.contentView.addChildView(view, 0);
+    if (panel) this.win.contentView.addChildView(panel.view, 0);
     this.layout();
+  }
+
+  /** The side panel docked in this window, if any. */
+  dockedPanel(): DockedPanel | null {
+    return this.sidePanel;
   }
 
   private applyTheme(): void {
@@ -651,6 +667,11 @@ export class BrowserWindowCtl {
 
   getTab(id: TabId): TabRuntime | undefined {
     return this.tabs.get(id);
+  }
+
+  /** The tab a tab was opened from (a link with target=_blank, window.open). */
+  openerOf(id: TabId): TabId | undefined {
+    return this.strip.tabs.find((t) => t.id === id)?.openerId;
   }
 
   hasTab(id: TabId): boolean {
@@ -1057,6 +1078,8 @@ export class BrowserWindowCtl {
     const entry = this.strip.tabs.find((t) => t.id === id);
     if (!isNewTabUrl(tab.url)) {
       this.closedTabs = pushClosed(this.closedTabs, {
+        id: nextId("c"),
+        closedAt: Date.now(),
         url: tab.url,
         title: tab.title,
         index: indexOfTab(this.strip, id),
@@ -1105,6 +1128,12 @@ export class BrowserWindowCtl {
   /** Recently closed tabs, oldest first. */
   recentlyClosed(): readonly ClosedTab[] {
     return this.closedTabs;
+  }
+
+  /** Reopens the closed tab with this id (chrome.sessions.restore). */
+  restoreClosedById(id: string): TabRuntime | undefined {
+    const index = this.closedTabs.findIndex((c) => c.id === id);
+    return index < 0 ? undefined : this.restoreClosed(index);
   }
 
   restoreClosed(index: number): TabRuntime | undefined {
@@ -1505,9 +1534,39 @@ export class BrowserWindowCtl {
 
   private onInput(event: Electron.Event, input: Input): void {
     const command = commandForInput(input, process.platform);
-    if (!command) return;
+    if (command) {
+      event.preventDefault();
+      this.runCommand(command);
+      return;
+    }
+    // Then extension shortcuts (chrome.commands), which never take one of Corvus's own.
+    const hit = this.profile.extensions.commandForInput(input);
+    if (!hit) return;
     event.preventDefault();
-    this.runCommand(command);
+    this.runExtensionCommand(hit.extensionId, hit.name);
+  }
+
+  /** An extension's shortcut: its toolbar button for _execute_action, else commands.onCommand. */
+  private runExtensionCommand(extensionId: string, name: string): void {
+    if (ACTION_COMMANDS.has(name)) {
+      this.sendCommand({ type: "activate-extension", extensionId });
+      return;
+    }
+    const active = this.activeTab();
+    const tab = active
+      ? {
+          id: active.view.webContents.id,
+          index: this.tabIds().indexOf(active.id),
+          windowId: this.win.id,
+          url: active.url,
+          title: active.title,
+          active: true,
+          highlighted: true,
+          pinned: this.isPinned(active.id),
+          incognito: false,
+        }
+      : undefined;
+    this.profile.extensions.sendTo(extensionId, "commands.onCommand", name, tab);
   }
 
   runCommand(command: BrowserCommand): void {

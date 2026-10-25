@@ -372,6 +372,11 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       },
       { type: "separator" },
       { label: tr("Save link as…"), enabled: isWebUrl(link), click: () => ctx.downloads.saveAs(wc, link) },
+      {
+        label: tr("Add link to download queue"),
+        enabled: isWebUrl(link) && !tab.agentControlled,
+        click: () => void ctx.grabber.queueLinks(win, [link], wc.getURL(), params.linkText),
+      },
       { label: tr("Copy link address"), click: () => clipboard.writeText(link) },
       { label: tr("Send link to your phone…"), enabled: /^https?:/i.test(link), click: () => void win.shareToPhone(link, params.linkText.trim() || link) },
       ...(params.linkText.trim() ? [{ label: tr("Copy link text"), click: () => clipboard.writeText(params.linkText.trim()) }] : []),
@@ -431,6 +436,12 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
     const short = selection.length > 32 ? `${selection.slice(0, 32)}…` : selection;
     if (!params.isEditable) items.push({ role: "copy", label: tr("Copy") });
     items.push({ label: tr("Search Corvus for “{text}”", { text: short }), click: () => win.createTab(searchUrl(selection.slice(0, 2000)), { openerId: tab.id }) });
+    if (!params.isEditable && /^https?:/i.test(wc.getURL()) && !tab.agentControlled) {
+      items.push({
+        label: tr("Grab download links in selection"),
+        click: () => void ctx.grabber.grabSelection(win, tab.id).then(() => win.openSingleton("corvus://downloads/#grabber")),
+      });
+    }
     items.push(
       { label: tr("Explain with Corvus Assist"), click: () => ctx.assist.runSelection(win, tab, "explain", selection) },
       { label: tr("Translate with Corvus Assist"), click: () => ctx.assist.runSelection(win, tab, "translate-selection", selection) },

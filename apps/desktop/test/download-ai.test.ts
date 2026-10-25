@@ -44,6 +44,11 @@ describe("agent packages", () => {
     ]);
   });
 
+  it("leaves a file host's file page to the queue to resolve", () => {
+    const [pkg] = agentPackages({ links: ["https://mega.nz/file/AbCdEfGh#key", "https://download7.mediafire.com/a/k/b.zip"], packageName: "Mix" }, { source: "x", now: 1, newId: ids });
+    expect(pkg!.links.map((l) => l.kind).sort()).toEqual(["file", "hoster"]);
+  });
+
   it("puts every link in one package when the agent names it", () => {
     const pkgs = agentPackages({ links: ["https://a.example/a.zip", "https://b.example/dl?id=7"], packageName: "Course" }, { source: "x", now: 1, newId: ids });
     expect(pkgs).toHaveLength(1);

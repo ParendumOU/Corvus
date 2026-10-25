@@ -97,6 +97,11 @@ export function ExtensionsToolbar({
     return api.onCommand((command) => {
       if (command.type === "extensions-changed") refresh();
       else if (command.type === "close-overlays") setMenu(null);
+      else if (command.type === "activate-extension") {
+        // The pinned button, else the extensions menu button, anchors the popup.
+        const button = document.querySelector(`.ext-action[data-extension-id="${CSS.escape(command.extensionId)}"]`) ?? puzzleRef.current;
+        if (button) activateRef.current(command.extensionId, anchorOf(button));
+      }
     });
   }, [api, refresh]);
 
@@ -118,6 +123,9 @@ export function ExtensionsToolbar({
   const activate = (id: string, anchor: AnchorRect): void => {
     void window.browserAction?.activate(partition, { eventType: "click", extensionId: id, tabId, alignment: "bottom left", anchorRect: anchor });
   };
+  // The command listener above is set up once; it activates with the current tab through this.
+  const activateRef = useRef(activate);
+  activateRef.current = activate;
   const openMenu = (id: string, x: number, y: number): void => void api.call("extensions.menu", id, x, y);
   const openUrl = (url: string): void => {
     setMenu(null);

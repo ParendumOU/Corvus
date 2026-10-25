@@ -16,6 +16,8 @@ export interface DownloadRecord {
   endedAt?: number;
   /** Started from a tab driven by an AI agent. */
   agent: boolean;
+  /** Started by an extension (chrome.downloads.download). */
+  extensionId?: string;
   canResume: boolean;
 }
 
@@ -157,7 +159,7 @@ export function downloadStatus(record: DownloadRecord): string {
     case "interrupted":
       return "Failed";
     case "blocked":
-      return "Blocked: an AI agent tried to download a program";
+      return record.extensionId ? "Blocked: an extension tried to download a program" : "Blocked: an AI agent tried to download a program";
   }
 }
 
@@ -176,4 +178,14 @@ export function downloadActions(record: DownloadRecord): DownloadAction[] {
     case "blocked":
       return ["keep", "discard"];
   }
+}
+
+/**
+ * A file name an extension suggests (chrome.downloads.download): a relative path inside the
+ * downloads folder ("reports/a.pdf"), or null when it is absolute, climbs out or is empty.
+ */
+export function safeDownloadPath(name: string): string | null {
+  const parts = name.replace(/\\/g, "/").split("/").filter((p) => p !== "" && p !== ".");
+  if (/^([a-z]:|\/)/i.test(name) || parts.length === 0 || parts.some((p) => p === ".." || /[<>:"|?*\u0000-\u001f]/.test(p))) return null;
+  return parts.join("/");
 }

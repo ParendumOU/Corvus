@@ -4,6 +4,7 @@
  * the task Corvus hands its own agent for "Download with AI". Pure, so the rules are unit tested.
  */
 import { isExecutableFilename } from "./downloads";
+import { isHosterDownloadLink } from "./hosters";
 import { filenameOf, splitArchive, type GrabbedLink, type GrabbedPackage } from "./link-grabber";
 
 export const MAX_AGENT_LINKS = 200;
@@ -57,9 +58,9 @@ function stripExtension(name: string): string {
 }
 
 /**
- * Packages for links an agent says are files. Unlike grabbed links, a file host's own address (a CDN
- * link of a hoster) counts as a file here: the agent already went through the host's page. The volumes
- * of one archive share a package; with a package name, every link goes into that one package.
+ * Packages for links an agent says are files. A file host's download server (a CDN link of a hoster)
+ * is a file; a host's file page (mega.nz/file/…) is resolved by the queue like a grabbed one. The
+ * volumes of one archive share a package; with a package name, every link goes into that one package.
  */
 export function agentPackages(request: AgentDownloadRequest, opts: { source: string; now: number; newId: () => string }): GrabbedPackage[] {
   const packages = new Map<string, GrabbedPackage>();
@@ -79,7 +80,8 @@ export function agentPackages(request: AgentDownloadRequest, opts: { source: str
       id: opts.newId(),
       url: raw,
       filename,
-      kind: split ? "archive-part" : "file",
+      // A host's file page (mega.nz/file/…) is still resolved by the queue.
+      kind: isHosterDownloadLink(raw) ? "hoster" : split ? "archive-part" : "file",
       host: url.hostname.replace(/^www\./, "").toLowerCase(),
       ...(split ? { part: split.part } : /\.rar$/i.test(filename) ? { part: 1 } : {}),
     };

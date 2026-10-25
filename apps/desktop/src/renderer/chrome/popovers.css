@@ -237,6 +237,7 @@
 .copied-links-main {
   padding: 0 4px 0 10px;
 }
+.copied-links-queue,
 .copied-links-ai {
   padding: 0 6px;
   border-left: 1px solid color-mix(in srgb, currentColor 25%, transparent) !important;
@@ -643,4 +644,32 @@
 .share-error {
   margin-top: 8px;
   color: var(--danger, #d93025);
+}
+
+.dl-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 2px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dl-queue-row .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dl-queue-row:hover {
+  border-color: var(--accent);
+}
+.dl-queue-row.attention .pill {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
 }

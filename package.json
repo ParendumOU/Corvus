@@ -1,7 +1,7 @@
 {
   "name": "corvus",
   "private": true,
-  "version": "0.18.0",
+  "version": "0.19.0",
   "license": "MPL-2.0",
   "description": "Corvus — an AI-native browser that is also an MCP server for AI agents.",
   "packageManager": "pnpm@9.15.4",
