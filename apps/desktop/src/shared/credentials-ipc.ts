@@ -92,6 +92,19 @@ export interface AutofillChromeRpc {
 /** One-way channel: the tab preload reports a submitted login so the main process can offer to save it. */
 export const AUTOFILL_CAPTURE_CHANNEL = "corvus:autofill-captured";
 
+/**
+ * One-way channel: the tab preload reports a click in a login field (its box in CSS pixels of the
+ * page's viewport, nothing else) so the main process can list the saved logins under it.
+ */
+export const AUTOFILL_FIELD_CHANNEL = "corvus:autofill-field";
+
+export interface LoginFieldBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface CapturedSubmit {
   origin: string;
   username: string;

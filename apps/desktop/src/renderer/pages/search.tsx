@@ -20,13 +20,14 @@ import {
 import { mount } from "./shell";
 import "./search.css";
 
+import { t as tx } from "../common/i18n";
 type Depth = "quick" | "deep";
 
 const TABS: Array<{ id: SearchCategory; label: string }> = [
-  { id: "general", label: "All" },
-  { id: "news", label: "News" },
-  { id: "images", label: "Images" },
-  { id: "videos", label: "Videos" },
+  { id: "general", label: tx("All") },
+  { id: "news", label: tx("News") },
+  { id: "images", label: tx("Images") },
+  { id: "videos", label: tx("Videos") },
 ];
 
 const RETRIEVER_LABEL: Record<string, string> = { searxng: "SearXNG", brave: "Brave", duckduckgo: "DuckDuckGo" };
@@ -146,7 +147,7 @@ function SearchPage() {
   useKeyboardNav(inputRef);
 
   useEffect(() => {
-    document.title = query ? `${query} - Corvus Search` : "Corvus Search";
+    document.title = query ? tx("{query} - Corvus Search", { query }) : tx("Corvus Search");
     void internalApi().call("search.engineInfo").then(setEngine).catch(() => undefined);
   }, [query]);
 
@@ -177,7 +178,7 @@ function SearchPage() {
   return (
     <div className={`search-page cat-${category}`}>
       <header className="search-header">
-        <a className="search-brand" href="corvus://newtab/" title="New tab" aria-label="Corvus new tab">
+        <a className="search-brand" href="corvus://newtab/" title={tx("New tab")} aria-label={tx("Corvus new tab")}>
           <CorvusMark size={28} />
         </a>
         <form className="search-box" role="search" onSubmit={submit}>
@@ -187,8 +188,8 @@ function SearchPage() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Search or ask anything"
-            aria-label="Search"
+            placeholder={tx("Search or ask anything")}
+            aria-label={tx("Search")}
             spellCheck={false}
             autoFocus={!query}
           />
@@ -197,31 +198,23 @@ function SearchPage() {
           </kbd>
         </form>
         {general && (
-          <div className="segmented depth" role="group" aria-label="Answer depth">
-            <a className={depth === "quick" ? "on" : ""} aria-current={depth === "quick" ? "true" : undefined} href={hrefFor(query, "quick", category)} title="Answer from search snippets (fastest, fewest tokens)">
-              Quick
-            </a>
-            <a className={depth === "deep" ? "on" : ""} aria-current={depth === "deep" ? "true" : undefined} href={hrefFor(query, "deep", category)} title="Also read the top three pages">
-              Deep
-            </a>
+          <div className="segmented depth" role="group" aria-label={tx("Answer depth")}>
+            <a className={depth === "quick" ? "on" : ""} aria-current={depth === "quick" ? "true" : undefined} href={hrefFor(query, "quick", category)} title={tx("Answer from search snippets (fastest, fewest tokens)")}>{tx("Quick")}</a>
+            <a className={depth === "deep" ? "on" : ""} aria-current={depth === "deep" ? "true" : undefined} href={hrefFor(query, "deep", category)} title={tx("Also read the top three pages")}>{tx("Deep")}</a>
           </div>
         )}
         {query && (
-          <nav className="search-tabs" aria-label="Search type">
+          <nav className="search-tabs" aria-label={tx("Search type")}>
             {TABS.map((t) => (
               <a key={t.id} href={hrefFor(query, depth, t.id)} className={t.id === category ? "on" : ""} aria-current={t.id === category ? "page" : undefined}>
                 {t.label}
               </a>
             ))}
             {general && hasRatings && (
-              <div className="sort-toggle" role="group" aria-label="Sort results">
-                <span className="sort-label">Sort</span>
-                <button type="button" data-sort="ai" className={sort === "ai" ? "on" : ""} aria-pressed={sort === "ai"} onClick={() => setSort("ai")}>
-                  AI relevance
-                </button>
-                <button type="button" data-sort="original" className={sort === "original" ? "on" : ""} aria-pressed={sort === "original"} onClick={() => setSort("original")}>
-                  Original
-                </button>
+              <div className="sort-toggle" role="group" aria-label={tx("Sort results")}>
+                <span className="sort-label">{tx("Sort")}</span>
+                <button type="button" data-sort="ai" className={sort === "ai" ? "on" : ""} aria-pressed={sort === "ai"} onClick={() => setSort("ai")}>{tx("AI relevance")}</button>
+                <button type="button" data-sort="original" className={sort === "original" ? "on" : ""} aria-pressed={sort === "original"} onClick={() => setSort("original")}>{tx("Original")}</button>
               </div>
             )}
           </nav>
@@ -231,10 +224,8 @@ function SearchPage() {
       {!query ? (
         <div className="search-empty">
           <CorvusMark size={56} />
-          <p>Search the web. Corvus answers with citations and rates every result.</p>
-          <p className="muted small">
-            Press <kbd>/</kbd> to type, <kbd>j</kbd> and <kbd>k</kbd> to move through results.
-          </p>
+          <p>{tx("Search the web. Corvus answers with citations and rates every result.")}</p>
+          <p className="muted small">{tx("Press")}{" "}<kbd>/</kbd>{" "}{tx("to type,")}{" "}<kbd>j</kbd>{" "}{tx("and")}{" "}<kbd>k</kbd>{" "}{tx("to move through results.")}</p>
         </div>
       ) : (
         <div className={`serp ${aside ? "with-aside" : ""}`}>
@@ -258,9 +249,8 @@ function SearchPage() {
             {aiOff && (
               <section className="answer off">
                 <p>
-                  <strong>AI answers are off.</strong> Add an Anthropic API key, or choose Claude Code, in{" "}
-                  <a href="corvus://settings/">Settings</a> to get a cited answer and a rating for every result.
-                </p>
+                  <strong>{tx("AI answers are off.")}</strong>{" "}{tx("Add an Anthropic API key, or choose Claude Code, in")}{" "}
+                  <a href="corvus://settings/">{tx("Settings")}</a>{" "}{tx("to get a cited answer and a rating for every result.")}</p>
               </section>
             )}
 
@@ -268,10 +258,9 @@ function SearchPage() {
               <div key={i} className={`search-error ${e.recoverable ? "soft" : ""}`} role="alert">
                 <IconWarning size={16} />
                 <div>
-                  <strong>{e.recoverable ? "The AI answer stopped early." : "Search failed."}</strong> {e.message}
+                  <strong>{e.recoverable ? tx("The AI answer stopped early.") : tx("Search failed.")}</strong> {e.message}
                   {!e.recoverable && engine && !engine.available && (
-                    <div className="muted small">
-                      Configure the search engine in <a href="corvus://settings/">Settings</a>.
+                    <div className="muted small">{tx("Configure the search engine in")}{" "}<a href="corvus://settings/">{tx("Settings")}</a>.
                     </div>
                   )}
                 </div>
@@ -298,12 +287,11 @@ function SearchPage() {
               <ResultList results={results} order={order} ratings={state.ratings} cited={cited} icons={icons} ratingsPending={ratingsPending} />
             )}
 
-            {state.results !== null && results.length === 0 && <div className="no-results">No results for this search.</div>}
+            {state.results !== null && results.length === 0 && <div className="no-results">{tx("No results for this search.")}</div>}
             {(fatal || state.results?.length === 0) && (
-              <div className="fallback">
-                Try this search on{" "}
-                <a href={`https://duckduckgo.com/?q=${encodeURIComponent(query)}`}>DuckDuckGo</a> or{" "}
-                <a href={`https://www.startpage.com/do/search?q=${encodeURIComponent(query)}`}>Startpage</a>.
+              <div className="fallback">{tx("Try this search on")}{" "}
+                <a href={`https://duckduckgo.com/?q=${encodeURIComponent(query)}`}>{tx("DuckDuckGo")}</a>{" "}{tx("or")}{" "}
+                <a href={`https://www.startpage.com/do/search?q=${encodeURIComponent(query)}`}>{tx("Startpage")}</a>.
               </div>
             )}
 
@@ -311,15 +299,13 @@ function SearchPage() {
               <footer className="search-footer">
                 {state.usage && (
                   <>
-                    <FooterStat label="Model">{state.usage.model}</FooterStat>
-                    <FooterStat label="Tokens">
-                      {state.usage.inputTokens.toLocaleString()} in, {state.usage.outputTokens.toLocaleString()} out
-                    </FooterStat>
+                    <FooterStat label={tx("Model")}>{state.usage.model}</FooterStat>
+                    <FooterStat label={tx("Tokens")}>{tx("{v} in, {v2} out", { v: state.usage.inputTokens.toLocaleString(), v2: state.usage.outputTokens.toLocaleString() })}</FooterStat>
                   </>
                 )}
-                {!general && <FooterStat label="Tokens">0, results only</FooterStat>}
-                {state.retriever && <FooterStat label="Results from">{RETRIEVER_LABEL[state.retriever] ?? state.retriever}</FooterStat>}
-                {state.cached && <FooterStat label="Cache">Served from cache</FooterStat>}
+                {!general && <FooterStat label={tx("Tokens")}>{tx("0, results only")}</FooterStat>}
+                {state.retriever && <FooterStat label={tx("Results from")}>{RETRIEVER_LABEL[state.retriever] ?? state.retriever}</FooterStat>}
+                {state.cached && <FooterStat label={tx("Cache")}>{tx("Served from cache")}</FooterStat>}
               </footer>
             )}
           </main>

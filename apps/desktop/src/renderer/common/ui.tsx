@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { faviconSrcToShow } from "../../shared/favicon";
+import { t } from "./i18n";
 import { CorvusMark, IconGlobe } from "./icons";
 
 const LETTER_COLORS = ["#5b5bd6", "#1a73e8", "#188038", "#d93025", "#e37400", "#9334e6", "#007b83", "#d01884"];
@@ -83,7 +84,7 @@ export function dayLabel(ms: number): string {
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Today";
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  if (d.toDateString() === today.toDateString()) return t("Today");
+  if (d.toDateString() === yesterday.toDateString()) return t("Yesterday");
   return d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }

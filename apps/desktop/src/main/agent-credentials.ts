@@ -19,6 +19,7 @@ import { AUTOFILL_WORLD_ID, fillLoginByRefScript, fillOtpByRefScript, type FillO
 import type { AppContext } from "./context";
 import type { LoginRecord } from "./login-sources";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
+import { tr } from "./menu-i18n";
 
 const REF_RE = /^e\d{1,7}$/;
 const SCRIPT_TIMEOUT_MS = 8000;
@@ -105,10 +106,10 @@ export class AgentCredentialService {
     return async (req) => {
       if (this.testApprover) return this.testApprover(req);
       return askNativeApproval(this.ctx, {
-        allow: req.use === "totp" ? "Fill code" : "Sign in",
-        title: "AI agent wants to use a saved login",
-        message: req.use === "totp" ? `Let “${req.client}” fill your 2FA code for ${req.host}?` : `Let “${req.client}” sign in to ${req.host}?`,
-        detail: `${req.reason}\n\nOnly this one use is approved.`,
+        allow: req.use === "totp" ? tr("Fill code") : tr("Sign in"),
+        title: tr("AI agent wants to use a saved login"),
+        message: req.use === "totp" ? tr("Let “{client}” fill your 2FA code for {host}?", { client: req.client, host: req.host }) : tr("Let “{client}” sign in to {host}?", { client: req.client, host: req.host }),
+        detail: `${req.reason}\n\n${tr("Only this one use is approved.")}`,
       });
     };
   }

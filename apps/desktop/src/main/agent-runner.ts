@@ -34,6 +34,7 @@ import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
 import { stepToToolCall } from "../shared/flow";
 import { captureAction, isWorkflowTool, learnFromRun, noteToolResult, runWorkflowAgentTool, workflowRunContext, type WorkflowRunState } from "./workflow-agent";
+import { tr } from "./menu-i18n";
 
 /** Name shown in the shared agent-activity timeline and in each page overlay caption. */
 const AGENT_CLIENT = "Corvus";
@@ -647,7 +648,7 @@ export class AgentRunner {
   /** A handoff while Corvus is in the background: a notification that brings the window back. */
   private notifyHandoff(win: BrowserWindowCtl, reason: string): void {
     if (win.win.isDestroyed() || win.win.isFocused() || !Notification.isSupported()) return;
-    const n = new Notification({ title: "Corvus needs you to continue", body: reason.slice(0, 200) });
+    const n = new Notification({ title: tr("Corvus needs you to continue"), body: reason.slice(0, 200) });
     n.on("click", () => {
       if (win.win.isDestroyed()) return;
       win.win.show();

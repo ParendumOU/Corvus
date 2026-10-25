@@ -22,6 +22,7 @@ import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
 import { ScheduleStore } from "./schedule-store";
 import type { BrowserWindowCtl } from "./window";
+import { tr } from "./menu-i18n";
 
 /** Name shown in the shared agent-activity timeline for scheduled runs. */
 const SCHED_CLIENT = "Corvus (scheduled)";
@@ -370,8 +371,8 @@ export class ScheduledAgentRunner {
     }
     if (Notification.isSupported()) {
       const notification = new Notification({
-        title: `Approval needed: ${run.schedule.name}`.slice(0, 120),
-        body: (view.reason || "A scheduled agent wants to take an action.").slice(0, 200),
+        title: tr("Approval needed: {name}", { name: run.schedule.name }).slice(0, 120),
+        body: (view.reason || tr("A scheduled agent wants to take an action.")).slice(0, 200),
       });
       notification.on("click", () => this.openManager(run.profileId));
       notification.show();
@@ -382,7 +383,7 @@ export class ScheduledAgentRunner {
     if (Notification.isSupported()) {
       const failed = record.status === "error";
       const notification = new Notification({
-        title: `${failed ? "Scheduled task failed" : "Scheduled task done"}: ${schedule.name}`.slice(0, 120),
+        title: (failed ? tr("Scheduled task failed: {name}", { name: schedule.name }) : tr("Scheduled task done: {name}", { name: schedule.name })).slice(0, 120),
         body: (record.summary || record.error || "").slice(0, 200),
       });
       notification.on("click", () => this.openManager(profileId));

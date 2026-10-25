@@ -4,6 +4,7 @@ import { errorMessage, internalApi } from "../common/api";
 import "./devices.css";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 function when(ms: number): string {
   if (!ms) return "never";
   return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -35,7 +36,7 @@ function RenameThisDevice({ current, onRenamed }: { current: SyncDeviceView; onR
 
   return (
     <div className="device-rename">
-      <label className="device-rename-label">Name of this device</label>
+      <label className="device-rename-label">{t("Name of this device")}</label>
       <div className="device-rename-row">
         <input
           className="input"
@@ -47,7 +48,7 @@ function RenameThisDevice({ current, onRenamed }: { current: SyncDeviceView; onR
           }}
         />
         <button className="btn small primary" disabled={!dirty || busy} onClick={save}>
-          {busy ? "Saving…" : "Rename"}
+          {busy ? t("Saving…") : t("Rename")}
         </button>
       </div>
       {error && <div className="notice error">{error}</div>}
@@ -84,7 +85,7 @@ function DevicesPage() {
   }, [api, reload]);
 
   const revoke = (d: SyncDeviceView): void => {
-    if (!confirm(`Revoke “${d.name}”? It can no longer sync until it is re-paired with your recovery phrase, and its open tabs disappear from your other devices.`)) return;
+    if (!confirm(t("Revoke “{name}”? It can no longer sync until it is re-paired with your recovery phrase, and its open tabs disappear from your other devices.", { name: d.name }))) return;
     api
       .call("sync.removeDevice", d.id)
       .then(setDevices)
@@ -94,19 +95,15 @@ function DevicesPage() {
   const current = devices?.find((d) => d.current);
 
   return (
-    <PageShell title="Devices" active="devices" toolbar={status?.enabled ? <button className="btn small ghost" onClick={reload}>Refresh</button> : undefined}>
+    <PageShell title={t("Devices")} active="devices" toolbar={status?.enabled ? <button className="btn small ghost" onClick={reload}>{t("Refresh")}</button> : undefined}>
       <div className="devices-page">
-        {!status?.available && <div className="notice warn">Sync is not available in this build.</div>}
+        {!status?.available && <div className="notice warn">{t("Sync is not available in this build.")}</div>}
         {status?.available && !status.enabled && (
-          <div className="notice">
-            Sync is off for this profile. Turn it on in <a href="corvus://settings#sync">Settings → Sync</a> to manage your devices.
-          </div>
+          <div className="notice">{t("Sync is off for this profile. Turn it on in")}{" "}<a href="corvus://settings#sync">{t("Settings → Sync")}</a>{" "}{t("to manage your devices.")}</div>
         )}
         {status?.enabled && (
           <>
-            <p className="devices-intro">
-              Every device signed in to this sync chain. Revoking a device blocks it from syncing until it is re-paired with the recovery phrase.
-            </p>
+            <p className="devices-intro">{t("Every device signed in to this sync chain. Revoking a device blocks it from syncing until it is re-paired with the recovery phrase.")}</p>
             {current && <RenameThisDevice current={current} onRenamed={setDevices} />}
             {error && <div className="notice error">{error}</div>}
             {devices && (
@@ -115,16 +112,12 @@ function DevicesPage() {
                   <div key={d.id} className="device-row">
                     <div className="device-info">
                       <div className="device-name">
-                        {d.name} {d.current && <span className="pill ok">This device</span>}
+                        {d.name} {d.current && <span className="pill ok">{t("This device")}</span>}
                       </div>
-                      <div className="device-sub">
-                        {platformLabel(d.platform)} · last seen {when(d.lastSeen)}
-                      </div>
+                      <div className="device-sub">{t("{platformLabel} · last seen {when}", { platformLabel: platformLabel(d.platform), when: when(d.lastSeen) })}</div>
                     </div>
                     {!d.current && (
-                      <button className="btn small ghost danger" onClick={() => revoke(d)}>
-                        Revoke
-                      </button>
+                      <button className="btn small ghost danger" onClick={() => revoke(d)}>{t("Revoke")}</button>
                     )}
                   </div>
                 ))}

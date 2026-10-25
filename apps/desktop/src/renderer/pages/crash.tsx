@@ -4,6 +4,7 @@ import { CorvusMark } from "../common/icons";
 import { mount } from "./shell";
 import "./crash.css";
 
+import { t } from "../common/i18n";
 const params = new URLSearchParams(location.search);
 const crashedUrl = params.get("url") ?? "";
 const reason = params.get("reason") ?? "";
@@ -29,22 +30,20 @@ function CrashPage() {
     <div className="crash-view">
       <div className="crash-card">
         <CorvusMark size={40} />
-        <h1>{unresponsive ? "This page stopped responding" : "This page crashed"}</h1>
+        <h1>{unresponsive ? t("This page stopped responding") : t("This page crashed")}</h1>
         <p className="crash-sub">
           {unresponsive
-            ? "Corvus ended the page because it became unresponsive."
-            : "Something went wrong while displaying this page."}{" "}
-          Your other tabs and windows are unaffected.
-        </p>
+            ? t("Corvus ended the page because it became unresponsive.")
+            : t("Something went wrong while displaying this page.")}{" "}{t("Your other tabs and windows are unaffected.")}</p>
         {crashedUrl && (
           <p className="crash-url" title={crashedUrl}>
             {hostOf(crashedUrl)}
           </p>
         )}
         <button className="btn primary" onClick={reload} disabled={reloading} autoFocus>
-          {reloading ? "Reloading…" : "Reload page"}
+          {reloading ? t("Reloading…") : t("Reload page")}
         </button>
-        {reason && <p className="crash-reason">Reason: {reason}</p>}
+        {reason && <p className="crash-reason">{t("Reason:")}{" "}{reason}</p>}
       </div>
     </div>
   );

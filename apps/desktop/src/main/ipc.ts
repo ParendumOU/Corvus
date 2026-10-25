@@ -42,6 +42,7 @@ import {
 import type { ProfileRuntime } from "./profiles";
 import { registerSplitIpc } from "./split-view";
 import type { BrowserWindowCtl } from "./window";
+import { tr } from "./menu-i18n";
 
 class IpcError extends Error {}
 
@@ -487,11 +488,11 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const parent = c.window?.win;
       const confirmOptions: Electron.MessageBoxOptions = {
         type: "warning",
-        buttons: ["Delete", "Cancel"],
+        buttons: [tr("Delete"), tr("Cancel")],
         defaultId: 1,
         cancelId: 1,
-        message: "Delete this profile?",
-        detail: "Its bookmarks, history, cookies, saved site data and extensions will be removed from this device.",
+        message: tr("Delete this profile?"),
+        detail: tr("Its bookmarks, history, cookies, saved site data and extensions will be removed from this device."),
       };
       const { response } = parent ? await dialog.showMessageBox(parent, confirmOptions) : await dialog.showMessageBox(confirmOptions);
       if (response !== 0) return;

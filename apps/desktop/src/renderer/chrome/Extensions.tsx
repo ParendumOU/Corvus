@@ -4,6 +4,7 @@ import type { ToolbarExtension } from "../../shared/ipc";
 import { chromeApi } from "../common/api";
 import { IconMore, IconPin, IconPuzzle } from "../common/icons";
 
+import { t } from "../common/i18n";
 /** Per-tab overrides and defaults of an extension action, as tracked by electron-chrome-extensions. */
 interface ActionDetails {
   title?: string;
@@ -159,7 +160,7 @@ export function ExtensionsToolbar({
       <button
         ref={puzzleRef}
         className={`icon-btn ext-puzzle ${menu ? "active" : ""}`}
-        title="Extensions"
+        title={t("Extensions")}
         onClick={(e) => {
           if (menu) {
             setMenu(null);
@@ -177,13 +178,13 @@ export function ExtensionsToolbar({
           <>
             <div className="ext-menu-backdrop" onMouseDown={() => setMenu(null)} />
             <div className="ext-menu" role="menu" style={{ right: menu.right, top: menu.top }}>
-              <div className="ext-menu-head">Extensions</div>
-              {items.length === 0 && <div className="ext-menu-empty">No extensions are enabled in this profile.</div>}
+              <div className="ext-menu-head">{t("Extensions")}</div>
+              {items.length === 0 && <div className="ext-menu-empty">{t("No extensions are enabled in this profile.")}</div>}
               {items.map((item) => (
                 <div key={item.id} className="ext-menu-row" data-extension-id={item.id}>
                   <button
                     className="ext-menu-main"
-                    title={item.hasAction ? `Open ${item.name}` : item.name}
+                    title={item.hasAction ? t("Open {name}", { name: item.name }) : item.name}
                     onClick={(e) => {
                       const anchor = puzzleRef.current ? anchorOf(puzzleRef.current) : anchorOf(e.currentTarget);
                       setMenu(null);
@@ -196,7 +197,7 @@ export function ExtensionsToolbar({
                   </button>
                   <button
                     className={`icon-btn ext-pin ${item.pinned ? "on" : ""}`}
-                    title={item.pinned ? "Unpin from toolbar" : "Pin to toolbar"}
+                    title={item.pinned ? t("Unpin from toolbar") : t("Pin to toolbar")}
                     aria-pressed={item.pinned}
                     disabled={!item.hasAction}
                     onClick={() => void api.call("extensions.setPinned", item.id, !item.pinned).then(refresh)}
@@ -205,7 +206,7 @@ export function ExtensionsToolbar({
                   </button>
                   <button
                     className="icon-btn"
-                    title="More actions"
+                    title={t("More actions")}
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect();
                       openMenu(item.id, r.left, r.bottom);
@@ -216,12 +217,8 @@ export function ExtensionsToolbar({
                 </div>
               ))}
               <div className="ext-menu-sep" />
-              <button className="menu-row" onClick={() => openUrl("corvus://extensions/")}>
-                Manage extensions
-              </button>
-              <button className="menu-row" onClick={() => openUrl("https://chromewebstore.google.com/")}>
-                Chrome Web Store
-              </button>
+              <button className="menu-row" onClick={() => openUrl("corvus://extensions/")}>{t("Manage extensions")}</button>
+              <button className="menu-row" onClick={() => openUrl("https://chromewebstore.google.com/")}>{t("Chrome Web Store")}</button>
             </div>
           </>,
           document.body,

@@ -3,39 +3,40 @@ import { formatBytes, type QueueAction, type QueueItem, type QueuePackageView, t
 import { errorMessage, internalApi } from "../common/api";
 import { IconChevronDown, IconChevronUp, IconPause, IconPlay, IconReload, IconTrash } from "../common/icons";
 
+import { t } from "../common/i18n";
 function duration(seconds: number): string {
   if (seconds < 60) return `${seconds} s`;
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
-  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  if (minutes < 60) return t("{minutes} min", { minutes });
+  return t("{h} h {min} min", { h: Math.floor(minutes / 60), min: minutes % 60 });
 }
 
 function itemStatus(item: QueueItem, speed: number | undefined): string {
   switch (item.state) {
     case "queued":
-      return item.receivedBytes > 0 ? `Queued · ${formatBytes(item.receivedBytes)} so far` : "Queued";
+      return item.receivedBytes > 0 ? t("Queued · {receivedBytes} so far", { receivedBytes: formatBytes(item.receivedBytes) }) : t("Queued");
     case "running": {
       const pct = item.totalBytes ? `${Math.floor((item.receivedBytes / item.totalBytes) * 100)}% · ` : "";
-      const connections = item.segments && item.segments.length > 1 ? ` · ${item.segments.length} connections` : "";
-      return `${pct}${formatBytes(item.receivedBytes)}${item.totalBytes ? ` of ${formatBytes(item.totalBytes)}` : ""}${speed ? ` · ${formatBytes(speed)}/s` : ""}${connections}`;
+      const connections = item.segments && item.segments.length > 1 ? t(" · {length} connections", { length: item.segments.length }) : "";
+      return `${pct}${formatBytes(item.receivedBytes)}${item.totalBytes ? t(" of {total}", { total: formatBytes(item.totalBytes) }) : ""}${speed ? ` · ${formatBytes(speed)}/s` : ""}${connections}`;
     }
     case "paused":
-      return item.error ? `Retrying soon (${item.error})` : `Paused${item.receivedBytes > 0 ? ` · ${formatBytes(item.receivedBytes)}` : ""}`;
+      return item.error ? t("Retrying soon ({error})", { error: item.error }) : item.receivedBytes > 0 ? t("Paused · {size}", { size: formatBytes(item.receivedBytes) }) : t("Paused");
     case "failed":
-      return `Failed: ${item.error ?? "unknown error"}`;
+      return t("Failed: {error}", { error: item.error ?? t("unknown error") });
     case "done":
-      return `Done · ${formatBytes(item.receivedBytes)}${item.checked === "ok" ? " · checksum OK" : ""}`;
+      return t("Done · {size}", { size: formatBytes(item.receivedBytes) }) + (item.checked === "ok" ? t(" · checksum OK") : "");
   }
 }
 
 function packageStatus(pkg: QueuePackageView): string {
   const p = pkg.progress;
   const size = p.total !== null ? `${formatBytes(p.received)} of ${formatBytes(p.total)}` : formatBytes(p.received);
-  const parts = [`${p.done} of ${p.count} files`, size];
+  const parts = [t("{done} of {count} files", { done: p.done, count: p.count }), size];
   if (pkg.speed > 0) parts.push(`${formatBytes(pkg.speed)}/s`);
-  if (pkg.eta !== null) parts.push(`${duration(pkg.eta)} left`);
-  if (p.failed > 0) parts.push(`${p.failed} failed`);
-  if (pkg.addedBy) parts.push(`added by ${pkg.addedBy === "Corvus" ? "Corvus's agent" : pkg.addedBy}`);
+  if (pkg.eta !== null) parts.push(t("{eta} left", { eta: duration(pkg.eta) }));
+  if (p.failed > 0) parts.push(t("{failed} failed", { failed: p.failed }));
+  if (pkg.addedBy) parts.push(`added by ${pkg.addedBy === "Corvus" ? t("Corvus's agent") : pkg.addedBy}`);
   return parts.join(" · ");
 }
 
@@ -54,21 +55,21 @@ function ItemRow({ item, speed, act }: { item: QueueItem; speed: number | undefi
       </div>
       <div className="actions">
         {(item.state === "running" || item.state === "queued") && (
-          <button className="icon-btn" title="Pause" onClick={() => act(item.id, "pause")}>
+          <button className="icon-btn" title={t("Pause")} onClick={() => act(item.id, "pause")}>
             <IconPause size={14} />
           </button>
         )}
         {item.state === "paused" && (
-          <button className="icon-btn" title="Resume" onClick={() => act(item.id, "resume")}>
+          <button className="icon-btn" title={t("Resume")} onClick={() => act(item.id, "resume")}>
             <IconPlay size={14} />
           </button>
         )}
         {item.state === "failed" && (
-          <button className="icon-btn" title="Retry" onClick={() => act(item.id, "retry")}>
+          <button className="icon-btn" title={t("Retry")} onClick={() => act(item.id, "retry")}>
             <IconReload size={14} />
           </button>
         )}
-        <button className="icon-btn" title="Remove" onClick={() => act(item.id, "remove")}>
+        <button className="icon-btn" title={t("Remove")} onClick={() => act(item.id, "remove")}>
           <IconTrash size={14} />
         </button>
       </div>
@@ -82,15 +83,14 @@ function ExtractionRow({ pkg, extract }: { pkg: QueuePackageView; extract: (pass
   const x = pkg.extraction;
   const complete = pkg.progress.count > 0 && pkg.progress.done === pkg.progress.count;
   if (pkg.archives === 0 || (!x && !complete)) return null;
-  const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
   let text: string;
-  if (!x) text = `${plural(pkg.archives, "archive")} to extract`;
-  else if (x.state === "running") text = `Extracting… ${x.archives.length} of ${pkg.archives}`;
+  if (!x) text = pkg.archives === 1 ? t("1 archive to extract") : t("{n} archives to extract", { n: pkg.archives });
+  else if (x.state === "running") text = t("Extracting… {length} of {archives}", { length: x.archives.length, archives: pkg.archives });
   else if (x.state === "done") {
     const files = x.archives.reduce((n, a) => n + (a.files ?? 0), 0);
-    text = [`Extracted ${plural(files, "file")}`, ...(x.password ? [`password ${x.password}`] : []), ...(x.archives.some((a) => a.deleted) ? ["archives deleted"] : [])].join(" · ");
-  } else if (x.state === "password") text = "The archive needs a password";
-  else text = `Extraction failed: ${x.error ?? x.archives.find((a) => a.state === "failed")?.error ?? "unknown error"}`;
+    text = [(files === 1 ? t("Extracted 1 file") : t("Extracted {n} files", { n: files })), ...(x.password ? [t("password {password}", { password: x.password })] : []), ...(x.archives.some((a) => a.deleted) ? [t("archives deleted")] : [])].join(" · ");
+  } else if (x.state === "password") text = t("The archive needs a password");
+  else text = t("Extraction failed: {error}", { error: x.error ?? x.archives.find((a) => a.state === "failed")?.error ?? t("unknown error") });
   const submit = (): void => {
     extract(password || undefined);
     setPassword("");
@@ -102,7 +102,7 @@ function ExtractionRow({ pkg, extract }: { pkg: QueuePackageView; extract: (pass
         <input
           className="input"
           type="text"
-          placeholder="Password"
+          placeholder={t("Password")}
           value={password}
           spellCheck={false}
           onChange={(e) => setPassword(e.target.value)}
@@ -111,7 +111,7 @@ function ExtractionRow({ pkg, extract }: { pkg: QueuePackageView; extract: (pass
       )}
       {(!x || x.state === "password" || x.state === "failed") && (
         <button className="btn small" disabled={x?.state === "password" && !password} onClick={submit}>
-          {x ? "Extract again" : "Extract"}
+          {x ? t("Extract again") : t("Extract")}
         </button>
       )}
     </div>
@@ -160,11 +160,9 @@ export function QueueSection() {
   return (
     <div className="queue-section">
       <div className="inline queue-head">
-        <strong>Queue</strong>
+        <strong>{t("Queue")}</strong>
         {anyDone && (
-          <button className="btn small ghost" onClick={() => void api.call("queue.clearDone").then(load)}>
-            Clear finished
-          </button>
+          <button className="btn small ghost" onClick={() => void api.call("queue.clearDone").then(load)}>{t("Clear finished")}</button>
         )}
       </div>
       {error && <div className="notice error">{error}</div>}
@@ -188,27 +186,27 @@ export function QueueSection() {
               </div>
               <div className="actions">
                 {active && (
-                  <button className="icon-btn" title="Pause package" data-queue-pause={pkg.name} onClick={() => act(pkg.id, "pause")}>
+                  <button className="icon-btn" title={t("Pause package")} data-queue-pause={pkg.name} onClick={() => act(pkg.id, "pause")}>
                     <IconPause size={15} />
                   </button>
                 )}
                 {paused && !active && (
-                  <button className="icon-btn" title="Resume package" data-queue-resume={pkg.name} onClick={() => act(pkg.id, "resume")}>
+                  <button className="icon-btn" title={t("Resume package")} data-queue-resume={pkg.name} onClick={() => act(pkg.id, "resume")}>
                     <IconPlay size={15} />
                   </button>
                 )}
                 {p.failed > 0 && (
-                  <button className="icon-btn" title="Retry failed files" onClick={() => act(pkg.id, "retry")}>
+                  <button className="icon-btn" title={t("Retry failed files")} onClick={() => act(pkg.id, "retry")}>
                     <IconReload size={15} />
                   </button>
                 )}
-                <button className="icon-btn" title="Move up" disabled={index === 0} onClick={() => move(pkg.id, -1)}>
+                <button className="icon-btn" title={t("Move up")} disabled={index === 0} onClick={() => move(pkg.id, -1)}>
                   <IconChevronUp size={15} />
                 </button>
-                <button className="icon-btn" title="Move down" disabled={index === packages.length - 1} onClick={() => move(pkg.id, 1)}>
+                <button className="icon-btn" title={t("Move down")} disabled={index === packages.length - 1} onClick={() => move(pkg.id, 1)}>
                   <IconChevronDown size={15} />
                 </button>
-                <button className="icon-btn" title="Remove package" onClick={() => act(pkg.id, "remove")}>
+                <button className="icon-btn" title={t("Remove package")} onClick={() => act(pkg.id, "remove")}>
                   <IconTrash size={15} />
                 </button>
               </div>

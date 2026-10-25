@@ -1,6 +1,7 @@
 import { Menu, app, clipboard, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { childrenOf } from "../shared/bookmark-tree";
+import type { CredentialMatch } from "../shared/credentials";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
@@ -307,6 +308,26 @@ export function showBookmarkMenu(win: BrowserWindowCtl, bookmarkId: string, x: n
           : []),
       { label: tr("Edit in bookmarks manager"), click: () => win.openSingleton("corvus://bookmarks/") },
       { label: tr("Delete"), click: () => win.profile.bookmarks.remove(bookmarkId) },
+    ],
+    x,
+    y,
+  );
+}
+
+/** The saved logins of a page, under the login field the person clicked; picking one fills it. */
+export function showLoginFieldMenu(ctx: AppContext, win: BrowserWindowCtl, matches: CredentialMatch[], x: number, y: number): void {
+  popup(
+    win,
+    [
+      ...matches.map(
+        (m): MenuItemConstructorOptions => ({
+          label: m.username || tr("(no username)"),
+          ...(m.source === "keepass" ? { sublabel: m.sourceName || "KeePass" } : {}),
+          click: () => void ctx.autofill.fill(win, m.id),
+        }),
+      ),
+      { type: "separator" },
+      { label: tr("Manage passwords…"), click: () => win.openSingleton("corvus://passwords/") },
     ],
     x,
     y,

@@ -31,6 +31,7 @@ import {
 import "../common/theme.css";
 import "./pdf.css";
 
+import { t as tx } from "../common/i18n";
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const ZOOM_STEP = 0.2;
@@ -161,9 +162,7 @@ function PageView({
           <div className="pdf-text-layer" ref={textRef} />
         </>
       ) : (
-        <div className="pdf-placeholder" style={{ height: placeholderHeight }}>
-          Page {pageNumber}
-        </div>
+        <div className="pdf-placeholder" style={{ height: placeholderHeight }}>{tx("Page {pageNumber}", { pageNumber })}</div>
       )}
     </div>
   );
@@ -244,7 +243,7 @@ function PdfApp() {
   useEffect(() => {
     if (!src) {
       setStatus("error");
-      setError("No PDF to display.");
+      setError(tx("No PDF to display."));
       return;
     }
     let disposed = false;
@@ -464,9 +463,7 @@ function PdfApp() {
           <IconWarning size={28} />
           <div>{error}</div>
           {src && (
-            <a className="pdf-btn" href={src}>
-              Open the source URL
-            </a>
+            <a className="pdf-btn" href={src}>{tx("Open the source URL")}</a>
           )}
         </div>
       </div>
@@ -483,7 +480,7 @@ function PdfApp() {
           {meta.title}
         </span>
         <span className="spacer" />
-        <button className="pdf-btn" disabled={currentPage <= 1} title="Previous page" onClick={() => jumpToPage(currentPage - 1)}>
+        <button className="pdf-btn" disabled={currentPage <= 1} title={tx("Previous page")} onClick={() => jumpToPage(currentPage - 1)}>
           ‹
         </button>
         <input
@@ -498,32 +495,31 @@ function PdfApp() {
           }}
         />
         <span className="pdf-muted">/ {meta.pageCount}</span>
-        <button className="pdf-btn" disabled={currentPage >= meta.pageCount} title="Next page" onClick={() => jumpToPage(currentPage + 1)}>
+        <button className="pdf-btn" disabled={currentPage >= meta.pageCount} title={tx("Next page")} onClick={() => jumpToPage(currentPage + 1)}>
           ›
         </button>
         <span className="spacer" />
-        <button className="pdf-btn" title="Zoom out" disabled={scale <= PDF_ZOOM_MIN} onClick={() => setScale((s) => Math.max(PDF_ZOOM_MIN, Math.round((s - ZOOM_STEP) * 100) / 100))}>
+        <button className="pdf-btn" title={tx("Zoom out")} disabled={scale <= PDF_ZOOM_MIN} onClick={() => setScale((s) => Math.max(PDF_ZOOM_MIN, Math.round((s - ZOOM_STEP) * 100) / 100))}>
           <IconMinus size={15} />
         </button>
-        <button className="pdf-btn" title="Reset zoom" onClick={() => setScale(1.1)}>
+        <button className="pdf-btn" title={tx("Reset zoom")} onClick={() => setScale(1.1)}>
           {Math.round(scale * 100)}%
         </button>
-        <button className="pdf-btn" title="Zoom in" disabled={scale >= PDF_ZOOM_MAX} onClick={() => setScale((s) => Math.min(PDF_ZOOM_MAX, Math.round((s + ZOOM_STEP) * 100) / 100))}>
+        <button className="pdf-btn" title={tx("Zoom in")} disabled={scale >= PDF_ZOOM_MAX} onClick={() => setScale((s) => Math.min(PDF_ZOOM_MAX, Math.round((s + ZOOM_STEP) * 100) / 100))}>
           <IconPlus size={15} />
         </button>
         <span className="spacer" />
-        <button className={`pdf-btn ${findOpen ? "active" : ""}`} title="Find in PDF" onClick={() => setFindOpen((v) => !v)}>
+        <button className={`pdf-btn ${findOpen ? "active" : ""}`} title={tx("Find in PDF")} onClick={() => setFindOpen((v) => !v)}>
           <IconSearch size={15} />
         </button>
-        <button className={`pdf-btn ${speaking ? "active" : ""}`} title="Read aloud" onClick={toggleListen}>
+        <button className={`pdf-btn ${speaking ? "active" : ""}`} title={tx("Read aloud")} onClick={toggleListen}>
           <IconVolume size={15} />
         </button>
-        <button className="pdf-btn" disabled={saved} title="Save to reading list" onClick={save}>
-          <IconDownload size={15} /> {saved ? "Saved" : "Save"}
+        <button className="pdf-btn" disabled={saved} title={tx("Save to reading list")} onClick={save}>
+          <IconDownload size={15} /> {saved ? tx("Saved") : tx("Save")}
         </button>
-        <button className={`pdf-btn ${aiOpen ? "active" : ""}`} title="AI reading tools" onClick={() => setAiOpen((v) => !v)}>
-          <IconSparkle size={15} /> AI
-        </button>
+        <button className={`pdf-btn ${aiOpen ? "active" : ""}`} title={tx("AI reading tools")} onClick={() => setAiOpen((v) => !v)}>
+          <IconSparkle size={15} />{" "}{tx("AI")}</button>
       </div>
 
       {findOpen && (
@@ -531,7 +527,7 @@ function PdfApp() {
           <IconSearch size={14} />
           <input
             autoFocus
-            placeholder="Find in document"
+            placeholder={tx("Find in document")}
             value={query}
             onChange={(e) => runFind(e.target.value)}
             onKeyDown={(e) => {
@@ -539,7 +535,7 @@ function PdfApp() {
               if (e.key === "Escape") setFindOpen(false);
             }}
           />
-          <span className="count">{query.trim() ? `${matchPages.length === 0 ? 0 : matchIndex + 1} / ${matchPages.length} pages` : ""}</span>
+          <span className="count">{query.trim() ? tx("{current} / {total} pages", { current: matchPages.length === 0 ? 0 : matchIndex + 1, total: matchPages.length }) : ""}</span>
           <button className="pdf-btn" disabled={matchPages.length === 0} onClick={() => stepFind(-1)}>
             ‹
           </button>
@@ -554,7 +550,7 @@ function PdfApp() {
 
       <div className="pdf-body">
         <div className="pdf-scroll" ref={scrollRef}>
-          {status === "loading" && <div className="pdf-state">Loading PDF…</div>}
+          {status === "loading" && <div className="pdf-state">{tx("Loading PDF…")}</div>}
           {doc &&
             pages.map((n) => (
               <PageView
@@ -580,7 +576,7 @@ function PdfApp() {
               ))}
             </div>
             <div className="pdf-ai-msgs">
-              {messages.length === 0 && <div className="pdf-muted">Pick a tool above, ask a question, or select text in the PDF to ask about it. Citations point to the page they came from.</div>}
+              {messages.length === 0 && <div className="pdf-muted">{tx("Pick a tool above, ask a question, or select text in the PDF to ask about it. Citations point to the page they came from.")}</div>}
               {messages.map((m) => (
                 <div key={m.id} className="pdf-msg">
                   <div className="pdf-msg-head">
@@ -614,7 +610,7 @@ function PdfApp() {
             </div>
             <div className="pdf-ask">
               <input
-                placeholder="Ask about this PDF…"
+                placeholder={tx("Ask about this PDF…")}
                 value={askInput}
                 onChange={(e) => setAskInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -631,9 +627,7 @@ function PdfApp() {
                   runAi("ask", askInput.trim());
                   setAskInput("");
                 }}
-              >
-                Ask
-              </button>
+              >{tx("Ask")}</button>
             </div>
           </div>
         )}
@@ -649,8 +643,7 @@ function PdfApp() {
               setSel(null);
             }}
           >
-            <IconSparkle size={13} /> Explain
-          </button>
+            <IconSparkle size={13} />{" "}{tx("Explain")}</button>
           <button
             className="pdf-btn"
             onMouseDown={(e) => {
@@ -658,9 +651,7 @@ function PdfApp() {
               runAi("ask", sel.text);
               setSel(null);
             }}
-          >
-            Ask about this
-          </button>
+          >{tx("Ask about this")}</button>
         </div>
       )}
     </div>

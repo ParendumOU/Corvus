@@ -1,6 +1,7 @@
 import { Notification, net } from "electron";
 import { readUpdates, shareMessage, type TelegramConnectResult, type TelegramStatus } from "../shared/phone-share";
 import type { AppContext } from "./context";
+import { tr } from "./menu-i18n";
 
 const API_TIMEOUT_MS = 15_000;
 const POLL_MS = 30_000;
@@ -131,7 +132,7 @@ export class TelegramLink {
     if (!win) return;
     for (const url of links) win.createTab(url, { activate: false });
     if (Notification.isSupported()) {
-      const n = new Notification({ title: links.length === 1 ? "A link from your phone" : `${links.length} links from your phone`, body: links.join("\n").slice(0, 200) });
+      const n = new Notification({ title: links.length === 1 ? tr("A link from your phone") : tr("{count} links from your phone", { count: links.length }), body: links.join("\n").slice(0, 200) });
       n.on("click", () => win.win.focus());
       n.show();
     }

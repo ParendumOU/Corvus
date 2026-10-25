@@ -4,6 +4,7 @@ import type { AppContext } from "./context";
 import type { TabCreateDetails, TabPlacement } from "./extensions";
 import type { ProfileDelegate } from "./profiles";
 import type { BrowserWindowCtl } from "./window";
+import { tr } from "./menu-i18n";
 
 /** Numeric chrome.tabGroups IDs for Corvus group IDs (unique across windows). */
 export class GroupIdMap {
@@ -133,11 +134,11 @@ export function showExtensionMenu(win: BrowserWindowCtl, id: string, x: number, 
           dialog
             .showMessageBox(win.win, {
               type: "warning",
-              buttons: ["Remove", "Cancel"],
+              buttons: [tr("Remove"), tr("Cancel")],
               defaultId: 1,
               cancelId: 1,
-              message: `Remove “${info.name}”?`,
-              detail: "The extension and its data are removed from this profile.",
+              message: tr("Remove “{name}”?", { name: info.name }),
+              detail: tr("The extension and its data are removed from this profile."),
             })
             .then(({ response }) => (response === 0 ? host.remove(id) : undefined)),
         ),

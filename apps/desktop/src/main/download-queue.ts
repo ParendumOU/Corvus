@@ -40,6 +40,7 @@ import { SevenZipProcess, extractArchive } from "./archive-extractor";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import type { ProfileRuntime } from "./profiles";
+import { tr } from "./menu-i18n";
 
 interface ProfileQueue {
   runtime: ProfileRuntime;
@@ -198,12 +199,19 @@ export class DownloadQueue {
       const parsed = parseAgentDownloadRequest(request);
       const { allowed, refused } = splitAgentLinks(parsed.links);
       if (allowed.length === 0) throw new Error(`Corvus does not download programs for AI agents (${refused.length} refused). The person can download them from the page.`);
-      const count = `${allowed.length} ${allowed.length === 1 ? "file" : "files"}`;
+      const count = allowed.length;
       const approval: NativeApproval = {
-        allow: "Download",
-        title: "AI agent wants to download files",
-        message: `Let “${client}” download ${count}${parsed.packageName ? ` into “${parsed.packageName}”` : ""} with Corvus's download queue?`,
-        detail: `${describeAgentLinks(allowed)}\n\nThey go to ${this.ctx.downloads.directory()}.`,
+        allow: tr("Download"),
+        title: tr("AI agent wants to download files"),
+        message:
+          count === 1
+            ? parsed.packageName
+              ? tr("Let “{client}” download 1 file into “{name}” with Corvus's download queue?", { client, name: parsed.packageName })
+              : tr("Let “{client}” download 1 file with Corvus's download queue?", { client })
+            : parsed.packageName
+              ? tr("Let “{client}” download {count} files into “{name}” with Corvus's download queue?", { client, count, name: parsed.packageName })
+              : tr("Let “{client}” download {count} files with Corvus's download queue?", { client, count }),
+        detail: `${describeAgentLinks(allowed)}\n\n${tr("They go to {dir}.", { dir: this.ctx.downloads.directory() })}`,
       };
       const ok = this.testApprover ? this.testApprover(approval) : await askNativeApproval(this.ctx, approval);
       if (!ok) throw new Error("The user declined these downloads.");

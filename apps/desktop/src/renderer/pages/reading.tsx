@@ -5,6 +5,7 @@ import { IconBook, IconDownload, IconTrash } from "../common/icons";
 import { Favicon, dayLabel, hostOf } from "../common/ui";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 function ReadingPage() {
   const api = internalApi();
   const [query, setQuery] = useState("");
@@ -30,14 +31,14 @@ function ReadingPage() {
 
   return (
     <PageShell
-      title="Reading list"
+      title={t("Reading list")}
       active="reading"
-      toolbar={<input className="input" placeholder="Search saved articles" value={query} onChange={(e) => setQuery(e.target.value)} />}
+      toolbar={<input className="input" placeholder={t("Search saved articles")} value={query} onChange={(e) => setQuery(e.target.value)} />}
     >
       {items.length === 0 ? (
         <div className="card">
           <div className="empty">
-            {query ? "No saved articles match your search." : "Open a page in reader mode and choose Save to keep it here for later."}
+            {query ? t("No saved articles match your search.") : t("Open a page in reader mode and choose Save to keep it here for later.")}
           </div>
         </div>
       ) : (
@@ -59,8 +60,8 @@ function ReadingPage() {
                       <div className="sub">
                         {item.siteName || hostOf(item.url)}
                         {item.byline ? ` · ${item.byline}` : ""}
-                        {linkOnly ? " · link only (Corvus fetches the article when it can)" : ` · ${item.readingMinutes} min read`}
-                        {read ? " · read" : ""}
+                        {linkOnly ? t(" · link only (Corvus fetches the article when it can)") : t(" · {readingMinutes} min read", { readingMinutes: item.readingMinutes })}
+                        {read ? t(" · read") : ""}
                       </div>
                       {item.excerpt && <div className="sub" style={{ marginTop: 4 }}>{item.excerpt}</div>}
                       {item.keyPoints.length > 0 && (
@@ -71,8 +72,7 @@ function ReadingPage() {
                             else next.add(item.id);
                             return next;
                           })}>
-                            <IconBook size={13} /> {open ? "Hide" : "Show"} key points ({item.keyPoints.length})
-                          </button>
+                            <IconBook size={13} /> {open ? t("Hide") : t("Show")}{" "}{t("key points ({length})", { length: item.keyPoints.length })}</button>
                           {open && (
                             <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                               {item.keyPoints.map((p, i) => (
@@ -87,12 +87,12 @@ function ReadingPage() {
                     </div>
                     <div className="actions">
                       <button className="btn small ghost" data-reading-toggle onClick={() => void api.call("reading.setRead", item.id, !read).then(() => load(query))}>
-                        {read ? "Mark unread" : "Mark read"}
+                        {read ? t("Mark unread") : t("Mark read")}
                       </button>
-                      <button className="icon-btn" title="Export as Markdown" onClick={() => void api.call("reading.export", item.id)}>
+                      <button className="icon-btn" title={t("Export as Markdown")} onClick={() => void api.call("reading.export", item.id)}>
                         <IconDownload size={15} />
                       </button>
-                      <button className="icon-btn" title="Remove from reading list" onClick={() => remove(item.id)}>
+                      <button className="icon-btn" title={t("Remove from reading list")} onClick={() => remove(item.id)}>
                         <IconTrash size={15} />
                       </button>
                     </div>

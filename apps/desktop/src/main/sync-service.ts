@@ -18,6 +18,7 @@ import type { SecretCipher } from "./settings-store";
 import { ReadingFiller } from "./reading-fill";
 import { SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
 import { SyncScheduler } from "./sync-scheduler";
+import { tr } from "./menu-i18n";
 
 type SyncCoreModule = typeof import("@corvus/sync-core");
 
@@ -436,7 +437,7 @@ export class SyncService {
     if (Notification.isSupported()) {
       const senders = [...new Set(pages.map((p) => p.from || "another device"))].join(", ");
       const n = new Notification({
-        title: pages.length === 1 ? `A page from ${senders}` : `${pages.length} pages from ${senders}`,
+        title: pages.length === 1 ? tr("A page from {senders}", { senders }) : tr("{count} pages from {senders}", { count: pages.length, senders }),
         body: pages.map((p) => p.title || p.url).join("\n").slice(0, 200),
       });
       n.on("click", () => win.win.focus());

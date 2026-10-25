@@ -1,3 +1,4 @@
+import { ES_UI } from "./i18n-es-ui";
 import type { UiLanguage } from "./settings";
 
 /**
@@ -180,6 +181,8 @@ export const ES: Record<string, string> = {
   "Export your logins to a CSV in the other browser (its password settings have an Export passwords option), then pick the file here. The file holds your passwords in plain text — delete it when you are done.":
     "Exporta tus contraseñas a un CSV en el otro navegador (en sus ajustes de contraseñas tienes la opción Exportar contraseñas) y elige el archivo aquí. El archivo contiene tus contraseñas en texto plano: bórralo cuando termines.",
   "Import a CSV…": "Importar un CSV…",
+  "(no username)": "(sin usuario)",
+  "Manage passwords…": "Gestionar contraseñas…",
   "Imported {n} logins.": "Importadas {n} contraseñas.",
   "No new logins imported.": "No se importó ninguna contraseña nueva.",
   "{n} already saved.": "{n} ya estaban guardadas.",
@@ -922,6 +925,7 @@ export const ES: Record<string, string> = {
   "Translate this page": "Traducir esta página",
   "Hide this element…": "Ocultar este elemento…",
   "Inspect": "Inspeccionar",
+  ...ES_UI,
 };
 
 /** `text` in `language` (English text when it has no translation), with `{name}` placeholders filled from `vars`. */

@@ -44,7 +44,7 @@ import { SessionRestore } from "./session-restore";
 import { restorePlan } from "../shared/session-state";
 import { launchTargets } from "../shared/default-browser";
 import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
-import { setMenuLanguage } from "./menu-i18n";
+import { setMenuLanguage, tr } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
 import type { BrowserWindowCtl } from "./window";
 import { runSmokeTest } from "./smoke";
@@ -125,11 +125,11 @@ async function decideRestore(ctx: AppContext, unclean: boolean): Promise<Browser
   if (!unclean || !hasSession || process.env.CORVUS_SMOKE_TEST === "1") return [];
   const { response } = await dialog.showMessageBox({
     type: "warning",
-    buttons: ["Restore previous session", "Start fresh"],
+    buttons: [tr("Restore previous session"), tr("Start fresh")],
     defaultId: 0,
     cancelId: 1,
-    message: "Corvus didn't shut down normally",
-    detail: "Your windows and tabs from the last session were saved. Reopen them?",
+    message: tr("Corvus didn't shut down normally"),
+    detail: tr("Your windows and tabs from the last session were saved. Reopen them?"),
   });
   return response === 0 ? ctx.sessionRestore.restore() : [];
 }

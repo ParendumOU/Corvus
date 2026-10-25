@@ -32,6 +32,7 @@ import { isInternalUrl, isNewTabUrl } from "../shared/internal-urls";
 import type { ExtensionError, ExtensionInfo, ToolbarExtension } from "../shared/ipc";
 import { JsonFile } from "./json-file";
 import { paths } from "./paths";
+import { tr } from "./menu-i18n";
 
 type Manifest = ManifestLike & Record<string, unknown>;
 
@@ -78,15 +79,15 @@ export type InstallPrompt = (request: InstallRequest) => Promise<boolean>;
 async function defaultInstallPrompt(request: InstallRequest): Promise<boolean> {
   const detail =
     request.warnings.length > 0
-      ? `It can:\n${request.warnings.map((w) => `•  ${w}`).join("\n")}`
-      : "It does not require any special permissions.";
+      ? `${tr("It can:")}\n${request.warnings.map((w) => `•  ${w}`).join("\n")}`
+      : tr("It does not require any special permissions.");
   const options: Electron.MessageBoxOptions = {
     type: "question",
-    buttons: ["Add extension", "Cancel"],
+    buttons: [tr("Add extension"), tr("Cancel")],
     defaultId: 0,
     cancelId: 1,
-    title: "Add extension",
-    message: `Add “${request.name}”?`,
+    title: tr("Add extension"),
+    message: tr("Add “{name}”?", { name: request.name }),
     detail,
     ...(request.icon && !request.icon.isEmpty() ? { icon: request.icon.resize({ width: 48, height: 48 }) } : {}),
   };
@@ -674,12 +675,12 @@ export class ExtensionHost {
     if (warnings.length === 0) return true;
     const { response } = await dialog.showMessageBox({
       type: "question",
-      buttons: ["Allow", "Deny"],
+      buttons: [tr("Allow"), tr("Deny")],
       defaultId: 1,
       cancelId: 1,
-      title: "Extension permissions",
-      message: `“${extension.name}” requests additional permissions`,
-      detail: `It will be able to:\n${warnings.map((w) => `•  ${w}`).join("\n")}`,
+      title: tr("Extension permissions"),
+      message: tr("“{name}” requests additional permissions", { name: extension.name }),
+      detail: `${tr("It will be able to:")}\n${warnings.map((w) => `•  ${w}`).join("\n")}`,
     });
     return response === 0;
   }

@@ -8,14 +8,15 @@ import { IconChevronDown, IconChevronRight, IconClose, IconPlus, IconSparkle, Ic
 import { Favicon } from "../common/ui";
 import { formatMemory } from "../../shared/tab-sleep";
 
+import { t as tx } from "../common/i18n";
 /** A tab's hover text: its title, then who drives it, whether it sleeps, or what memory it uses. */
 function tabTooltip(tab: TabView): string {
   const lines = [tab.title || tab.url];
-  if (tab.container) lines.push(`Container: ${tab.container.name}`);
-  if (tab.inSplit) lines.push("In split view: shows with the other tabs of the split");
-  if (tab.agentControlled) lines.push("Controlled by an AI agent");
-  if (tab.sleeping) lines.push("Sleeping to save memory: it wakes up where it was");
-  else if (tab.memoryKB) lines.push(`Memory: ${formatMemory(tab.memoryKB)}`);
+  if (tab.container) lines.push(tx("Container: {name}", { name: tab.container.name }));
+  if (tab.inSplit) lines.push(tx("In split view: shows with the other tabs of the split"));
+  if (tab.agentControlled) lines.push(tx("Controlled by an AI agent"));
+  if (tab.sleeping) lines.push(tx("Sleeping to save memory: it wakes up where it was"));
+  else if (tab.memoryKB) lines.push(tx("Memory: {memoryKB}", { memoryKB: formatMemory(tab.memoryKB) }));
   return lines.join("\n");
 }
 
@@ -131,7 +132,7 @@ function HorizontalTabStrip({
           className={`group-chip ${group.collapsed ? "collapsed" : ""} ${group.title ? "" : "untitled"}`}
           style={{ "--group-color": color } as CSSProperties}
           draggable
-          title={group.title || "Unnamed group"}
+          title={group.title || tx("Unnamed group")}
           onDragStart={(e) => {
             e.dataTransfer.setData(GROUP_MIME, group.id);
             e.dataTransfer.effectAllowed = "move";
@@ -180,13 +181,13 @@ function HorizontalTabStrip({
     >
       <div className="tabs" role="tablist">
         {items}
-        <button className="icon-btn new-tab-btn" title="New tab (Ctrl+T)" onClick={() => void api.call("tabs.create")}>
+        <button className="icon-btn new-tab-btn" title={tx("New tab (Ctrl+T)")} onClick={() => void api.call("tabs.create")}>
           <IconPlus size={16} />
         </button>
       </div>
       <div className="strip-drag" />
       {onOrganize && state.tabs.length > 1 && (
-        <button className="icon-btn organize-btn" title="Organize tabs (Ctrl+Shift+O)" onClick={onOrganize}>
+        <button className="icon-btn organize-btn" title={tx("Organize tabs (Ctrl+Shift+O)")} onClick={onOrganize}>
           <IconSparkle size={15} />
         </button>
       )}
@@ -254,9 +255,9 @@ function Tab({
       </span>
       {!tab.pinned && <span className="tab-title">{tab.title || tab.url}</span>}
       {tab.audible && <IconVolume size={14} className="tab-audio" />}
-      {tab.agentControlled && <span className="ai-badge">AI</span>}
+      {tab.agentControlled && <span className="ai-badge">{tx("AI")}</span>}
       {!tab.pinned && (
-        <button className="tab-close" title="Close tab" onMouseDown={(e) => e.stopPropagation()} onClick={close}>
+        <button className="tab-close" title={tx("Close tab")} onMouseDown={(e) => e.stopPropagation()} onClick={close}>
           <IconClose size={24} />
         </button>
       )}
@@ -338,7 +339,7 @@ function VerticalTabStrip({
               data-group-id={row.group.id}
               className={`v-group ${row.group.collapsed ? "collapsed" : ""}`}
               style={{ "--group-color": color } as CSSProperties}
-              title={row.group.title || "Unnamed group"}
+              title={row.group.title || tx("Unnamed group")}
               onClick={() => void api.call("groups.update", row.group.id, { collapsed: !row.group.collapsed })}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -347,7 +348,7 @@ function VerticalTabStrip({
             >
               <span className="v-group-caret">{row.group.collapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}</span>
               <span className="v-group-dot" />
-              <span className="v-group-title">{row.group.title || "Group"}</span>
+              <span className="v-group-title">{row.group.title || tx("Group")}</span>
               <span className="v-group-count">{count}</span>
             </div>
           );
@@ -367,9 +368,9 @@ function VerticalTabStrip({
           />
         );
       })}
-      <button className="v-newtab" title="New tab (Ctrl+T)" onClick={() => void api.call("tabs.create")}>
+      <button className="v-newtab" title={tx("New tab (Ctrl+T)")} onClick={() => void api.call("tabs.create")}>
         <IconPlus size={16} />
-        {!collapsed && <span>New tab</span>}
+        {!collapsed && <span>{tx("New tab")}</span>}
       </button>
     </div>
   );
@@ -438,9 +439,9 @@ function VTab({
       </span>
       {!tab.pinned && <span className="v-tab-title">{tab.title || tab.url}</span>}
       {tab.audible && <IconVolume size={13} className="tab-audio" />}
-      {tab.agentControlled && <span className="ai-badge">AI</span>}
+      {tab.agentControlled && <span className="ai-badge">{tx("AI")}</span>}
       {!tab.pinned && (
-        <button className="tab-close" title="Close tab" onMouseDown={(e) => e.stopPropagation()} onClick={close}>
+        <button className="tab-close" title={tx("Close tab")} onMouseDown={(e) => e.stopPropagation()} onClick={close}>
           <IconClose size={24} />
         </button>
       )}

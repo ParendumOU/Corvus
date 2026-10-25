@@ -7,6 +7,7 @@ import { IconChevronDown, IconChevronRight, IconEdit, IconFolder, IconPlus, Icon
 import { Favicon } from "../common/ui";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 const DRAG_MIME = "application/x-corvus-bookmark";
 
 function normalizeUrl(input: string): string {
@@ -135,7 +136,7 @@ function BookmarksPage() {
     const { id, title, url } = editing;
     if (id === "new-folder") run(api.call("bookmarks.create", { parentId: folder, kind: "folder", title }));
     else if (id === "new-bookmark") {
-      if (!url.trim()) return setError("Enter a URL");
+      if (!url.trim()) return setError(t("Enter a URL"));
       run(api.call("bookmarks.create", { parentId: folder, kind: "bookmark", title, url: normalizeUrl(url) }));
     } else {
       const node = list.find((b) => b.id === id);
@@ -149,25 +150,21 @@ function BookmarksPage() {
       <div className="list-row">
         {kind === "folder" ? <IconFolder size={16} /> : <IconPlus size={16} />}
         <div className="edit-row">
-          <input className="input" autoFocus placeholder="Name" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
+          <input className="input" autoFocus placeholder={t("Name")} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
           {kind === "bookmark" && (
-            <input className="input" placeholder="URL" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
+            <input className="input" placeholder={t("URL")} value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
           )}
-          <button className="btn small primary" onClick={saveEdit}>
-            Save
-          </button>
-          <button className="btn small ghost" onClick={() => setEditing(null)}>
-            Cancel
-          </button>
+          <button className="btn small primary" onClick={saveEdit}>{t("Save")}</button>
+          <button className="btn small ghost" onClick={() => setEditing(null)}>{t("Cancel")}</button>
         </div>
       </div>
     );
 
   return (
     <PageShell
-      title="Bookmarks"
+      title={t("Bookmarks")}
       active="bookmarks"
-      toolbar={<input className="input" placeholder="Search bookmarks" value={query} onChange={(e) => setQuery(e.target.value)} />}
+      toolbar={<input className="input" placeholder={t("Search bookmarks")} value={query} onChange={(e) => setQuery(e.target.value)} />}
       sidebar={
         <div className="tree">
           <FolderTree
@@ -195,15 +192,13 @@ function BookmarksPage() {
       }
     >
       <div className="inline" style={{ justifyContent: "space-between" }}>
-        <div className="muted">{query ? `Results for “${query}”` : crumbs.map((c) => c.title).join(" › ")}</div>
+        <div className="muted">{query ? t("Results for “{query}”", { query }) : crumbs.map((c) => c.title).join(" › ")}</div>
         {!query && (
           <div className="inline">
             <button className="btn small" onClick={() => setEditing({ id: "new-folder", title: "", url: "" })}>
-              <IconFolder size={14} /> New folder
-            </button>
+              <IconFolder size={14} />{" "}{t("New folder")}</button>
             <button className="btn small primary" onClick={() => setEditing({ id: "new-bookmark", title: "", url: "" })}>
-              <IconPlus size={14} /> Add bookmark
-            </button>
+              <IconPlus size={14} />{" "}{t("Add bookmark")}</button>
           </div>
         )}
       </div>
@@ -212,7 +207,7 @@ function BookmarksPage() {
         <div className="list">
           {editing?.id === "new-folder" && editor("folder")}
           {editing?.id === "new-bookmark" && editor("bookmark")}
-          {items.length === 0 && !editing && <div className="empty">{query ? "No bookmarks match." : "This folder is empty."}</div>}
+          {items.length === 0 && !editing && <div className="empty">{query ? t("No bookmarks match.") : t("This folder is empty.")}</div>}
           {items.map((b) =>
             editing?.id === b.id ? (
               <div key={b.id}>{editor(b.kind)}</div>
@@ -261,10 +256,10 @@ function BookmarksPage() {
                   {b.url && <div className="sub">{b.url}</div>}
                 </div>
                 <div className="actions">
-                  <button className="icon-btn" title="Edit" onClick={() => setEditing({ id: b.id, title: b.title, url: b.url ?? "" })}>
+                  <button className="icon-btn" title={t("Edit")} onClick={() => setEditing({ id: b.id, title: b.title, url: b.url ?? "" })}>
                     <IconEdit size={15} />
                   </button>
-                  <button className="icon-btn" title="Delete" onClick={() => run(api.call("bookmarks.remove", b.id))}>
+                  <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("bookmarks.remove", b.id))}>
                     <IconTrash size={15} />
                   </button>
                 </div>
@@ -273,7 +268,7 @@ function BookmarksPage() {
           )}
         </div>
       </div>
-      <p className="muted small">Drag bookmarks to reorder them, or onto a folder in the sidebar to move them.</p>
+      <p className="muted small">{t("Drag bookmarks to reorder them, or onto a folder in the sidebar to move them.")}</p>
     </PageShell>
   );
 }

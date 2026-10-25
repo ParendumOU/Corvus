@@ -11,6 +11,7 @@ import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconS
 import { Favicon } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
 
+import { t } from "../common/i18n";
 export interface OmniboxHandle {
   focus(selectAll: boolean): void;
   close(): void;
@@ -51,29 +52,29 @@ function SecurityChip({ url, title, onOpen }: { url: string; title: string; onOp
   const drag = { draggable: true, onDragStart: (e: DragEvent<HTMLElement>) => dragPage(e, url, title) };
   if (url.startsWith("corvus:")) {
     return (
-      <span className="omni-chip internal" title="Corvus page">
+      <span className="omni-chip internal" title={t("Corvus page")}>
         <CorvusMark size={14} />
       </span>
     );
   }
   if (url.startsWith("https:")) {
     return (
-      <button className="omni-chip clickable site-chip" title="View site information" onClick={open} {...drag}>
+      <button className="omni-chip clickable site-chip" title={t("View site information")} onClick={open} {...drag}>
         <IconLock size={13} />
       </button>
     );
   }
   if (url.startsWith("http:")) {
     return (
-      <button className="omni-chip clickable warn site-chip" title="Connection is not secure. View site information" onClick={open} {...drag}>
+      <button className="omni-chip clickable warn site-chip" title={t("Connection is not secure. View site information")} onClick={open} {...drag}>
         <IconWarning size={13} />
-        <span>Not secure</span>
+        <span>{t("Not secure")}</span>
       </button>
     );
   }
   if (url.startsWith("file:")) {
     return (
-      <button className="omni-chip clickable site-chip" title="View site information" onClick={open} {...drag}>
+      <button className="omni-chip clickable site-chip" title={t("View site information")} onClick={open} {...drag}>
         <IconGlobe size={13} />
       </button>
     );
@@ -91,12 +92,12 @@ function TranslateButton({ state, onClick }: { state: TranslateBarState; onClick
   const from = state.pageLang ? languageName(state.pageLang, "en") : "";
   const title =
     state.state === "translating"
-      ? `Translating to ${target}… (${state.translated} done) · click to stop`
+      ? t("Translating to {target}… ({translated} done) · click to stop", { target, translated: state.translated })
       : state.state === "translated"
-        ? `Translated to ${target} · show original`
+        ? t("Translated to {target} · show original", { target })
         : state.state === "error"
-          ? `Translation failed: ${state.error ?? "unknown error"} · try again`
-          : `Translate this page${from ? ` from ${from}` : ""} to ${target}`;
+          ? t("Translation failed: {error} · try again", { error: state.error ?? t("unknown error") })
+          : (from ? t("Translate this page from {from} to {target}", { from, target }) : t("Translate this page to {target}", { target }));
   return (
     <button className={`icon-btn omni-translate ${state.state}`} title={title} aria-pressed={state.state === "translated"} onClick={onClick}>
       {state.state === "translating" ? <span className="spinner small" /> : <IconTranslate size={16} />}
@@ -263,7 +264,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             className="omni-input"
             value={value}
             spellCheck={false}
-            placeholder="Ask Corvus AI or type a URL"
+            placeholder={t("Ask Corvus AI or type a URL")}
             onFocus={(e) => {
               typed.current = false;
               setFocused(true);
@@ -287,7 +288,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           {tab && !focused && (readerable || readerActive) && (
             <button
               className={`icon-btn omni-reader ${readerActive ? "on" : ""}`}
-              title={readerActive ? "Exit reader mode (Esc)" : "Reader mode (Ctrl+Shift+R)"}
+              title={readerActive ? t("Exit reader mode (Esc)") : t("Reader mode (Ctrl+Shift+R)")}
               aria-pressed={readerActive}
               onClick={() => void api.call("reader.toggle")}
             >
@@ -297,7 +298,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           {showAutofill && (
             <button
               className={`icon-btn omni-autofill ${autofill.canSave ? "save" : ""}`}
-              title={autofill.canSave ? "Save password" : autofill.otpAvailable && autofill.matchCount === 0 ? "Fill 2FA code" : "Fill password"}
+              title={autofill.canSave ? t("Save password") : autofill.otpAvailable && autofill.matchCount === 0 ? t("Fill 2FA code") : t("Fill password")}
               aria-pressed={autofillOpen}
               onClick={openAutofill}
             >
@@ -307,7 +308,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           {tab?.container && !focused && (
             <span
               className="omni-container"
-              title={`This tab is in the “${tab.container.name}” container: its own cookies and site data`}
+              title={t("This tab is in the “{name}” container: its own cookies and site data", { name: tab.container.name })}
               style={{ "--c-light": GROUP_COLOR_HEX[tab.container.color].light, "--c-dark": GROUP_COLOR_HEX[tab.container.color].dark } as CSSProperties}
             >
               {tab.container.name}
@@ -316,7 +317,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           {tab && zoomPercent !== 100 && !focused && (
             <button
               className="icon-btn omni-zoom"
-              title={`Zoom: ${zoomPercent}%`}
+              title={t("Zoom: {zoomPercent}%", { zoomPercent })}
               onClick={(e) => onZoom(e.currentTarget.getBoundingClientRect())}
             >
               <IconZoom size={15} />
@@ -326,7 +327,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           {tab && !url.startsWith("corvus:") && url !== "about:blank" && !focused && (
             <button
               className={`icon-btn omni-star ${bookmarked ? "on" : ""}`}
-              title={bookmarked ? "Remove bookmark" : "Bookmark this tab (Ctrl+D)"}
+              title={bookmarked ? t("Remove bookmark") : t("Bookmark this tab (Ctrl+D)")}
               onClick={() => void api.call("bookmarks.toggleActive")}
             >
               <IconStar size={16} filled={bookmarked} />
@@ -368,35 +369,33 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             {autofill.canSave ? (
               <div className="af-save">
                 <div className="af-title">
-                  {autofill.saveUpdates ? "Update password for " : "Save password for "}
+                  {autofill.saveUpdates ? t("Update password for ") : t("Save password for ")}
                   {autofill.saveHost}?
                 </div>
                 <div className="af-row">
                   <button className="btn small primary" onMouseDown={(e) => { e.preventDefault(); acceptSave(); }}>
-                    {autofill.saveUpdates ? "Update" : "Save"}
+                    {autofill.saveUpdates ? t("Update") : t("Save")}
                   </button>
-                  <button className="btn small ghost" onMouseDown={(e) => { e.preventDefault(); dismissSave(); }}>
-                    Not now
-                  </button>
+                  <button className="btn small ghost" onMouseDown={(e) => { e.preventDefault(); dismissSave(); }}>{t("Not now")}</button>
                 </div>
               </div>
             ) : (
               <div className="af-list">
                 {otpMatches.length === 0 && loginMatches.length === 0 ? (
-                  <div className="af-empty">No saved logins for this site.</div>
+                  <div className="af-empty">{t("No saved logins for this site.")}</div>
                 ) : (
                   <>
                     {otpMatches.map((m) => (
                       <button key={`otp-${m.id}`} className="af-item af-otp" onMouseDown={(e) => { e.preventDefault(); fillTotp(m.id); }}>
                         <IconClock size={14} />
-                        <span>2FA code for {m.username || "(no username)"}</span>
+                        <span>{t("2FA code for")}{" "}{m.username || t("(no username)")}</span>
                         {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
                       </button>
                     ))}
                     {loginMatches.map((m) => (
                       <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
                         <IconLock size={14} />
-                        <span>{m.username || "(no username)"}</span>
+                        <span>{m.username || t("(no username)")}</span>
                         {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
                       </button>
                     ))}
@@ -404,9 +403,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
                 )}
               </div>
             )}
-            <button className="af-manage" onMouseDown={(e) => { e.preventDefault(); void api.call("autofill.openManager"); setAutofillOpen(false); }}>
-              Manage passwords
-            </button>
+            <button className="af-manage" onMouseDown={(e) => { e.preventDefault(); void api.call("autofill.openManager"); setAutofillOpen(false); }}>{t("Manage passwords")}</button>
           </div>
         )}
       </div>

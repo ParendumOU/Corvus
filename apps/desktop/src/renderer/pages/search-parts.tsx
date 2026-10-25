@@ -4,6 +4,7 @@ import { IconPlay, IconSearch, IconSparkle, IconWarning } from "../common/icons"
 import { LetterIcon } from "../common/ui";
 import { renderAnswer } from "./answer";
 
+import { t as tx } from "../common/i18n";
 export type FaviconMap = Record<string, string | null>;
 
 export function Fav({ domain, icons, size = 16 }: { domain: string; icons: FaviconMap; size?: number }) {
@@ -12,17 +13,17 @@ export function Fav({ domain, icons, size = 16 }: { domain: string; icons: Favic
 }
 
 const TAG_LABEL: Record<ResultTag, string> = {
-  official: "Official",
-  docs: "Docs",
-  reference: "Reference",
-  news: "News",
-  forum: "Forum",
-  video: "Video",
-  academic: "Academic",
-  opinion: "Opinion",
-  shopping: "Shopping",
-  outdated: "Outdated",
-  paywall: "Paywall",
+  official: tx("Official"),
+  docs: tx("Docs"),
+  reference: tx("Reference"),
+  news: tx("News"),
+  forum: tx("Forum"),
+  video: tx("Video"),
+  academic: tx("Academic"),
+  opinion: tx("Opinion"),
+  shopping: tx("Shopping"),
+  outdated: tx("Outdated"),
+  paywall: tx("Paywall"),
 };
 const TAG_TONE: Partial<Record<ResultTag, string>> = { official: "good", docs: "good", academic: "good", outdated: "warn", paywall: "warn" };
 
@@ -46,7 +47,7 @@ export function CiteChip({ n, result, rating, icons }: { n: number; result?: Sea
   if (!result) return <span className="cite dead">{n}</span>;
   return (
     <span className="cite-wrap">
-      <a className="cite" href={result.url} aria-label={`Source ${n}: ${result.title}`}>
+      <a className="cite" href={result.url} aria-label={tx("Source {n}: {title}", { n, title: result.title })}>
         {n}
       </a>
       <span className="cite-pop" role="tooltip">
@@ -61,12 +62,12 @@ export function CiteChip({ n, result, rating, icons }: { n: number; result?: Sea
   );
 }
 
-const CONFIDENCE_LABEL: Record<Confidence, string> = { high: "High confidence", medium: "Medium confidence", low: "Low confidence" };
+const CONFIDENCE_LABEL: Record<Confidence, string> = { high: tx("High confidence"), medium: tx("Medium confidence"), low: tx("Low confidence") };
 const CONFIDENCE_DOTS: Record<Confidence, number> = { high: 3, medium: 2, low: 1 };
 
 export function ConfidenceBadge({ level }: { level: Confidence }) {
   return (
-    <span className={`confidence ${level}`} title="How well the sources support this answer">
+    <span className={`confidence ${level}`} title={tx("How well the sources support this answer")}>
       <span className="dots" aria-hidden="true">
         {[1, 2, 3].map((i) => (
           <i key={i} className={i <= CONFIDENCE_DOTS[level] ? "on" : ""} />
@@ -102,8 +103,8 @@ export function AnswerBlock(p: AnswerProps) {
         <span className="answer-mark" aria-hidden="true">
           <IconSparkle size={14} />
         </span>
-        <h2 id="answer-title">Answer</h2>
-        {p.deep && <span className="pill">Deep</span>}
+        <h2 id="answer-title">{tx("Answer")}</h2>
+        {p.deep && <span className="pill">{tx("Deep")}</span>}
         {p.confidence && <ConfidenceBadge level={p.confidence} />}
       </header>
       <div className="answer-text" aria-live="polite" aria-busy={!p.done}>
@@ -113,7 +114,7 @@ export function AnswerBlock(p: AnswerProps) {
             {!p.done && !p.failed && <span className="caret" aria-hidden="true" />}
           </>
         ) : (
-          <div className="skeleton-lines" aria-label="Writing the answer">
+          <div className="skeleton-lines" aria-label={tx("Writing the answer")}>
             <span />
             <span />
             <span />
@@ -124,12 +125,12 @@ export function AnswerBlock(p: AnswerProps) {
         <p className="disagree">
           <IconWarning size={15} />
           <span>
-            <strong>Sources disagree.</strong> {p.disagreement}
+            <strong>{tx("Sources disagree.")}</strong> {p.disagreement}
           </span>
         </p>
       )}
       {p.keyPoints.length > 0 && (
-        <ul className="key-points" aria-label="Key points">
+        <ul className="key-points" aria-label={tx("Key points")}>
           {p.keyPoints.map((point, i) => (
             <li key={i}>{renderAnswer(point.text, (n, key) => chip(n, `${i}-${key}`))}</li>
           ))}
@@ -142,7 +143,7 @@ export function AnswerBlock(p: AnswerProps) {
         </div>
       )}
       {cited.length > 0 && p.done && (
-        <div className="answer-sources" aria-label="Cited sources">
+        <div className="answer-sources" aria-label={tx("Cited sources")}>
           {cited.map((i) => {
             const r = p.results[i]!;
             return (
@@ -167,7 +168,7 @@ export function AnswerBlock(p: AnswerProps) {
 /** AI relevance as a ring that fills to the score out of 10; a shimmering ring while it is rated. */
 export function Meter({ rating, pending }: { rating?: ResultRating; pending: boolean }) {
   if (!rating) {
-    return <div className={`meter unscored ${pending ? "pending" : ""}`} aria-hidden="true" title={pending ? "Rating…" : "Not rated"} />;
+    return <div className={`meter unscored ${pending ? "pending" : ""}`} aria-hidden="true" title={pending ? tx("Rating…") : tx("Not rated")} />;
   }
   const tone = rating.score >= 8 ? "hi" : rating.score >= 5 ? "mid" : "lo";
   return (
@@ -175,8 +176,8 @@ export function Meter({ rating, pending }: { rating?: ResultRating; pending: boo
       className={`meter ${tone}`}
       data-score={rating.score}
       style={{ "--score": rating.score } as CSSProperties}
-      title={`AI relevance ${rating.score}/10`}
-      aria-label={`AI relevance ${rating.score} out of 10`}
+      title={tx("AI relevance {score}/10", { score: rating.score })}
+      aria-label={tx("AI relevance {score} out of 10", { score: rating.score })}
     >
       <b>{rating.score}</b>
     </div>
@@ -223,7 +224,7 @@ export function ResultList({
   // Without any rating coming (AI off or failed) the list drops the ring column.
   const rated = ratingsPending || Object.keys(ratings).length > 0;
   return (
-    <ol className={`results ${rated ? "" : "unrated"}`} aria-label="Results">
+    <ol className={`results ${rated ? "" : "unrated"}`} aria-label={tx("Results")}>
       {order.map((i) => {
         const r = results[i]!;
         const rating = ratings[i];
@@ -244,8 +245,8 @@ export function ResultList({
                 <Fav domain={r.source} icons={icons} />
                 <span className="domain">{r.source}</span>
                 <span className="path">{pathOf(r.url)}</span>
-                <span className="n" title={cited.has(i) ? "Cited in the answer" : "Source number"}>
-                  {cited.has(i) ? `Cited ${i + 1}` : i + 1}
+                <span className="n" title={cited.has(i) ? tx("Cited in the answer") : tx("Source number")}>
+                  {cited.has(i) ? tx("Cited {i}", { i: i + 1 }) : i + 1}
                 </span>
               </div>
               <h3>
@@ -307,7 +308,7 @@ function when(r: SearchResult): string | undefined {
 
 export function NewsList({ results, icons }: { results: SearchResult[]; icons: FaviconMap }) {
   return (
-    <ol className="news" aria-label="News">
+    <ol className="news" aria-label={tx("News")}>
       {results.map((r, i) => (
         <li key={`${r.url}-${i}`} className="news-item">
           <div className="news-body">
@@ -334,7 +335,7 @@ const ROW_HEIGHT = 180;
 
 export function ImageGrid({ results, icons }: { results: SearchResult[]; icons: FaviconMap }) {
   return (
-    <div className="image-grid" aria-label="Images">
+    <div className="image-grid" aria-label={tx("Images")}>
       {results.map((r, i) => {
         const w = r.image?.width ?? 4;
         const h = r.image?.height ?? 3;
@@ -368,7 +369,7 @@ export function ImageGrid({ results, icons }: { results: SearchResult[]; icons: 
 
 export function VideoGrid({ results, icons }: { results: SearchResult[]; icons: FaviconMap }) {
   return (
-    <ol className="videos" aria-label="Videos">
+    <ol className="videos" aria-label={tx("Videos")}>
       {results.map((r, i) => (
         <li key={`${r.url}-${i}`} className="video-card">
           <a href={r.url} data-nav className="video-thumb" aria-label={r.title}>
@@ -422,7 +423,7 @@ export function EntityPanel({ entity, source, icons }: { entity: EntityCard; sou
 export function RelatedQuestions({ questions, onPick }: { questions: string[]; onPick: (q: string) => void }) {
   return (
     <section className="related" aria-labelledby="related-title">
-      <h2 id="related-title">Related searches</h2>
+      <h2 id="related-title">{tx("Related searches")}</h2>
       <ul>
         {questions.map((q) => (
           <li key={q}>

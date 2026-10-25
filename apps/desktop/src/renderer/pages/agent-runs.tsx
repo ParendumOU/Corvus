@@ -6,16 +6,17 @@ import { IconActivity, IconAgent, IconReload, IconTrash } from "../common/icons"
 import "./agent-runs.css";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 type Api = ReturnType<typeof internalApi>;
 
 const STATUS_LABEL: Record<StoredRunStatus, string> = {
-  running: "Running",
-  paused: "Paused",
-  "awaiting-approval": "Needs approval",
-  done: "Done",
-  error: "Failed",
-  stopped: "Stopped",
-  interrupted: "Interrupted",
+  running: t("Running"),
+  paused: t("Paused"),
+  "awaiting-approval": t("Needs approval"),
+  done: t("Done"),
+  error: t("Failed"),
+  stopped: t("Stopped"),
+  interrupted: t("Interrupted"),
 };
 
 function statusClass(status: StoredRunStatus): string {
@@ -32,12 +33,12 @@ function when(ms: number | null): string {
 
 function ago(ms: number): string {
   const diff = Date.now() - ms;
-  if (diff < 60_000) return "just now";
+  if (diff < 60_000) return t("just now");
   const mins = Math.round(diff / 60_000);
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 60) return t("{mins} min ago", { mins });
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} d ago`;
+  if (hours < 24) return t("{hours} h ago", { hours });
+  return t("{hours} d ago", { hours: Math.round(hours / 24) });
 }
 
 function prettyTool(tool: string): string {
@@ -79,7 +80,7 @@ function AgentRunsPage() {
   const resume = (id: string): void => {
     setError(null);
     void api.call("agentRuns.resume", id).then((res) => {
-      if (!res.ok) setError(res.reason ?? "This run can't be resumed.");
+      if (!res.ok) setError(res.reason ?? t("This run can't be resumed."));
     });
   };
 
@@ -96,18 +97,14 @@ function AgentRunsPage() {
 
   return (
     <PageShell
-      title="Agent runs"
+      title={t("Agent runs")}
       active="agent-runs"
       toolbar={
         <>
           {runs.length > 0 && (
-            <button className="btn small ghost danger" onClick={() => run(api.call("agentRuns.clear"))}>
-              Clear history
-            </button>
+            <button className="btn small ghost danger" onClick={() => run(api.call("agentRuns.clear"))}>{t("Clear history")}</button>
           )}
-          <a className="btn small ghost" href="corvus://schedules/">
-            Scheduled agents
-          </a>
+          <a className="btn small ghost" href="corvus://schedules/">{t("Scheduled agents")}</a>
         </>
       }
     >
@@ -117,7 +114,7 @@ function AgentRunsPage() {
         <div className="card">
           <div className="empty">
             <IconAgent size={26} />
-            <p>No agent runs yet. Ask Corvus to do a task from the Command Bar (Ctrl/Cmd+K, then Tab) and it will show up here, so you can review or resume it later.</p>
+            <p>{t("No agent runs yet. Ask Corvus to do a task from the Command Bar (Ctrl/Cmd+K, then Tab) and it will show up here, so you can review or resume it later.")}</p>
           </div>
         </div>
       ) : (
@@ -157,29 +154,28 @@ function RunRow({
     <div className="list-row ar-row">
       <div className="grow ar-main">
         <div className="ar-title-row">
-          <button className="link-button ar-title" onClick={onToggle} title={open ? "Hide steps" : "Show steps"}>
-            {r.task || "Untitled task"}
+          <button className="link-button ar-title" onClick={onToggle} title={open ? t("Hide steps") : t("Show steps")}>
+            {r.task || t("Untitled task")}
           </button>
           <span className={`pill ar-status ${statusClass(r.status)}`}>{STATUS_LABEL[r.status]}</span>
-          {usedWorkflow && <span className="pill ar-wf">Used a workflow</span>}
+          {usedWorkflow && <span className="pill ar-wf">{t("Used a workflow")}</span>}
         </div>
         <div className="sub muted">
-          {r.source === "scheduled" ? "Scheduled" : r.source === "assist" ? "Assist" : "Command Bar"} · {ago(r.startedAt)} · {r.stepCount}
-          {r.maxSteps ? `/${r.maxSteps}` : ""} steps · {(r.inputTokens + r.outputTokens).toLocaleString()} tok
-          {r.model ? ` · ${r.model}` : ""}
-          {r.siteHints?.hints ? ` · ${r.siteHints.hints} site hints` : ""}
+          {r.source === "scheduled" ? t("Scheduled") : r.source === "assist" ? t("Assist") : t("Command Bar")} · {ago(r.startedAt)} · {r.stepCount}
+          {r.maxSteps ? `/${r.maxSteps}` : ""}{" "}{t("steps · {v} tok", { v: (r.inputTokens + r.outputTokens).toLocaleString() })}{r.model ? ` · ${r.model}` : ""}
+          {r.siteHints?.hints ? t(" · {hints} site hints", { hints: r.siteHints.hints }) : ""}
         </div>
 
         {(r.finalText || r.error) && (
           <div className="ar-summary">
-            <span className="ar-summary-label">{r.error ? "Error" : "Result"}</span>
+            <span className="ar-summary-label">{r.error ? t("Error") : t("Result")}</span>
             {r.error ? r.error : r.finalText}
           </div>
         )}
 
         {r.steps.length > 0 && (
           <button className="link-button small ar-steps-toggle" onClick={onToggle}>
-            {open ? "Hide steps" : `Steps (${r.steps.length})`}
+            {open ? t("Hide steps") : t("Steps ({length})", { length: r.steps.length })}
           </button>
         )}
         {open && (
@@ -187,7 +183,7 @@ function RunRow({
             {r.steps.map((s) => (
               <StepRow key={s.id} step={s} />
             ))}
-            <div className="ar-when muted small">started {when(r.startedAt)}{r.endedAt ? ` · ended ${when(r.endedAt)}` : ""}</div>
+            <div className="ar-when muted small">{t("started")}{" "}{when(r.startedAt)}{r.endedAt ? t(" · ended {endedAt}", { endedAt: when(r.endedAt) }) : ""}</div>
           </div>
         )}
       </div>
@@ -195,21 +191,17 @@ function RunRow({
       <div className="ar-actions">
         {live ? (
           <span className="pill ar-status running">
-            <IconActivity size={13} /> live
-          </span>
+            <IconActivity size={13} />{" "}{t("live")}</span>
         ) : (
           r.resumable && (
-            <button className="btn small primary" title="Continue this run" onClick={onResume}>
-              <IconReload size={14} /> Resume
-            </button>
+            <button className="btn small primary" title={t("Continue this run")} onClick={onResume}>
+              <IconReload size={14} />{" "}{t("Resume")}</button>
           )
         )}
         {savable && (
-          <button className="btn small ar-save-wf" title="Review these steps and save them as a reusable workflow" onClick={onSaveWorkflow}>
-            Save as workflow
-          </button>
+          <button className="btn small ar-save-wf" title={t("Review these steps and save them as a reusable workflow")} onClick={onSaveWorkflow}>{t("Save as workflow")}</button>
         )}
-        <button className="icon-btn" title="Delete" disabled={live} onClick={() => run(api.call("agentRuns.remove", r.id))}>
+        <button className="icon-btn" title={t("Delete")} disabled={live} onClick={() => run(api.call("agentRuns.remove", r.id))}>
           <IconTrash size={15} />
         </button>
       </div>
@@ -224,9 +216,9 @@ function StepRow({ step }: { step: AgentRunStep }) {
       <span className="ar-step-dot" aria-hidden />
       <div className="ar-step-body">
         <div className="ar-step-line">
-          <span className="ar-step-name">{isMessage ? "Corvus" : prettyTool(step.kind)}</span>
+          <span className="ar-step-name">{isMessage ? t("Corvus") : prettyTool(step.kind)}</span>
           {step.summary && <span className="ar-step-args">{step.summary}</span>}
-          {step.status === "skipped" && <span className="ar-step-tag">skipped</span>}
+          {step.status === "skipped" && <span className="ar-step-tag">{t("skipped")}</span>}
         </div>
         {step.detail && <div className="ar-step-detail">{step.detail}</div>}
       </div>

@@ -4,6 +4,7 @@ import type { RemoteDeviceTabs } from "../../shared/open-tabs";
 import { internalApi } from "../common/api";
 import { Favicon, hostOf } from "../common/ui";
 
+import { t as tx } from "../common/i18n";
 function updated(ms: number): string {
   return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
@@ -23,14 +24,12 @@ export function RemoteTabs() {
   if (withTabs.length === 0) return null;
   return (
     <div className="card remote-tabs">
-      <div className="day-head">Tabs from other devices</div>
+      <div className="day-head">{tx("Tabs from other devices")}</div>
       {withTabs.map((d) => (
         <div key={d.deviceId} className="list">
           <div className="list-row">
             <strong>{d.device}</strong>
-            <span className="muted small grow">
-              {d.platform} · updated {updated(d.updatedAt)}
-            </span>
+            <span className="muted small grow">{tx("{platform} · updated {updated}", { platform: d.platform, updated: updated(d.updatedAt) })}</span>
           </div>
           {d.tabs.map((t, i) => (
             <div key={`${i}-${t.url}`} className="list-row">
@@ -41,7 +40,7 @@ export function RemoteTabs() {
                 </a>
                 <div className="sub">
                   {hostOf(t.url)}
-                  {t.pinned ? " · pinned" : ""}
+                  {t.pinned ? tx(" · pinned") : ""}
                   {t.group && (
                     <>
                       {" · "}
@@ -49,7 +48,7 @@ export function RemoteTabs() {
                         aria-hidden="true"
                         style={{ display: "inline-block", width: 8, height: 8, borderRadius: 4, background: GROUP_COLOR_HEX[t.group.color].light }}
                       />{" "}
-                      {t.group.title || "Group"}
+                      {t.group.title || tx("Group")}
                     </>
                   )}
                 </div>

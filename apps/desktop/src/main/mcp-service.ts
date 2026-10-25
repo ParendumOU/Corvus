@@ -11,6 +11,7 @@ import type { McpActivity, McpStatus } from "../shared/ipc";
 import { mcpAddCommand, resolveMcpAccessLevel } from "../shared/settings";
 import type { AppContext } from "./context";
 import { loadOptionalModule } from "./module-loader";
+import { tr } from "./menu-i18n";
 
 const MAX_ACTIVITY = 100;
 /** Turns the MCP server on at launch; the stdio bridge passes it when it starts Corvus for an agent. */
@@ -287,16 +288,16 @@ export class McpService {
     const parent = this.ctx.windows.focused()?.win;
     const options: Electron.MessageBoxOptions = {
       type: "warning",
-      buttons: ["Allow", "Deny"],
+      buttons: [tr("Allow"), tr("Deny")],
       defaultId: 1,
       cancelId: 1,
-      title: "AI agent wants to control Corvus",
-      message: `Allow “${info.name}” to control this browser?`,
+      title: tr("AI agent wants to control Corvus"),
+      message: tr("Allow “{name}” to control this browser?", { name: info.name }),
       detail:
-        `An MCP client (${info.name}${info.version ? ` ${info.version}` : ""}) connected from ${info.remoteAddress}.\n\n` +
-        "It will be able to open and close tabs, read page content, click, type and take screenshots. " +
-        "Tabs it drives are marked with an AI badge.",
-      checkboxLabel: "Always allow this client",
+        tr("An MCP client ({client}) connected from {address}.", { client: `${info.name}${info.version ? ` ${info.version}` : ""}`, address: info.remoteAddress }) +
+        "\n\n" +
+        tr("It will be able to open and close tabs, read page content, click, type and take screenshots. Tabs it drives are marked with an AI badge."),
+      checkboxLabel: tr("Always allow this client"),
       checkboxChecked: true,
     };
     const { response, checkboxChecked } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);

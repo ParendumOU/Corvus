@@ -14,13 +14,14 @@ import { QueueSection } from "./downloads-queue";
 import "./downloads.css";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 const ICON_ACTIONS: Partial<Record<DownloadAction, { title: string; icon: ReactNode }>> = {
-  pause: { title: "Pause", icon: <IconPause size={15} /> },
-  resume: { title: "Resume", icon: <IconPlay size={15} /> },
-  cancel: { title: "Cancel", icon: <IconClose size={15} /> },
-  retry: { title: "Retry", icon: <IconReload size={15} /> },
-  show: { title: "Show in folder", icon: <IconFolder size={15} /> },
-  remove: { title: "Remove from list", icon: <IconTrash size={15} /> },
+  pause: { title: t("Pause"), icon: <IconPause size={15} /> },
+  resume: { title: t("Resume"), icon: <IconPlay size={15} /> },
+  cancel: { title: t("Cancel"), icon: <IconClose size={15} /> },
+  retry: { title: t("Retry"), icon: <IconReload size={15} /> },
+  show: { title: t("Show in folder"), icon: <IconFolder size={15} /> },
+  remove: { title: t("Remove from list"), icon: <IconTrash size={15} /> },
 };
 
 type View = "downloads" | "grabber";
@@ -46,14 +47,14 @@ function DownloadsPage() {
             setView(v);
           }}
         >
-          {v === "grabber" ? "Link grabber" : "Downloads"}
+          {v === "grabber" ? t("Link grabber") : t("Downloads")}
         </button>
       ))}
     </div>
   );
   if (view === "grabber") {
     return (
-      <PageShell title="Downloads" active="downloads" toolbar={tabs}>
+      <PageShell title={t("Downloads")} active="downloads" toolbar={tabs}>
         <GrabberView />
       </PageShell>
     );
@@ -97,15 +98,13 @@ function DownloadsList({ tabs }: { tabs: ReactNode }) {
 
   return (
     <PageShell
-      title="Downloads"
+      title={t("Downloads")}
       active="downloads"
       toolbar={
         <>
           {tabs}
-          <input className="input" placeholder="Search downloads" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button className="btn small" disabled={!list || list.length === 0} onClick={() => void api.call("downloads.clear").then(load)}>
-            Clear all
-          </button>
+          <input className="input" placeholder={t("Search downloads")} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button className="btn small" disabled={!list || list.length === 0} onClick={() => void api.call("downloads.clear").then(load)}>{t("Clear all")}</button>
         </>
       }
     >
@@ -113,7 +112,7 @@ function DownloadsList({ tabs }: { tabs: ReactNode }) {
       <QueueSection />
       {list && shown.length === 0 ? (
         <div className="card">
-          <div className="empty">{q ? "No downloads match your search." : "Files you download will appear here."}</div>
+          <div className="empty">{q ? t("No downloads match your search.") : t("Files you download will appear here.")}</div>
         </div>
       ) : (
         groups.map((g) => (
@@ -155,9 +154,8 @@ function DownloadItemRow({ d, act }: { d: DownloadRecord; act: (id: string, acti
           {" · "}
           {downloadStatus(d)}
           {d.agent && (
-            <span className="pill agent-pill" title="Started from a tab driven by an AI agent">
-              <IconAgent size={11} /> AI agent
-            </span>
+            <span className="pill agent-pill" title={t("Started from a tab driven by an AI agent")}>
+              <IconAgent size={11} />{" "}{t("AI agent")}</span>
           )}
         </div>
         {running && (
@@ -167,13 +165,9 @@ function DownloadItemRow({ d, act }: { d: DownloadRecord; act: (id: string, acti
         )}
         {d.state === "blocked" && (
           <div className="inline" style={{ marginTop: 8 }}>
-            <span className="muted small">This file can run code on your computer. Keep it only if you trust the site.</span>
-            <button className="btn small danger" onClick={() => act(d.id, "discard")}>
-              Discard
-            </button>
-            <button className="btn small" onClick={() => act(d.id, "keep")}>
-              Keep anyway
-            </button>
+            <span className="muted small">{t("This file can run code on your computer. Keep it only if you trust the site.")}</span>
+            <button className="btn small danger" onClick={() => act(d.id, "discard")}>{t("Discard")}</button>
+            <button className="btn small" onClick={() => act(d.id, "keep")}>{t("Keep anyway")}</button>
           </div>
         )}
       </div>

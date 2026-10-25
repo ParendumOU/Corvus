@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor } from "../shared/annotations";
 import { ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
-import { AUTOFILL_CAPTURE_CHANNEL } from "../shared/credentials-ipc";
+import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_FIELD_CHANNEL } from "../shared/credentials-ipc";
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
 import { INTERNAL_EVENT, INTERNAL_RPC, type InternalBridge, type InternalEvent } from "../shared/ipc";
 
@@ -54,6 +54,31 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     }
   };
   document.addEventListener("submit", (e: { target: unknown }) => captureFrom(e.target || document), true);
+
+  // A click in a login field (a password field, or a text field of a form that has one) reports the
+  // field's box so the main process can list the saved logins right under it. Only the box is sent.
+  const TEXT_TYPES = ["text", "email", "tel", "password"];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isLoginField = (el: any): boolean => {
+    if (!el || el.tagName !== "INPUT" || el.disabled || el.readOnly) return false;
+    const type = String(el.getAttribute("type") || "text").toLowerCase();
+    if (!TEXT_TYPES.includes(type)) return false;
+    return type === "password" || Boolean((el.form || document).querySelector("input[type=password]"));
+  };
+  document.addEventListener(
+    "click",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      try {
+        if (!e.isTrusted || e.button !== 0 || !isLoginField(e.target)) return;
+        const r = e.target.getBoundingClientRect();
+        ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { x: r.left, y: r.top, width: r.width, height: r.height });
+      } catch {
+        // never let autofill break a page's own click handling
+      }
+    },
+    true,
+  );
 }
 
 // Flow recorder: while recording is enabled for this tab, report the user's clicks, field edits and

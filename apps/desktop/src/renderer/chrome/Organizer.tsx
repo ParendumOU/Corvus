@@ -8,6 +8,7 @@ import { IconClose, IconSparkle } from "../common/icons";
 import { Favicon } from "../common/ui";
 import "./organizer.css";
 
+import { t as tx } from "../common/i18n";
 interface EditableGroup extends GroupProposal {
   key: number;
   enabled: boolean;
@@ -63,28 +64,28 @@ export function Organizer({ dark, tabCount, onClose }: { dark: boolean; tabCount
   };
 
   return (
-    <div className="organizer" role="dialog" aria-label="Organize tabs" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="organizer" role="dialog" aria-label={tx("Organize tabs")} onMouseDown={(e) => e.stopPropagation()}>
       <header className="org-head">
         <span className="org-mark">
           <IconSparkle size={16} />
         </span>
         <div className="grow">
-          <h2>Organize tabs</h2>
+          <h2>{tx("Organize tabs")}</h2>
           <p>
             {!proposal
-              ? `Reading ${tabCount} tab titles…`
+              ? tx("Reading {tabCount} tab titles…", { tabCount })
               : proposal.source === "ai"
-                ? "Grouped by topic. Rename, recolor or drop anything before you apply."
-                : "Grouped by site."}
+                ? tx("Grouped by topic. Rename, recolor or drop anything before you apply.")
+                : tx("Grouped by site.")}
           </p>
         </div>
-        <button className="icon-btn" title="Close" onClick={onClose}>
+        <button className="icon-btn" title={tx("Close")} onClick={onClose}>
           <IconClose size={14} />
         </button>
       </header>
 
       {!proposal && !error && (
-        <div className="org-loading" aria-label="Loading">
+        <div className="org-loading" aria-label={tx("Loading")}>
           {[0, 1, 2].map((i) => (
             <div key={i} className="org-skeleton" style={{ animationDelay: `${i * 120}ms` }} />
           ))}
@@ -95,18 +96,18 @@ export function Organizer({ dark, tabCount, onClose }: { dark: boolean; tabCount
       {proposal && (
         <div className="org-body">
           {proposal.note && <p className="org-note">{proposal.note}</p>}
-          {groups.length === 0 && dupes.length === 0 && <p className="org-empty">Nothing to tidy up: no topics or duplicate tabs found.</p>}
+          {groups.length === 0 && dupes.length === 0 && <p className="org-empty">{tx("Nothing to tidy up: no topics or duplicate tabs found.")}</p>}
           {groups.map((g) => (
             <section key={g.key} className={`org-group ${g.enabled ? "" : "off"}`} style={{ "--g": color(g.color) } as CSSProperties}>
               <div className="org-group-head">
                 <input
                   type="checkbox"
                   checked={g.enabled}
-                  aria-label={`Create group ${g.name}`}
+                  aria-label={tx("Create group {name}", { name: g.name })}
                   onChange={(e) => patch(g.key, { enabled: e.target.checked })}
                 />
-                <input className="org-name" value={g.name} maxLength={40} onChange={(e) => patch(g.key, { name: e.target.value })} aria-label="Group name" />
-                <div className="org-colors" role="radiogroup" aria-label="Group color">
+                <input className="org-name" value={g.name} maxLength={40} onChange={(e) => patch(g.key, { name: e.target.value })} aria-label={tx("Group name")} />
+                <div className="org-colors" role="radiogroup" aria-label={tx("Group color")}>
                   {GROUP_COLORS.map((c) => (
                     <button
                       key={c}
@@ -128,7 +129,7 @@ export function Organizer({ dark, tabCount, onClose }: { dark: boolean; tabCount
                     <li key={id}>
                       <Favicon url={t.url} {...(t.faviconUrl ? { src: t.faviconUrl } : {})} size={14} />
                       <span className="org-tab-title">{t.title || t.url}</span>
-                      <button className="org-x" title="Leave out of this group" onClick={() => patch(g.key, { tabIds: g.tabIds.filter((x) => x !== id) })}>
+                      <button className="org-x" title={tx("Leave out of this group")} onClick={() => patch(g.key, { tabIds: g.tabIds.filter((x) => x !== id) })}>
                         <IconClose size={11} />
                       </button>
                     </li>
@@ -142,8 +143,7 @@ export function Organizer({ dark, tabCount, onClose }: { dark: boolean; tabCount
             <section className="org-dupes">
               <label className="org-dupes-head">
                 <input type="checkbox" checked={closeDupes} onChange={(e) => setCloseDupes(e.target.checked)} />
-                <span>
-                  Close {dupes.length} duplicate {dupes.length === 1 ? "tab" : "tabs"}
+                <span>{dupes.length === 1 ? tx("Close 1 duplicate tab") : tx("Close {length} duplicate tabs", { length: dupes.length })}
                 </span>
               </label>
               <ul className="org-tabs">
@@ -163,17 +163,15 @@ export function Organizer({ dark, tabCount, onClose }: { dark: boolean; tabCount
         <span className="org-usage">
           {proposal?.usage
             ? proposal.usage.cached
-              ? "From cache, no tokens used"
-              : `${nf.format(proposal.usage.inputTokens)} tokens in, ${nf.format(proposal.usage.outputTokens)} out`
+              ? tx("From cache, no tokens used")
+              : tx("{nf} tokens in, {nf2} out", { nf: nf.format(proposal.usage.inputTokens), nf2: nf.format(proposal.usage.outputTokens) })
             : proposal
-              ? "No AI tokens used"
+              ? tx("No AI tokens used")
               : ""}
         </span>
-        <button className="btn small" onClick={onClose}>
-          Cancel
-        </button>
+        <button className="btn small" onClick={onClose}>{tx("Cancel")}</button>
         <button className="btn small primary" disabled={!proposal || nothing || busy} onClick={() => void apply()}>
-          {chosen.length > 0 ? `Create ${chosen.length} ${chosen.length === 1 ? "group" : "groups"}` : willClose.length > 0 ? "Close duplicates" : "Apply"}
+          {chosen.length > 0 ? (chosen.length === 1 ? tx("Create 1 group") : tx("Create {n} groups", { n: chosen.length })) : willClose.length > 0 ? tx("Close duplicates") : tx("Apply")}
         </button>
       </footer>
     </div>

@@ -42,6 +42,7 @@ import {
 } from "./Popovers";
 import { TabStrip } from "./TabStrip";
 
+import { t as tx } from "../common/i18n";
 interface GroupEditorState {
   groupId: string;
   /** Where to show it; without one it goes under the group's chip. */
@@ -175,7 +176,7 @@ export function App() {
           <div className="v-topbar">
             <button
               className="icon-btn v-collapse"
-              title={state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={state.sidebarCollapsed ? tx("Expand sidebar") : tx("Collapse sidebar")}
               onClick={() => void api.call("ui.setSidebarCollapsed", !state.sidebarCollapsed)}
             >
               <IconChevronRight size={16} />
@@ -184,30 +185,30 @@ export function App() {
         )}
         {!vertical && tabStrip}
         <div className="toolbar">
-          <button className="icon-btn" title="Back (Alt+Left)" disabled={!active?.canGoBack} onClick={() => active && void api.call("tabs.back", active.id)}>
+          <button className="icon-btn" title={tx("Back (Alt+Left)")} disabled={!active?.canGoBack} onClick={() => active && void api.call("tabs.back", active.id)}>
             <IconBack size={17} />
           </button>
           <button
             className="icon-btn"
-            title="Forward (Alt+Right)"
+            title={tx("Forward (Alt+Right)")}
             disabled={!active?.canGoForward}
             onClick={() => active && void api.call("tabs.forward", active.id)}
           >
             <IconForward size={17} />
           </button>
           {active?.loading ? (
-            <button className="icon-btn" title="Stop" onClick={() => void api.call("tabs.stop", active.id)}>
+            <button className="icon-btn" title={tx("Stop")} onClick={() => void api.call("tabs.stop", active.id)}>
               <IconClose size={17} />
             </button>
           ) : (
-            <button className="icon-btn" title="Reload (Ctrl+R)" disabled={!active} onClick={() => active && void api.call("tabs.reload", active.id)}>
+            <button className="icon-btn" title={tx("Reload (Ctrl+R)")} disabled={!active} onClick={() => active && void api.call("tabs.reload", active.id)}>
               <IconReload size={16} />
             </button>
           )}
           {state.showHomeButton && (
             <button
               className="icon-btn"
-              title="Home (Alt+Home)"
+              title={tx("Home (Alt+Home)")}
               disabled={!active}
               onClick={(e) => active && void api.call("tabs.home", active.id, e.ctrlKey || e.metaKey)}
               onAuxClick={(e) => e.button === 1 && active && void api.call("tabs.home", active.id, true)}
@@ -241,14 +242,14 @@ export function App() {
             <WatchesButton watches={state.watches} onOpen={() => void api.call("tabs.openUrl", "corvus://watches/", "new-tab")} />
             <WorkspacesButton onOpen={(rect) => setPopover({ kind: "workspaces", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })} />
             {state.split?.shown && (
-              <button className="icon-btn split-exit-btn on" title="Exit split view" aria-pressed onClick={() => void api.call("split.exit")}>
+              <button className="icon-btn split-exit-btn on" title={tx("Exit split view")} aria-pressed onClick={() => void api.call("split.exit")}>
                 <IconClose size={16} />
               </button>
             )}
             <ExtensionsToolbar partition={state.partition} tabId={active?.webContentsId ?? -1} onOpenChange={setExtMenuOpen} />
             <button
               className={`icon-btn assist-btn ${state.assistOpen ? "on" : ""}`}
-              title={state.agentsPaused ? "Corvus Assist (agents paused)" : "Corvus Assist (Ctrl+Shift+A)"}
+              title={state.agentsPaused ? tx("Corvus Assist (agents paused)") : tx("Corvus Assist (Ctrl+Shift+A)")}
               aria-pressed={state.assistOpen}
               onClick={() => void api.call("assist.toggle")}
             >
@@ -256,13 +257,13 @@ export function App() {
               {state.agentsPaused ? <span className="assist-live paused" /> : state.agentActive ? <span className="assist-live" /> : null}
             </button>
             {state.mcpRunning && (
-              <button className="icon-btn agent-indicator" title="AI agents can connect (MCP server running)" onClick={() => void api.call("tabs.openUrl", "corvus://settings/#agents", "new-tab")}>
+              <button className="icon-btn agent-indicator" title={tx("AI agents can connect (MCP server running)")} onClick={() => void api.call("tabs.openUrl", "corvus://settings/#agents", "new-tab")}>
                 <IconAgent size={17} />
               </button>
             )}
             <button
               className="avatar-btn"
-              title={`Profile: ${state.profile.name}`}
+              title={tx("Profile: {name}", { name: state.profile.name })}
               style={{ background: state.profile.avatar ?? "var(--accent)" }}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
@@ -273,7 +274,7 @@ export function App() {
             </button>
             <button
               className="icon-btn"
-              title="Customize and control Corvus"
+              title={tx("Customize and control Corvus")}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 void api.call("ui.appMenu", r.left, r.bottom + 4);
@@ -343,7 +344,7 @@ function SidebarResize({ width }: { width: number }) {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
-  return <div className="sidebar-resize" onPointerDown={onPointerDown} title="Drag to resize" />;
+  return <div className="sidebar-resize" onPointerDown={onPointerDown} title={tx("Drag to resize")} />;
 }
 
 class DebugBoundary extends Component<{ children: ReactNode }, { err: boolean }> {
@@ -405,7 +406,7 @@ function BookmarksBar({ state }: { state: WindowState }) {
         if (page) void api.call("bookmarks.addToBar", page.url, page.title, barDropIndex(e.currentTarget, e.clientX, count));
       }}
     >
-      {count === 0 && <span className="bar-empty">{dropAt !== null ? "Drop to bookmark this page" : "Bookmark pages with the star in the address bar, or drag the lock here."}</span>}
+      {count === 0 && <span className="bar-empty">{dropAt !== null ? tx("Drop to bookmark this page") : tx("Bookmark pages with the star in the address bar, or drag the lock here.")}</span>}
       {state.bookmarksBar.map((b, i) =>
         b.kind === "folder" ? (
           <button
@@ -446,7 +447,7 @@ function BookmarksBar({ state }: { state: WindowState }) {
       <span className="bar-spacer" />
       <button className="bar-item" onClick={() => void api.call("tabs.openUrl", "corvus://bookmarks/", "new-tab")}>
         <IconFolder size={14} />
-        <span>All bookmarks</span>
+        <span>{tx("All bookmarks")}</span>
       </button>
     </div>
   );
@@ -508,7 +509,7 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
       <input
         ref={inputRef}
         className="input"
-        placeholder="Name this group"
+        placeholder={tx("Name this group")}
         value={title}
         maxLength={80}
         onChange={(e) => setTitle(e.target.value)}
@@ -535,16 +536,14 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
         <button className="menu-row" onClick={() => {
           void api.call("groups.newTab", group.id);
           onClose();
-        }}>
-          New tab in group
-        </button>
+        }}>{tx("New tab in group")}</button>
         <button
           className="menu-row ws-group-save"
           disabled={saveCount === 0}
           title={
             workspaceName
-              ? `Save this group's current tabs to the workspace “${workspaceName}”`
-              : "Save this group's tabs as a workspace you can reopen later"
+              ? tx("Save this group's current tabs to the workspace “{workspaceName}”", { workspaceName })
+              : tx("Save this group's tabs as a workspace you can reopen later")
           }
           onClick={() => {
             saveTitle();
@@ -552,21 +551,17 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
             onClose();
           }}
         >
-          {workspaceName ? "Update workspace" : "Save group as workspace"}
-          <span className="muted"> · {saveCount} tab{saveCount === 1 ? "" : "s"}</span>
+          {workspaceName ? tx("Update workspace") : tx("Save group as workspace")}
+          <span className="muted">{" "}{saveCount === 1 ? tx("· 1 tab") : tx("· {saveCount} tabs", { saveCount })}</span>
         </button>
         <button className="menu-row" onClick={() => {
           void api.call("groups.ungroup", group.id);
           onClose();
-        }}>
-          Ungroup
-        </button>
+        }}>{tx("Ungroup")}</button>
         <button className="menu-row danger" onClick={() => {
           void api.call("groups.close", group.id);
           onClose();
-        }}>
-          Close group
-        </button>
+        }}>{tx("Close group")}</button>
       </div>
     </div>
   );

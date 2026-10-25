@@ -9,16 +9,17 @@ import { IconClose } from "./icons";
 import { ago } from "./workflows";
 import "./site-memory.css";
 
+import { t as tx } from "./i18n";
 const INTENT_LABEL: Record<MemoryIntent, string> = {
-  accept_cookies: "Accept cookies",
-  close_dialog: "Close popup",
-  search: "Search",
-  add_to_cart: "Add to cart",
-  checkout: "Checkout",
-  login: "Sign in",
-  next_page: "Next page",
-  submit: "Submit",
-  other: "Other",
+  accept_cookies: tx("Accept cookies"),
+  close_dialog: tx("Close popup"),
+  search: tx("Search"),
+  add_to_cart: tx("Add to cart"),
+  checkout: tx("Checkout"),
+  login: tx("Sign in"),
+  next_page: tx("Next page"),
+  submit: tx("Submit"),
+  other: tx("Other"),
 };
 
 export function intentLabel(intent: MemoryIntent): string {
@@ -31,11 +32,11 @@ export function StatsLine({ stats }: { stats: MemoryStats }) {
   const o = stats.without;
   if (w.runs === 0 && o.runs === 0) return null;
   const part = (label: string, b: MemoryStats["withHints"]): string =>
-    b.runs === 0 ? `${label}: no runs yet` : `${label}: ${b.runs} run${b.runs === 1 ? "" : "s"}, avg ${b.avgSteps} steps, ${b.avgTokens.toLocaleString()} tokens`;
-  const saved = w.runs > 0 && o.runs > 0 && o.avgSteps > w.avgSteps ? ` (about ${Math.round((o.avgSteps - w.avgSteps) * 10) / 10} steps saved per run)` : "";
+    b.runs === 0 ? tx("{label}: no runs yet", { label }) : tx("{label}: runs: {runs}, avg {steps} steps, {tokens} tokens", { label, runs: b.runs, steps: b.avgSteps, tokens: b.avgTokens.toLocaleString() });
+  const saved = w.runs > 0 && o.runs > 0 && o.avgSteps > w.avgSteps ? tx(" (about {n} steps saved per run)", { n: Math.round((o.avgSteps - w.avgSteps) * 10) / 10 }) : "";
   return (
     <p className="mem-stats">
-      {part("With hints", w)}. {part("Without", o)}.{saved}
+      {part(tx("With hints"), w)}. {part(tx("Without"), o)}.{saved}
     </p>
   );
 }
@@ -52,22 +53,20 @@ export function LearnedSite({
   compact?: boolean;
 }) {
   const Remove = ({ kind, k }: { kind: MemoryHintKind; k: string }) => (
-    <button className="mem-x" title="Forget this hint" aria-label="Forget this hint" onClick={() => onRemove(kind, k)}>
+    <button className="mem-x" title={tx("Forget this hint")} aria-label={tx("Forget this hint")} onClick={() => onRemove(kind, k)}>
       <IconClose size={12} />
     </button>
   );
   const empty = entry.targets.length + entry.urls.length + entry.obstacles.length + entry.sequences.length === 0;
   return (
     <div className={`mem-site ${compact ? "compact" : ""}`}>
-      <div className="mem-meta">
-        Learned from {entry.runs} successful run{entry.runs === 1 ? "" : "s"}
-        {entry.fails ? `, ${entry.fails} failed` : ""} · last {ago(entry.lastSeen)}
-      </div>
-      {empty && <p className="mem-empty">Nothing left to show for this site.</p>}
+      <div className="mem-meta">{entry.runs === 1 ? tx("Learned from 1 successful run") : tx("Learned from {runs} successful runs", { runs: entry.runs })}
+        {entry.fails ? tx(", {fails} failed", { fails: entry.fails }) : ""}{" "}{tx("· last {ago}", { ago: ago(entry.lastSeen) })}</div>
+      {empty && <p className="mem-empty">{tx("Nothing left to show for this site.")}</p>}
 
       {entry.obstacles.length > 0 && (
         <div className="mem-group">
-          <div className="mem-group-head">Obstacles</div>
+          <div className="mem-group-head">{tx("Obstacles")}</div>
           <ul>
             {entry.obstacles.map((o) => (
               <li key={hintKey("obstacle", o)}>
@@ -82,15 +81,15 @@ export function LearnedSite({
 
       {entry.targets.length > 0 && (
         <div className="mem-group">
-          <div className="mem-group-head">Elements that worked</div>
+          <div className="mem-group-head">{tx("Elements that worked")}</div>
           <ul>
             {entry.targets.map((t) => (
               <li key={hintKey("target", t)} className={t.fail > 0 ? "shaky" : ""}>
                 <span className={`mem-chip ${t.intent === "other" ? "" : "intent"}`}>{intentLabel(t.intent)}</span>
                 <span className="mem-text">
-                  {t.act === "type" ? "type into" : "click"} {t.role} <q>{t.name}</q>
+                  {t.act === "type" ? tx("type into") : tx("click")} {t.role} <q>{t.name}</q>
                 </span>
-                <span className="mem-count" title={`${t.ok} worked, ${t.fail} failed`}>
+                <span className="mem-count" title={tx("{ok} worked, {fail} failed", { ok: t.ok, fail: t.fail })}>
                   {t.ok}
                   {t.fail ? `/${t.fail}` : ""}
                 </span>
@@ -103,7 +102,7 @@ export function LearnedSite({
 
       {entry.urls.length > 0 && (
         <div className="mem-group">
-          <div className="mem-group-head">URL shapes</div>
+          <div className="mem-group-head">{tx("URL shapes")}</div>
           <ul>
             {entry.urls.map((u) => (
               <li key={hintKey("url", u)}>
@@ -118,7 +117,7 @@ export function LearnedSite({
 
       {entry.sequences.length > 0 && (
         <div className="mem-group">
-          <div className="mem-group-head">Usual order</div>
+          <div className="mem-group-head">{tx("Usual order")}</div>
           <ul>
             {entry.sequences.map((q) => (
               <li key={hintKey("sequence", q)}>
@@ -132,9 +131,7 @@ export function LearnedSite({
       )}
 
       <div className="mem-actions">
-        <button className="btn small ghost danger mem-forget" onClick={onForget}>
-          Forget this site
-        </button>
+        <button className="btn small ghost danger mem-forget" onClick={onForget}>{tx("Forget this site")}</button>
       </div>
     </div>
   );

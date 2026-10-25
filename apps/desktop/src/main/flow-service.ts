@@ -54,6 +54,7 @@ import { FlowStore } from "./flow-store";
 import { SiteMemoryService } from "./site-memory-service";
 import type { ProfileRuntime } from "./profiles";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
+import { tr } from "./menu-i18n";
 
 /** A top-level navigation within this window of a click/submit is treated as its consequence. */
 const NAV_AFTER_ACTION_MS = 1500;
@@ -668,7 +669,7 @@ export class FlowService {
       if (!r.win.win.isDestroyed()) r.win.win.focus();
     }
     if (Notification.isSupported()) {
-      const title = view.kind === "error" ? `Replay paused: ${r.flow.name}` : `Approval needed: ${r.flow.name}`;
+      const title = view.kind === "error" ? tr("Replay paused: {name}", { name: r.flow.name }) : tr("Approval needed: {name}", { name: r.flow.name });
       const n = new Notification({ title: title.slice(0, 120), body: view.reason.slice(0, 200) });
       n.on("click", () => this.windowFor(r.profileId).openSingleton("corvus://flows/"));
       n.show();

@@ -8,7 +8,8 @@ import "./welcome.css";
 import { BrowserImportPanel } from "./settings-import";
 import { mount } from "./shell";
 
-const STEP_TITLES = ["AI provider", "Sync", "Import", "Preferences"] as const;
+import { t } from "../common/i18n";
+const STEP_TITLES = [t("AI provider"), t("Sync"), t("Import"), t("Preferences")] as const;
 
 function goToBrowser(): void {
   window.location.href = "corvus://newtab/";
@@ -39,19 +40,19 @@ function SecretField({ isSet, persisted, onSaved }: { isSet: boolean; persisted:
           className="input"
           type="password"
           value={value}
-          placeholder={isSet ? "••••••••  (a key is saved)" : "sk-ant-…"}
+          placeholder={isSet ? t("••••••••  (a key is saved)") : "sk-ant-…"}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") save();
           }}
         />
         <button className="btn small" disabled={!value.trim()} onClick={save}>
-          {saved ? "Saved" : "Save key"}
+          {saved ? t("Saved") : t("Save key")}
         </button>
       </div>
       <p className="wz-hint">
-        {persisted ? "Stored encrypted in your OS keychain." : "No OS keychain here: the key is kept in memory until Corvus quits."}
-        {isSet && " A key is already saved."}
+        {persisted ? t("Stored encrypted in your OS keychain.") : t("No OS keychain here: the key is kept in memory until Corvus quits.")}
+        {isSet && t(" A key is already saved.")}
       </p>
       {error && <div className="wz-notice error">{error}</div>}
     </div>
@@ -71,7 +72,7 @@ function TestConnection({ deps }: { deps: unknown[] }) {
   return (
     <div className="wz-inline">
       <button className="btn small" disabled={state.busy} onClick={run}>
-        {state.busy ? "Testing…" : "Test connection"}
+        {state.busy ? t("Testing…") : t("Test connection")}
       </button>
       {state.result && <span className={`wz-pill ${state.result.ok ? "ok" : "bad"}`}>{state.result.detail}</span>}
     </div>
@@ -82,51 +83,51 @@ function ProviderStep({ view, update, setView }: { view: SettingsView; update: (
   const ai = view.settings.ai;
   return (
     <div className="wz-step">
-      <p className="wz-lead">Corvus writes cited answers with a small model. Pick where that model runs — you can change this later in Settings.</p>
+      <p className="wz-lead">{t("Corvus writes cited answers with a small model. Pick where that model runs — you can change this later in Settings.")}</p>
       <label className="wz-field">
-        <span>AI provider</span>
+        <span>{t("AI provider")}</span>
         <select className="input" value={ai.provider} onChange={(e) => update({ ai: { provider: e.target.value as typeof ai.provider } })}>
-          <option value="anthropic-api">Anthropic API (your key)</option>
-          <option value="claude-code-cli">Claude Code CLI (local login)</option>
-          <option value="local">Local model — Ollama / OpenAI-compatible (offline)</option>
+          <option value="anthropic-api">{t("Anthropic API (your key)")}</option>
+          <option value="claude-code-cli">{t("Claude Code CLI (local login)")}</option>
+          <option value="local">{t("Local model — Ollama / OpenAI-compatible (offline)")}</option>
         </select>
       </label>
 
       {ai.provider === "anthropic-api" && (
         <label className="wz-field">
-          <span>Anthropic API key</span>
+          <span>{t("Anthropic API key")}</span>
           <SecretField isSet={view.secrets.anthropicApiKey} persisted={view.secretsPersisted} onSaved={setView} />
         </label>
       )}
 
       {ai.provider === "claude-code-cli" && (
         <label className="wz-field">
-          <span>Claude CLI path</span>
+          <span>{t("Claude CLI path")}</span>
           <input
             className="input"
             defaultValue={ai.claudeCliPath}
-            placeholder="claude"
+            placeholder={t("claude")}
             onBlur={(e) => update({ ai: { claudeCliPath: e.target.value.trim() || "claude" } })}
           />
-          <p className="wz-hint">Uses your local Claude Code login. Personal use only — distributed builds must use an API key.</p>
+          <p className="wz-hint">{t("Uses your local Claude Code login. Personal use only — distributed builds must use an API key.")}</p>
         </label>
       )}
 
       {ai.provider === "local" && (
         <>
           <label className="wz-field">
-            <span>Local API</span>
+            <span>{t("Local API")}</span>
             <select className="input" value={ai.localApi} onChange={(e) => update({ ai: { localApi: e.target.value === "openai" ? "openai" : "ollama" } })}>
-              <option value="ollama">Ollama</option>
-              <option value="openai">OpenAI-compatible</option>
+              <option value="ollama">{t("Ollama")}</option>
+              <option value="openai">{t("OpenAI-compatible")}</option>
             </select>
           </label>
           <label className="wz-field">
-            <span>Base URL</span>
+            <span>{t("Base URL")}</span>
             <input
               className="input"
               defaultValue={ai.localBaseUrl}
-              placeholder="http://localhost:11434"
+              placeholder={t("http://localhost:11434")}
               onBlur={(e) => update({ ai: { localBaseUrl: e.target.value.trim() } })}
             />
           </label>
@@ -134,7 +135,7 @@ function ProviderStep({ view, update, setView }: { view: SettingsView; update: (
       )}
 
       <label className="wz-field">
-        <span>Model</span>
+        <span>{t("Model")}</span>
         <input
           className="input"
           defaultValue={ai.model}
@@ -178,19 +179,19 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
     }
   }, [status]);
 
-  if (!status) return <div className="wz-step">Loading…</div>;
+  if (!status) return <div className="wz-step">{t("Loading…")}</div>;
   if (!status.available) {
     return (
       <div className="wz-step">
-        <div className="wz-notice warn">Sync is not available in this build. You can skip this step.</div>
+        <div className="wz-notice warn">{t("Sync is not available in this build. You can skip this step.")}</div>
       </div>
     );
   }
   if (status.enabled) {
     return (
       <div className="wz-step">
-        <div className="wz-notice ok">Sync is on for this profile. Device “{status.deviceName}”.</div>
-        <p className="wz-hint">Manage it any time in Settings → Sync.</p>
+        <div className="wz-notice ok">{t("Sync is on for this profile. Device “{deviceName}”.", { deviceName: status.deviceName })}</div>
+        <p className="wz-hint">{t("Manage it any time in Settings → Sync.")}</p>
       </div>
     );
   }
@@ -207,22 +208,20 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
 
   return (
     <div className="wz-step">
-      <p className="wz-lead">
-        Sync is end-to-end encrypted — the server only stores ciphertext. A 24-word recovery phrase is the key. Skip this and set it up later if you prefer.
-      </p>
+      <p className="wz-lead">{t("Sync is end-to-end encrypted — the server only stores ciphertext. A 24-word recovery phrase is the key. Skip this and set it up later if you prefer.")}</p>
       <label className="wz-field">
-        <span>Sync server</span>
-        <input className="input" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="http://localhost:8797" />
+        <span>{t("Sync server")}</span>
+        <input className="input" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder={t("http://localhost:8797")} />
       </label>
       <label className="wz-field">
-        <span>Device name</span>
+        <span>{t("Device name")}</span>
         <input className="input" value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
       </label>
 
       <div className="wz-two">
         <div className="wz-card">
-          <h3>Start a new chain</h3>
-          <p className="wz-hint">Creates a fresh 24-word phrase. Anyone with it can read your synced data.</p>
+          <h3>{t("Start a new chain")}</h3>
+          <p className="wz-hint">{t("Creates a fresh 24-word phrase. Anyone with it can read your synced data.")}</p>
           <button
             className="btn small"
             onClick={() => {
@@ -235,35 +234,30 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
                 })
                 .catch((e: unknown) => setError(errorMessage(e)));
             }}
-          >
-            Generate phrase
-          </button>
+          >{t("Generate phrase")}</button>
           {generated && (
             <>
               <PhraseGrid phrase={generated} />
               <label className="wz-check">
-                <input type="checkbox" checked={savedPhrase} onChange={(e) => setSavedPhrase(e.target.checked)} /> I wrote this phrase down somewhere safe
-              </label>
-              <button className="btn small primary" disabled={!savedPhrase || busy} onClick={() => enable(generated)}>
-                Turn on sync
-              </button>
+                <input type="checkbox" checked={savedPhrase} onChange={(e) => setSavedPhrase(e.target.checked)} />{" "}{t("I wrote this phrase down somewhere safe")}</label>
+              <button className="btn small primary" disabled={!savedPhrase || busy} onClick={() => enable(generated)}>{t("Turn on sync")}</button>
             </>
           )}
         </div>
 
         <div className="wz-card">
-          <h3>Join an existing chain</h3>
-          <p className="wz-hint">Enter the recovery phrase from another device. This profile takes the synced data.</p>
+          <h3>{t("Join an existing chain")}</h3>
+          <p className="wz-hint">{t("Enter the recovery phrase from another device. This profile takes the synced data.")}</p>
           <textarea
             className="input"
             rows={3}
             value={joinPhrase}
             onChange={(e) => setJoinPhrase(e.target.value)}
-            placeholder="24 words separated by spaces"
+            placeholder={t("24 words separated by spaces")}
             spellCheck={false}
           />
           <button className="btn small primary" disabled={!joinPhrase.trim() || busy} onClick={() => enable(joinPhrase)}>
-            {busy ? "Joining…" : "Join and sync"}
+            {busy ? t("Joining…") : t("Join and sync")}
           </button>
         </div>
       </div>
@@ -287,21 +281,17 @@ function ImportStep() {
   };
   return (
     <div className="wz-step">
-      <p className="wz-lead">
-        Bring your bookmarks and history over from another browser on this computer. Its files are only read, never changed; if it is open, close it first.
-      </p>
+      <p className="wz-lead">{t("Bring your bookmarks and history over from another browser on this computer. Its files are only read, never changed; if it is open, close it first.")}</p>
       <BrowserImportPanel />
-      <p className="wz-hint">
-        Using a browser from another computer? Export its bookmarks to HTML there (Chrome, Edge, Firefox, Safari and Brave all can) and pick the file here.
-      </p>
+      <p className="wz-hint">{t("Using a browser from another computer? Export its bookmarks to HTML there (Chrome, Edge, Firefox, Safari and Brave all can) and pick the file here.")}</p>
       <button className="btn small" disabled={busy} onClick={run}>
-        {busy ? "Importing…" : "Choose a bookmarks file…"}
+        {busy ? t("Importing…") : t("Choose a bookmarks file…")}
       </button>
       {result && !result.canceled && (
         <div className={`wz-notice ${result.imported > 0 ? "ok" : "warn"}`}>
           {result.imported > 0
-            ? `Imported ${result.imported} bookmark${result.imported === 1 ? "" : "s"}${result.folders > 0 ? ` in ${result.folders} folder${result.folders === 1 ? "" : "s"}` : ""} from ${result.source}.`
-            : `No bookmarks found in ${result.source}.`}
+            ? result.folders > 0 ? t("Imported {imported} bookmark(s) in {folders} folder(s) from {source}.", { imported: result.imported, folders: result.folders, source: result.source ?? "" }) : t("Imported {imported} bookmark(s) from {source}.", { imported: result.imported, source: result.source ?? "" })
+            : t("No bookmarks found in {source}.", { source: result.source ?? "" })}
         </div>
       )}
       {error && <div className="wz-notice error">{error}</div>}
@@ -318,21 +308,21 @@ function PreferencesStep({ view, update }: { view: SettingsView; update: (p: Set
   }, [api]);
   return (
     <div className="wz-step">
-      <p className="wz-lead">A few defaults to finish. All of these live in Settings afterwards.</p>
+      <p className="wz-lead">{t("A few defaults to finish. All of these live in Settings afterwards.")}</p>
       <label className="wz-field">
-        <span>Default search</span>
+        <span>{t("Default search")}</span>
         <select className="input" value={ai.retriever} onChange={(e) => update({ ai: { retriever: e.target.value as typeof ai.retriever } })}>
-          <option value="searxng">SearXNG (self-hosted)</option>
-          <option value="brave">Brave Search API</option>
-          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="searxng">{t("SearXNG (self-hosted)")}</option>
+          <option value="brave">{t("Brave Search API")}</option>
+          <option value="duckduckgo">{t("DuckDuckGo")}</option>
         </select>
       </label>
       <label className="wz-field">
-        <span>Theme</span>
+        <span>{t("Theme")}</span>
         <select className="input" value={view.settings.appearance.theme} onChange={(e) => update({ appearance: { theme: e.target.value as ThemeSource } })}>
-          <option value="system">Match system</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
+          <option value="system">{t("Match system")}</option>
+          <option value="light">{t("Light")}</option>
+          <option value="dark">{t("Dark")}</option>
         </select>
       </label>
       <label className="wz-toggle">
@@ -342,7 +332,7 @@ function PreferencesStep({ view, update }: { view: SettingsView; update: (p: Set
           disabled={!adblock}
           onChange={(e) => void api.call("adblock.setEnabled", e.target.checked).then(setAdblock)}
         />
-        <span>Block ads and trackers</span>
+        <span>{t("Block ads and trackers")}</span>
       </label>
     </div>
   );
@@ -378,7 +368,7 @@ function WelcomePage() {
       <aside className="wz-side">
         <div className="wz-brand">
           <CorvusMark size={30} />
-          <span>Corvus</span>
+          <span>{t("Corvus")}</span>
         </div>
         <ol className="wz-steps">
           {STEP_TITLES.map((title, i) => (
@@ -388,20 +378,18 @@ function WelcomePage() {
             </li>
           ))}
         </ol>
-        <button className="wz-skip" onClick={finish} disabled={finishing}>
-          Skip setup
-        </button>
+        <button className="wz-skip" onClick={finish} disabled={finishing}>{t("Skip setup")}</button>
       </aside>
 
       <main className="wz-main">
         <header className="wz-head">
-          <h1>{step === 0 ? "Welcome to Corvus" : STEP_TITLES[step]}</h1>
-          <p className="wz-sub">Step {step + 1} of {STEP_TITLES.length}</p>
+          <h1>{step === 0 ? t("Welcome to Corvus") : STEP_TITLES[step]}</h1>
+          <p className="wz-sub">{t("Step")}{" "}{step + 1}{" "}{t("of")}{" "}{STEP_TITLES.length}</p>
         </header>
 
         <div className="wz-content">
           {!view ? (
-            <div className="wz-step">Loading…</div>
+            <div className="wz-step">{t("Loading…")}</div>
           ) : step === 0 ? (
             <ProviderStep view={view} update={update} setView={setView} />
           ) : step === 1 ? (
@@ -414,21 +402,15 @@ function WelcomePage() {
         </div>
 
         <footer className="wz-foot">
-          <button className="btn ghost" disabled={step === 0 || finishing} onClick={() => setStep((s) => Math.max(0, s - 1))}>
-            Back
-          </button>
+          <button className="btn ghost" disabled={step === 0 || finishing} onClick={() => setStep((s) => Math.max(0, s - 1))}>{t("Back")}</button>
           {step < last ? (
             <div className="wz-foot-right">
-              <button className="btn ghost" onClick={() => setStep((s) => Math.min(last, s + 1))}>
-                Skip
-              </button>
-              <button className="btn primary" onClick={() => setStep((s) => Math.min(last, s + 1))}>
-                Next
-              </button>
+              <button className="btn ghost" onClick={() => setStep((s) => Math.min(last, s + 1))}>{t("Skip")}</button>
+              <button className="btn primary" onClick={() => setStep((s) => Math.min(last, s + 1))}>{t("Next")}</button>
             </div>
           ) : (
             <button className="btn primary" disabled={finishing} onClick={finish}>
-              {finishing ? "Finishing…" : "Finish"}
+              {finishing ? t("Finishing…") : t("Finish")}
             </button>
           )}
         </footer>

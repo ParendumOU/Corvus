@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode
 import type { HttpHeader, ResponseComparison } from "@corvus/webscope";
 import { bodyBytes, fmtBytes, fmtMs, hexDump, methodClass, prettyBody } from "./webscope-format";
 
+import { t } from "../common/i18n";
 export * from "./webscope-format";
 
 export function MethodBadge({ method }: { method: string }) {
@@ -64,7 +65,7 @@ export function MessageViewer({
       <div className="ws-msg">
         {head}
         <div className="ws-msg-body">
-          <div className="ws-inline-error">Request failed: {msg.error}</div>
+          <div className="ws-inline-error">{t("Request failed:")}{" "}{msg.error}</div>
         </div>
       </div>
     );
@@ -74,7 +75,7 @@ export function MessageViewer({
   const pretty = tab === "pretty" ? prettyBody(msg.body, msg.mimeType, msg.bodyBase64) : { text: "", note: undefined };
   const rawBody = msg.bodyBase64 ? `[binary body, ${msg.byteLen ?? bytes.length} bytes]` : msg.body ?? "";
   // A known size with no captured text means capture skipped the body, not that it was empty.
-  const noBody = !msg.body && msg.byteLen ? `Body not captured (${fmtBytes(msg.byteLen)}).` : "No body.";
+  const noBody = !msg.body && msg.byteLen ? t("Body not captured ({byteLen}).", { byteLen: fmtBytes(msg.byteLen) }) : t("No body.");
 
   let content: ReactNode;
   if (tab === "headers") {
@@ -83,7 +84,7 @@ export function MessageViewer({
         <tbody>
           {msg.headers.length === 0 ? (
             <tr>
-              <td className="ws-kv-empty" colSpan={2}>No headers.</td>
+              <td className="ws-kv-empty" colSpan={2}>{t("No headers.")}</td>
             </tr>
           ) : (
             msg.headers.map((h, i) => (
@@ -110,16 +111,16 @@ export function MessageViewer({
   }
 
   const tabs: Array<[MsgTab, string, number | null]> = [
-    ["pretty", "Pretty", null],
-    ["raw", "Raw", null],
-    ["headers", "Headers", msg.headers.length],
+    ["pretty", t("Pretty"), null],
+    ["raw", t("Raw"), null],
+    ["headers", t("Headers"), msg.headers.length],
     ["hex", "Hex", null],
   ];
 
   return (
     <div className="ws-msg">
       {head}
-      <div className="ws-msg-tabs" role="tablist" aria-label={`${title} view`}>
+      <div className="ws-msg-tabs" role="tablist" aria-label={t("{title} view", { title })}>
         {tabs.map(([id, label, count]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={`ws-msg-tab ${tab === id ? "on" : ""}`} onClick={() => setPicked(id)}>
             {label}
@@ -328,7 +329,7 @@ export function DiffPane({ diff }: { diff: ResponseComparison }) {
     <div className="ws-diff-section">
       <div className="ws-diff-title">{title}</div>
       {lines.length === 0 ? (
-        <div className="ws-diff-same">No differences.</div>
+        <div className="ws-diff-same">{t("No differences.")}</div>
       ) : (
         <pre className="ws-mono-body">
           {lines.map((line, i) =>
@@ -355,10 +356,10 @@ export function DiffPane({ diff }: { diff: ResponseComparison }) {
       <div className="ws-diff-summary">
         <span>A: {diff.a.status ?? "-"} · {fmtBytes(diff.a.length)} · {fmtMs(diff.a.durationMs)}</span>
         <span>B: {diff.b.status ?? "-"} · {fmtBytes(diff.b.length)} · {fmtMs(diff.b.durationMs)}</span>
-        <span className={diff.statusChanged ? "hit" : "ws-ok"}>{diff.statusChanged ? "status differs" : "status identical"}</span>
+        <span className={diff.statusChanged ? "hit" : "ws-ok"}>{diff.statusChanged ? t("status differs") : t("status identical")}</span>
       </div>
-      {section("Headers", diff.headerDiff)}
-      {section("Body", diff.bodyDiff)}
+      {section(t("Headers"), diff.headerDiff)}
+      {section(t("Body"), diff.bodyDiff)}
     </div>
   );
 }

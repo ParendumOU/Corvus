@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { net, protocol, type Session } from "electron";
 import { ADBLOCK_RESOURCE_SCHEME } from "../shared/adblock";
+import { translate } from "../shared/i18n-es";
 import { INTERNAL_PAGES, INTERNAL_SCHEME } from "../shared/internal-urls";
+import type { UiLanguage } from "../shared/settings";
 import { paths, rendererDevUrl } from "./paths";
 
 /** Must run before app "ready". */
@@ -53,9 +55,15 @@ export function setInternalPageLanguage(language: () => string): void {
   pageLanguage = language;
 }
 
-/** Pages read their language synchronously from <html lang>, so they render translated at once. */
+/**
+ * Pages read their language synchronously from <html lang>, so they render translated at once. The
+ * <title> is translated here too: it names the tab before (and unless) the page sets its own.
+ */
 function withLanguage(html: string): string {
-  return html.replace(/<html lang="[^"]*">/, `<html lang="${pageLanguage()}">`);
+  const language = pageLanguage();
+  return html
+    .replace(/<html lang="[^"]*">/, `<html lang="${language}">`)
+    .replace(/<title>([^<]*)<\/title>/, (_m, title: string) => `<title>${translate(language as UiLanguage, title)}</title>`);
 }
 
 interface NewTabRoutes {

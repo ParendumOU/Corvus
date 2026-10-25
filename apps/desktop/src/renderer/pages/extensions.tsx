@@ -5,6 +5,7 @@ import { IconPuzzle } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 function ExtensionCard({ ext, run }: { ext: ExtensionInfo; run: (p: Promise<unknown>) => void }) {
   const api = internalApi();
   const [open, setOpen] = useState(false);
@@ -14,27 +15,24 @@ function ExtensionCard({ ext, run }: { ext: ExtensionInfo; run: (p: Promise<unkn
         <div className="ext-icon">{ext.iconUrl ? <img src={ext.iconUrl} alt="" /> : <IconPuzzle size={22} />}</div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="ext-name">{ext.name}</div>
-          <div className="muted small">
-            Version {ext.version} · MV{ext.manifestVersion}
-          </div>
+          <div className="muted small">{t("Version {version} · MV{manifestVersion}", { version: ext.version, manifestVersion: ext.manifestVersion })}</div>
         </div>
-        <Toggle label={`Enable ${ext.name}`} checked={ext.enabled} onChange={(v) => run(api.call("extensions.setEnabled", ext.id, v))} />
+        <Toggle label={t("Enable {name}", { name: ext.name })} checked={ext.enabled} onChange={(v) => run(api.call("extensions.setEnabled", ext.id, v))} />
       </div>
-      <div className="ext-desc">{ext.description || "No description."}</div>
+      <div className="ext-desc">{ext.description || t("No description.")}</div>
       {ext.errors.length > 0 && (
-        <div className="notice error ext-errors">
-          {ext.errors.length} error{ext.errors.length === 1 ? "" : "s"}: {ext.errors[ext.errors.length - 1]?.message}
+        <div className="notice error ext-errors">{ext.errors.length === 1 ? t("1 error") : t("{length} errors", { length: ext.errors.length })}: {ext.errors[ext.errors.length - 1]?.message}
         </div>
       )}
       {open && (
         <div className="ext-details">
-          <div className="mono muted small">ID {ext.id}</div>
+          <div className="mono muted small">{t("ID")}{" "}{ext.id}</div>
           <div className="mono muted small ext-path" title={ext.path}>
             {ext.path}
           </div>
-          <h4>Permissions</h4>
+          <h4>{t("Permissions")}</h4>
           {ext.warnings.length === 0 ? (
-            <div className="muted small">No special permissions.</div>
+            <div className="muted small">{t("No special permissions.")}</div>
           ) : (
             <ul className="ext-list">
               {ext.warnings.map((w) => (
@@ -46,13 +44,11 @@ function ExtensionCard({ ext, run }: { ext: ExtensionInfo; run: (p: Promise<unkn
             <div className="mono muted small ext-perm-raw">{[...ext.permissions, ...ext.hostPermissions].join(", ")}</div>
           )}
           {ext.unsupported.length > 0 && (
-            <div className="notice warn small">
-              Not available in Corvus yet: {ext.unsupported.map((p) => `chrome.${p}`).join(", ")}. Features that rely on them may not work.
-            </div>
+            <div className="notice warn small">{t("Not available in Corvus yet: {v}. Features that rely on them may not work.", { v: ext.unsupported.map((p) => `chrome.${p}`).join(", ") })}</div>
           )}
           {ext.errors.length > 0 && (
             <>
-              <h4>Errors</h4>
+              <h4>{t("Errors")}</h4>
               <ul className="ext-list ext-error-list">
                 {ext.errors
                   .slice()
@@ -66,37 +62,31 @@ function ExtensionCard({ ext, run }: { ext: ExtensionInfo; run: (p: Promise<unkn
                     </li>
                   ))}
               </ul>
-              <button className="btn small ghost" onClick={() => run(api.call("extensions.clearErrors", ext.id))}>
-                Clear errors
-              </button>
+              <button className="btn small ghost" onClick={() => run(api.call("extensions.clearErrors", ext.id))}>{t("Clear errors")}</button>
             </>
           )}
         </div>
       )}
       <div className="ext-foot">
-        <span className="pill">{ext.source === "webstore" ? "Chrome Web Store" : "Unpacked"}</span>
+        <span className="pill">{ext.source === "webstore" ? t("Chrome Web Store") : t("Unpacked")}</span>
         <span style={{ flex: 1 }} />
         <button className="btn small ghost" onClick={() => setOpen(!open)}>
-          {open ? "Hide details" : "Details"}
+          {open ? t("Hide details") : t("Details")}
         </button>
         {ext.optionsUrl && (
-          <button className="btn small ghost" disabled={!ext.enabled} onClick={() => run(api.call("extensions.openOptions", ext.id))}>
-            Options
-          </button>
+          <button className="btn small ghost" disabled={!ext.enabled} onClick={() => run(api.call("extensions.openOptions", ext.id))}>{t("Options")}</button>
         )}
         {ext.hasAction && ext.enabled && (
           <button className="btn small ghost" onClick={() => run(api.call("extensions.setPinned", ext.id, !ext.pinned))}>
-            {ext.pinned ? "Unpin" : "Pin"}
+            {ext.pinned ? t("Unpin") : t("Pin")}
           </button>
         )}
         <button
           className="btn small ghost danger"
           onClick={() => {
-            if (confirm(`Remove “${ext.name}” from this profile?`)) run(api.call("extensions.remove", ext.id));
+            if (confirm(t("Remove “{name}” from this profile?", { name: ext.name }))) run(api.call("extensions.remove", ext.id));
           }}
-        >
-          Remove
-        </button>
+        >{t("Remove")}</button>
       </div>
     </div>
   );
@@ -142,37 +132,27 @@ function ExtensionsPage() {
 
   return (
     <PageShell
-      title="Extensions"
+      title={t("Extensions")}
       active="extensions"
       toolbar={
         <>
-          <button className="btn small" disabled={busy} onClick={() => run(api.call("extensions.loadUnpacked"))}>
-            Load unpacked
-          </button>
+          <button className="btn small" disabled={busy} onClick={() => run(api.call("extensions.loadUnpacked"))}>{t("Load unpacked")}</button>
           <button
             className="btn small"
             disabled={busy}
             onClick={() =>
               run(
                 api.call("extensions.checkUpdates").then((r) => {
-                  setStatus(r.updated.length > 0 ? `Updated ${r.updated.length} extension(s).` : `Checked ${r.checked} extension(s), all up to date.`);
+                  setStatus(r.updated.length > 0 ? t("Updated {length} extension(s).", { length: r.updated.length }) : t("Checked {checked} extension(s), all up to date.", { checked: r.checked }));
                 }),
               )
             }
-          >
-            Update
-          </button>
-          <a className="btn small primary" href="https://chromewebstore.google.com/" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            Open Chrome Web Store
-          </a>
+          >{t("Update")}</button>
+          <a className="btn small primary" href="https://chromewebstore.google.com/" target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>{t("Open Chrome Web Store")}</a>
         </>
       }
     >
-      <div className="notice">
-        Extensions are installed per profile. Use “Add to Corvus” on the Chrome Web Store, paste a store link or extension ID below, or
-        load an unpacked folder that contains a <code>manifest.json</code>. Some Chrome APIs are not available yet; each card lists the
-        ones an extension asks for but cannot use.
-      </div>
+      <div className="notice">{t("Extensions are installed per profile. Use “Add to Corvus” on the Chrome Web Store, paste a store link or extension ID below, or load an unpacked folder that contains a")}{" "}<code>manifest.json</code>{t(". Some Chrome APIs are not available yet; each card lists the ones an extension asks for but cannot use.")}</div>
       <form
         className="ext-install"
         onSubmit={(e) => {
@@ -182,20 +162,20 @@ function ExtensionsPage() {
       >
         <input
           className="input"
-          placeholder="Chrome Web Store link or extension ID"
+          placeholder={t("Chrome Web Store link or extension ID")}
           value={storeInput}
           onChange={(e) => setStoreInput(e.target.value)}
           spellCheck={false}
         />
         <button className="btn small primary" type="submit" disabled={busy || !storeInput.trim()}>
-          {busy ? "Working…" : "Install"}
+          {busy ? t("Working…") : t("Install")}
         </button>
       </form>
       {error && <div className="notice error">{error}</div>}
       {status && <div className="notice">{status}</div>}
       {list && list.length === 0 && (
         <div className="card">
-          <div className="empty">No extensions installed in this profile.</div>
+          <div className="empty">{t("No extensions installed in this profile.")}</div>
         </div>
       )}
       <div className="ext-grid">

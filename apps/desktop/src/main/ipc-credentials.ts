@@ -3,8 +3,10 @@ import { clipboard, dialog, ipcMain, nativeImage, type IpcMainEvent } from "elec
 import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
 import {
   AUTOFILL_CAPTURE_CHANNEL,
+  AUTOFILL_FIELD_CHANNEL,
   type AutofillChromeRpc,
   type CapturedSubmit,
+  type LoginFieldBox,
   type CredentialsRpc,
   type TotpQrImport,
 } from "../shared/credentials-ipc";
@@ -217,6 +219,22 @@ export function registerAutofillCapture(ctx: AppContext): void {
     const data = parseCapture(raw);
     if (data) ctx.autofill.onSubmitCaptured(found.window, found.tab, data);
   });
+  ipcMain.on(AUTOFILL_FIELD_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
+    const found = ctx.windows.byTabWebContents(event.sender);
+    if (!found || event.senderFrame !== event.sender.mainFrame) return;
+    const box = parseFieldBox(raw);
+    if (box) ctx.autofill.onLoginFieldClicked(found.window, found.tab, box);
+  });
+}
+
+const MAX_COORD = 100_000;
+
+function parseFieldBox(raw: unknown): LoginFieldBox | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const v = raw as Record<string, unknown>;
+  const num = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= MAX_COORD;
+  if (!num(v.x) || !num(v.y) || !num(v.width) || !num(v.height)) return null;
+  return { x: v.x, y: v.y, width: v.width, height: v.height };
 }
 
 // ------------------------------------------------------------------------- KeePass

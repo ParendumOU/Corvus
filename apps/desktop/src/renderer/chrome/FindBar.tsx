@@ -3,6 +3,7 @@ import type { FindState } from "../../shared/browser-ipc";
 import { chromeApi } from "../common/api";
 import { IconChevronDown, IconChevronUp, IconClose } from "../common/icons";
 
+import { t } from "../common/i18n";
 /**
  * Find-in-page bar for the active tab. Lives inside the chrome bar (so it never covers the page);
  * `focusToken` changes whenever Ctrl+F asks for focus.
@@ -28,9 +29,9 @@ export function FindBar({ find, focusToken, focusHandled }: { find: FindState; f
           ref={inputRef}
           className="find-input"
           value={text}
-          placeholder="Find in page"
+          placeholder={t("Find in page")}
           spellCheck={false}
-          aria-label="Find in page"
+          aria-label={t("Find in page")}
           onChange={(e) => {
             setText(e.target.value);
             void api.call("find.query", e.target.value);
@@ -47,13 +48,13 @@ export function FindBar({ find, focusToken, focusHandled }: { find: FindState; f
         />
         <span className="find-count">{count}</span>
         <span className="find-sep" />
-        <button className="icon-btn" title="Previous (Shift+Enter)" disabled={find.matches === 0} onClick={() => void api.call("find.step", false)}>
+        <button className="icon-btn" title={t("Previous (Shift+Enter)")} disabled={find.matches === 0} onClick={() => void api.call("find.step", false)}>
           <IconChevronUp size={16} />
         </button>
-        <button className="icon-btn" title="Next (Enter)" disabled={find.matches === 0} onClick={() => void api.call("find.step", true)}>
+        <button className="icon-btn" title={t("Next (Enter)")} disabled={find.matches === 0} onClick={() => void api.call("find.step", true)}>
           <IconChevronDown size={16} />
         </button>
-        <button className="icon-btn" title="Close (Esc)" onClick={() => void api.call("find.close")}>
+        <button className="icon-btn" title={t("Close (Esc)")} onClick={() => void api.call("find.close")}>
           <IconClose size={15} />
         </button>
       </div>

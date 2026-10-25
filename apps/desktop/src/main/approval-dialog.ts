@@ -5,6 +5,7 @@
  */
 import { dialog } from "electron";
 import type { AppContext } from "./context";
+import { tr } from "./menu-i18n";
 
 export interface NativeApproval {
   title: string;
@@ -19,7 +20,7 @@ export async function askNativeApproval(ctx: AppContext, approval: NativeApprova
   const parent = ctx.windows.focused()?.win;
   const options: Electron.MessageBoxOptions = {
     type: "warning",
-    buttons: [approval.allow, "Deny"],
+    buttons: [approval.allow, tr("Deny")],
     defaultId: 1,
     cancelId: 1,
     title: approval.title,

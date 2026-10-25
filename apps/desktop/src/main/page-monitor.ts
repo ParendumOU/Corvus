@@ -30,6 +30,7 @@ import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
 import { WatchStore } from "./watch-store";
 import type { BrowserWindowCtl } from "./window";
+import { tr } from "./menu-i18n";
 
 const TICK_MS = 60_000;
 const FETCH_TIMEOUT_MS = 15_000;
@@ -281,7 +282,7 @@ export class PageMonitor {
     return text;
   }
 
-  private onChanged(profileId: string, watch: Watch, summary: string, heading = `Changed: ${watch.title}`): void {
+  private onChanged(profileId: string, watch: Watch, summary: string, heading = tr("Changed: {title}", { title: watch.title })): void {
     this.notified.push({ profileId, title: heading, body: summary });
     if (this.notified.length > 20) this.notified.shift();
     if (Notification.isSupported()) {

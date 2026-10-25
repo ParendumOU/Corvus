@@ -2,11 +2,13 @@ import { dialog } from "electron";
 import type { TabId } from "@corvus/shared";
 import type { CredentialMatch } from "../shared/credentials";
 import { originKeyOf } from "../shared/credentials";
-import { type AutofillBarState, type CapturedSubmit, EMPTY_AUTOFILL } from "../shared/credentials-ipc";
+import { type AutofillBarState, type CapturedSubmit, EMPTY_AUTOFILL, type LoginFieldBox } from "../shared/credentials-ipc";
 import { totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
+import { showLoginFieldMenu } from "./menus";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
+import { tr } from "./menu-i18n";
 
 const SCRIPT_TIMEOUT_MS = 4000;
 /** Single-page apps render the next step after the URL changes; probe again a little later. */
@@ -87,13 +89,13 @@ export class AutofillService {
     if (this.autoApprover) return this.autoApprover(win, req);
     const { response, checkboxChecked } = await dialog.showMessageBox(win.win, {
       type: "question",
-      buttons: ["Sign in", "Not now"],
+      buttons: [tr("Sign in"), tr("Not now")],
       defaultId: 0,
       cancelId: 1,
-      title: "Sign in automatically",
-      message: `Sign in to ${req.host}?`,
-      detail: `Corvus will fill the saved login${req.username ? ` for ${req.username}` : ""} and submit the form.`,
-      checkboxLabel: "Stop signing in automatically with this login",
+      title: tr("Sign in automatically"),
+      message: tr("Sign in to {host}?", { host: req.host }),
+      detail: req.username ? tr("Corvus will fill the saved login for {username} and submit the form.", { username: req.username }) : tr("Corvus will fill the saved login and submit the form."),
+      checkboxLabel: tr("Stop signing in automatically with this login"),
       checkboxChecked: false,
     });
     return { approved: response === 0, stopOffering: checkboxChecked };
@@ -209,6 +211,20 @@ export class AutofillService {
     const tab = win.activeTab();
     if (!tab) return [];
     return win.profile.logins.matchesFor(this.pageUrl(tab));
+  }
+
+  /**
+   * The person clicked a login field (reported by the tab preload): list the page's saved logins in a
+   * menu right under the field, as the omnibox key button does. Only in the active, person-driven tab
+   * of a page where a login form was detected.
+   */
+  onLoginFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, box: LoginFieldBox): void {
+    if (tab.agentControlled || win.activeTab()?.id !== tab.id || !this.detected.get(tab.id)?.login) return;
+    const matches = this.suggestions(win);
+    if (matches.length === 0) return;
+    const bounds = tab.view.getBounds();
+    const zoom = tab.view.webContents.getZoomFactor();
+    showLoginFieldMenu(this.ctx, win, matches, bounds.x + box.x * zoom, bounds.y + (box.y + box.height) * zoom);
   }
 
   async fill(win: BrowserWindowCtl, id: string): Promise<void> {

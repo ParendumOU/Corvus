@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.17.0
+
+### Browser
+- **Saved logins under the login field**: clicking a page's username or password field lists the
+  logins saved for the site right under it, as other browsers do; picking one fills the form. The
+  key button in the address bar still works as before.
+- **The whole interface in Spanish**: with Settings → Language in Spanish (or a Spanish system),
+  the browser bar, its popovers and the command bar, every Corvus page and its tab title, Assist,
+  the reader and the native dialogs (agent approvals, spend and download prompts, crash recovery)
+  are in Spanish too, not only Settings, the New Tab page and the menus.
+
 ## v0.16.0
 
 ### AI agents in other apps (MCP)
@@ -20,6 +31,7 @@
 - **Spend gate**: clicks at coordinates, Enter/Space, line breaks typed into a field and accepting a
   page question that spends money (an amount, a purchase word, or a checkout page) ask the person in
   the same **Allow once / Deny** dialog; a click inside a payment iframe always asks.
+
 
 ## v0.15.0
 

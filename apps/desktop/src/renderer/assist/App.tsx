@@ -24,6 +24,7 @@ import {
   GlyphUndo,
 } from "./glyphs";
 
+import { t as tx } from "../common/i18n";
 declare global {
   interface Window {
     corvusAssist?: AssistBridge;
@@ -31,7 +32,7 @@ declare global {
 }
 
 const api = (): AssistBridge => {
-  if (!window.corvusAssist) throw new Error("Assist bridge is not available");
+  if (!window.corvusAssist) throw new Error(tx("Assist bridge is not available"));
   return window.corvusAssist;
 };
 
@@ -64,20 +65,14 @@ export function App() {
       <ResizeHandle />
       <header className="panel-head">
         <AssistMark size={20} />
-        <div className="seg" role="tablist" aria-label="Panel view">
-          <button role="tab" aria-selected={state.view === "assist"} className={state.view === "assist" ? "on" : ""} onClick={() => void api().call("panel.setView", "assist")}>
-            Assist
+        <div className="seg" role="tablist" aria-label={tx("Panel view")}>
+          <button role="tab" aria-selected={state.view === "assist"} className={state.view === "assist" ? "on" : ""} onClick={() => void api().call("panel.setView", "assist")}>{tx("Assist")}</button>
+          <button role="tab" aria-selected={state.view === "agents"} className={state.view === "agents" ? "on" : ""} onClick={() => void api().call("panel.setView", "agents")}>{tx("Agents")}{state.agents.paused ? <span className="seg-dot paused" /> : state.agents.calls.some((c) => c.durationMs === null) ? <span className="seg-dot live" /> : null}
           </button>
-          <button role="tab" aria-selected={state.view === "agents"} className={state.view === "agents" ? "on" : ""} onClick={() => void api().call("panel.setView", "agents")}>
-            Agents
-            {state.agents.paused ? <span className="seg-dot paused" /> : state.agents.calls.some((c) => c.durationMs === null) ? <span className="seg-dot live" /> : null}
-          </button>
-          <button role="tab" aria-selected={state.view === "workflows"} className={state.view === "workflows" ? "on" : ""} onClick={() => void api().call("panel.setView", "workflows")}>
-            Workflows
-          </button>
+          <button role="tab" aria-selected={state.view === "workflows"} className={state.view === "workflows" ? "on" : ""} onClick={() => void api().call("panel.setView", "workflows")}>{tx("Workflows")}</button>
         </div>
         <span className="grow" />
-        <button className="icon-btn" title="Close (Ctrl+Shift+A)" onClick={() => void api().call("panel.close")}>
+        <button className="icon-btn" title={tx("Close (Ctrl+Shift+A)")} onClick={() => void api().call("panel.close")}>
           <GlyphClose size={16} />
         </button>
       </header>
@@ -102,7 +97,7 @@ function ResizeHandle() {
   const onUp = (): void => {
     drag.current = null;
   };
-  return <div className="resize" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} title="Drag to resize" />;
+  return <div className="resize" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} title={tx("Drag to resize")} />;
 }
 
 // ------------------------------------------------------------------ assist
@@ -118,7 +113,7 @@ function AssistPane({ state }: { state: AssistPanelState }) {
   }, [tab?.tabId, tab?.messages.length, last?.text.length, last?.status, last?.agent?.steps.length, last?.agent?.approval?.id]);
 
   if (!state.ready) return <SetupState reason={state.setupReason} />;
-  if (!tab) return <div className="empty">No tab is open.</div>;
+  if (!tab) return <div className="empty">{tx("No tab is open.")}</div>;
 
   const waiting = state.waitingElsewhere;
   return (
@@ -126,10 +121,8 @@ function AssistPane({ state }: { state: AssistPanelState }) {
       <PageContext tab={tab} state={state} />
       {waiting && (
         <div className="waiting-elsewhere">
-          <span>Corvus is waiting for you in “{waiting.title || "another tab"}”.</span>
-          <button className="btn small" onClick={() => void api().call("assist.showTab", waiting.tabId)}>
-            Show
-          </button>
+          <span>{tx("Corvus is waiting for you in “{title}”.", { title: waiting.title || tx("another tab") })}</span>
+          <button className="btn small" onClick={() => void api().call("assist.showTab", waiting.tabId)}>{tx("Show")}</button>
         </div>
       )}
       {tab.comparePicker && <ComparePicker key={tab.comparePicker.map((c) => c.tabId).join()} candidates={tab.comparePicker} />}
@@ -151,12 +144,10 @@ function SetupState({ reason }: { reason: string | null }) {
       <div className="setup-mark">
         <AssistMark size={44} />
       </div>
-      <h2>Connect an AI provider</h2>
-      <p>{reason ?? "Corvus Assist needs an AI provider."}</p>
-      <p className="muted">Assist sends a trimmed copy of the page you ask about, about 2,000 tokens, in one request per action.</p>
-      <button className="btn primary" onClick={() => void api().call("assist.openSettings")}>
-        Open AI settings
-      </button>
+      <h2>{tx("Connect an AI provider")}</h2>
+      <p>{reason ?? tx("Corvus Assist needs an AI provider.")}</p>
+      <p className="muted">{tx("Assist sends a trimmed copy of the page you ask about, about 2,000 tokens, in one request per action.")}</p>
+      <button className="btn primary" onClick={() => void api().call("assist.openSettings")}>{tx("Open AI settings")}</button>
     </div>
   );
 }
@@ -172,27 +163,24 @@ function PageContext({ tab, state }: { tab: AssistTabView; state: AssistPanelSta
       {tab.readable ? (
         <div className="actions">
           <button className="chip-btn" disabled={tab.busy} onClick={() => void api().call("assist.summarize")}>
-            <GlyphSummary size={15} /> Summarize
-          </button>
+            <GlyphSummary size={15} />{" "}{tx("Summarize")}</button>
           {tab.translation === "translated" ? (
             <button className="chip-btn" onClick={() => void api().call("assist.restorePage")}>
-              <GlyphUndo size={15} /> Show original
-            </button>
+              <GlyphUndo size={15} />{" "}{tx("Show original")}</button>
           ) : (
             <button className="chip-btn" disabled={tab.busy || translating} onClick={() => void api().call("assist.translatePage")}>
-              <GlyphTranslate size={15} /> Translate to {langName(state.lang)}
-            </button>
+              <GlyphTranslate size={15} />{" "}{tx("Translate to {langName}", { langName: langName(state.lang) })}</button>
           )}
           {tab.messages.length > 0 && (
-            <button className="icon-btn small" title="Clear this conversation" onClick={() => void api().call("assist.clear")}>
+            <button className="icon-btn small" title={tx("Clear this conversation")} onClick={() => void api().call("assist.clear")}>
               <GlyphBroom size={15} />
             </button>
           )}
         </div>
       ) : tab.canAct ? (
-        <p className="context-note">Tell Corvus what to do: it can search, open sites and work in this tab while you watch.</p>
+        <p className="context-note">{tx("Tell Corvus what to do: it can search, open sites and work in this tab while you watch.")}</p>
       ) : (
-        <p className="context-note">Open a web page to summarize, translate or ask about it. Selected text works anywhere: right-click it.</p>
+        <p className="context-note">{tx("Open a web page to summarize, translate or ask about it. Selected text works anywhere: right-click it.")}</p>
       )}
     </div>
   );
@@ -202,16 +190,16 @@ function Intro({ tab }: { tab: AssistTabView }) {
   if (tab.canAct) {
     return (
       <div className="intro">
-        <p>Ask about this page, or tell Corvus what to do: “find the cheapest flight to Lisbon”, “open my GitLab issues and summarize the ones assigned to me”, “fill this form with my work address”.</p>
-        <p className="muted">Corvus works in this tab while you watch, shows each step here, and asks before anything risky. Spending money always asks.</p>
+        <p>{tx("Ask about this page, or tell Corvus what to do: “find the cheapest flight to Lisbon”, “open my GitLab issues and summarize the ones assigned to me”, “fill this form with my work address”.")}</p>
+        <p className="muted">{tx("Corvus works in this tab while you watch, shows each step here, and asks before anything risky. Spending money always asks.")}</p>
       </div>
     );
   }
   if (!tab.readable) return null;
   return (
     <div className="intro">
-      <p>Ask anything about this page, or start with a summary.</p>
-      <p className="muted">The page text stays in your browser until you ask. Each action is one small request, and the tokens it used are shown under the answer.</p>
+      <p>{tx("Ask anything about this page, or start with a summary.")}</p>
+      <p className="muted">{tx("The page text stays in your browser until you ask. Each action is one small request, and the tokens it used are shown under the answer.")}</p>
     </div>
   );
 }
@@ -222,19 +210,19 @@ function Usage({ m }: { m: AssistMessage }) {
   const secs = (u.ms / 1000).toFixed(1);
   return (
     <div className="usage" title={u.model}>
-      {u.cached ? `From cache, no tokens used (${modelName(u.model)})` : `${nf.format(u.inputTokens)} tokens in, ${nf.format(u.outputTokens)} out, ${secs} s with ${modelName(u.model)}`}
+      {u.cached ? tx("From cache, no tokens used ({model})", { model: modelName(u.model) }) : tx("{nf} tokens in, {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), nf2: nf.format(u.outputTokens), secs, model: modelName(u.model) })}
     </div>
   );
 }
 
 function Streaming() {
-  return <div className="sheen-line" aria-label="Working" />;
+  return <div className="sheen-line" aria-label={tx("Working")} />;
 }
 
 function Cite({ n, sections, video }: { n: number; sections: string[] | undefined; video?: boolean | undefined }) {
   const heading = sections?.[n];
   // A video's sections are stretches of its transcript: the chip shows and plays from their timestamp.
-  const title = heading ? (video ? `Play from ${heading}` : `Jump to “${heading}”`) : `Section ${n + 1}`;
+  const title = heading ? (video ? tx("Play from {heading}", { heading }) : tx("Jump to “{heading}”", { heading })) : tx("Section {n}", { n: n + 1 });
   return (
     <button className={video ? "cite time" : "cite"} title={title} onClick={() => void api().call("assist.jumpToSection", n)}>
       {video && heading ? heading : n + 1}
@@ -283,15 +271,14 @@ function RichText({ text, sections, video }: { text: string; sections?: string[]
 
 function Message({ m, lang }: { m: AssistMessage; lang: string }) {
   const streaming = m.status === "streaming";
-  const failed = m.status === "error" ? <p className="error">{m.error}</p> : m.status === "cancelled" ? <p className="muted small">Stopped.</p> : null;
+  const failed = m.status === "error" ? <p className="error">{m.error}</p> : m.status === "cancelled" ? <p className="muted small">{tx("Stopped.")}</p> : null;
 
   if (m.kind === "summarize") {
     const s = m.summary;
     return (
       <article className="msg summary">
         <div className="msg-label">
-          <GlyphSummary size={14} /> Summary
-          {m.readingMinutes ? <span className="read-time">{m.readingMinutes} min read</span> : null}
+          <GlyphSummary size={14} />{" "}{tx("Summary")}{m.readingMinutes ? <span className="read-time">{m.readingMinutes}{" "}{tx("min read")}</span> : null}
         </div>
         {streaming && !s?.tldr && <Streaming />}
         {s?.tldr ? <p className="tldr">{s.tldr}</p> : null}
@@ -331,7 +318,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
                     <th />
                     {c.pages.map((p) => (
                       <th key={p.tabId}>
-                        <button className="compare-page" title={`Show “${p.title}”`} onClick={() => void api().call("assist.showTab", p.tabId)}>
+                        <button className="compare-page" title={tx("Show “{title}”", { title: p.title })} onClick={() => void api().call("assist.showTab", p.tabId)}>
                           <Favicon url={p.url} {...(p.faviconUrl ? { src: p.faviconUrl } : {})} />
                           <span>{p.title || hostOf(p.url)}</span>
                         </button>
@@ -353,9 +340,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
             </div>
             {c.verdict ? <p className="compare-verdict">{c.verdict}</p> : null}
             <div className="write-actions">
-              <button className="btn small" onClick={() => void api().call("assist.copyComparison", m.id)}>
-                Copy table
-              </button>
+              <button className="btn small" onClick={() => void api().call("assist.copyComparison", m.id)}>{tx("Copy table")}</button>
             </div>
           </>
         )}
@@ -378,17 +363,13 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
         {m.status === "done" && w && (
           <div className="write-actions">
             {w.inserted ? (
-              <span className="muted small">Inserted into the field.</span>
+              <span className="muted small">{tx("Inserted into the field.")}</span>
             ) : w.gone ? (
-              <span className="muted small">That field is no longer on the page: copy the text instead.</span>
+              <span className="muted small">{tx("That field is no longer on the page: copy the text instead.")}</span>
             ) : (
-              <button className="btn small primary" title="Put this text in the field" onClick={() => void api().call("assist.insertWrite", m.id)}>
-                Insert into the field
-              </button>
+              <button className="btn small primary" title={tx("Put this text in the field")} onClick={() => void api().call("assist.insertWrite", m.id)}>{tx("Insert into the field")}</button>
             )}
-            <button className="btn small" onClick={() => void api().call("assist.copyText", m.id)}>
-              Copy
-            </button>
+            <button className="btn small" onClick={() => void api().call("assist.copyText", m.id)}>{tx("Copy")}</button>
           </div>
         )}
         {failed}
@@ -402,11 +383,10 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
     return (
       <article className="msg translate">
         <div className="msg-label">
-          <GlyphTranslate size={14} /> Page translation
-        </div>
+          <GlyphTranslate size={14} />{" "}{tx("Page translation")}</div>
         {streaming && (
           <>
-            <p>{total ? `Translating ${done} of ${total} passages into ${langName(lang)}…` : "Collecting the page text…"}</p>
+            <p>{total ? tx("Translating {done} of {total} passages into {lang}…", { done: done ?? 0, total, lang: langName(lang) }) : tx("Collecting the page text…")}</p>
             <div className="progress">
               <span style={{ width: total ? `${Math.max(4, ((done ?? 0) / total) * 100)}%` : "4%" }} />
             </div>
@@ -414,17 +394,13 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
         )}
         {m.status === "done" && (
           <>
-            <p>
-              Translated {m.translated} passages into {langName(lang)}.{m.more ? " There is more text further down." : ""}
+            <p>{tx("Translated {translated} passages into {langName}.", { translated: m.translated ?? 0, langName: langName(lang) })}{m.more ? tx(" There is more text further down.") : ""}
             </p>
             <div className="row">
               <button className="btn small" onClick={() => void api().call("assist.restorePage")}>
-                <GlyphUndo size={14} /> Show original
-              </button>
+                <GlyphUndo size={14} />{" "}{tx("Show original")}</button>
               {m.more && (
-                <button className="btn small" onClick={() => void api().call("assist.translateMore")}>
-                  Translate the rest
-                </button>
+                <button className="btn small" onClick={() => void api().call("assist.translateMore")}>{tx("Translate the rest")}</button>
               )}
             </div>
           </>
@@ -447,8 +423,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
           {streaming && !agent.approval && <Streaming />}
           {agent.limit && (
             <p className="muted small">
-              {agent.limit === "max_steps" ? `Stopped after ${agent.stepCount} steps, the limit for one request.` : "Stopped at the token budget for one request."} Say “continue” to keep going.
-            </p>
+              {agent.limit === "max_steps" ? tx("Stopped after {stepCount} steps, the limit for one request.", { stepCount: agent.stepCount }) : tx("Stopped at the token budget for one request.")}{" "}{tx("Say “continue” to keep going.")}</p>
           )}
           {failed}
           <Usage m={m} />
@@ -466,7 +441,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
           <>
             <div className="msg-label">
               {m.kind === "explain" ? <GlyphSummary size={14} /> : <GlyphTranslate size={14} />}
-              {m.kind === "explain" ? "Explanation" : `Translation into ${langName(lang)}`}
+              {m.kind === "explain" ? tx("Explanation") : tx("Translation into {lang}", { lang: langName(lang) })}
             </div>
             <blockquote>{m.prompt}</blockquote>
           </>
@@ -498,10 +473,7 @@ function ComparePicker({ candidates }: { candidates: CompareCandidate[] }) {
   return (
     <div className="compare-picker">
       <div className="msg-label">
-        <GlyphCompare size={14} /> Compare tabs
-        <span className="read-time">
-          {checked.size} of up to {MAX_COMPARE_TABS}
-        </span>
+        <GlyphCompare size={14} />{" "}{tx("Compare tabs")}<span className="read-time">{tx("{size} of up to {MAX_COMPARE_TABS}", { size: checked.size, MAX_COMPARE_TABS })}</span>
       </div>
       <div className="compare-list">
         {candidates.map((c) => (
@@ -514,19 +486,15 @@ function ComparePicker({ candidates }: { candidates: CompareCandidate[] }) {
       </div>
       <input
         className="compare-focus"
-        placeholder="What matters? E.g. price, battery life, weight"
+        placeholder={tx("What matters? E.g. price, battery life, weight")}
         value={focus}
         maxLength={600}
         onChange={(e) => setFocus(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && compare()}
       />
       <div className="write-actions">
-        <button className="btn small primary" disabled={checked.size < 2} onClick={compare}>
-          Compare {checked.size} tabs
-        </button>
-        <button className="btn small" onClick={() => void api().call("assist.closeCompare")}>
-          Cancel
-        </button>
+        <button className="btn small primary" disabled={checked.size < 2} onClick={compare}>{tx("Compare {size} tabs", { size: checked.size })}</button>
+        <button className="btn small" onClick={() => void api().call("assist.closeCompare")}>{tx("Cancel")}</button>
       </div>
     </div>
   );
@@ -542,11 +510,10 @@ function AgentSteps({ agent }: { agent: AssistAgentView }) {
   const hidden = all ? 0 : Math.max(0, agent.steps.length - VISIBLE_STEPS);
   const shown = agent.steps.slice(hidden);
   return (
-    <ol className="agent-steps" aria-label="Steps">
+    <ol className="agent-steps" aria-label={tx("Steps")}>
       {hidden > 0 && (
         <li className="astep more">
-          <button className="link-btn" onClick={() => setAll(true)}>
-            {hidden} earlier step{hidden === 1 ? "" : "s"}
+          <button className="link-btn" onClick={() => setAll(true)}>{hidden === 1 ? tx("1 earlier step") : tx("{hidden} earlier steps", { hidden })}
           </button>
         </li>
       )}
@@ -565,8 +532,8 @@ function AgentStepRow({ s }: { s: AssistAgentStep }) {
     <li className={`astep ${s.status}`} data-tool={s.kind}>
       <span className="astep-dot" aria-hidden="true" />
       <span className="astep-label">{s.label}</span>
-      {s.status === "skipped" && <span className="astep-flag">skipped</span>}
-      {s.thumb && <img className="astep-thumb" src={s.thumb} alt="Screenshot the assistant took" />}
+      {s.status === "skipped" && <span className="astep-flag">{tx("skipped")}</span>}
+      {s.thumb && <img className="astep-thumb" src={s.thumb} alt={tx("Screenshot the assistant took")} />}
     </li>
   );
 }
@@ -576,20 +543,16 @@ function AgentApproval({ agent }: { agent: AssistAgentView }) {
   const a = agent.approval!;
   const decide = (d: "approve" | "skip" | "stop"): void => void api().call("assist.approve", d);
   return (
-    <div className={`agent-approval ${a.handoff ? "handoff" : ""}`} role="alertdialog" aria-label={a.handoff ? "Over to you" : "Approve this action?"}>
-      <strong>{a.handoff ? "Over to you" : "Approve this action?"}</strong>
+    <div className={`agent-approval ${a.handoff ? "handoff" : ""}`} role="alertdialog" aria-label={a.handoff ? tx("Over to you") : tx("Approve this action?")}>
+      <strong>{a.handoff ? tx("Over to you") : tx("Approve this action?")}</strong>
       <p>{a.reason}</p>
       {a.summary && !a.handoff && <p className="muted small">{`${a.tool} ${a.summary}`}</p>}
       <div className="row">
         <button className="btn small primary" onClick={() => decide("approve")}>
-          {a.handoff ? "I've done it" : "Approve"}
+          {a.handoff ? tx("I've done it") : tx("Approve")}
         </button>
-        <button className="btn small" onClick={() => decide("skip")}>
-          Skip
-        </button>
-        <button className="btn small ghost" onClick={() => decide("stop")}>
-          Stop
-        </button>
+        <button className="btn small" onClick={() => decide("skip")}>{tx("Skip")}</button>
+        <button className="btn small ghost" onClick={() => decide("stop")}>{tx("Stop")}</button>
       </div>
     </div>
   );
@@ -627,24 +590,23 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
   };
 
   const placeholder = writing
-    ? "What should Corvus write in the field? E.g. a polite reply that says yes"
+    ? tx("What should Corvus write in the field? E.g. a polite reply that says yes")
     : tab.canAct
       ? tab.readable
-        ? "Ask about this page or tell Corvus what to do"
-        : "Tell Corvus what to do"
+        ? tx("Ask about this page or tell Corvus what to do")
+        : tx("Tell Corvus what to do")
       : tab.readable
-        ? "Ask about this page"
-        : "Open a web page to ask about it";
+        ? tx("Ask about this page")
+        : tx("Open a web page to ask about it");
   return (
     <>
       {writing && (
         <div className="write-target">
           <GlyphPen size={14} />
-          <span className="grow">
-            Writing in a field on <strong>{writing.site || "this page"}</strong>
+          <span className="grow">{tx("Writing in a field on")}{" "}<strong>{writing.site || tx("this page")}</strong>
             {writing.excerpt ? <span className="muted"> · “{writing.excerpt}”</span> : null}
           </span>
-          <button className="icon-btn" title="Cancel" onClick={() => void api().call("assist.cancelWrite")}>
+          <button className="icon-btn" title={tx("Cancel")} onClick={() => void api().call("assist.cancelWrite")}>
             <GlyphClose size={14} />
           </button>
         </div>
@@ -661,11 +623,11 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
         maxLength={tab.canAct || writing ? 2000 : 600}
       />
       {tab.busy ? (
-        <button className="send stop" title="Stop" onClick={() => void api().call("assist.cancel")}>
+        <button className="send stop" title={tx("Stop")} onClick={() => void api().call("assist.cancel")}>
           <GlyphStop size={16} />
         </button>
       ) : (
-        <button className="send" title="Send (Enter)" disabled={!value.trim() || !usable} onClick={send}>
+        <button className="send" title={tx("Send (Enter)")} disabled={!value.trim() || !usable} onClick={send}>
           <GlyphSend size={16} />
         </button>
       )}
@@ -682,15 +644,15 @@ function clock(at: number): string {
 
 function size(chars: number | null): string {
   if (chars === null) return "";
-  return chars < 1000 ? `${chars} chars` : `${(chars / 1000).toFixed(chars < 10_000 ? 1 : 0)}k chars`;
+  return chars < 1000 ? tx("{chars} chars", { chars }) : tx("{k}k chars", { k: (chars / 1000).toFixed(chars < 10_000 ? 1 : 0) });
 }
 
 function ago(at: number, now: number): string {
   const s = Math.max(0, Math.round((now - at) / 1000));
-  if (s < 5) return "just now";
-  if (s < 60) return `${s} s ago`;
+  if (s < 5) return tx("just now");
+  if (s < 60) return tx("{s} s ago", { s });
   const m = Math.round(s / 60);
-  return m < 60 ? `${m} min ago` : clock(at);
+  return m < 60 ? tx("{m} min ago", { m }) : clock(at);
 }
 
 function AgentsPane({ agents }: { agents: AgentActivityView }) {
@@ -701,10 +663,10 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
   }, []);
   const longest = Math.max(400, ...agents.calls.map((c) => c.durationMs ?? 0));
   const status = agents.paused
-    ? { title: "Agents are paused", text: "Every tool call fails until you resume. Nothing in your tabs is touched." }
+    ? { title: tx("Agents are paused"), text: tx("Every tool call fails until you resume. Nothing in your tabs is touched.") }
     : agents.mcpRunning
-      ? { title: "Agents can control this browser", text: "Approved MCP clients can open tabs, read pages, click and type. You see each step on the page." }
-      : { title: "The MCP server is off", text: "Turn it on in Settings, AI agents, to let Claude Code or another client drive Corvus." };
+      ? { title: tx("Agents can control this browser"), text: tx("Approved MCP clients can open tabs, read pages, click and type. You see each step on the page.") }
+      : { title: tx("The MCP server is off"), text: tx("Turn it on in Settings, AI agents, to let Claude Code or another client drive Corvus.") };
 
   return (
     <div className="agents">
@@ -715,14 +677,14 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
         </div>
         <button className={`kill-btn ${agents.paused ? "resume" : ""}`} onClick={() => void api().call("agents.pause", !agents.paused)}>
           {agents.paused ? <GlyphPlay size={15} /> : <GlyphPause size={15} />}
-          {agents.paused ? "Resume agents" : "Pause agents"}
+          {agents.paused ? tx("Resume agents") : tx("Pause agents")}
         </button>
       </section>
 
       <section>
-        <h4>Clients</h4>
+        <h4>{tx("Clients")}</h4>
         {agents.clients.length === 0 ? (
-          <p className="muted small">No agent has connected since Corvus started.</p>
+          <p className="muted small">{tx("No agent has connected since Corvus started.")}</p>
         ) : (
           <ul className="clients">
             {agents.clients.map((c) => {
@@ -733,13 +695,11 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
                   <div className="client-main">
                     <strong>{prettyClientName(c.name)}</strong>
                     <span className="muted small">
-                      {c.status === "revoked" ? "Access revoked" : c.status === "rejected" ? "Not approved" : `${c.calls} calls, last ${ago(c.lastSeen, now)}`}
+                      {c.status === "revoked" ? tx("Access revoked") : c.status === "rejected" ? tx("Not approved") : tx("{calls} calls, last {ago}", { calls: c.calls, ago: ago(c.lastSeen, now) })}
                     </span>
                   </div>
                   {c.status === "connected" && (
-                    <button className="btn small ghost danger" onClick={() => void api().call("agents.revoke", c.name)}>
-                      Revoke
-                    </button>
+                    <button className="btn small ghost danger" onClick={() => void api().call("agents.revoke", c.name)}>{tx("Revoke")}</button>
                   )}
                 </li>
               );
@@ -750,17 +710,15 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
 
       <section className="timeline-wrap">
         <div className="section-head">
-          <h4>Timeline</h4>
+          <h4>{tx("Timeline")}</h4>
           {agents.calls.length > 0 && (
-            <button className="btn small ghost" onClick={() => void api().call("agents.clear")}>
-              Clear
-            </button>
+            <button className="btn small ghost" onClick={() => void api().call("agents.clear")}>{tx("Clear")}</button>
           )}
         </div>
         {agents.calls.length === 0 ? (
           <div className="timeline-empty">
             <GlyphPlug size={22} />
-            <p>Tool calls appear here live: what the agent asked for, how long it took and how much it read back.</p>
+            <p>{tx("Tool calls appear here live: what the agent asked for, how long it took and how much it read back.")}</p>
           </div>
         ) : (
           <ol className="timeline">
@@ -775,14 +733,14 @@ function AgentsPane({ agents }: { agents: AgentActivityView }) {
                   <div className="t-meta">
                     <span>{prettyClientName(c.client)}</span>
                     {c.blocked ? (
-                      <span className="t-flag">Blocked while paused</span>
+                      <span className="t-flag">{tx("Blocked while paused")}</span>
                     ) : c.durationMs === null ? (
-                      <span className="t-flag live">Running</span>
+                      <span className="t-flag live">{tx("Running")}</span>
                     ) : (
                       <>
-                        <span>{c.durationMs} ms</span>
+                        <span>{c.durationMs}{" "}{tx("ms")}</span>
                         {c.resultChars !== null && <span>{size(c.resultChars)}</span>}
-                        {c.ok === false && <span className="t-flag">Failed</span>}
+                        {c.ok === false && <span className="t-flag">{tx("Failed")}</span>}
                       </>
                     )}
                   </div>
@@ -815,7 +773,7 @@ function WorkflowsPane({ view }: { view: WorkflowsPaneView | null }) {
     setError(null);
     p.catch((e: unknown) => setError(errorText(e)));
   };
-  if (!view) return <div className="empty">Loading workflows...</div>;
+  if (!view) return <div className="empty">{tx("Loading workflows...")}</div>;
   const draft = view.draft;
 
   return (
@@ -823,12 +781,12 @@ function WorkflowsPane({ view }: { view: WorkflowsPaneView | null }) {
       {error && <div className="wf-error">{error}</div>}
       {draft && (
         <section className="wf-card draft">
-          <h3>Save as workflow</h3>
+          <h3>{tx("Save as workflow")}</h3>
           <WorkflowEditor
             key={draft.createdAt}
             initial={draft.edit}
-            intro={`Review the steps Corvus took for "${draft.task.slice(0, 120)}". Nothing is saved until you click Save.${draft.dropped > 0 ? ` ${draft.dropped} step${draft.dropped === 1 ? " was" : "s were"} left out (page reads, failed or skipped steps).` : ""}`}
-            saveLabel="Save workflow"
+            intro={tx("Review the steps Corvus took for \"{v}\". Nothing is saved until you click Save.", { v: draft.task.slice(0, 120) }) + (draft.dropped === 0 ? "" : draft.dropped === 1 ? tx(" 1 step was left out (page reads, failed or skipped steps).") : tx(" {dropped} steps were left out (page reads, failed or skipped steps).", { dropped: draft.dropped }))}
+            saveLabel={tx("Save workflow")}
             cancelLabel="Discard"
             onSave={(edit) => call(api().call("workflows.saveDraft", edit))}
             onCancel={() => call(api().call("workflows.discardDraft"))}
@@ -836,13 +794,10 @@ function WorkflowsPane({ view }: { view: WorkflowsPaneView | null }) {
         </section>
       )}
 
-      <div className="wf-subtabs seg" role="tablist" aria-label="Workflows or learned hints">
-        <button role="tab" aria-selected={tab === "saved"} className={tab === "saved" ? "on" : ""} onClick={() => setTab("saved")}>
-          Saved{view.items.length ? ` (${view.items.length})` : ""}
+      <div className="wf-subtabs seg" role="tablist" aria-label={tx("Workflows or learned hints")}>
+        <button role="tab" aria-selected={tab === "saved"} className={tab === "saved" ? "on" : ""} onClick={() => setTab("saved")}>{tx("Saved")}{view.items.length ? ` (${view.items.length})` : ""}
         </button>
-        <button role="tab" aria-selected={tab === "learned"} className={tab === "learned" ? "on" : ""} onClick={() => setTab("learned")}>
-          Learned
-        </button>
+        <button role="tab" aria-selected={tab === "learned"} className={tab === "learned" ? "on" : ""} onClick={() => setTab("learned")}>{tx("Learned")}</button>
       </div>
 
       {tab === "learned" ? (
@@ -851,22 +806,18 @@ function WorkflowsPane({ view }: { view: WorkflowsPaneView | null }) {
       <>
       <div className="wf-pane-head">
         <div>
-          <h3>{view.host ? `Workflows for ${view.host}` : "Workflows"}</h3>
+          <h3>{view.host ? tx("Workflows for {host}", { host: view.host }) : tx("Workflows")}</h3>
           <p className="muted small">
-            {view.host ? `${view.items.length} saved for this site` : "Open a web page to see the workflows saved for it."}
+            {view.host ? tx("{length} saved for this site", { length: view.items.length }) : tx("Open a web page to see the workflows saved for it.")}
           </p>
         </div>
-        <button className="btn small ghost" onClick={() => call(api().call("workflows.openManager"))}>
-          All workflows ({view.total})
-        </button>
+        <button className="btn small ghost" onClick={() => call(api().call("workflows.openManager"))}>{tx("All workflows ({total})", { total: view.total })}</button>
       </div>
 
       {view.host && view.items.length === 0 && !draft && (
         <div className="wf-empty">
-          <p>No workflows for this site yet.</p>
-          <p className="muted small">
-            Ask Corvus to do a task here (Ctrl/Cmd+K, then Tab) and add "save this as a workflow", or use Save as workflow after any run. You can also record your own steps from the full list.
-          </p>
+          <p>{tx("No workflows for this site yet.")}</p>
+          <p className="muted small">{tx("Ask Corvus to do a task here (Ctrl/Cmd+K, then Tab) and add \"save this as a workflow\", or use Save as workflow after any run. You can also record your own steps from the full list.")}</p>
         </div>
       )}
 
@@ -885,15 +836,15 @@ function LearnedPane({ view, call }: { view: WorkflowsPaneView; call: (p: Promis
     <div className="mem-pane">
       <div className="wf-pane-head">
         <div>
-          <h3>{view.host ? `Learned about ${view.host}` : "Learned about sites"}</h3>
-          <p className="muted small">Small hints from successful runs, so the agent needs fewer steps here. Synced end to end when Site memory sync is on.</p>
+          <h3>{view.host ? tx("Learned about {host}", { host: view.host }) : tx("Learned about sites")}</h3>
+          <p className="muted small">{tx("Small hints from successful runs, so the agent needs fewer steps here. Synced end to end when Site memory sync is on.")}</p>
         </div>
         <div className="mem-switch">
-          <span>{mem.enabled ? "Learning" : "Off"}</span>
-          <Toggle label="Learn from runs (site memory)" checked={mem.enabled} onChange={(v) => call(api().call("memory.setEnabled", v))} />
+          <span>{mem.enabled ? tx("Learning") : tx("Off")}</span>
+          <Toggle label={tx("Learn from runs (site memory)")} checked={mem.enabled} onChange={(v) => call(api().call("memory.setEnabled", v))} />
         </div>
       </div>
-      {!mem.enabled && <div className="wf-empty"><p>Learning is off. Nothing new is learned or sent to the agent; what is below is kept until you forget it.</p></div>}
+      {!mem.enabled && <div className="wf-empty"><p>{tx("Learning is off. Nothing new is learned or sent to the agent; what is below is kept until you forget it.")}</p></div>}
       {mem.entry ? (
         <section className="wf-card">
           <LearnedSite
@@ -906,16 +857,14 @@ function LearnedPane({ view, call }: { view: WorkflowsPaneView; call: (p: Promis
       ) : (
         view.host && (
           <div className="wf-empty">
-            <p>Nothing learned about this site yet.</p>
-            <p className="muted small">After a successful agent run here, Corvus keeps which buttons and fields worked, URL shapes and obstacles. Never what you typed.</p>
+            <p>{tx("Nothing learned about this site yet.")}</p>
+            <p className="muted small">{tx("After a successful agent run here, Corvus keeps which buttons and fields worked, URL shapes and obstacles. Never what you typed.")}</p>
           </div>
         )
       )}
       <StatsLine stats={mem.stats} />
       <div className="wf-actions">
-        <button className="btn small ghost" onClick={() => call(api().call("workflows.openManager"))}>
-          All learned sites ({mem.totalHosts})
-        </button>
+        <button className="btn small ghost" onClick={() => call(api().call("workflows.openManager"))}>{tx("All learned sites ({totalHosts})", { totalHosts: mem.totalHosts })}</button>
       </div>
     </div>
   );
@@ -931,7 +880,7 @@ function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) =>
       <section className="wf-card">
         <WorkflowEditor
           initial={editOf(f)}
-          saveLabel="Save changes"
+          saveLabel={tx("Save changes")}
           cancelLabel="Cancel"
           onSave={(edit) => {
             call(api().call("workflows.update", f.id, edit));
@@ -951,8 +900,7 @@ function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) =>
       </div>
       {f.description && <p className="wf-card-desc">{f.description}</p>}
       <div className="wf-card-meta">
-        <span>
-          {f.steps.length} step{f.steps.length === 1 ? "" : "s"}
+        <span>{f.steps.length === 1 ? tx("1 step") : tx("{length} steps", { length: f.steps.length })}
           {f.params.length > 0 ? ` · ${f.params.map((p) => `{{${p.name}}}`).join(" ")}` : ""}
         </span>
         <UsageLine usage={f.usage} />
@@ -961,18 +909,14 @@ function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) =>
 
       {replay?.approval && (
         <div className="wf-approval">
-          <strong>{replay.approval.kind === "error" ? "Step needs attention" : replay.approval.kind === "handoff" ? "Over to you" : "Approve this step?"}</strong>
+          <strong>{replay.approval.kind === "error" ? tx("Step needs attention") : replay.approval.kind === "handoff" ? tx("Over to you") : tx("Approve this step?")}</strong>
           <span>{replay.approval.reason}</span>
           <div className="wf-actions">
             <button className="btn small primary" onClick={() => call(api().call("workflows.approve", f.id, "approve"))}>
-              {replay.approval.kind === "error" ? "Retry" : replay.approval.kind === "handoff" ? "I've done it" : "Approve"}
+              {replay.approval.kind === "error" ? tx("Retry") : replay.approval.kind === "handoff" ? tx("I've done it") : tx("Approve")}
             </button>
-            <button className="btn small" onClick={() => call(api().call("workflows.approve", f.id, "skip"))}>
-              Skip
-            </button>
-            <button className="btn small ghost" onClick={() => call(api().call("workflows.approve", f.id, "stop"))}>
-              Stop
-            </button>
+            <button className="btn small" onClick={() => call(api().call("workflows.approve", f.id, "skip"))}>{tx("Skip")}</button>
+            <button className="btn small ghost" onClick={() => call(api().call("workflows.approve", f.id, "stop"))}>{tx("Stop")}</button>
           </div>
         </div>
       )}
@@ -990,24 +934,15 @@ function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) =>
 
       <div className="wf-actions">
         {active ? (
-          <button className="btn small danger" onClick={() => call(api().call("workflows.stop", f.id))}>
-            Stop
-          </button>
+          <button className="btn small danger" onClick={() => call(api().call("workflows.stop", f.id))}>{tx("Stop")}</button>
         ) : mode === "run" ? (
-          <button className="btn small ghost" onClick={() => setMode("view")}>
-            Cancel
-          </button>
+          <button className="btn small ghost" onClick={() => setMode("view")}>{tx("Cancel")}</button>
         ) : (
           <>
             <button className="btn small primary" onClick={() => (f.params.length > 0 ? setMode("run") : call(api().call("workflows.run", f.id, {})))}>
-              <GlyphPlay size={13} /> Run
-            </button>
-            <button className="btn small" onClick={() => setMode("edit")}>
-              Edit
-            </button>
-            <button className="btn small ghost danger" onClick={() => call(api().call("workflows.remove", f.id))}>
-              Delete
-            </button>
+              <GlyphPlay size={13} />{" "}{tx("Run")}</button>
+            <button className="btn small" onClick={() => setMode("edit")}>{tx("Edit")}</button>
+            <button className="btn small ghost danger" onClick={() => call(api().call("workflows.remove", f.id))}>{tx("Delete")}</button>
           </>
         )}
       </div>

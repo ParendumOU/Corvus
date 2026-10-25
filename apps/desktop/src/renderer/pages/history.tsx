@@ -6,6 +6,7 @@ import { Favicon, dayLabel, formatTime, hostOf } from "../common/ui";
 import { RemoteTabs } from "./remote-tabs";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 const PAGE_SIZE = 100;
 
 function HistoryPage() {
@@ -47,31 +48,27 @@ function HistoryPage() {
 
   return (
     <PageShell
-      title="History"
+      title={t("History")}
       active="history"
       toolbar={
         <>
-          <input className="input" placeholder="Search history" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="input" placeholder={t("Search history")} value={query} onChange={(e) => setQuery(e.target.value)} />
           {selected.size > 0 && (
-            <button className="btn small danger" onClick={() => remove([...selected])}>
-              Delete {selected.size}
-            </button>
+            <button className="btn small danger" onClick={() => remove([...selected])}>{t("Delete {size}", { size: selected.size })}</button>
           )}
           <button
             className="btn small"
             onClick={() => {
-              if (confirm("Clear all browsing history for this profile?")) void api.call("history.clear").then(() => load("", 0));
+              if (confirm(t("Clear all browsing history for this profile?"))) void api.call("history.clear").then(() => load("", 0));
             }}
-          >
-            Clear history
-          </button>
+          >{t("Clear history")}</button>
         </>
       }
     >
       {!query && <RemoteTabs />}
       {entries.length === 0 ? (
         <div className="card">
-          <div className="empty">{query ? "No history matches your search." : "Pages you visit will appear here."}</div>
+          <div className="empty">{query ? t("No history matches your search.") : t("Pages you visit will appear here.")}</div>
         </div>
       ) : (
         groups.map((g) => (
@@ -102,11 +99,11 @@ function HistoryPage() {
                     </a>
                     <div className="sub">
                       {hostOf(e.url)}
-                      {e.visitCount > 1 ? ` · ${e.visitCount} visits` : ""}
+                      {e.visitCount > 1 ? t(" · {visitCount} visits", { visitCount: e.visitCount }) : ""}
                     </div>
                   </div>
                   <div className="actions">
-                    <button className="icon-btn" title="Remove from history" onClick={() => remove([e.id])}>
+                    <button className="icon-btn" title={t("Remove from history")} onClick={() => remove([e.id])}>
                       <IconTrash size={15} />
                     </button>
                   </div>
@@ -117,9 +114,7 @@ function HistoryPage() {
         ))
       )}
       {entries.length < total && (
-        <button className="btn" style={{ alignSelf: "center" }} onClick={() => load(query, entries.length)}>
-          Show more
-        </button>
+        <button className="btn" style={{ alignSelf: "center" }} onClick={() => load(query, entries.length)}>{t("Show more")}</button>
       )}
     </PageShell>
   );

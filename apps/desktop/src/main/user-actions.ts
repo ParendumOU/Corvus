@@ -7,6 +7,7 @@
  */
 import type { UserActionResult } from "@corvus/shared";
 import { dialog } from "electron";
+import { tr } from "./menu-i18n";
 
 export interface UserActionPrompt {
   /** Who asks: the MCP client's name, or "" when unknown. */
@@ -22,12 +23,18 @@ export type UserActionAnswer = (prompt: UserActionPrompt) => Promise<"done" | "c
 
 /** The dialog's text (also what the smoke test checks). */
 export function userActionDialog(prompt: UserActionPrompt): { title: string; message: string; detail: string } {
-  const who = prompt.client ? `"${prompt.client}"` : "An AI agent";
-  const where = prompt.host ? ` on ${prompt.host}` : "";
+  const vars = { client: prompt.client, host: prompt.host };
+  const message = prompt.client
+    ? prompt.host
+      ? tr("\"{client}\" asks you to do this in the tab on {host}:", vars)
+      : tr("\"{client}\" asks you to do this in the tab:", vars)
+    : prompt.host
+      ? tr("An AI agent asks you to do this in the tab on {host}:", vars)
+      : tr("An AI agent asks you to do this in the tab:");
   return {
-    title: "AI agent needs you",
-    message: `${who} asks you to do this in the tab${where}:`,
-    detail: `${prompt.message.trim().slice(0, 500)}\n\nClick Done when you have finished, or Cancel to tell it you will not do it.`,
+    title: tr("AI agent needs you"),
+    message,
+    detail: `${prompt.message.trim().slice(0, 500)}\n\n${tr("Click Done when you have finished, or Cancel to tell it you will not do it.")}`,
   };
 }
 
@@ -57,7 +64,7 @@ export class UserActionService {
         title: text.title,
         message: text.message,
         detail: text.detail,
-        buttons: ["Done", "Cancel"],
+        buttons: [tr("Done"), tr("Cancel")],
         defaultId: 0,
         cancelId: 1,
         noLink: true,

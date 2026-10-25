@@ -11,6 +11,7 @@ import { IconDownload, IconEdit, IconTrash } from "../common/icons";
 import { Favicon, hostOf } from "../common/ui";
 import { PageShell, mount } from "./shell";
 
+import { t } from "../common/i18n";
 function ColorSwatches({ value, onPick }: { value: AnnotationColor; onPick: (color: AnnotationColor) => void }) {
   return (
     <div className="anno-swatches">
@@ -47,22 +48,22 @@ function AnnotationRow({ item, onChanged }: { item: Annotation; onChanged: () =>
           <div className="anno-edit">
             <textarea className="input" rows={2} value={draft} autoFocus onChange={(e) => setDraft(e.target.value)} />
             <div className="anno-edit-actions">
-              <button className="btn small primary" onClick={saveNote}>Save</button>
-              <button className="btn small ghost" onClick={() => { setDraft(item.note); setEditing(false); }}>Cancel</button>
+              <button className="btn small primary" onClick={saveNote}>{t("Save")}</button>
+              <button className="btn small ghost" onClick={() => { setDraft(item.note); setEditing(false); }}>{t("Cancel")}</button>
             </div>
           </div>
         ) : item.note ? (
           <div className="anno-note">{item.note}</div>
         ) : (
-          <div className="sub muted">No note</div>
+          <div className="sub muted">{t("No note")}</div>
         )}
         <ColorSwatches value={item.color} onPick={(color) => void api.call("annotations.setColor", item.id, color).then(onChanged)} />
       </div>
       <div className="actions">
-        <button className="icon-btn" title="Edit note" onClick={() => { setDraft(item.note); setEditing(true); }}>
+        <button className="icon-btn" title={t("Edit note")} onClick={() => { setDraft(item.note); setEditing(true); }}>
           <IconEdit size={15} />
         </button>
-        <button className="icon-btn" title="Delete annotation" onClick={() => void api.call("annotations.remove", item.id).then(onChanged)}>
+        <button className="icon-btn" title={t("Delete annotation")} onClick={() => void api.call("annotations.remove", item.id).then(onChanged)}>
           <IconTrash size={15} />
         </button>
       </div>
@@ -95,21 +96,20 @@ function AnnotationsPage() {
 
   return (
     <PageShell
-      title="Annotations"
+      title={t("Annotations")}
       active="annotations"
       toolbar={
         <>
-          <input className="input" placeholder="Search highlights and notes" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="input" placeholder={t("Search highlights and notes")} value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="btn" disabled={items.length === 0} onClick={() => void api.call("annotations.export")}>
-            <IconDownload size={14} /> Export
-          </button>
+            <IconDownload size={14} />{" "}{t("Export")}</button>
         </>
       }
     >
       {items.length === 0 ? (
         <div className="card">
           <div className="empty">
-            {query ? "No annotations match your search." : "Select text on any page and pick a highlight color to start annotating."}
+            {query ? t("No annotations match your search.") : t("Select text on any page and pick a highlight color to start annotating.")}
           </div>
         </div>
       ) : (

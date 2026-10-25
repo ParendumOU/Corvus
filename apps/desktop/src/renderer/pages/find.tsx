@@ -5,7 +5,8 @@ import { IconBook, IconHistory, IconSearch, IconStar } from "../common/icons";
 import { Favicon, hostOf } from "../common/ui";
 import { PageShell, mount } from "./shell";
 
-const KIND_LABEL: Record<SemanticHit["kind"], string> = { history: "History", bookmark: "Bookmark", reading: "Reading list" };
+import { t } from "../common/i18n";
+const KIND_LABEL: Record<SemanticHit["kind"], string> = { history: t("History"), bookmark: t("Bookmark"), reading: t("Reading list") };
 
 function KindIcon({ kind }: { kind: SemanticHit["kind"] }) {
   if (kind === "bookmark") return <IconStar size={13} filled />;
@@ -54,13 +55,13 @@ function FindPage() {
 
   return (
     <PageShell
-      title="Find in my pages"
+      title={t("Find in my pages")}
       active="find"
       toolbar={
         <input
           className="input"
           autoFocus
-          placeholder="Find a page you've seen, saved or bookmarked…"
+          placeholder={t("Find a page you've seen, saved or bookmarked…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -70,21 +71,19 @@ function FindPage() {
         <div className="muted small" style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <IconSearch size={14} />
           <span>
-            {status ? `${status.indexed.toLocaleString()} pages indexed` : "Loading index…"}
-            {query.trim() && searched ? ` · ${usedEmbeddings ? "semantic + keyword" : "keyword"} ranking` : ""}
-            {status && !status.embeddingsEnabled ? " · enable semantic ranking in Settings" : ""}
+            {status ? t("{count} pages indexed", { count: status.indexed.toLocaleString() }) : t("Loading index…")}
+            {query.trim() && searched ? (usedEmbeddings ? t(" · semantic + keyword ranking") : t(" · keyword ranking")) : ""}
+            {status && !status.embeddingsEnabled ? t(" · enable semantic ranking in Settings") : ""}
           </span>
         </div>
         {embeddingError && query.trim() && (
-          <div className="muted small" style={{ marginTop: 6 }}>
-            Semantic re-rank unavailable ({embeddingError}); showing keyword results.
-          </div>
+          <div className="muted small" style={{ marginTop: 6 }}>{t("Semantic re-rank unavailable ({embeddingError}); showing keyword results.", { embeddingError })}</div>
         )}
       </div>
 
       {query.trim() && searched && hits.length === 0 ? (
         <div className="card">
-          <div className="empty">No matches yet. Try different words — pages are added as you browse, bookmark and save.</div>
+          <div className="empty">{t("No matches yet. Try different words — pages are added as you browse, bookmark and save.")}</div>
         </div>
       ) : (
         hits.length > 0 && (
@@ -117,9 +116,7 @@ function FindPage() {
 
       {!query.trim() && (
         <div className="card">
-          <div className="empty">
-            Search your own browsing — history, bookmarks and saved articles — by meaning, not just exact words.
-          </div>
+          <div className="empty">{t("Search your own browsing — history, bookmarks and saved articles — by meaning, not just exact words.")}</div>
         </div>
       )}
     </PageShell>

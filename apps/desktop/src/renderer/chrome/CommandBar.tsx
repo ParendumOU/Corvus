@@ -31,6 +31,7 @@ import {
 import { Favicon } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
 
+import { t } from "../common/i18n";
 interface UiAction {
   action: PaletteAction;
   run: () => void;
@@ -88,15 +89,15 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
     };
     const open = (url: string): (() => void) => andClose(() => void api.call("tabs.openUrl", url, "new-tab"));
     const items: UiAction[] = [
-      { action: { id: "newtab", kind: "command", title: "New tab", icon: "newtab", priority: 4 }, run: andClose(() => void api.call("tabs.create", {})) },
-      { action: { id: "settings", kind: "command", title: "Open settings", icon: "settings", priority: 2 }, run: open("corvus://settings/") },
-      { action: { id: "bookmarks", kind: "command", title: "Open bookmarks", icon: "bookmarks", priority: 1 }, run: open("corvus://bookmarks/") },
-      { action: { id: "history", kind: "command", title: "Open history", icon: "history", priority: 1 }, run: open("corvus://history/") },
-      { action: { id: "downloads", kind: "command", title: "Open downloads", icon: "downloads" }, run: open("corvus://downloads/") },
-      { action: { id: "extensions", kind: "command", title: "Open extensions", icon: "extensions" }, run: open("corvus://extensions/") },
-      { action: { id: "webscope", kind: "command", title: "Open WebScope", icon: "webscope" }, run: open("corvus://webscope/") },
-      { action: { id: "assist", kind: "command", title: "Toggle Corvus Assist", icon: "assist" }, run: andClose(() => void api.call("assist.toggle")) },
-      { action: { id: "organize", kind: "command", title: "Organize tabs into groups", icon: "organize" }, run: onOrganize },
+      { action: { id: "newtab", kind: "command", title: t("New tab"), icon: "newtab", priority: 4 }, run: andClose(() => void api.call("tabs.create", {})) },
+      { action: { id: "settings", kind: "command", title: t("Open settings"), icon: "settings", priority: 2 }, run: open("corvus://settings/") },
+      { action: { id: "bookmarks", kind: "command", title: t("Open bookmarks"), icon: "bookmarks", priority: 1 }, run: open("corvus://bookmarks/") },
+      { action: { id: "history", kind: "command", title: t("Open history"), icon: "history", priority: 1 }, run: open("corvus://history/") },
+      { action: { id: "downloads", kind: "command", title: t("Open downloads"), icon: "downloads" }, run: open("corvus://downloads/") },
+      { action: { id: "extensions", kind: "command", title: t("Open extensions"), icon: "extensions" }, run: open("corvus://extensions/") },
+      { action: { id: "webscope", kind: "command", title: t("Open WebScope"), icon: "webscope" }, run: open("corvus://webscope/") },
+      { action: { id: "assist", kind: "command", title: t("Toggle Corvus Assist"), icon: "assist" }, run: andClose(() => void api.call("assist.toggle")) },
+      { action: { id: "organize", kind: "command", title: t("Organize tabs into groups"), icon: "organize" }, run: onOrganize },
     ];
     for (const tab of state.tabs) {
       if (tab.id === state.activeTabId) continue;
@@ -115,7 +116,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
     if (parsed.mode === "agent") {
       const task = parsed.query.trim();
       out.push({
-        action: { id: "agent", kind: "agent", title: task ? `Ask Corvus to: ${task}` : "Ask Corvus to do a task…", subtitle: "Runs an agent in a new tab", icon: "agent", priority: 100 },
+        action: { id: "agent", kind: "agent", title: task ? t("Ask Corvus to: {task}", { task }) : t("Ask Corvus to do a task…"), subtitle: t("Runs an agent in a new tab"), icon: "agent", priority: 100 },
         run: () => startAgent(task),
       });
       return out;
@@ -123,9 +124,9 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
     if (q) {
       const intent = classifyOmnibox(q);
       if (intent.kind === "url") {
-        out.push({ action: { id: "open-url", kind: "navigate", title: `Open ${intent.url}`, icon: "navigate", priority: 50 }, run: () => commit(intent.url) });
+        out.push({ action: { id: "open-url", kind: "navigate", title: t("Open {url}", { url: intent.url }), icon: "navigate", priority: 50 }, run: () => commit(intent.url) });
       } else {
-        out.push({ action: { id: "search", kind: "search", title: `Search the web for "${intent.query}"`, icon: "search", priority: 50 }, run: () => commit(intentToUrl(intent)) });
+        out.push({ action: { id: "search", kind: "search", title: t("Search the web for \"{query}\"", { query: intent.query }), icon: "search", priority: 50 }, run: () => commit(intentToUrl(intent)) });
       }
     }
     return out;
@@ -237,7 +238,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
   };
 
   return (
-    <div className="cmdbar" role="dialog" aria-label="Command Bar" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="cmdbar" role="dialog" aria-label={t("Command Bar")} onMouseDown={(e) => e.stopPropagation()}>
       <div className={`cmd-field ${parsed.mode === "agent" ? "agent" : ""}`}>
         <span className="cmd-lead">{parsed.mode === "agent" ? <IconAgent size={17} /> : <IconSearch size={16} />}</span>
         <input
@@ -245,25 +246,25 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
           className="cmd-input"
           spellCheck={false}
           value={value}
-          placeholder={parsed.mode === "agent" ? "Describe the task for Corvus to do…" : "Search tabs and actions, type a URL, or “> ” to ask Corvus"}
+          placeholder={parsed.mode === "agent" ? t("Describe the task for Corvus to do…") : t("Search tabs and actions, type a URL, or “> ” to ask Corvus")}
           onChange={(e) => {
             setValue(e.target.value);
             fetchSuggestions(e.target.value);
           }}
           onKeyDown={onKeyDown}
         />
-        <kbd className="cmd-hint">{parsed.mode === "agent" ? "Enter to run" : "Tab for agent"}</kbd>
+        <kbd className="cmd-hint">{parsed.mode === "agent" ? t("Enter to run") : t("Tab for agent")}</kbd>
       </div>
 
       {showRun ? (
         <RunPanel run={run!} state={state} api={api} />
       ) : (
         <ul className="cmd-list" ref={listRef} role="listbox">
-          {rows.length === 0 && <li className="cmd-empty">No matches. Press Tab to ask Corvus to do it.</li>}
+          {rows.length === 0 && <li className="cmd-empty">{t("No matches. Press Tab to ask Corvus to do it.")}</li>}
           {rows.map((u, i) => (
             <Fragment key={u.action.id}>
               {i === firstLocalIndex && localItems.length > 0 && (
-                <li className="cmd-section" role="presentation">Find in my history</li>
+                <li className="cmd-section" role="presentation">{t("Find in my history")}</li>
               )}
               <li
                 role="option"
@@ -280,7 +281,7 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
                 </span>
                 <span className="cmd-title">{u.action.title}</span>
                 {u.action.subtitle && <span className="cmd-sub">{u.action.subtitle}</span>}
-                {u.action.kind === "agent" && <span className="cmd-tag">Agent</span>}
+                {u.action.kind === "agent" && <span className="cmd-tag">{t("Agent")}</span>}
               </li>
             </Fragment>
           ))}
@@ -291,12 +292,12 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
 }
 
 const STATUS_LABEL: Record<AgentRunView["status"], string> = {
-  running: "Working",
-  paused: "Paused",
-  "awaiting-approval": "Needs your OK",
-  done: "Done",
-  error: "Failed",
-  stopped: "Stopped",
+  running: t("Working"),
+  paused: t("Paused"),
+  "awaiting-approval": t("Needs your OK"),
+  done: t("Done"),
+  error: t("Failed"),
+  stopped: t("Stopped"),
 };
 
 function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; api: ReturnType<typeof chromeApi> }) {
@@ -317,9 +318,7 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
       <div className="run-panel">
         <div className="run-setup">
           <p>{state.agentSetupReason ?? run.error}</p>
-          <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("tabs.openUrl", "corvus://settings/#command-agent", "new-tab"); }}>
-            Open settings
-          </button>
+          <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("tabs.openUrl", "corvus://settings/#command-agent", "new-tab"); }}>{t("Open settings")}</button>
         </div>
       </div>
     );
@@ -333,10 +332,10 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
         <span className={`run-chip ${run.status}`}>{STATUS_LABEL[run.status]}</span>
       </div>
       <div className="run-meta">
-        <span>{run.stepCount}/{run.maxSteps} steps</span>
-        <span>{(run.inputTokens + run.outputTokens).toLocaleString()} tokens</span>
-        {run.siteHints && run.siteHints.workflows > 0 && <span title="Saved workflows for this site were offered to the agent">{run.siteHints.workflows} workflow{run.siteHints.workflows === 1 ? "" : "s"}</span>}
-        {run.siteHints && run.siteHints.hints > 0 && <span title="Learned hints about this site were given to the agent">{run.siteHints.hints} site hints</span>}
+        <span>{run.stepCount}{t("/{maxSteps} steps", { maxSteps: run.maxSteps })}</span>
+        <span>{(run.inputTokens + run.outputTokens).toLocaleString()}{" "}{t("tokens")}</span>
+        {run.siteHints && run.siteHints.workflows > 0 && <span title={t("Saved workflows for this site were offered to the agent")}>{run.siteHints.workflows}{" "}{t("workflow")}{run.siteHints.workflows === 1 ? "" : "s"}</span>}
+        {run.siteHints && run.siteHints.hints > 0 && <span title={t("Learned hints about this site were given to the agent")}>{run.siteHints.hints}{" "}{t("site hints")}</span>}
         <span className="run-model">{run.model}</span>
       </div>
 
@@ -351,16 +350,16 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
       {run.approval && (
         <div className="run-approval">
           <div className="appr-text">
-            <strong>{run.approval.handoff ? "Over to you" : "Approve this action?"}</strong>
+            <strong>{run.approval.handoff ? t("Over to you") : t("Approve this action?")}</strong>
             <span>{run.approval.reason}</span>
             {!run.approval.handoff && run.approval.summary && <code>{run.approval.summary}</code>}
           </div>
           <div className="appr-actions">
             <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "approve"); }}>
-              {run.approval.handoff ? "I've done it" : "Approve"}
+              {run.approval.handoff ? t("I've done it") : t("Approve")}
             </button>
-            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "skip"); }}>Skip</button>
-            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "stop"); }}>Stop</button>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "skip"); }}>{t("Skip")}</button>
+            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.approve", "stop"); }}>{t("Stop")}</button>
           </div>
         </div>
       )}
@@ -368,12 +367,12 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
       {savable && run.offerWorkflow && run.status === "done" && !offerDismissed && (
         <div className="run-approval run-offer">
           <div className="appr-text">
-            <strong>Save these steps as a workflow?</strong>
-            <span>You said this task is repetitive. Review the steps, pick what to fill in each time, and run it again in one go.</span>
+            <strong>{t("Save these steps as a workflow?")}</strong>
+            <span>{t("You said this task is repetitive. Review the steps, pick what to fill in each time, and run it again in one go.")}</span>
           </div>
           <div className="appr-actions">
-            <button className="btn" onMouseDown={(e) => { e.preventDefault(); saveWorkflow(); }}>Review and save</button>
-            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); setOfferDismissed(true); }}>Not now</button>
+            <button className="btn" onMouseDown={(e) => { e.preventDefault(); saveWorkflow(); }}>{t("Review and save")}</button>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); setOfferDismissed(true); }}>{t("Not now")}</button>
           </div>
         </div>
       )}
@@ -383,21 +382,18 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
           <>
             <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.pause", !state.agentsPaused); }}>
               {state.agentsPaused ? <IconPlay size={14} /> : <IconPause size={14} />}
-              {state.agentsPaused ? "Resume" : "Pause"}
+              {state.agentsPaused ? t("Resume") : t("Pause")}
             </button>
-            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.stop"); }}>Stop</button>
+            <button className="btn danger" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.stop"); }}>{t("Stop")}</button>
           </>
         ) : (
           <>
-            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.clear"); }}>Clear</button>
+            <button className="btn ghost" onMouseDown={(e) => { e.preventDefault(); void api.call("agent.clear"); }}>{t("Clear")}</button>
             {savable && (
-              <button className="btn ghost run-save-wf" onMouseDown={(e) => { e.preventDefault(); saveWorkflow(); }}>
-                Save as workflow
-              </button>
+              <button className="btn ghost run-save-wf" onMouseDown={(e) => { e.preventDefault(); saveWorkflow(); }}>{t("Save as workflow")}</button>
             )}
             <button className="btn" onMouseDown={(e) => { e.preventDefault(); void api.call("assist.toggle", "agents"); }}>
-              <IconActivity size={14} /> View timeline
-            </button>
+              <IconActivity size={14} />{" "}{t("View timeline")}</button>
           </>
         )}
       </div>
@@ -412,7 +408,7 @@ function StepRow({ step }: { step: AgentRunStep }) {
       <span className="step-dot" aria-hidden />
       <div className="step-body">
         <div className="step-line">
-          <span className="step-name">{isMessage ? "Corvus" : prettyTool(step.kind)}</span>
+          <span className="step-name">{isMessage ? t("Corvus") : prettyTool(step.kind)}</span>
           {step.summary && <span className="step-args">{step.summary}</span>}
           {typeof step.resultChars === "number" && step.resultChars > 0 && <span className="step-size">{formatBytes(step.resultChars)}</span>}
         </div>

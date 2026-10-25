@@ -16,16 +16,31 @@ const source = (file: string): string => readFileSync(join(PAGES, file), "utf8")
 /** The runtime value of a double-quoted JS string literal's body. */
 const unquote = (body: string): string => JSON.parse(`"${body}"`) as string;
 
+/** t("…") literals; files whose own variables are named `t` import it as `tx`. */
 function tLiterals(src: string): string[] {
-  return [...src.matchAll(/\bt\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!));
+  return [...src.matchAll(/\b(?:t|tx)\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!));
 }
 
+const sourcesIn = (dir: string, ext: RegExp): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? sourcesIn(join(dir, e.name), ext) : ext.test(e.name) ? [readFileSync(join(dir, e.name), "utf8")] : [],
+  );
+/** Every renderer source: the browser UI, Corvus's pages, Assist and the reader. */
+const RENDERER = sourcesIn(fileURLToPath(new URL("../src/renderer", import.meta.url)), /\.tsx?$/);
+/** Main-process sources (native menus and dialogs translate with tr("…")). */
+const MAIN = sourcesIn(fileURLToPath(new URL("../src/main", import.meta.url)), /\.ts$/);
+
+const HTML = fileURLToPath(new URL("../src/renderer", import.meta.url));
+/** The <title> of each internal page, which main/protocol.ts translates when it serves the page. */
+const htmlTitles = (): string[] =>
+  readdirSync(HTML)
+    .filter((f) => f.endsWith(".html"))
+    .flatMap((f) => [...readFileSync(join(HTML, f), "utf8").matchAll(/<title>([^<]*)<\/title>/g)].map((m) => m[1]!));
+
 const MENUS = readFileSync(fileURLToPath(new URL("../src/main/menus.ts", import.meta.url)), "utf8");
+const trLiterals = (src: string): string[] => [...src.matchAll(/\btr\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!));
 /** Labels the native menus translate with tr("…"), plus the inline-write actions they list. */
-const menuLabels = (): string[] => [
-  ...[...MENUS.matchAll(/\btr\(\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => unquote(m[1]!)),
-  ...WRITE_ACTIONS.map((a) => a.label),
-];
+const menuLabels = (): string[] => [...trLiterals(MENUS), ...WRITE_ACTIONS.map((a) => a.label)];
 
 describe("UI language", () => {
   afterEach(() => setUiLanguage("en"));
@@ -52,6 +67,12 @@ describe("UI language", () => {
     expect(missing).toEqual([]);
   });
 
+  it("has a Spanish string for every translated text in the browser UI, its pages and native dialogs", () => {
+    const texts = [...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals)];
+    expect(texts.length).toBeGreaterThan(1500);
+    expect([...new Set(texts)].filter((text) => !(text in ES))).toEqual([]);
+  });
+
   it("has a Spanish string for every native menu label", () => {
     expect(menuLabels().length).toBeGreaterThan(90);
     expect(menuLabels().filter((text) => !(text in ES))).toEqual([]);
@@ -62,9 +83,8 @@ describe("UI language", () => {
   });
 
   it("has Spanish page titles and permission names", () => {
-    const titles = readdirSync(PAGES)
-      .filter((f) => f.endsWith(".tsx"))
-      .flatMap((f) => [...source(f).matchAll(/<PageShell[^>]*?title="([^"]+)"/gs)].map((m) => m[1]!));
+    const titles = htmlTitles();
+    expect(titles.length).toBeGreaterThan(20);
     const permissions = Object.values(PERMISSION_LABELS).map((p) => p.title);
     expect([...titles, ...permissions].filter((text) => !(text in ES))).toEqual([]);
   });
@@ -91,11 +111,8 @@ describe("UI language", () => {
   });
 
   it("has no Spanish strings left behind by removed texts", () => {
-    const used = new Set([...TRANSLATED.flatMap((file) => tLiterals(source(file))), ...menuLabels()]);
-    const titles = readdirSync(PAGES)
-      .filter((f) => f.endsWith(".tsx"))
-      .flatMap((f) => [...source(f).matchAll(/<PageShell[^>]*?title="([^"]+)"/gs)].map((m) => m[1]!));
-    for (const title of titles) used.add(title);
+    const used = new Set([...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals), ...menuLabels()]);
+    for (const title of htmlTitles()) used.add(title);
     for (const p of Object.values(PERMISSION_LABELS)) used.add(p.title);
     expect(Object.keys(ES).filter((key) => !used.has(key))).toEqual([]);
   });
