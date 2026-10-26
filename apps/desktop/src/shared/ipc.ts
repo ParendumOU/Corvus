@@ -38,6 +38,7 @@ import type { GroupPatch } from "./tab-strip";
 import type { WatchBarState, WatchChromeRpc, WatchInternalEvent, WatchInternalRpc } from "./watch-ipc";
 import type { WorkspaceChromeRpc } from "./workspace-ipc";
 import type { WebScopeRpc } from "./webscope-ipc";
+import type { UserNote } from "./user-memory";
 
 export const CHROME_RPC = "corvus:chrome-rpc";
 export const CHROME_EVENT = "corvus:chrome-event";
@@ -68,6 +69,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   partition: string;
   /** A private window: nothing of it is kept once it closes. */
   privateWindow: boolean;
+  /** Dictation is set up: the Command Bar shows its microphone button. */
+  dictationReady: boolean;
   /** Maximized or full screen: the tabs reach the top edge of the screen. */
   maximized: boolean;
   /** The proxy the active tab goes through, when it goes through one. */
@@ -103,7 +106,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
 export type ChromeCommand =
   | { type: "focus-omnibox"; selectAll: boolean }
   | { type: "close-overlays" }
-  | { type: "open-command-palette" }
+  /** `listen`: start dictating into it at once (the voice command shortcut). */
+  | { type: "open-command-palette"; listen?: boolean }
   | { type: "edit-group"; groupId: GroupId }
   | { type: "open-workspaces" }
   | BrowserChromeCommand
@@ -430,6 +434,11 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "sync.conflicts"(): SyncConflictView[];
   /** Forget this profile's Command Bar history (synced devices forget it too). */
   "commands.clear"(): void;
+  /** What the agent was told to remember about the person (this profile, this device). */
+  "userMemory.list"(): UserNote[];
+  "userMemory.add"(note: string): { notes: UserNote[]; error: string | null };
+  "userMemory.remove"(id: string): UserNote[];
+  "userMemory.clear"(): UserNote[];
   /** "mine" brings this device's version back; "theirs" keeps the one in use. */
   "sync.resolveConflict"(id: string, keep: "mine" | "theirs"): SyncConflictView[];
   "extensions.list"(): ExtensionInfo[];

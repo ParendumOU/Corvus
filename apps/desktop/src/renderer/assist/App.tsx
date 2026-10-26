@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { AgentActivityView, AgentLiveView, LiveAgentTask, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
+import { ASSIST_DEFAULT_WIDTH } from "../../shared/assist-ipc";
 import { MAX_COMPARE_TABS, type CompareCandidate } from "../../shared/compare";
 import type { AssistAgentStep, AssistAgentView } from "../../shared/assist-agent";
 import type { AgentLeftTab } from "../../shared/command-bar-ipc";
@@ -14,8 +15,10 @@ import {
   AssistMark,
   GlyphClose,
   GlyphCompare,
+  GlyphCopy,
   GlyphGear,
   GlyphHistory,
+  GlyphMic,
   GlyphNewChat,
   GlyphPause,
   GlyphPen,
@@ -29,6 +32,10 @@ import {
 } from "./glyphs";
 
 import { t as tx } from "../common/i18n";
+import { useDictation } from "../common/dictation";
+import { insertDictation } from "../../shared/dictation";
+import { splitAnswer } from "../../shared/assist-artifacts";
+import { ArtifactPending, ArtifactView } from "./artifacts";
 declare global {
   interface Window {
     corvusAssist?: AssistBridge;
@@ -95,9 +102,13 @@ export function App() {
 
 function ResizeHandle() {
   const drag = useRef<{ x: number; width: number; frame: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const onDown = (e: PointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { x: e.screenX, width: window.innerWidth, frame: 0 };
+    setDragging(true);
   };
   const onMove = (e: PointerEvent<HTMLDivElement>): void => {
     const d = drag.current;
@@ -108,8 +119,21 @@ function ResizeHandle() {
   };
   const onUp = (): void => {
     drag.current = null;
+    setDragging(false);
   };
-  return <div className="resize" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} title={tx("Drag to resize")} />;
+  return (
+    <div
+      className={`resize ${dragging ? "dragging" : ""}`}
+      role="separator"
+      aria-orientation="vertical"
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+      onDoubleClick={() => void api().call("panel.resize", ASSIST_DEFAULT_WIDTH)}
+      title={tx("Drag to resize (double-click for the default width)")}
+    />
+  );
 }
 
 // ------------------------------------------------------------------ assist
@@ -148,10 +172,10 @@ function AssistPane({ state }: { state: AssistPanelState }) {
         {tab.messages.length === 0 ? (
           <Intro tab={tab} />
         ) : (
-          tab.messages.map((m) => <Message key={m.id} m={m} lang={state.lang} />)
+          tab.messages.map((m) => <Message key={m.id} m={m} lang={state.lang} canSend={!tab.busy} />)
         )}
       </div>
-      <Composer tab={tab} focusToken={state.focusToken} />
+      <Composer tab={tab} focusToken={state.focusToken} dictationReady={state.dictation} />
         </>
       )}
     </>
@@ -368,8 +392,55 @@ function RichText({ text, sections, video }: { text: string; sections?: string[]
   return <div className="rich">{blocks}</div>;
 }
 
-function Message({ m, lang }: { m: AssistMessage; lang: string }) {
+/** "Copy" under an answer: its text with any artifacts written out (main/assist-service.ts copyableText). */
+function CopyAnswer({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="msg-copy"
+      title={tx("Copy the answer")}
+      onClick={() =>
+        void api()
+          .call("assist.copyText", id)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          })
+      }
+    >
+      <GlyphCopy size={13} /> {copied ? tx("Copied") : tx("Copy")}
+    </button>
+  );
+}
+
+/** An answer's text with its artifacts (tables, cards, charts, links, forms) drawn in place. */
+function AnswerBody({ m, lang, canSend }: { m: AssistMessage; lang: string; canSend: boolean }) {
   const streaming = m.status === "streaming";
+  const parts = useMemo(() => (m.text.includes("```artifact") ? splitAnswer(m.text, streaming) : null), [m.text, streaming]);
+  const rich = (text: string, key?: number) => <RichText key={key} text={text} {...(m.sections ? { sections: m.sections } : {})} video={m.video} />;
+  if (!parts) return rich(m.text);
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.kind === "text" ? (
+          rich(p.text, i)
+        ) : p.kind === "artifact" ? (
+          <ArtifactView key={i} artifact={p.artifact} api={api} lang={lang} canSend={canSend} />
+        ) : p.kind === "pending" ? (
+          <ArtifactPending key={i} />
+        ) : (
+          <pre key={i} className="artifact-invalid" title={p.error}>
+            {p.raw}
+          </pre>
+        ),
+      )}
+    </>
+  );
+}
+
+function Message({ m, lang, canSend }: { m: AssistMessage; lang: string; canSend: boolean }) {
+  const streaming = m.status === "streaming";
+  const copy = m.status === "done" && m.text.trim() ? <CopyAnswer id={m.id} /> : null;
   const failed = m.status === "error" ? <p className="error">{m.error}</p> : m.status === "cancelled" ? <p className="muted small">{tx("Stopped.")}</p> : null;
 
   if (m.kind === "summarize") {
@@ -395,6 +466,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
         )}
         {streaming && s?.tldr ? <Streaming /> : null}
         {failed}
+        {copy}
         <Usage m={m} />
       </article>
     );
@@ -519,7 +591,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
           <AgentSteps agent={agent} />
           {agent.approval && <AgentApproval agent={agent} />}
           {agent.takenOver && !agent.approval && <TookOver />}
-          {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} video={m.video} /> : null}
+          {m.text ? <AnswerBody m={m} lang={lang} canSend={canSend} /> : null}
           {agent.leftTabs && <LeftTabs tabs={agent.leftTabs} />}
           {streaming && !agent.approval && !agent.takenOver && <Streaming />}
           {agent.limit && (
@@ -527,6 +599,7 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
               {agent.limit === "max_steps" ? tx("Stopped after {stepCount} steps, the limit for one request.", { stepCount: agent.stepCount }) : tx("Stopped at the token budget for one request.")}{" "}{tx("Say “continue” to keep going.")}</p>
           )}
           {failed}
+          {copy}
           <Usage m={m} />
         </article>
       </>
@@ -547,9 +620,10 @@ function Message({ m, lang }: { m: AssistMessage; lang: string }) {
             <blockquote>{m.prompt}</blockquote>
           </>
         )}
-        {m.text ? <RichText text={m.text} {...(m.sections ? { sections: m.sections } : {})} video={m.video} /> : streaming ? null : null}
+        {m.text ? <AnswerBody m={m} lang={lang} canSend={canSend} /> : null}
         {streaming && <Streaming />}
         {failed}
+        {copy}
         <Usage m={m} />
       </article>
     </>
@@ -712,9 +786,17 @@ function AgentApproval({ agent }: { agent: AssistAgentView }) {
   );
 }
 
-function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number }) {
+function Composer({ tab, focusToken, dictationReady }: { tab: AssistTabView; focusToken: number; dictationReady: boolean }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation(
+    (audio, type) => api().call("dictation.transcribe", audio, type),
+    (text) => {
+      setValue((v) => insertDictation(v, text));
+      ref.current?.focus();
+    },
+  );
+  const listening = dictation.phase === "listening";
 
   useEffect(() => {
     ref.current?.focus();
@@ -737,6 +819,13 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
   }, [value, tab.busy, usable, writing]);
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // While listening, Enter stops and transcribes; Escape drops the recording.
+    if (listening && (e.key === "Enter" || e.key === "Escape")) {
+      e.preventDefault();
+      if (e.key === "Enter") dictation.stop();
+      else dictation.cancel();
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -776,6 +865,18 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
         onKeyDown={onKey}
         maxLength={tab.canAct || writing ? 2000 : 600}
       />
+      {dictationReady && usable && (
+        <button
+          className={`mic ${dictation.phase}`}
+          title={listening ? tx("Stop and transcribe") : dictation.phase === "transcribing" ? tx("Transcribing…") : tx("Dictate")}
+          aria-label={listening ? tx("Stop and transcribe") : tx("Dictate")}
+          aria-pressed={listening}
+          disabled={dictation.phase === "transcribing"}
+          onClick={() => (listening ? dictation.stop() : dictation.start())}
+        >
+          <GlyphMic size={16} />
+        </button>
+      )}
       {tab.busy ? (
         <button className="send stop" title={tx("Stop")} onClick={() => void api().call("assist.cancel")}>
           <GlyphStop size={16} />
@@ -786,6 +887,19 @@ function Composer({ tab, focusToken }: { tab: AssistTabView; focusToken: number 
         </button>
       )}
       </div>
+      {dictation.phase !== "idle" && (
+        <div className="dictation-status" role="status">
+          {listening ? tx("Listening… Enter to stop, Esc to cancel") : tx("Transcribing…")}
+        </div>
+      )}
+      {dictation.error && (
+        <div className="dictation-error" role="alert">
+          <span className="grow">{dictation.error}</span>
+          <button className="icon-btn" title={tx("Dismiss")} onClick={dictation.clearError}>
+            <GlyphClose size={12} />
+          </button>
+        </div>
+      )}
     </>
   );
 }

@@ -115,6 +115,7 @@ interface Seen {
   turns: number;
   toolCalls: number;
   images: number;
+  lastSystem: string;
 }
 
 /** The scripted model: one script per request, keyed on the request text of the seeded message. */
@@ -124,6 +125,7 @@ function scriptedModel(base: string, seen: Seen): AgentModelProvider {
     model: "claude-haiku-5-5",
     async *streamTurn(req: AgentTurnRequest): AsyncGenerator<TurnEvent> {
       seen.turns += 1;
+      seen.lastSystem = req.system;
       const done = req.messages.filter((m) => m.role === "assistant" && m.content.some((c) => c.type === "tool_use")).length;
       seen.images += req.messages.at(-1)?.content.some((c) => c.type === "tool_result" && c.image) ? 1 : 0;
       const request = requestOf(req.messages);
@@ -174,6 +176,11 @@ function scriptedModel(base: string, seen: Seen): AgentModelProvider {
           () => tool("page_snapshot", {}),
           () => ({ type: "text", text: handed ? "Got the page back; carrying on." : "No hand-back seen." }),
         ];
+      } else if (request.startsWith("Remember my city")) {
+        script = [
+          () => tool("remember", { note: "I live in Bilbao" }),
+          () => ({ type: "text", text: "Noted; I will remember you live in Bilbao." }),
+        ];
       } else {
         script = [() => ({ type: "text", text: "I am not sure what to do." })];
       }
@@ -195,7 +202,7 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const seen: Seen = { turns: 0, toolCalls: 0, images: 0 };
+  const seen: Seen = { turns: 0, toolCalls: 0, images: 0, lastSystem: "" };
   const askBefore = ctx.settings.get().agent.askBeforeRisky;
   ctx.agentRunner.setTestProvider(scriptedModel(base, seen));
   const tab = win.createTab(`${base}/start`, { activate: true });
@@ -395,6 +402,7 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
     const noIndicator = !(await win.chrome.webContents.executeJavaScript("Boolean(document.querySelector('.agent-indicator'))"));
     check("assist panel: the gear opens the AI settings", settings && noIndicator, { active: win.activeTab()?.url, noIndicator });
 
+
     // 9. "New conversation" keeps the old one in the history; opening it carries it on, on its page.
     win.activate(tab.id);
     await poll(panel, "document.querySelector('[data-new-conversation]')", 3000);
@@ -408,6 +416,17 @@ export async function runAssistAgentSmoke(ctx: AppContext, h: Helpers): Promise<
     const reopened = await poll(panel, "document.querySelectorAll('.thread .question').length >= 5", 5000);
     const onPage = (win.activeTab()?.url ?? "").startsWith(base) && !before.has(win.activeTab()?.id ?? "");
     check("assist history: a new conversation keeps the old one, which reopens on its page", fresh && listed && reopened && onPage, { fresh, listed, reopened, active: win.activeTab()?.url });
+
+    // The agent remembers a durable fact, and it reaches a later run's system prompt.
+    win.activate(tab.id);
+    ctx.assist.activeAction(win, "ask", "Remember my city");
+    const remembered = await poll(panel, `(${lastAnswer}?.querySelector('.rich')?.innerText || '').includes('Bilbao')`, 8000);
+    const stored = win.profile.userMemory.list().some((n) => n.text === "I live in Bilbao");
+    ctx.assist.activeAction(win, "ask", "What does this page sell?");
+    await poll(panel, `${lastAnswer}?.querySelector('.usage')`, 8000);
+    const inPrompt = seen.lastSystem.includes("I live in Bilbao");
+    check("assist agent: remembers a fact and gives it to later runs", remembered && stored && inPrompt, { remembered, stored, inPrompt });
+    win.profile.userMemory.clear();
   } catch (err) {
     check("assist agent smoke", false, (err as Error).stack ?? String(err));
   } finally {

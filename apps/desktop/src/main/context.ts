@@ -35,11 +35,13 @@ import type { UpdateService } from "./update-service";
 import type { WebScopeService } from "./webscope-service";
 import type { WindowManager } from "./window-manager";
 import type { NewTabService } from "./newtab-service";
+import type { DictationService } from "./dictation-service";
 
 /** Main-process services, wired together once in index.ts. */
 export interface AppContext {
   settings: SettingsStore;
   profiles: ProfileRegistry;
+  dictation: DictationService;
   windows: WindowManager;
   search: SearchService;
   semanticSearch: SemanticSearchService;

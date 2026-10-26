@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Profile } from "@corvus/shared";
 import type { AdblockView } from "../../shared/adblock";
+import type { UserNote } from "../../shared/user-memory";
 import type { ConnectionTestResult, EngineInfo, LocalServerInfo, McpStatus, UpdateStatus } from "../../shared/ipc";
 import type { AccessLevel, ClaudeAccountMode, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
 import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
+import { DICTATION_PRESETS, dictationReady, type DictationPreset } from "../../shared/dictation";
 import { errorMessage, internalApi } from "../common/api";
 import { setUiLanguage, t } from "../common/i18n";
-import { IconCopy, IconTrash } from "../common/icons";
+import { IconClose, IconCopy, IconTrash } from "../common/icons";
 import { Toggle, formatTime } from "../common/ui";
 import { AgentActivityLog } from "./settings-agent-log";
 import { SyncSection } from "./settings-sync";
@@ -713,6 +715,88 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
   );
 }
 
+const presetLabel = (id: DictationPreset["id"]): string => (id === "openai" ? "OpenAI" : id === "groq" ? "Groq" : t("A server of your own (OpenAI-compatible)"));
+
+function DictationSection({ view, update, setView }: { view: SettingsView; update: (p: SettingsPatch) => void; setView: (v: SettingsView) => void }) {
+  const d = view.settings.dictation;
+  const preset = DICTATION_PRESETS.find((p) => p.baseUrl === d.baseUrl && p.model === d.model)?.id ?? (d.baseUrl ? "custom" : "");
+  const needsKey = DICTATION_PRESETS.find((p) => p.id === preset)?.needsKey ?? false;
+  return (
+    <Section
+      id="dictation"
+      title={t("Voice dictation")}
+      description={t(
+        "Dictate in the Command Bar and in Corvus Assist with the microphone button, or press Ctrl+Shift+K (⌘⇧K on macOS) to say a task for the agent. Corvus records only while you dictate and sends the recording to the speech-to-text service you choose here; it has no speech model of its own.",
+      )}
+    >
+      <Row label={t("Dictation")}>
+        <Toggle label={t("Dictation")} checked={d.enabled} onChange={(v) => update({ dictation: { enabled: v } })} />
+      </Row>
+      {d.enabled && (
+        <>
+          <Row label={t("Service")} hint={t("Any service with the OpenAI-compatible /audio/transcriptions endpoint works; choosing one fills in its address and model.")}>
+            <select
+              className="input"
+              value={preset}
+              onChange={(e) => {
+                const p = DICTATION_PRESETS.find((x) => x.id === e.target.value);
+                if (p) update({ dictation: { baseUrl: p.baseUrl, model: p.model } });
+              }}
+            >
+              {preset === "" && <option value="">{t("Choose a service…")}</option>}
+              {DICTATION_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {presetLabel(p.id)}
+                </option>
+              ))}
+              {preset === "custom" && <option value="custom">{t("Another service")}</option>}
+            </select>
+          </Row>
+          <Row label={t("Base URL")} hint={t("Where the service's API starts, e.g. https://api.openai.com/v1.")}>
+            <LazyInput value={d.baseUrl} width={320} placeholder="https://api.openai.com/v1" onSave={(v) => update({ dictation: { baseUrl: v.trim() } })} />
+          </Row>
+          <Row label={t("Model")} hint={t("The service's transcription model, e.g. gpt-4o-mini-transcribe (OpenAI) or whisper-large-v3-turbo (Groq).")}>
+            <LazyInput value={d.model} width={320} placeholder="gpt-4o-mini-transcribe" onSave={(v) => update({ dictation: { model: v.trim() } })} />
+          </Row>
+          <Row
+            label={t("API key")}
+            hint={
+              view.secretsPersisted
+                ? t("Encrypted with your operating system keychain. A server on your own computer usually needs none.")
+                : t("No OS keychain available: the key is kept in memory until Corvus quits.")
+            }
+          >
+            <SecretField name="transcriptionApiKey" isSet={view.secrets.transcriptionApiKey} onSaved={setView} placeholder={needsKey ? "sk-…" : t("Optional")} />
+          </Row>
+          <Row label={t("Language you speak")} hint={t("Telling the service your language makes short commands come out more accurately.")}>
+            <select className="input" value={d.language} onChange={(e) => update({ dictation: { language: e.target.value } })}>
+              <option value="">{t("Let the service detect it")}</option>
+              {languages()
+                .slice(1)
+                .map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+            </select>
+          </Row>
+          <Row label={t("Status")}>
+            {dictationReady(d) ? (
+              needsKey && !view.secrets.transcriptionApiKey ? (
+                <span className="pill bad">{t("Add the service's API key")}</span>
+              ) : (
+                <span className="pill ok">{t("Ready")}</span>
+              )
+            ) : (
+              <span className="pill bad">{t("Needs a base URL and a model")}</span>
+            )}
+          </Row>
+        </>
+      )}
+    </Section>
+  );
+}
+
 function CommandAgentSection({ view, update }: { view: SettingsView; update: (p: SettingsPatch) => void }) {
   const agent = view.settings.agent;
   const ai = view.settings.ai;
@@ -762,7 +846,64 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       >
         <Toggle label={t("Keep captures of agent runs")} checked={agent.runScreenshots} onChange={(v) => update({ agent: { runScreenshots: v } })} />
       </Row>
+      <Row
+        label={t("What the agent remembers about you")}
+        hint={t("Short facts the agent keeps so it need not ask every time (home city, usual airport, travel class, sizes). It can save one when you tell it to; add or remove them here. Kept on this device; never secrets, cards or codes.")}
+      >
+        <UserMemoryEditor />
+      </Row>
     </Section>
+  );
+}
+
+function UserMemoryEditor() {
+  const api = internalApi();
+  const [notes, setNotes] = useState<UserNote[]>([]);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    void api.call("userMemory.list").then(setNotes);
+  }, [api]);
+  const add = (): void => {
+    const text = draft.trim();
+    if (!text) return;
+    void api.call("userMemory.add", text).then((r) => {
+      setNotes(r.notes);
+      setError(r.error);
+      if (!r.error) setDraft("");
+    });
+  };
+  return (
+    <div className="mem-editor" data-user-memory>
+      <ul className="mem-list">
+        {notes.map((n) => (
+          <li key={n.id}>
+            <span>{n.text}</span>
+            <button className="icon-btn small" title={t("Forget this")} onClick={() => void api.call("userMemory.remove", n.id).then(setNotes)}>
+              <IconClose size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="mem-add">
+        <input
+          type="text"
+          maxLength={200}
+          placeholder={t("e.g. I live in Bilbao")}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+        />
+        <button className="btn small" onClick={add} disabled={!draft.trim()}>{t("Add")}</button>
+      </div>
+      {error && <p className="mem-error">{error}</p>}
+      {notes.length > 0 && (
+        <button className="link-btn mem-clear" onClick={() => void api.call("userMemory.clear").then(setNotes)}>{t("Forget everything")}</button>
+      )}
+    </div>
   );
 }
 
@@ -1331,6 +1472,7 @@ function SettingsPage() {
       t("AI & agents"),
       [
         ["ai", t("AI search")],
+        ["dictation", t("Voice dictation")],
         ["command-agent", t("Command Bar")],
         ["scheduled-agents", t("Scheduled agents")],
         ["agents", t("AI agents")],
@@ -1388,6 +1530,7 @@ function SettingsPage() {
           <ConnectionsSection />
           <MonitoringSection view={view} update={update} />
           <AiSection view={view} update={update} setView={setView} />
+          <DictationSection view={view} update={update} setView={setView} />
           <CommandAgentSection view={view} update={update} />
           <ScheduledAgentsSection view={view} update={update} />
           <AgentsSection view={view} update={update} />

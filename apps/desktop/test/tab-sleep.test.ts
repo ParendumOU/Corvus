@@ -1,13 +1,14 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { defaultSettings, mergeSettings } from "../src/shared/settings";
-import { EDITED_PAGE_SCRIPT, formatMemory, tabsToSleep, type SleepCandidate } from "../src/shared/tab-sleep";
+import { EDITED_PAGE_SCRIPT, LOW_MEMORY_SHARE, PRESSURE_BATCH, formatMemory, tabsToSleep, tabsToSleepUnderPressure, type SleepCandidate } from "../src/shared/tab-sleep";
 
 const HOUR = 3_600_000;
 const tab = (patch: Partial<SleepCandidate>): SleepCandidate => ({
   id: "t",
   url: "https://example.com/",
   lastShownAt: 0,
+  openedAt: 0,
   shown: false,
   pinned: false,
   audible: false,
@@ -32,10 +33,26 @@ describe("sleeping tabs", () => {
       tab({ id: "crashed", crashed: true }),
       tab({ id: "asleep", unloaded: true }),
       tab({ id: "internal", url: "corvus://settings/" }),
-      tab({ id: "never-shown", lastShownAt: undefined }),
+      tab({ id: "never-shown", lastShownAt: undefined, openedAt: 0 }),
+      tab({ id: "just-opened", lastShownAt: undefined, openedAt: now - 60_000 }),
     ];
-    expect(tabsToSleep(tabs, now, 60)).toEqual(["old"]);
-    expect(tabsToSleep(tabs, now, 5)).toEqual(["old", "recent"]);
+    // A tab opened in the background and never shown counts from when it opened (it used to stay awake).
+    expect(tabsToSleep(tabs, now, 60)).toEqual(["old", "never-shown"]);
+    expect(tabsToSleep(tabs, now, 5)).toEqual(["old", "recent", "never-shown"]);
+  });
+
+  it("under memory pressure, sleeps the least recently used background tabs early, a few at a time", () => {
+    const now = 10 * 60_000;
+    const tabs = [
+      tab({ id: "a", lastShownAt: now - 60_000 }),
+      tab({ id: "b", lastShownAt: now - 5 * 60_000 }),
+      tab({ id: "c", lastShownAt: undefined, openedAt: now - 9 * 60_000 }),
+      tab({ id: "d", lastShownAt: now - 2 * 60_000 }),
+      tab({ id: "pinned", pinned: true, lastShownAt: 0 }),
+      tab({ id: "shown", shown: true, lastShownAt: 0 }),
+    ];
+    expect(tabsToSleepUnderPressure(tabs, LOW_MEMORY_SHARE + 0.05)).toEqual([]);
+    expect(tabsToSleepUnderPressure(tabs, LOW_MEMORY_SHARE / 2)).toEqual(["c", "b", "d"].slice(0, PRESSURE_BATCH));
   });
 
   it("keeps a page awake when the person typed into it", () => {

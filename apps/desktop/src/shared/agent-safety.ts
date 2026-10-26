@@ -34,6 +34,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "ask_user",
   "hover_at",
   "scroll_at",
+  "remember",
 ]);
 
 /** Accessible names that mean an action commits something. */

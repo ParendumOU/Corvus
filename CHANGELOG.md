@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.24.0
+
+### AI
+- **The agent remembers you**: tell it a lasting fact or preference ("I live in Bilbao", "I always
+  fly economy", "my size is M") and it keeps a short note, so later tasks (and scheduled runs) do
+  not ask again. It saves one when you tell it to; see, add and remove them in Settings → AI. Kept
+  on this device, never secrets, cards, codes or e-mail addresses.
+- **Voice dictation**: a microphone button in the Command Bar and in Corvus Assist turns what you
+  say into text, and Ctrl+Shift+K (⌘⇧K on macOS) opens the Command Bar listening, so you can say a
+  task for the agent. Corvus has no speech model of its own: in Settings → Voice dictation, choose
+  any OpenAI-compatible speech-to-text service (OpenAI, Groq or a server of your own) and give it
+  its model and API key. Off until set up; Corvus records only while you dictate.
+- **Richer Assist answers**: when an answer has structure, Corvus Assist shows it as a table you
+  can sort, key figures, a side-by-side comparison, a checklist, steps, a small chart, links to open
+  or a short form; what you fill in a form goes back as your next message. The panel draws them
+  itself from checked data (never HTML from the AI), and an answer that cannot be shown that way
+  stays plain text.
+- **Assist panel**: every answer has a Copy button (tables and lists come out as Markdown, without
+  the [n] citations); right-click in the panel and in the browser's own fields now gives Cut, Copy,
+  Paste and spelling suggestions; the panel's left edge is easier to grab, drags it up to 960 px
+  wide, and a double-click puts the default width back.
+
+### Browser
+- **Background tabs sleep as they should**: a tab opened in the background and never looked at
+  (links opened in the background, a whole bookmarks folder, the tabs an agent opened) now goes to
+  sleep after Settings → Memory's delay too; before, it stayed awake for good.
+- **Low on memory, tabs sleep early**: when the computer is short of free memory, the least recently
+  used background tabs go to sleep without waiting for the delay, a few at a time (pinned tabs,
+  tabs playing sound, agent tabs and pages with typed text stay awake).
+- **Lighter Assist panel**: closed tabs' conversations are dropped at once, and keeping the
+  conversation history no longer copies every message on each refresh.
+- A link to a Settings section (from Corvus Assist, the voice command shortcut) now goes to that
+  section when Settings is already open in a tab; before, it only showed the tab.
+
+### Corvus for mobile 0.4.0
+- **Assist conversations on the phone**: Library → Assist lists your conversations with Corvus
+  Assist from your computers, newest first and searchable; tap one to read it and open its page.
+- The Home tab's label follows the phone's language.
+- Tables, figures and forms in an Assist answer show as their title in the conversation.
+
 ## v0.23.0
 
 ### AI

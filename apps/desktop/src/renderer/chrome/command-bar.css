@@ -68,6 +68,59 @@
   padding: 2px 7px;
   white-space: nowrap;
 }
+.cmd-hint.listening {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.cmd-mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.cmd-mic:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.cmd-mic.listening {
+  background: var(--accent);
+  color: var(--accent-text);
+  animation: cmd-mic-pulse 1.4s ease-in-out infinite;
+}
+.cmd-mic.transcribing {
+  opacity: 0.6;
+  cursor: progress;
+}
+@keyframes cmd-mic-pulse {
+  50% {
+    box-shadow: 0 0 0 5px var(--accent-soft);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmd-mic.listening {
+    animation: none;
+  }
+}
+.cmd-dictation-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  color: var(--danger);
+  border-bottom: 1px solid var(--border-soft);
+}
+.cmd-dictation-error .cmd-forget {
+  margin-left: auto;
+}
 
 .cmd-list {
   list-style: none;

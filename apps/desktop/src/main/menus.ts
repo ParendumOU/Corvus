@@ -99,6 +99,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
       { label: tr("Reading list"), click: () => win.openSingleton("corvus://reading/") },
       { label: tr("Passwords"), click: () => win.openSingleton("corvus://passwords/") },
       { label: tr("Corvus Assist"), accelerator: `${mod}+Shift+A`, click: () => win.runCommand({ type: "toggle-assist" }) },
+      { label: tr("Voice command"), accelerator: `${mod}+Shift+K`, click: () => win.runCommand({ type: "voice-command" }) },
       { label: tr("Organize tabs"), accelerator: `${mod}+Shift+O`, click: () => win.runCommand({ type: "organize-tabs" }) },
       { label: tr("Workspaces…"), click: () => win.sendCommand({ type: "open-workspaces" }) },
       { label: tr("Watched pages"), click: () => win.openSingleton("corvus://watches/") },

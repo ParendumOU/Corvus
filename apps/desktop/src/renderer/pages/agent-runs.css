@@ -54,6 +54,7 @@
   background: var(--surface-2, var(--hover));
   font-size: 13px;
   line-height: 1.45;
+  white-space: pre-wrap;
 }
 .ar-summary-label {
   display: block;

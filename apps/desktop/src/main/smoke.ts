@@ -10,6 +10,7 @@ import { runAgentSmoke } from "./smoke-agent";
 import { runAgentRunsSmoke } from "./smoke-agent-runs";
 import { runAnnotationsSmoke } from "./smoke-annotations";
 import { runAssistSmoke } from "./smoke-assist";
+import { runDictationSmoke } from "./smoke-dictation";
 import { runAssistAgentSmoke } from "./smoke-assist-agent";
 import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
@@ -67,6 +68,8 @@ function log(step: string, data: unknown): void {
  * page, exercises search/MCP fallbacks, then exits with 0 on success and 1 on failure.
  */
 export async function runSmokeTest(ctx: AppContext): Promise<void> {
+  // The host's free memory must not decide which tabs sleep while the checks run.
+  ctx.tabSleeper.freeShare = () => 1;
   app.on("web-contents-created", (_e, wc) => {
     wc.on("console-message", (event) => {
       if (event.level === "error" || event.level === "warning") log(`console ${event.level}`, { url: wc.getURL(), message: event.message });
@@ -95,6 +98,20 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     log(`${ok ? "PASS" : "FAIL"} ${name}`, detail ?? null);
     if (!ok) failed = true;
   };
+
+  if (process.env.CORVUS_PERF === "1") {
+    try {
+      const { runPerfProbe } = await import("./smoke-perf");
+      await runPerfProbe(ctx, url, (msg, detail) => log(msg, detail ?? null), check);
+    } catch (err) {
+      check("perf probe", false, (err as Error).stack ?? String(err));
+    } finally {
+      server.close();
+      log("RESULT", failed ? "FAILED" : "OK");
+      app.exit(failed ? 1 : 0);
+    }
+    return;
+  }
 
   try {
     await new Promise((r) => setTimeout(r, 1500));
@@ -221,6 +238,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await ctx.mcp.apply();
 
     await runAssistSmoke(ctx, { win, check, capture });
+    await runDictationSmoke(ctx, { url, win, check, capture });
     await runFeaturesSmoke(ctx, { win, check, capture });
     await runLocalModelsSmoke(ctx, { win, check, capture });
     await runPhoneSmoke(ctx, { url, win, check, capture });

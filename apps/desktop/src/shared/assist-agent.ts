@@ -96,6 +96,8 @@ export function actionLabel(tool: string, input: unknown, elementName = "", t: L
       return t("Searched the web for {query}", { query: quote(str(input, "query")) });
     case "list_tabs":
       return t("Listed the open tabs");
+    case "remember":
+      return t("Remembered {note}", { note: quote(str(input, "note"), 60) });
     case "switch_tab":
       return t("Switched to another tab");
     case "close_tab":

@@ -4,6 +4,7 @@ import path from "node:path";
 import { app, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
+import { rejectNote } from "../shared/user-memory";
 import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
 import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from "../shared/browser-import";
 import { SHOWN_COMMAND_RECENTS } from "../shared/command-history";
@@ -26,6 +27,7 @@ import type { AppContext } from "./context";
 import { showExtensionMenu } from "./extension-windows";
 import { BundleError, MIN_BUNDLE_PASSWORD } from "./profile-bundle";
 import { exportProfile, importProfile } from "./profile-transfer";
+import { recordingBytes } from "./dictation-service";
 import { assistChromeHandlers, registerAssistIpc } from "./ipc-assist";
 import { BROWSER_INTERNAL_PERMISSIONS, browserChromeHandlers, browserInternalHandlers } from "./ipc-browser";
 import { CREDENTIALS_INTERNAL_PERMISSIONS, KEEPASS_INTERNAL_PERMISSIONS, autofillChromeHandlers, credentialsInternalHandlers, keepassInternalHandlers, registerAutofillCapture } from "./ipc-credentials";
@@ -89,6 +91,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     ...semanticChromeHandlers(ctx),
     ...flowChromeHandlers(ctx),
     "state.get": (w) => w.state(),
+    "dictation.transcribe": (_w, audio, mimeType) => ctx.dictation.transcribe(recordingBytes(audio), str(mimeType, "type", 200)),
     "ui.setChromeHeight": (w, h) => w.setChromeHeight(num(h, "height")),
     "ui.setOverlay": (w, open) => w.setOverlay(open === true),
     "ui.appMenu": (w, x, y) => showAppMenu(ctx, w, num(x, "x"), num(y, "y")),
@@ -282,6 +285,10 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "sync.dismissExtension": ["settings"],
   "sync.conflicts": ["settings"],
   "commands.clear": ["settings"],
+  "userMemory.list": ["settings"],
+  "userMemory.add": ["settings"],
+  "userMemory.remove": ["settings"],
+  "userMemory.clear": ["settings"],
   "sync.resolveConflict": ["settings"],
   "extensions.list": ["extensions"],
   "extensions.loadUnpacked": ["extensions"],
@@ -445,7 +452,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       return ctx.settings.view();
     },
     "settings.setSecret": (_c, key, value) => {
-      if (key !== "anthropicApiKey" && key !== "braveApiKey") throw new IpcError("Unknown secret");
+      if (key !== "anthropicApiKey" && key !== "braveApiKey" && key !== "transcriptionApiKey") throw new IpcError("Unknown secret");
       ctx.settings.setSecret(key as SecretKey, str(value, "value", 4096));
       return ctx.settings.view();
     },
@@ -591,6 +598,22 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "sync.dismissExtension": (c, id) => ctx.sync.dismissExtension(c.profile, str(id, "extension", 64)),
     "sync.conflicts": (c) => ctx.sync.conflicts(c.profile),
     "commands.clear": (c) => c.profile.commands.clear(),
+    "userMemory.list": (c) => c.profile.userMemory.list(),
+    "userMemory.add": (c, note) => {
+      const text = str(note, "note", 200);
+      const reason = rejectNote(text.replace(/\s+/g, " ").trim());
+      if (reason) return { notes: c.profile.userMemory.list(), error: reason };
+      c.profile.userMemory.add(text);
+      return { notes: c.profile.userMemory.list(), error: null };
+    },
+    "userMemory.remove": (c, id) => {
+      c.profile.userMemory.remove(str(id, "id", 128));
+      return c.profile.userMemory.list();
+    },
+    "userMemory.clear": (c) => {
+      c.profile.userMemory.clear();
+      return c.profile.userMemory.list();
+    },
     "sync.resolveConflict": (c, id, keep) => {
       if (keep !== "mine" && keep !== "theirs") throw new IpcError("keep must be mine or theirs");
       return ctx.sync.resolveConflict(c.profile, str(id, "id", 64), keep);

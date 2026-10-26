@@ -28,18 +28,40 @@ body,
   border-left: 1px solid var(--border-soft);
 }
 
+/* The panel's left edge: drag it to make the panel wider or narrower (double-click: default width). */
 .resize {
   position: absolute;
-  left: -3px;
+  left: 0;
   top: 0;
   bottom: 0;
-  width: 7px;
+  width: 8px;
   cursor: col-resize;
   z-index: 5;
+  touch-action: none;
+}
+.resize::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 3px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 2px;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.panel:hover .resize::after {
+  opacity: 1;
 }
 .resize:hover,
-.resize:active {
-  background: linear-gradient(90deg, transparent 3px, var(--accent) 3px, var(--accent) 4px, transparent 4px);
+.resize.dragging {
+  background: linear-gradient(90deg, var(--accent) 0, var(--accent) 2px, transparent 2px);
+}
+.resize:hover::after,
+.resize.dragging::after {
+  background: var(--accent);
 }
 
 .grow {
@@ -417,6 +439,54 @@ blockquote {
 .send.stop {
   background: var(--text);
   color: var(--bg);
+}
+.composer .mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.composer .mic:hover {
+  background: var(--field);
+  color: var(--text);
+}
+.composer .mic.listening {
+  background: var(--accent-soft);
+  color: var(--accent);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+.composer .mic.transcribing {
+  opacity: 0.6;
+  cursor: progress;
+}
+@keyframes mic-pulse {
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer .mic.listening {
+    animation: none;
+  }
+}
+.dictation-status,
+.dictation-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 14px 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.dictation-error {
+  color: var(--danger);
 }
 
 /* ---------------------------------------------------------------- setup */
@@ -1244,4 +1314,338 @@ blockquote {
   margin: 10px 0 0;
   font-size: 13.5px;
   line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------- answers: copy, artifacts */
+
+.msg-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 0;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.msg-copy:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+:root {
+  --c0: #5b5bd6;
+  --c1: #14b8a6;
+  --c2: #f59e0b;
+  --c3: #ec4899;
+  --c4: #3b82f6;
+  --c5: #84cc16;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c0: #8b8cf8;
+    --c1: #2dd4bf;
+    --c2: #fbbf24;
+    --c3: #f472b6;
+    --c4: #60a5fa;
+    --c5: #a3e635;
+  }
+}
+
+.artifact {
+  margin: 4px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.artifact-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px 12px;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.artifact-copy {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.artifact-copy:hover {
+  background: var(--field);
+  color: var(--text);
+}
+.artifact-scroll {
+  overflow-x: auto;
+}
+.artifact table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.artifact th,
+.artifact td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--border-soft);
+}
+.artifact th {
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.artifact th button {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.artifact .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.compare-cards tbody th {
+  white-space: normal;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 1px;
+  background: var(--border-soft);
+  border-top: 1px solid var(--border-soft);
+}
+.kpi {
+  padding: 10px 12px;
+  background: var(--surface);
+}
+.kpi-label {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.kpi-value {
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.kpi.good .kpi-value {
+  color: var(--success);
+}
+.kpi.bad .kpi-value {
+  color: var(--danger);
+}
+.kpi-sub {
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+}
+.checklist,
+.steps,
+.artifact-links {
+  margin: 0;
+  padding: 4px 12px 10px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.checklist {
+  list-style: none;
+}
+.checklist li label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.checklist .done {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.steps {
+  padding-left: 30px;
+}
+.steps li,
+.artifact-links li {
+  padding: 5px 0;
+}
+.artifact-links {
+  list-style: none;
+}
+.artifact-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+.artifact-link:hover {
+  text-decoration: underline;
+}
+.chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 4px 6px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.chart .grid {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+.chart .axis {
+  fill: var(--text-3);
+  font-size: 9px;
+}
+.chart .stroke {
+  stroke-width: 2;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 0 12px 10px;
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+.swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.fill.c0,
+.swatch.c0 {
+  fill: var(--c0);
+  background: var(--c0);
+}
+.stroke.c0 {
+  stroke: var(--c0);
+}
+.fill.c1,
+.swatch.c1 {
+  fill: var(--c1);
+  background: var(--c1);
+}
+.stroke.c1 {
+  stroke: var(--c1);
+}
+.fill.c2,
+.swatch.c2 {
+  fill: var(--c2);
+  background: var(--c2);
+}
+.stroke.c2 {
+  stroke: var(--c2);
+}
+.fill.c3,
+.swatch.c3 {
+  fill: var(--c3);
+  background: var(--c3);
+}
+.stroke.c3 {
+  stroke: var(--c3);
+}
+.fill.c4,
+.swatch.c4 {
+  fill: var(--c4);
+  background: var(--c4);
+}
+.stroke.c4 {
+  stroke: var(--c4);
+}
+.fill.c5,
+.swatch.c5 {
+  fill: var(--c5);
+  background: var(--c5);
+}
+.stroke.c5 {
+  stroke: var(--c5);
+}
+.artifact-form {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.artifact-form fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 6px 0 0;
+  border: none;
+}
+.artifact-form .field {
+  display: grid;
+  gap: 4px;
+}
+.artifact-form .field-label {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 550;
+}
+.artifact-form .req {
+  color: var(--danger);
+}
+.artifact-form input:not([type="checkbox"]):not([type="radio"]),
+.artifact-form select,
+.artifact-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+}
+.artifact-form .check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.artifact.pending {
+  padding: 12px;
+}
+.artifact-skeleton {
+  height: 64px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--field) 0%, var(--surface-2) 50%, var(--field) 100%);
+  background-size: 200% 100%;
+  animation: artifact-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes artifact-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .artifact-skeleton {
+    animation: none;
+  }
+}
+.artifact-invalid {
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text-2);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
 }

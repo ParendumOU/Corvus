@@ -120,6 +120,7 @@ function fakeWindow(): BrowserWindowCtl {
     openSingleton: vi.fn(),
     notifyInternalPages: vi.fn(),
     win: { isDestroyed: () => false, focus: vi.fn() },
+    profile: { userMemory: { list: () => [] } },
   } as unknown as BrowserWindowCtl;
 }
 

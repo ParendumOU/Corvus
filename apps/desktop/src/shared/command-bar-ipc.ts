@@ -102,6 +102,8 @@ export interface CommandBarWindowExtras {
 export type AgentApprovalDecision = "approve" | "skip" | "stop";
 
 export interface CommandBarChromeRpc {
+  /** Text of a dictation recorded in the Command Bar, from the speech-to-text service in Settings. */
+  "dictation.transcribe"(audio: Uint8Array, mimeType: string): string;
   "agent.start"(task: string): void;
   "agent.stop"(): void;
   "agent.pause"(paused: boolean): void;

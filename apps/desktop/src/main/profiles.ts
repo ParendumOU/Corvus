@@ -16,6 +16,7 @@ import { PermissionManager, type PermissionHost } from "./permissions";
 import { AgentRunStore } from "./agent-run-store";
 import { AssistHistoryStore } from "./assist-history-store";
 import { CommandHistoryStore } from "./command-history-store";
+import { UserMemoryStore } from "./user-memory-store";
 import { ProfileManager } from "./profile-manager";
 import { handleInternalProtocol } from "./protocol";
 import { ReadingStore } from "./reading-store";
@@ -94,6 +95,7 @@ export class ProfileRuntime {
   readonly assistHistory: AssistHistoryStore;
   /** What the person ran from the Command Bar (its "Recent" list). */
   readonly commands: CommandHistoryStore;
+  readonly userMemory: UserMemoryStore;
   readonly siteProfiles: SiteProfileStore;
   readonly semanticIndex: SemanticIndexStore;
   readonly credentials: CredentialVault;
@@ -152,6 +154,7 @@ export class ProfileRuntime {
     this.agentRuns = new AgentRunStore(dataDir);
     this.assistHistory = new AssistHistoryStore(dataDir);
     this.commands = new CommandHistoryStore(dataDir);
+    this.userMemory = new UserMemoryStore(dataDir);
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
     this.credentials = new CredentialVault(dataDir, cipher);
@@ -316,6 +319,7 @@ export class ProfileRuntime {
     this.agentRuns.flush();
     this.assistHistory.flush();
     this.commands.flush();
+    this.userMemory.flush();
     this.siteProfiles.flush();
     this.semanticIndex.flush();
     this.credentials.flush();

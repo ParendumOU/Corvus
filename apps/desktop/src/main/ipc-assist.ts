@@ -1,8 +1,10 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
+import { clipboard, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { ASSIST_RPC, OVERLAY_DISMISS, type AssistChromeRpc, type AssistRpc, type AssistView } from "../shared/assist-ipc";
 import type { AgentApprovalDecision } from "../shared/command-bar-ipc";
 import type { FlowApprovalDecision } from "../shared/flow-ipc";
 import type { AppContext } from "./context";
+import { recordingBytes } from "./dictation-service";
+import { safeUrl } from "../shared/assist-artifacts";
 import { hintKind, paramValues } from "./ipc-flow";
 import type { BrowserWindowCtl } from "./window";
 
@@ -44,6 +46,7 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
       ctx.assist.resize(w, width);
     },
     "panel.setView": (w, v) => ctx.assist.setView(w, view(v)),
+    "dictation.transcribe": (_w, audio, mimeType) => ctx.dictation.transcribe(recordingBytes(audio), text(mimeType, "type", 200)),
     "assist.summarize": (w) => ctx.assist.activeAction(w, "summarize"),
     "assist.ask": (w, question) => {
       const q = text(question, "question", 4000).trim();
@@ -60,6 +63,7 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
     "assist.cancelWrite": (w) => ctx.assist.cancelWrite(w),
     "assist.insertWrite": (w, id) => ctx.assist.insertWrite(w, text(id, "message", 128)),
     "assist.copyText": (w, id) => ctx.assist.copyText(w, text(id, "message", 128)),
+    "assist.copyPlain": (_w, value) => clipboard.writeText(text(value, "text", 200_000)),
     "assist.compare": (w, tabIds, focus) => {
       if (!Array.isArray(tabIds) || tabIds.length > 50) throw new IpcError("Invalid tabs");
       void ctx.assist.compareTabs(
@@ -78,6 +82,11 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
     "assist.openSettings": (w, section) => w.openSingleton(section === "agents" ? "corvus://settings/#agents" : "corvus://settings/#ai"),
     "assist.approve": (w, decision) => ctx.assist.approve(w, agentDecision(decision)),
     "assist.handBack": (w) => ctx.assist.handBack(w),
+    "assist.openUrl": (w, url) => {
+      const safe = safeUrl(url);
+      if (!safe) throw new IpcError("Invalid address");
+      w.createTab(safe, { activate: true });
+    },
     "assist.showTab": (w, tabId, url) => ctx.assist.showTab(w, text(tabId, "tab", 128), typeof url === "string" ? url.slice(0, 4096) : undefined),
     "history.list": (w, query) => ctx.assist.historyList(w, typeof query === "string" ? query.slice(0, 200) : ""),
     "history.open": (w, id) => ctx.assist.openConversation(w, text(id, "conversation", 128)),

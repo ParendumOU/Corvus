@@ -75,6 +75,7 @@ export function App() {
   const [findFocus, setFindFocus] = useState(0);
   const [organizer, setOrganizer] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [listenToken, setListenToken] = useState(0);
   const findFocusHandled = useRef(0);
   const barRef = useRef<HTMLDivElement>(null);
   const omniRef = useRef<OmniboxHandle>(null);
@@ -96,6 +97,7 @@ export function App() {
         omniRef.current?.close();
       } else if (command.type === "open-command-palette") {
         setPalette(true);
+        if (command.listen) setListenToken((n) => n + 1);
       } else if (command.type === "find-focus") {
         setFindFocus((n) => n + 1);
       } else if (command.type === "open-organizer") {
@@ -150,7 +152,10 @@ export function App() {
 
   const onOmniOpen = useCallback((open: boolean) => setOmniOpen(open), []);
   const closePopover = useCallback(() => setPopover(null), []);
-  const closePalette = useCallback(() => setPalette(false), []);
+  const closePalette = useCallback(() => {
+    setPalette(false);
+    setListenToken(0);
+  }, []);
 
   if (!state) return null;
   const active = state.tabs.find((t) => t.id === state.activeTabId);
@@ -326,7 +331,7 @@ export function App() {
           }}
         />
       )}
-      {palette && <DebugBoundary><CommandBar state={state} onClose={closePalette} onOrganize={() => { setPalette(false); setOrganizer(true); }} /></DebugBoundary>}
+      {palette && <DebugBoundary><CommandBar state={state} onClose={closePalette} listenToken={listenToken} onOrganize={() => { setPalette(false); setOrganizer(true); }} /></DebugBoundary>}
       {editor && <GroupEditor state={state} editor={editor} onClose={() => setEditor(null)} />}
       {prompt && <PermissionPrompt key={prompt.id} prompt={prompt} anchor={omniboxAnchor()} />}
       {popover?.kind === "site" && <SiteInfoPopover anchor={popover.anchor} onClose={closePopover} />}

@@ -161,6 +161,16 @@ export interface Settings {
     /** Language pages are translated into: a BCP 47 tag, or "" for Corvus's own language. */
     targetLanguage: string;
   };
+  dictation: {
+    /** Dictation in the Command Bar and Assist, and the voice command shortcut. Off until set up. */
+    enabled: boolean;
+    /** Base URL of an OpenAI-compatible speech-to-text service, e.g. https://api.openai.com/v1. */
+    baseUrl: string;
+    /** The service's transcription model, e.g. gpt-4o-mini-transcribe or whisper-large-v3-turbo. */
+    model: string;
+    /** Language the person speaks (ISO 639-1), or "" to let the service detect it. */
+    language: string;
+  };
   monitor: {
     /** Background page-change monitoring ("Watch this page"). On by default. */
     enabled: boolean;
@@ -227,7 +237,7 @@ export type ReaderTheme = "light" | "sepia" | "dark";
 export type ReaderFontFamily = "serif" | "sans";
 
 /** Secrets never leave the main process; the UI only learns whether each one is set. */
-export type SecretKey = "anthropicApiKey" | "braveApiKey";
+export type SecretKey = "anthropicApiKey" | "braveApiKey" | "transcriptionApiKey";
 
 export interface SettingsView {
   settings: Settings;
@@ -270,6 +280,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     media: { autoPictureInPicture: true },
     phone: { telegramBot: "", telegramChatId: "", telegramChatName: "", receiveLinks: true, answerQuestions: true },
     translate: { offer: true, targetLanguage: "" },
+    dictation: { enabled: false, baseUrl: "", model: "", language: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },
     startup: { mode: "restore", askDefaultBrowser: true },
@@ -334,6 +345,9 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   if (merged.translate.targetLanguage !== "" &&!/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(merged.translate.targetLanguage)) {
     merged.translate.targetLanguage = base.translate.targetLanguage;
   }
+  merged.dictation.baseUrl = merged.dictation.baseUrl.trim().slice(0, 2048);
+  merged.dictation.model = merged.dictation.model.trim().slice(0, 200);
+  if (merged.dictation.language !== "" && !/^[a-z]{2,3}$/.test(merged.dictation.language)) merged.dictation.language = base.dictation.language;
   if (!["default", "folder", "mcp"].includes(merged.ai.claudeAccount)) merged.ai.claudeAccount = base.ai.claudeAccount;
   if (!["corvus", "custom", ...Object.keys(HOME_PAGES)].includes(merged.appearance.homePage)) merged.appearance.homePage = base.appearance.homePage;
   if (!["anthropic-api", "claude-code-cli", "local"].includes(merged.ai.provider)) merged.ai.provider = base.ai.provider;

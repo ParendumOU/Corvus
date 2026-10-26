@@ -67,7 +67,10 @@ export async function runSleepSmoke(ctx: AppContext, h: SleepSmokeHelpers): Prom
     ctx.settings.update({ memory: { sleepTabs: true, sleepAfterMinutes: 5 } });
     const idle = win.createTab(`${h.url}ux-plain`, { activate: true });
     const typed = win.createTab(`${h.url}find`, { activate: true });
-    opened.push(idle.id, typed.id);
+    // Opened in the background and never shown: it used to stay awake for good.
+    const background = win.createTab(`${h.url}ux-plain?bg`, { activate: false });
+    opened.push(idle.id, typed.id, background.id);
+    await loaded(background.view.webContents);
     await loaded(typed.view.webContents);
     await typed.view.webContents.executeJavaScript(
       "(() => { const i = document.createElement('input'); document.body.append(i); i.value = 'half-written note'; return true; })()",
@@ -76,6 +79,9 @@ export async function runSleepSmoke(ctx: AppContext, h: SleepSmokeHelpers): Prom
     await sleep(200);
     const count = await ctx.tabSleeper.tick(Date.now() + 10 * 60_000);
     const states = win.state().tabs;
+    check("a tab opened in the background and never shown goes to sleep too", states.find((t) => t.id === background.id)?.sleeping === true, {
+      background: states.find((t) => t.id === background.id)?.sleeping,
+    });
     check(
       "the sleeper puts old background tabs to sleep but spares typed text",
       count >= 1 && states.find((t) => t.id === idle.id)?.sleeping === true && states.find((t) => t.id === typed.id)?.sleeping !== true,

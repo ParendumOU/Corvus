@@ -11,6 +11,7 @@ import {
   type OverlayEvent,
 } from "../shared/assist-ipc";
 import { paths } from "./paths";
+import { attachUiContextMenu } from "./ui-context-menu";
 
 /** Narrowest the page may get while the panel is open. */
 const MIN_PAGE_WIDTH = 360;
@@ -73,6 +74,7 @@ export class AssistPanelView {
       if (!wc.isDestroyed()) void wc.loadURL("corvus://assist/");
     });
     wc.on("before-input-event", (event, input) => this.onInput(wc, event, input));
+    attachUiContextMenu(this.win, view, wc);
     insertBelow(this.win, view, this.chrome);
     this.view = view;
     return view;

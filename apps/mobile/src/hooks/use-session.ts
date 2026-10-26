@@ -3,6 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 import { notifyNew } from '@/lib/notifications';
 import { openInApp } from '@/lib/open-url';
+import type { ConversationView } from '@/lib/conversations';
 import type { ComputerTabs } from '@/lib/replica';
 import type { WatchView } from '@/lib/watches';
 import {
@@ -45,6 +46,8 @@ export interface SessionState {
   watches: WatchView[];
   /** Questions this phone asked, newest first. */
   asks: AskRecord[];
+  /** Corvus Assist conversations from the computers, newest first. */
+  conversations: ConversationView[];
   /** False until the first refresh since the app started has finished (or failed). */
   refreshed: boolean;
   refreshing: boolean;
@@ -62,6 +65,7 @@ const EMPTY: Omit<SessionState, 'status' | 'pairing'> = {
   history: [],
   watches: [],
   asks: [],
+  conversations: [],
   refreshed: false,
   refreshing: false,
   error: null,
@@ -108,7 +112,7 @@ export function refreshSession(): Promise<void> {
 /** Shows what the replica holds after a change this phone made (no network). */
 async function showLocal(pairing: Pairing): Promise<void> {
   const view = await cachedView(pairing, state.devices);
-  if (state.pairing === pairing) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks });
+  if (state.pairing === pairing) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks, conversations: view.conversations });
 }
 
 export async function pairPhone(info: PairingInfo, chainId: string, deviceName: string): Promise<void> {
@@ -200,7 +204,7 @@ async function load(): Promise<void> {
   set({ status: pairing ? 'paired' : 'unpaired', pairing });
   if (!pairing) return;
   const cached = await cachedView(pairing).catch(() => null);
-  if (cached && !state.refreshed) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks });
+  if (cached && !state.refreshed) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks, conversations: cached.conversations ?? [] });
   await refreshSession();
 }
 

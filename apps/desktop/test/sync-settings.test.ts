@@ -25,7 +25,7 @@ function leafPaths(value: unknown, prefix = ""): string[] {
   return Object.entries(value).flatMap(([k, v]) => leafPaths(v, prefix ? `${prefix}.${k}` : k));
 }
 
-const SECRET_NAMES: Array<SecretKey | "mcpToken"> = ["anthropicApiKey", "braveApiKey", "mcpToken"];
+const SECRET_NAMES: Array<SecretKey | "mcpToken"> = ["anthropicApiKey", "braveApiKey", "transcriptionApiKey", "mcpToken"];
 /** Matched against the setting name: anthropicApiKey, mcpToken, ... (but not maxOutputTokens). */
 const SECRET_LIKE = /key$|token$|apikey|secret|password|credential|cookie|phrase/i;
 

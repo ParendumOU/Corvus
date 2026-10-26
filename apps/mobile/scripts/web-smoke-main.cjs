@@ -127,6 +127,18 @@ async function pairingSmoke(win, base, syncUrl) {
       [`${base}/smoke/visited-3`, "A page from last week", Date.now() - 7 * 86_400_000],
     ].map(([url, title, visitedAt]) => ({ collection: "history", id: url, payload: { url, title, visitedAt, visitCount: 1 }, deleted: false })),
     {
+      collection: "assist_history",
+      id: "smoke-conversation",
+      payload: {
+        url: `${base}/smoke/flights`,
+        pageTitle: "Smoke flights",
+        createdAt: Date.now() - 60_000,
+        updatedAt: Date.now() - 30_000,
+        messages: [{ id: "smoke-turn", kind: "ask", prompt: "cheapest flight to Lisbon", text: "Vueling, 111 euros, direct", status: "done", at: Date.now() - 30_000 }],
+      },
+      deleted: false,
+    },
+    {
       collection: "watches",
       id: `${base}/smoke/shop`,
       payload: { url: `${base}/smoke/shop`, title: "Smoke shop item", intervalMinutes: 60, paused: false, createdAt: 1, condition: "the price is under 100" },
@@ -303,6 +315,14 @@ async function pairingSmoke(win, base, syncUrl) {
   const historyFound = await until(win, `${visited(2)} && !${visited(1)}`);
   check("history: pages visited on the computer, grouped by day, found by title", historyShown && historyFound);
   await typeInto(win, "library-search", "");
+
+  // Assist conversations from the computer: listed, and read by tapping one.
+  await tap("library-conversations");
+  const conversationListed = await until(win, present("conversation-smoke-conversation"));
+  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="conversation-smoke-conversation"] [role="button"]')?.click()`);
+  const answered = await until(win, `(document.querySelector('[data-testid="conversation-answer-smoke-turn"]')?.innerText ?? '').includes('Vueling')`);
+  await shot(win, "library-conversations");
+  check("assist conversations from the computer show on the phone and open to read", conversationListed && answered);
 
   // Watched pages: what the computer saw, and a watch added on the phone.
   await win.loadURL(`${base}/`);

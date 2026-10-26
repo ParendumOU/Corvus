@@ -26,6 +26,7 @@ export type BrowserCommand =
   | { type: "open-downloads" }
   | { type: "toggle-assist" }
   | { type: "command-palette" }
+  | { type: "voice-command" }
   | { type: "organize-tabs" };
 
 export interface KeyInput {
@@ -76,6 +77,8 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
         return { type: "organize-tabs" };
       case "a":
         return { type: "toggle-assist" };
+      case "k":
+        return { type: "voice-command" };
       case "i":
         return mac && !input.alt ? null : { type: "devtools" };
       case "r":

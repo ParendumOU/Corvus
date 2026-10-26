@@ -1,6 +1,13 @@
 /** Spanish texts of the app, by their English text (see lib/i18n.ts). */
 export const ES: Record<string, string> = {
   // Navigation
+  "Home": "Inicio",
+  "Search conversations": "Buscar conversaciones",
+  "No conversation matches “{query}”.": "Ninguna conversación coincide con «{query}».",
+  "Your conversations with Corvus Assist on your computers show up here.": "Aquí aparecen tus conversaciones con Corvus Assist en tus ordenadores.",
+  "Summary of “{title}”": "Resumen de «{title}»",
+  "(no answer)": "(sin respuesta)",
+  "Open the page": "Abrir la página",
   Library: 'Biblioteca',
   Settings: 'Ajustes',
   'Pair with a computer': 'Emparejar con un ordenador',

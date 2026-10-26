@@ -38,6 +38,18 @@ export const GlyphSend = (p: P) => (
     <path d="M12 19V5M5.5 11.5L12 5l6.5 6.5" />
   </Svg>
 );
+export const GlyphMic = (p: P) => (
+  <Svg {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
+  </Svg>
+);
+export const GlyphCopy = (p: P) => (
+  <Svg {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2.5" />
+    <path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8" />
+  </Svg>
+);
 export const GlyphStop = (p: P) => (
   <Svg {...p}>
     <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none" />

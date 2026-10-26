@@ -24,7 +24,7 @@ interface StoredSecret {
 
 type SecretName = SecretKey | "mcpToken" | "telegramBotToken";
 
-const ENV_SECRETS: Record<SecretKey, string> = {
+const ENV_SECRETS: Partial<Record<SecretKey, string>> = {
   anthropicApiKey: "ANTHROPIC_API_KEY",
   braveApiKey: "BRAVE_SEARCH_API_KEY",
 };
@@ -130,6 +130,7 @@ export class SettingsStore {
       secrets: {
         anthropicApiKey: Boolean(this.getSecret("anthropicApiKey")),
         braveApiKey: Boolean(this.getSecret("braveApiKey")),
+        transcriptionApiKey: Boolean(this.getSecret("transcriptionApiKey")),
       },
       secretsPersisted: this.secretsPersisted,
     };

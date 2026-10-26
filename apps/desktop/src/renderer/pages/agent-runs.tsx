@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AgentRunRecord, StoredRunStatus } from "../../shared/agent-run";
 import type { AgentRunStep } from "../../shared/command-bar-ipc";
+import { answerAsText } from "../../shared/assist-artifacts";
 import { errorMessage, internalApi } from "../common/api";
 import { IconActivity, IconAgent, IconReload, IconTrash } from "../common/icons";
 import "./agent-runs.css";
@@ -174,7 +175,7 @@ function RunRow({
         {(r.finalText || r.error) && (
           <div className="ar-summary">
             <span className="ar-summary-label">{r.error ? t("Error") : t("Result")}</span>
-            {r.error ? r.error : r.finalText}
+            {r.error ? r.error : answerAsText(r.finalText, document.documentElement.lang || "en")}
           </div>
         )}
 

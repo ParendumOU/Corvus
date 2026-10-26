@@ -91,6 +91,10 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "semanticSearch.indexPages": "Builds a local text index of your pages on this device; a per-device privacy decision.",
   "semanticSearch.useEmbeddings": "Uses a local embedding endpoint on this machine; a per-device decision.",
   "semanticSearch.embeddingModel": "Embedding model available on this machine's local endpoint.",
+  "dictation.enabled": "Records from this device's microphone; each device decides.",
+  "dictation.baseUrl": "Goes with the API key, which stays in this device's keychain (or is a server on this machine).",
+  "dictation.model": "Goes with the service set up on this device.",
+  "dictation.language": "Goes with the service set up on this device.",
   "crashReports.saveLogs": "Local diagnostic logs are a per-device choice; they never leave this machine.",
   "onboarding.completed": "First-run state of this installation; each device shows the welcome wizard once.",
 };

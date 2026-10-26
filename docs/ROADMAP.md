@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-25 · current release: **v0.23.0** (Windows + Linux, unsigned) · Corvus for mobile **0.3.0** (Android preview)
+Last updated: 2026-10-26 · current release: **v0.24.0** (Windows + Linux, unsigned) · Corvus for mobile **0.4.0** (Android preview)
 
 ---
 
@@ -125,7 +125,7 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Platform & reach (M6)**
 - [~] Release assets: Windows installer/portable, Linux AppImage and deb ship with every release; macOS dmg waits on the Developer ID certificate and notarization
-- [~] Mobile companion: Corvus for mobile 0.3.0, an Android preview (pair with a computer, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, watched pages, notifications, English and Spanish); iOS once an Apple developer account is set up (docs/MOBILE.md)
+- [~] Mobile companion: Corvus for mobile 0.4.0, an Android preview (pair with a computer, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, Assist conversations, watched pages, notifications, English and Spanish); iOS once an Apple developer account is set up (docs/MOBILE.md)
 - [x] Evaluate Chromium fork vs Electron for full extension-API coverage: stay on Electron and add
       the missing APIs in Corvus: a fork costs builds, a security cadence and a port out of scale
 - [~] Extension APIs Corvus adds itself: `bookmarks`, `history`, `tabGroups` + `tabs.group`, `sessions`,
@@ -149,6 +149,16 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [x] One place listing every live agent task (Command Bar and Assist) with Watch and Stop
 - [x] Scheduled agents work in a visible (folded) tab group and leave their tabs for the person
 - [x] Assist conversation history synced end to end across devices
+
+**Assist, voice and memory (M9)** (v0.24.0)
+- [x] The agent remembers lasting preferences (short notes kept on the device, never secrets)
+- [x] Voice dictation in the Command Bar and Assist through a speech-to-text service the person
+      chooses (no bundled model); Ctrl+Shift+K says a task for the agent
+- [x] Assist answers with artifacts (tables, key figures, comparisons, checklists, steps, charts,
+      links, forms) drawn by the panel; Copy on every answer; a right-click menu; a wider panel
+- [x] Lighter on memory: background tabs that were never shown sleep too, and tabs sleep early when
+      the computer runs low
+- [x] Corvus for mobile 0.4.0: Assist conversations from the computers in the Library
 
 ---
 

@@ -12,18 +12,20 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { refreshSession, setRead, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { ago } from '@/lib/format';
+import { searchConversations, type ConversationView } from '@/lib/conversations';
 import { HISTORY_PAGE, groupByDay, searchHistory, timeOfDay } from '@/lib/history';
 import { folderContents, folderPath, searchBookmarks, searchReading } from '@/lib/library';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
 import { t } from '@/lib/i18n';
 
-type Section = 'bookmarks' | 'reading' | 'history';
+type Section = 'bookmarks' | 'reading' | 'history' | 'conversations';
 
 const PLACEHOLDERS: Record<Section, string> = {
   bookmarks: 'Find a bookmark',
   reading: 'Find in your reading list',
   history: 'Search history',
+  conversations: 'Search conversations',
 };
 
 function Segment({ value, onChange }: { value: Section; onChange: (s: Section) => void }) {
@@ -32,6 +34,7 @@ function Segment({ value, onChange }: { value: Section; onChange: (s: Section) =
     ['bookmarks', t('Bookmarks')],
     ['reading', t('Reading list')],
     ['history', t('History')],
+    ['conversations', 'Assist'],
   ];
   return (
     <ThemedView type="backgroundElement" style={styles.segment}>
@@ -234,6 +237,63 @@ function History({ entries, query, refreshed }: { entries: SyncedHistoryEntry[];
   );
 }
 
+/** Corvus Assist conversations from the computers: tap one to read it; its page opens from there. */
+function Conversations({ list, query, refreshed }: { list: ConversationView[]; query: string; refreshed: boolean }) {
+  const theme = useTheme();
+  const [open, setOpen] = useState<string | null>(null);
+  const matches = useMemo(() => searchConversations(list, query), [list, query]);
+  if (matches.length === 0) {
+    return (
+      <ThemedView type="backgroundElement" style={styles.card}>
+        <ThemedText type="small" themeColor="textSecondary" testID="conversations-empty">
+          {query.trim()
+            ? t('No conversation matches “{query}”.', { query: query.trim() })
+            : refreshed
+              ? t('Your conversations with Corvus Assist on your computers show up here.')
+              : t('Loading…')}
+        </ThemedText>
+      </ThemedView>
+    );
+  }
+  return (
+    <>
+      {matches.map((c) => {
+        const title = c.title || (c.turns[0]?.kind === 'summarize' ? t('Summary of “{title}”', { title: c.pageTitle || tabHost(c.url) }) : c.pageTitle || tabHost(c.url));
+        const expanded = open === c.id;
+        return (
+          <ThemedView key={c.id} type="backgroundElement" style={styles.card} testID={`conversation-${c.id}`}>
+            <Pressable accessibilityRole="button" onPress={() => setOpen(expanded ? null : c.id)} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+              <ThemedText type="smallBold" numberOfLines={expanded ? undefined : 2}>
+                {title}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                {`${c.pageTitle || tabHost(c.url)} · ${ago(c.updatedAt)}`}
+              </ThemedText>
+            </Pressable>
+            {expanded && (
+              <View style={styles.turns}>
+                {c.turns.map((turn) => (
+                  <View key={turn.id} style={styles.turn}>
+                    {turn.prompt ? (
+                      <ThemedText type="smallBold" style={{ color: theme.text }}>
+                        {turn.prompt}
+                      </ThemedText>
+                    ) : null}
+                    <ThemedText type="small" themeColor="textSecondary" testID={`conversation-answer-${turn.id}`}>
+                      {turn.text || t('(no answer)')}
+                    </ThemedText>
+                  </View>
+                ))}
+                <Button label={t('Open the page')} kind="secondary" onPress={() => void openInApp(c.url)} testID={`conversation-open-${c.id}`} />
+              </View>
+            )}
+          </ThemedView>
+        );
+      })}
+    </>
+  );
+}
+
 export default function LibraryScreen() {
   const theme = useTheme();
   const session = useSession();
@@ -277,6 +337,7 @@ export default function LibraryScreen() {
               {section === 'bookmarks' && <Bookmarks bookmarks={session.bookmarks} query={query} />}
               {section === 'reading' && <Reading items={session.reading} query={query} refreshed={session.refreshed} />}
               {section === 'history' && <History entries={session.history} query={query} refreshed={session.refreshed} />}
+              {section === 'conversations' && <Conversations list={session.conversations} query={query} refreshed={session.refreshed} />}
               <Button label={t('Save or send a page')} kind="secondary" onPress={() => router.push('/send')} testID="library-add" />
             </>
           )}
@@ -287,6 +348,13 @@ export default function LibraryScreen() {
 }
 
 const styles = StyleSheet.create({
+  turns: {
+    gap: Spacing.two,
+    marginTop: Spacing.two,
+  },
+  turn: {
+    gap: Spacing.one,
+  },
   container: {
     flex: 1,
     flexDirection: 'row',

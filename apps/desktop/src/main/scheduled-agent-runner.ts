@@ -19,12 +19,19 @@ import { NEW_TAB_URL, isNewTabUrl } from "../shared/internal-urls";
 import { MAX_CONCURRENT_RUNS, clampMaxSteps, selectDueSchedules, type AgentSchedule, type ScheduleRunRecord } from "../shared/schedule";
 import type { ScheduleApprovalView, ScheduleInput, ScheduleView } from "../shared/schedule-ipc";
 import { AGENT_SYSTEM, PER_TURN_TOKENS, RUN_OPEN_TAB, RUN_TAB_TOOLS, TOOLS, argStr, classifyToolCall, providerFromSettings, runAgentTool, type ToolRunState } from "./agent-tools";
+import { userMemoryPrompt } from "../shared/user-memory";
 import { RunTabs } from "./agent-tabs";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
 import { ScheduleStore } from "./schedule-store";
 import type { BrowserWindowCtl } from "./window";
 import { tr } from "./menu-i18n";
+
+/** The scheduled system prompt, with what the person told the agent to remember. */
+function scheduledSystem(runtime: ProfileRuntime): string {
+  const memory = userMemoryPrompt(runtime.userMemory.list());
+  return memory ? `${AGENT_SYSTEM}\n\n${memory}` : AGENT_SYSTEM;
+}
 
 /** Name shown in the shared agent-activity timeline for scheduled runs. */
 const SCHED_CLIENT = "Corvus (scheduled)";
@@ -254,7 +261,7 @@ export class ScheduledAgentRunner {
       const execute: ToolExecutor = (name, input, signal) => this.execute(run, name, input, signal);
       for await (const step of runAgent({
         provider,
-        system: AGENT_SYSTEM,
+        system: scheduledSystem(win.profile),
         task: schedule.task,
         tools: SCHEDULED_TOOLS,
         execute,

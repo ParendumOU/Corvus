@@ -20,7 +20,7 @@ export const OVERLAY_EVENT = "corvus:overlay-event";
 export const OVERLAY_DISMISS = "corvus:overlay-dismiss";
 
 export const ASSIST_MIN_WIDTH = 320;
-export const ASSIST_MAX_WIDTH = 640;
+export const ASSIST_MAX_WIDTH = 960;
 export const ASSIST_DEFAULT_WIDTH = 380;
 
 export type AssistActionKind = "summarize" | "ask" | "explain" | "translate-selection" | "translate-page" | "write" | "compare";
@@ -129,6 +129,8 @@ export interface AssistPanelState {
   keepsHistory: boolean;
   /** The window's agent tasks under way (Command Bar, in front or in the background, and Assist). */
   liveTasks: LiveAgentTask[];
+  /** Dictation is set up: the composer shows its microphone button. */
+  dictation: boolean;
 }
 
 export interface LiveAgentTask {
@@ -159,6 +161,8 @@ export interface AssistRpc {
   "panel.close"(): void;
   "panel.resize"(width: number): void;
   "panel.setView"(view: AssistView): void;
+  /** Text of a dictation recorded in the panel, from the speech-to-text service in Settings. */
+  "dictation.transcribe"(audio: Uint8Array, mimeType: string): string;
   "assist.summarize"(): void;
   "assist.ask"(question: string): void;
   "assist.translatePage"(): void;
@@ -172,6 +176,8 @@ export interface AssistRpc {
   /** Puts a written text into its field (the person approved it). */
   "assist.insertWrite"(messageId: string): void;
   "assist.copyText"(messageId: string): void;
+  /** Copies text the panel wrote out (an artifact as a table or a list). */
+  "assist.copyPlain"(text: string): void;
   /** Compares these tabs (2 to 6), with what matters to the person first. */
   "assist.compare"(tabIds: TabId[], focus: string): void;
   "assist.closeCompare"(): void;
@@ -189,6 +195,8 @@ export interface AssistRpc {
   "assist.stopRun"(runId: string): void;
   /** Bring a tab of this window to the front; if it is gone, open `url` (a page an agent left open). */
   "assist.showTab"(tabId: TabId, url?: string): void;
+  /** Opens an http(s) address from an answer (a links artifact) in a new tab. */
+  "assist.openUrl"(url: string): void;
   /** Past conversations of the profile matching the search, newest first. */
   "history.list"(query: string): AssistConversationSummary[];
   /** Carry on a past conversation on its page. */

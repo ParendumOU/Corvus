@@ -9,6 +9,8 @@ export interface SleepCandidate {
   url: string;
   /** When the tab was last shown (epoch ms); undefined when it never was since it loaded. */
   lastShownAt: number | undefined;
+  /** When the tab was opened (epoch ms): a tab opened in the background and never shown counts from here. */
+  openedAt: number;
   shown: boolean;
   pinned: boolean;
   audible: boolean;
@@ -26,21 +28,37 @@ export interface SleepCandidate {
  */
 export function tabsToSleep(tabs: readonly SleepCandidate[], now: number, afterMinutes: number): string[] {
   const limit = afterMinutes * 60_000;
-  return tabs
-    .filter(
-      (t) =>
-        /^https?:/i.test(t.url) &&
-        !t.shown &&
-        !t.unloaded &&
-        !t.pinned &&
-        !t.audible &&
-        !t.loading &&
-        !t.agentControlled &&
-        !t.crashed &&
-        t.lastShownAt !== undefined &&
-        now - t.lastShownAt >= limit,
-    )
+  return sleepable(tabs)
+    .filter((t) => now - idleSince(t) >= limit)
     .map((t) => t.id);
+}
+
+/** Free memory below this share of the total puts background tabs to sleep early. */
+export const LOW_MEMORY_SHARE = 0.1;
+/** Tabs put to sleep per pass under memory pressure (the least recently used first). */
+export const PRESSURE_BATCH = 3;
+
+/**
+ * Under memory pressure: the background tabs that may sleep, least recently used first, a few per
+ * pass, without waiting for the delay (like Chrome's memory saver).
+ */
+export function tabsToSleepUnderPressure(tabs: readonly SleepCandidate[], freeShare: number): string[] {
+  if (freeShare >= LOW_MEMORY_SHARE) return [];
+  return [...sleepable(tabs)]
+    .sort((a, b) => idleSince(a) - idleSince(b))
+    .slice(0, PRESSURE_BATCH)
+    .map((t) => t.id);
+}
+
+/** Since when the tab has been out of sight: last shown, or opened if it never was. */
+function idleSince(t: SleepCandidate): number {
+  return t.lastShownAt ?? t.openedAt;
+}
+
+function sleepable(tabs: readonly SleepCandidate[]): SleepCandidate[] {
+  return tabs.filter(
+    (t) => /^https?:/i.test(t.url) && !t.shown && !t.unloaded && !t.pinned && !t.audible && !t.loading && !t.agentControlled && !t.crashed,
+  );
 }
 
 /**

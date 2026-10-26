@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { clipboard, nativeTheme, type WebContents } from "electron";
 import type { AnswerProvider, ProviderEvent } from "@corvus/ai-engine";
-import type { OverlayEvent } from "../shared/assist-ipc";
+import { ASSIST_DEFAULT_WIDTH, type OverlayEvent } from "../shared/assist-ipc";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
 
@@ -67,6 +67,21 @@ const SUMMARY = [
 const ASK =
   "Ravens differ from crows in three clear ways: they are noticeably larger, show a wedge-shaped tail in flight, and give a deep croaking call rather than a caw [1][3].";
 
+/** An answer with artifacts: a table, key figures and a short form, with a citation to drop on copy. */
+const ARTIFACT_ANSWER = [
+  "Two airlines fly there [2].",
+  "```artifact",
+  JSON.stringify({ type: "table", title: "Flights", columns: [{ key: "airline", label: "Airline" }, { key: "price", label: "Price", format: "currency", currency: "EUR" }], rows: [{ airline: "Vueling", price: 111 }, { airline: "TAP", price: 99 }] }),
+  "```",
+  "```artifact",
+  JSON.stringify({ type: "cards", layout: "kpi", items: [{ label: "Cheapest", value: "€99", tone: "good" }, { label: "Direct flights", value: "2" }] }),
+  "```",
+  "To book, I need a few details:",
+  "```artifact",
+  JSON.stringify({ type: "form", title: "Trip", fields: [{ key: "dates", label: "Dates", required: true }, { key: "bag", label: "Checked bag", type: "checkbox" }], submit_label: "Send details" }),
+  "```",
+].join("\n");
+
 const GROUPS = JSON.stringify({
   groups: [
     { name: "Corvid research", color: "green", tabs: [1, 2, 3] },
@@ -102,6 +117,8 @@ function replyFor(system: string, user: string): string {
   }
   if (/Summarize the web page/.test(system)) return SUMMARY;
   if (/Group the user's numbered browser tabs/.test(system)) return GROUPS;
+  if (/Answer the user's question/.test(system) && /<question>[^<]*options as a table/.test(user)) return ARTIFACT_ANSWER;
+  if (/Answer the user's question/.test(system) && /<question>«Trip»/.test(user)) return "Noted: I will look for flights on those dates.";
   if (/Answer the user's question/.test(system)) return ASK;
   return ASK;
 }
@@ -212,6 +229,57 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
       await capture(`assist-ask-${theme}`, panel);
       ctx.assist.clear(win);
     }
+
+    // Artifacts: the panel draws the answer's table, key figures and form; the table sorts; Copy
+    // writes the answer out without citations; the form's answers go back as the next question.
+    nativeTheme.themeSource = "light";
+    ctx.assist.activeAction(win, "ask", "Show the options as a table");
+    const drawn = await poll(panel, "document.querySelectorAll('.artifact-table tbody tr').length === 2 && document.querySelectorAll('.artifact-cards .kpi').length === 2 && document.querySelector('.artifact-form input')");
+    check("assist answers draw their artifacts (table, key figures, form)", drawn, drawn ? undefined : await panel.executeJavaScript("document.querySelector('.thread')?.innerText?.slice(0,400)"));
+    await capture("assist-artifacts", panel);
+    await panel.executeJavaScript("document.querySelectorAll('.artifact-table th button')[1]?.click()");
+    const sorted = await poll(panel, "document.querySelector('.artifact-table tbody tr td')?.innerText === 'TAP'");
+    check("an artifact table sorts by a column", sorted);
+    clipboard.writeText("");
+    await panel.executeJavaScript("document.querySelector('.msg-copy')?.click()");
+    let copiedAnswer = "";
+    for (let i = 0; i < 20 && !copiedAnswer; i++) {
+      await sleep(100);
+      copiedAnswer = String(await clipboard.readText());
+    }
+    check("copy writes the answer out with its tables, without citations", copiedAnswer.includes("| Airline | Price |") && copiedAnswer.includes("- Cheapest: €99") && !copiedAnswer.includes("[2]"), copiedAnswer.slice(0, 300));
+    await panel.executeJavaScript(
+      "(() => { const el = document.querySelector('.artifact-form input:not([type=checkbox])'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '3-5 May'); el.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.artifact-form input[type=checkbox]')?.click(); })()",
+    );
+    await sleep(100);
+    await panel.executeJavaScript("document.querySelector('.artifact-form button[type=submit]')?.click()");
+    const replied = await poll(panel, "[...document.querySelectorAll('.question')].some((q) => q.innerText.includes('«Trip»') && q.innerText.includes('3-5 May')) && [...document.querySelectorAll('.msg.ask .rich')].some((e) => e.innerText.includes('Noted'))");
+    check("a form in an answer sends what the person filled in as the next question", replied, replied ? undefined : await panel.executeJavaScript("document.querySelector('.thread')?.innerText?.slice(-400)"));
+    ctx.assist.clear(win);
+
+    // The panel's left edge drags it wider; a double-click puts the default width back.
+    const panelWidth = (): Promise<number> => panel.executeJavaScript("window.innerWidth") as Promise<number>;
+    const widthBefore = await panelWidth();
+    // The handle measures the drag in screen coordinates (the panel moves under the pointer as it grows).
+    panel.sendInputEvent({ type: "mouseDown", x: 3, y: 300, globalX: 1003, globalY: 300, button: "left", clickCount: 1 });
+    for (const x of [-20, -60, -100]) {
+      panel.sendInputEvent({ type: "mouseMove", x, y: 300, globalX: 1000 + x, globalY: 300, button: "left", modifiers: ["leftbuttondown"] });
+      await sleep(60);
+    }
+    panel.sendInputEvent({ type: "mouseUp", x: -100, y: 300, globalX: 900, globalY: 300, button: "left", clickCount: 1 });
+    let wider = widthBefore;
+    for (let i = 0; i < 20 && wider < widthBefore + 60; i++) {
+      await sleep(100);
+      wider = await panelWidth();
+    }
+    check("dragging the Assist panel's edge makes it wider", wider >= widthBefore + 60, { widthBefore, after: wider });
+    await panel.executeJavaScript("document.querySelector('.resize')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))");
+    let reset = wider;
+    for (let i = 0; i < 20 && reset !== ASSIST_DEFAULT_WIDTH; i++) {
+      await sleep(100);
+      reset = await panelWidth();
+    }
+    check("double-clicking the edge puts the default width back", reset === ASSIST_DEFAULT_WIDTH, { widthBefore, after: reset });
 
     // Page translation from the address bar: offered for a page in another language, translated
     // in place, and the original back on a second click.

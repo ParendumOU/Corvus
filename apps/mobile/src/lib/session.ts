@@ -29,6 +29,7 @@ import { Platform } from 'react-native';
 
 import { myAsks } from '@/lib/asks';
 import { dataStore } from '@/lib/data-store';
+import { conversationList, type ConversationView } from '@/lib/conversations';
 import { historyList } from '@/lib/history';
 import { bookmarkList, nextPosition, readingList } from '@/lib/library';
 import { watchFor, watchList, type WatchView } from '@/lib/watches';
@@ -133,6 +134,8 @@ export interface ChainView {
   watches: WatchView[];
   /** Questions this phone asked, newest first, with what their computer answered so far. */
   asks: AskRecord[];
+  /** Corvus Assist conversations from the computers, newest first. */
+  conversations: ConversationView[];
 }
 
 async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView> {
@@ -149,6 +152,7 @@ async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView>
     history: historyList(await replica.records('history')),
     watches: watchList(await replica.records('watches'), await replica.records('watch_status'), devices),
     asks: myAsks(await replica.records('asks'), self),
+    conversations: conversationList(await replica.records('assist_history')),
   };
 }
 

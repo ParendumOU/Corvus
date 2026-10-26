@@ -58,6 +58,7 @@ import { AssistPanelView } from "./assist-views";
 import { readVideoTranscript, seekVideo } from "./youtube-transcript";
 import { youTubeVideoId } from "../shared/youtube";
 import { ASSIST_AGENT_SYSTEM } from "./agent-tools";
+import { copyableText } from "../shared/assist-artifacts";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { claudeCliEnv } from "../shared/settings";
@@ -109,6 +110,8 @@ interface TabAssist {
   conversationId?: string;
   /** What was last kept, to write the history only when the conversation changed. */
   savedSignature?: string;
+  /** The messages as last looked at by keepConversations (a cheap check before copying them). */
+  rawSignature?: string;
 }
 
 /** Changes when a kept conversation gains or finishes a message. */
@@ -391,6 +394,7 @@ export class AssistService {
       waitingElsewhere: waiting,
       workingElsewhere: waiting ? null : this.workingElsewhere(win),
       keepsHistory: !win.isPrivate,
+      dictation: this.ctx.dictation.ready(),
       liveTasks: this.ctx.agentRunner.liveRuns(win).map((r) => ({ runId: r.id, task: r.task, source: r.source, status: r.status, step: r.step, tabId: r.tabId })),
     };
   }
@@ -407,7 +411,12 @@ export class AssistService {
       const entry = this.tabs.get(t.id);
       if (!entry || seen.has(entry)) continue;
       seen.add(entry);
+      // Nothing new since the last look: skip copying the messages (this runs on every refresh).
+      const last = entry.messages.at(-1);
+      const raw = last ? `${entry.messages.length}:${last.id}:${last.status}:${last.text.length}` : "";
+      if (entry.rawSignature === raw) continue;
       if (entry.messages.some((m) => m.status === "streaming")) continue;
+      entry.rawSignature = raw;
       const kept = keptMessages(entry.messages);
       const signature = conversationSignature(kept);
       if (!signature || entry.savedSignature === signature) continue;
@@ -599,6 +608,11 @@ export class AssistService {
       comparePicker: entry?.comparePicker ?? null,
       canAct: this.ctx.agentRunner.ready(),
     };
+  }
+
+  /** A tab closed: its conversation goes with it, unless another tab (an agent's) still shows it. */
+  forgetTab(id: TabId): void {
+    this.tabs.delete(id);
   }
 
   /** Drops conversations of tabs that no longer exist. */
@@ -826,7 +840,10 @@ export class AssistService {
   copyText(win: BrowserWindowCtl, messageId: string): void {
     const tab = win.activeTab();
     const message = tab ? this.tabs.get(tab.id)?.messages.find((m) => m.id === messageId) : undefined;
-    if (message?.text) clipboard.writeText(message.text);
+    if (message) {
+      const text = copyableText(message, this.lang());
+      if (text) clipboard.writeText(text);
+    }
   }
 
   /** Context menu / panel: page-level actions. */
@@ -1263,3 +1280,4 @@ export class AssistService {
     return { grouped, closed: close.length < known.size ? close.length : 0 };
   }
 }
+

@@ -11,7 +11,9 @@ import type { CommandRecent } from "../../shared/command-history";
 import type { SemanticHit } from "../../shared/semantic-search-ipc";
 import type { WindowState } from "../../shared/ipc";
 import { classifyOmnibox, intentToUrl } from "../../shared/omnibox";
+import { insertDictation } from "../../shared/dictation";
 import { chromeApi } from "../common/api";
+import { useDictation } from "../common/dictation";
 import {
   IconActivity,
   IconAgent,
@@ -19,6 +21,7 @@ import {
   IconFolder,
   IconGlobe,
   IconHistory,
+  IconMic,
   IconPause,
   IconPlay,
   IconPlus,
@@ -63,7 +66,8 @@ function ActionIcon({ action }: { action: PaletteAction }) {
   return <Icon size={16} />;
 }
 
-export function CommandBar({ state, onClose, onOrganize }: { state: WindowState; onClose: () => void; onOrganize: () => void }) {
+/** `listenToken` goes up each time the voice command shortcut is pressed (0: it was not). */
+export function CommandBar({ state, onClose, onOrganize, listenToken = 0 }: { state: WindowState; onClose: () => void; onOrganize: () => void; listenToken?: number }) {
   const api = chromeApi();
   const [value, setValue] = useState("");
   const [selected, setSelected] = useState(0);
@@ -74,6 +78,25 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const request = useRef(0);
+
+  // Dictated text goes after what is typed; a voice command (the shortcut) is a task for the agent.
+  const dictation = useDictation(
+    (audio, type) => api.call("dictation.transcribe", audio, type),
+    (text, tag) => {
+      setValue((v) => (tag === "voice" && !v.trim() ? `${AGENT_PREFIX} ${text}` : insertDictation(v, text)));
+      inputRef.current?.focus();
+    },
+  );
+  const listening = dictation.phase === "listening";
+  const phaseRef = useRef(dictation.phase);
+  phaseRef.current = dictation.phase;
+  useEffect(() => {
+    if (listenToken === 0) return;
+    if (phaseRef.current === "listening") dictation.stop();
+    else if (phaseRef.current === "idle") dictation.start("voice");
+    // Only a new press of the shortcut counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listenToken]);
 
   const run = state.agentRun;
   const parsed = parseCommandInput(value);
@@ -254,6 +277,13 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+    // While listening, Enter stops and transcribes; Escape drops the recording (the bar stays open).
+    if (listening && (e.key === "Enter" || e.key === "Escape")) {
+      e.preventDefault();
+      if (e.key === "Enter") dictation.stop();
+      else dictation.cancel();
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -291,8 +321,39 @@ export function CommandBar({ state, onClose, onOrganize }: { state: WindowState;
           }}
           onKeyDown={onKeyDown}
         />
-        <kbd className="cmd-hint">{parsed.mode === "agent" ? t("Enter to run") : t("Tab for agent")}</kbd>
+        {dictation.phase === "idle" ? (
+          <kbd className="cmd-hint">{parsed.mode === "agent" ? t("Enter to run") : t("Tab for agent")}</kbd>
+        ) : (
+          <span className="cmd-hint listening" role="status">
+            {listening ? t("Listening… Enter to stop") : t("Transcribing…")}
+          </span>
+        )}
+        {state.dictationReady && (
+          <button
+            type="button"
+            className={`cmd-mic ${dictation.phase}`}
+            title={listening ? t("Stop and transcribe") : t("Dictate (Ctrl+Shift+K)")}
+            aria-label={listening ? t("Stop and transcribe") : t("Dictate")}
+            aria-pressed={listening}
+            disabled={dictation.phase === "transcribing"}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (listening) dictation.stop();
+              else dictation.start();
+            }}
+          >
+            <IconMic size={16} />
+          </button>
+        )}
       </div>
+      {dictation.error && (
+        <div className="cmd-dictation-error" role="alert">
+          {dictation.error}
+          <button type="button" className="cmd-forget" aria-label={t("Dismiss")} onMouseDown={(e) => { e.preventDefault(); dictation.clearError(); }}>
+            ×
+          </button>
+        </div>
+      )}
 
       {showRun ? (
         <RunPanel run={run!} state={state} api={api} />

@@ -67,6 +67,7 @@ import type { SplitState } from "../shared/split";
 import type { AppContext } from "./context";
 import { showPageContextMenu } from "./menus";
 import { paths } from "./paths";
+import { attachUiContextMenu } from "./ui-context-menu";
 import { SplitSession } from "./split-view";
 import { pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
@@ -130,6 +131,8 @@ export interface TabRuntime {
   asleep?: { entries: Electron.NavigationEntry[]; index: number };
   /** When it was last on screen (epoch ms). */
   lastShownAt?: number;
+  /** When the tab was created (sleeping tabs count from here when it was never shown). */
+  openedAt: number;
   /** Container the tab runs in (its own cookies and site data); none = the profile's session. */
   containerId?: string;
   /** Its video was floated (picture-in-picture) when the tab was left; it returns when shown. */
@@ -252,6 +255,7 @@ export class BrowserWindowCtl {
     this.win.contentView.addChildView(this.chrome);
     const chromeWc = this.chrome.webContents;
     chromeWc.on("before-input-event", (event, input) => this.onInput(event, input));
+    attachUiContextMenu(this.win, this.chrome, chromeWc);
     chromeWc.on("did-finish-load", () => {
       this.chromeReady = true;
       this.flushState();
@@ -515,6 +519,7 @@ export class BrowserWindowCtl {
       readerable: active ? this.ctx.reader.isReaderable(active) : false,
       translate: this.ctx.translate.barState(active),
       readerActive: this.ctx.reader.isActive(this),
+      dictationReady: this.ctx.dictation.ready(),
       autofill: this.ctx.autofill.stateFor(this),
       split: this.splitState(),
       ...this.ctx.assist.windowExtras(this),
@@ -757,6 +762,7 @@ export class BrowserWindowCtl {
       title: opts.title || initialTitle(url),
       loading: !lazy,
       agentControlled: opts.agent === true,
+      openedAt: Date.now(),
       crashed: false,
       audible: false,
       find: null,
@@ -1127,6 +1133,7 @@ export class BrowserWindowCtl {
     this.ctx.autofill.forgetTab(id);
     this.ctx.secretFills.clear(id);
     this.ctx.annotations.forgetTab(id);
+    this.ctx.assist.forgetTab(id);
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);
     // A site set to be forgotten loses its cookies and data once no tab of its session shows it.
@@ -1275,6 +1282,7 @@ export class BrowserWindowCtl {
           id: tab.id,
           url: tab.url,
           lastShownAt: tab.lastShownAt,
+          openedAt: tab.openedAt,
           shown: this.shownTabIds.includes(tab.id),
           pinned: entry.pinned,
           audible: tab.audible,
@@ -1387,6 +1395,8 @@ export class BrowserWindowCtl {
     for (const t of this.strip.tabs) {
       const tab = this.tabs.get(t.id);
       if (tab && page && internalPageOf(tab.url) === page) {
+        // The page is open: go to the section asked for (corvus://settings/#dictation) in it.
+        if (url.includes("#") && !tab.view.webContents.isDestroyed() && tab.view.webContents.getURL() !== url) this.loadUrl(t.id, url);
         this.activate(t.id);
         return;
       }
@@ -1734,6 +1744,14 @@ export class BrowserWindowCtl {
       case "command-palette":
         this.focusWebContents(this.chrome.webContents);
         this.sendCommand({ type: "open-command-palette" });
+        break;
+      case "voice-command":
+        if (!this.ctx.dictation.ready()) {
+          this.openSingleton("corvus://settings/#dictation");
+          break;
+        }
+        this.focusWebContents(this.chrome.webContents);
+        this.sendCommand({ type: "open-command-palette", listen: true });
         break;
       case "organize-tabs":
         this.focusWebContents(this.chrome.webContents);

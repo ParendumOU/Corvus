@@ -32,6 +32,7 @@ import { TranscriptBuilder, normalizeResumeTranscript } from "./agent-transcript
 import type { CredentialApprover } from "./agent-credentials";
 import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, agentToolset, argStr, capAgentTools, classifyToolCall, providerFromSettings, runAgentTool, stepPreview, type ProviderOverride } from "./agent-tools";
 import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared/site-profiles";
+import { userMemoryPrompt } from "../shared/user-memory";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
 import { stepToToolCall } from "../shared/flow";
@@ -184,10 +185,13 @@ export class AgentRunner {
     const profile = url ? matchSiteProfile(win.profile.siteProfiles.list(), url) : null;
     // Credential tools only when Settings, Passwords allows agents to use opted-in logins.
     const base = agentToolset(this.ctx.agentCredentials.enabled, baseSystem);
-    if (!profile) return { system: base.system, tools: base.tools, override: undefined };
+    // What the person told the agent to remember about them, added to every run of this profile.
+    const memory = userMemoryPrompt(win.profile.userMemory.list());
+    const withMemory = (system: string): string => (memory ? `${system}\n\n${memory}` : system);
+    if (!profile) return { system: withMemory(base.system), tools: base.tools, override: undefined };
     const level = capAccessLevel("full", profile.accessCap);
     const override = profile.provider || profile.model ? { provider: profile.provider, model: profile.model } : undefined;
-    return { system: applyPromptAddendum(base.system, profile), tools: capAgentTools(base.tools, level), override };
+    return { system: withMemory(applyPromptAddendum(base.system, profile)), tools: capAgentTools(base.tools, level), override };
   }
 
   private setupReason(): string | null {

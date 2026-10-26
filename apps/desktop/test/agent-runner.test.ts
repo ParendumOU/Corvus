@@ -132,7 +132,7 @@ function fakeWindow(): BrowserWindowCtl {
     pushState: vi.fn(),
     sendCommand: vi.fn(),
     notifyInternalPages: vi.fn(),
-    profile: { agentRuns: store },
+    profile: { agentRuns: store, userMemory: { list: () => [] } },
   } as unknown as BrowserWindowCtl;
 }
 
@@ -596,7 +596,7 @@ describe("AgentRunner embedded (Assist) runs", () => {
       clearAgentMark: vi.fn(() => (tab.agentControlled = false)),
       activeTab: () => tab,
       win: { isVisible: () => true, isMinimized: () => false },
-      profile: { agentRuns: store, siteProfiles: { list: () => [] } },
+      profile: { agentRuns: store, siteProfiles: { list: () => [] }, userMemory: { list: () => [] } },
     } as unknown as BrowserWindowCtl;
     return { tab, win, sent };
   }

@@ -18,7 +18,7 @@ export default function AppTabs() {
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="index" href="/" asChild>
-            <TabButton>Corvus</TabButton>
+            <TabButton>{t('Home')}</TabButton>
           </TabTrigger>
           <TabTrigger name="library" href="/library" asChild>
             <TabButton>{t('Library')}</TabButton>

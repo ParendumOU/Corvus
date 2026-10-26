@@ -47,6 +47,8 @@ import { launchTargets } from "../shared/default-browser";
 import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
 import { setMenuLanguage, tr } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
+import { DictationService } from "./dictation-service";
+import { dictationReady, internalMicrophoneAllowed } from "../shared/dictation";
 import type { BrowserWindowCtl } from "./window";
 import { SyncService } from "./sync-service";
 import { UpdateService } from "./update-service";
@@ -67,6 +69,8 @@ if (process.env.CORVUS_SMOKE_TEST === "1") {
   app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP www.youtube.com 127.0.0.1");
   // The YouTube stand-in is served over HTTPS (HSTS) with a throwaway certificate.
   app.commandLine.appendSwitch("ignore-certificate-errors");
+  // Dictation records from a fake microphone (a beep) instead of the machine's.
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
 }
 
 const userDataOverride = process.env.CORVUS_USER_DATA;
@@ -141,13 +145,16 @@ async function main(): Promise<void> {
 
   handleInternalProtocol(session.defaultSession);
   ElectronChromeExtensions.handleCRXProtocol(session.defaultSession);
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
 
   const userData = app.getPath("userData");
   const cleanExit = new CleanExitTracker(userData);
   const uncleanShutdown = cleanExit.wasUnclean();
   cleanExit.markRunning();
   const settings = new SettingsStore(userData, safeStorage, process.env);
+  // Corvus's own UI may only open the microphone, for dictation once it is set up; nothing else.
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) =>
+    callback(internalMicrophoneAllowed(permission, "mediaTypes" in details ? details.mediaTypes : undefined, details.requestingUrl, dictationReady(settings.get().dictation))),
+  );
   const crashReporter = new CrashReporter(userData, () => settings.get().crashReports.saveLogs);
   installCrashHandlers(crashReporter);
   nativeTheme.themeSource = settings.get().appearance.theme;
@@ -158,6 +165,7 @@ async function main(): Promise<void> {
 
   const ctx = { settings, profiles } as AppContext;
   ctx.crashReporter = crashReporter;
+  ctx.dictation = new DictationService(settings);
   ctx.windows = new WindowManager(ctx);
   ctx.search = new SearchService(settings);
   ctx.semanticSearch = new SemanticSearchService(ctx);
