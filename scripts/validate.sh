@@ -45,7 +45,8 @@ if [ "$(cat "$logs/test.rc")" != "0" ]; then
   echo "[validate] unit tests FAILED:"
   grep -E "FAIL|×|AssertionError|Error:|ERR_PNPM" "$logs/test.log" | head -60
 fi
-grep -E "Tests +[0-9]" "$logs/test.log" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^/[validate] /'
+# vitest colours its summary, so strip the colour codes before looking for it.
+sed 's/\x1b\[[0-9;]*m//g' "$logs/test.log" | grep -E "Tests +[0-9]" | sed 's/^ */[validate] /'
 # The smoke run can exit 0 after failed checks: its RESULT line is what counts.
 if ! grep -q 'RESULT: "OK"' "$logs/smoke.log"; then
   ok=0

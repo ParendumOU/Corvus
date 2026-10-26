@@ -11,8 +11,8 @@ The website (https://corvus.parendum.com) links to
 `Corvus-Setup-<v>.exe`, `Corvus-Portable-<v>.exe`, `Corvus-<v>-x86_64.AppImage`,
 `corvus_<v>_amd64.deb` (`test/update-feed.test.ts` pins the patterns in `electron-builder.yml`).
 
-Current: `v0.26.0` (Windows + Linux, unsigned), published 2026-10-26. Corvus for mobile: `mobile-v0.4.0` (Android preview, pre-release), published 2026-10-26.
-Previous tags: `v0.25.1`, `v0.25.0`, `v0.24.0`, `v0.23.0`, `v0.22.0`, `v0.21.1`, `v0.21.0`, `v0.20.2`, `v0.20.1`, `v0.20.0`, `v0.19.0`, `v0.18.0`, `v0.17.0`, `v0.16.0`, `v0.15.0`, `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
+Current: `v0.26.1` (Windows + Linux, unsigned), draft. Corvus for mobile: `mobile-v0.4.1` (Android preview, pre-release), draft.
+Previous tags: `v0.26.0`, `v0.25.1`, `v0.25.0`, `v0.24.0`, `v0.23.0`, `v0.22.0`, `v0.21.1`, `v0.21.0`, `v0.20.2`, `v0.20.1`, `v0.20.0`, `v0.19.0`, `v0.18.0`, `v0.17.0`, `v0.16.0`, `v0.15.0`, `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
 
 ---
 
@@ -63,8 +63,8 @@ The release scripts never force-push; rewriting a public history is a deliberate
 
 | # | What | Why | Status |
 |---|------|-----|--------|
-| 1 | **Windows code-signing cert** | Without it, SmartScreen warns on every install | none yet |
-| 2 | **Apple Developer ID** + a Mac as build host | `.dmg` can only be built on macOS; signing + notarization need the ID | host yes, ID none yet |
+| 1 | **Windows code-signing cert** | Without it, SmartScreen warns on every install | deferred: unsigned for now (2026-10-26) |
+| 2 | **Apple Developer ID** + a Mac as build host | `.dmg` can only be built on macOS; signing + notarization need the ID | ID and notarization API key ready (2026-10-26); a Mac to build on |
 | 3 | ~~Update-feed host~~ | Solved: GitHub Releases of ParendumOU/Corvus | done |
 
 None block **unsigned** Windows/Linux releases: those work today. See `docs/CODE-SIGNING.md`.
@@ -98,8 +98,13 @@ the plugin, commits as the Parendum identity, never pushes), review, then push.
 
 Run from the repo root on a host with Docker and gh.
 
-1. **Green check**:
-   `docker compose run --rm dev sh -c "pnpm -r build && pnpm -r typecheck && pnpm -r test && pnpm --filter @corvus/desktop test:smoke"`.
+1. **Green check**: `bash scripts/validate-docker.sh` (`-p corvus-wt-<x>` in a worktree) runs
+   `scripts/validate.sh` in the dev container (build, typecheck, tests and smoke) and must end in
+   `VALIDATION: OK`. It records a fingerprint of the code after each pass (docs, Markdown and the
+   `"version"` lines left out), so the release commit, which only bumps versions and edits
+   CHANGELOG and docs, reuses the pass its code already had instead of running it again (about
+   6 minutes saved). `CORVUS_VALIDATE_FULL=1` forces a full run; the plain
+   `docker compose run --rm dev sh scripts/validate.sh` always runs everything.
 2. **Version + changelog**: set the version in `apps/desktop/package.json` (and the root
    `package.json`), move the shipped features from ROADMAP into a new `## v<version>` section of
    CHANGELOG.md, commit. The script refuses if the package version differs or the tree is dirty.
@@ -118,8 +123,9 @@ Run from the repo root on a host with Docker and gh.
 5. **macOS on a Mac** (optional, same draft). Check out the same commit, then:
    ```sh
    # unsigned: release.sh sets CSC_IDENTITY_AUTO_DISCOVERY=false when CSC_LINK is not set
-   # signed + notarized: also export CSC_LINK/CSC_KEY_PASSWORD (Developer ID Application .p12),
-   #   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+   # signed + notarized: also export the variables in ../secrets/apple-signing.env: CSC_LINK and
+   #   CSC_KEY_PASSWORD (Developer ID Application .p12), APPLE_API_KEY (the .p8 path),
+   #   APPLE_API_KEY_ID, APPLE_API_ISSUER and APPLE_TEAM_ID (App Store Connect API key notarization)
    CORVUS_PUBLISH=always GH_TOKEN="$(gh auth token -u ParendumOU)" bash scripts/release.sh mac
    scripts/publish-release.sh 0.2.0 --checksums-only
    ```
@@ -155,11 +161,20 @@ than every desktop release: when both ship together, make the desktop release th
 3. Signed APK: `docker compose --profile android run --rm android`, with the release key
    mounted from `../secrets` (`corvus-mobile.keystore` and `corvus-mobile-keystore.env`, never in
    a repository). It prints the APK's SHA-256. Losing the key means later versions cannot
-   install over earlier ones: keep a backup of it off this machine.
+   install over earlier ones: keep a backup of it off this machine. The same run builds the App
+   Bundle for Google Play. Install the APK on a phone and open it before shipping (`adb install
+   -r`): 0.3.0 and 0.4.0 closed at start-up and nothing caught it.
 4. The target is a public commit with this version's `apps/mobile` sources.
 5. `gh release create mobile-v<v> -R ParendumOU/Corvus --prerelease --latest=false --target
    <public SHA> --title "Corvus for mobile <v>" --notes-file <notes>` with
    `corvus-mobile-<v>.apk` and `SHA256SUMS.txt`.
+6. Google Play internal testing: `docker compose --profile android run --rm --no-deps
+   --entrypoint node android apps/mobile/scripts/play-upload.mjs --notes "<text>"` uploads the
+   bundle and releases it to testers through the Google Play Developer API, with the service
+   account in `../secrets/google-play-service-account.json` (project `corvus-512818`, invited in
+   Play Console with "Release apps to testing tracks"). A version code already on Play is skipped.
+
+The release script (`publish-release.ps1 <v> -MobileVersion <m>`) runs steps 3, 5 and 6.
 
 ## Release checklist
 - [ ] All tests + smoke green on the commit being released

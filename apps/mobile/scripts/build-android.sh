@@ -4,7 +4,10 @@
 # The native project is generated (expo prebuild) and never committed. The APK lands in
 # out/mobile/. It is signed with the release key when /secrets holds corvus-mobile.keystore and
 # corvus-mobile-keystore.env (KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD), a folder outside every
-# repository; otherwise it keeps the debug signature, for local testing only.
+# repository; otherwise it keeps the debug signature, for local testing only. With the release key
+# it also builds the App Bundle for Google Play (out/mobile/corvus-mobile-<version>.aab), signed by
+# Gradle with the same key: Play uses it as the upload key, and as the app signing key once that
+# key has been handed to Play App Signing (see docs/MOBILE.md).
 set -euo pipefail
 cd /workspace
 pnpm install --frozen-lockfile >/dev/null
@@ -14,7 +17,11 @@ cd apps/mobile
 VERSION="$(node -p "require('./package.json').version")"
 pnpm exec expo prebuild --platform android --no-install --clean
 cd android
-./gradlew --no-daemon --console=plain assembleRelease
+# The generated project turns R8 on for release builds. R8 broke the app at start-up (WorkManager,
+# used by expo-background-task, could not create its Room database: "Failed to create an instance
+# of class androidx.work.impl.WorkDatabase"), so release builds are not minified.
+GRADLE_FLAGS=(--no-daemon --console=plain -Pandroid.enableMinifyInReleaseBuilds=false)
+./gradlew "${GRADLE_FLAGS[@]}" assembleRelease
 
 APK=app/build/outputs/apk/release/app-release.apk
 OUT_DIR=/workspace/out/mobile
@@ -31,6 +38,18 @@ if [ -f /secrets/corvus-mobile.keystore ] && [ -f /secrets/corvus-mobile-keystor
     --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD --out "$OUT" /tmp/corvus-aligned.apk
   "$BUILD_TOOLS/apksigner" verify "$OUT"
   echo "Signed with the release key."
+
+  # The generated project signs release builds with the debug key; Gradle's injected signing
+  # properties replace it for the bundle, so it carries one signature, ours.
+  ./gradlew "${GRADLE_FLAGS[@]}" bundleRelease \
+    -Pandroid.injected.signing.store.file=/secrets/corvus-mobile.keystore \
+    -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+    -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+    -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+  AAB_OUT="$OUT_DIR/corvus-mobile-$VERSION.aab"
+  cp app/build/outputs/bundle/release/app-release.aab "$AAB_OUT"
+  keytool -printcert -jarfile "$AAB_OUT" | grep -E "Owner:|SHA256:"
+  sha256sum "$AAB_OUT"
 else
   cp "$APK" "$OUT"
   echo "Signed with the debug key (no release key in /secrets): for local testing only."

@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-26 · current release: **v0.26.0** (Windows + Linux, unsigned) · Corvus for mobile **0.4.0** (Android preview)
+Last updated: 2026-10-26 · current release: **v0.26.1** (Windows + Linux, unsigned) · Corvus for mobile **0.4.1** (Android preview)
 
 ---
 
@@ -95,8 +95,8 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Ship-ready (M2)** — the gate to a real release
-- [ ] **Trusted code-signing cert** — kills Windows SmartScreen → *blocked on user (see Open Decisions)*
-- [ ] **macOS builds** on a mac runner (notarization) → *blocked on user*
+- [ ] **Trusted code-signing cert** — kills Windows SmartScreen → *deferred (2026-10-26): unsigned for now, see Open Decisions*
+- [ ] **macOS builds** on a mac runner (notarization) → *Developer ID certificate and API key ready; needs a Mac or hosted mac runner*
 - [x] **Update-feed host**: GitHub Releases of ParendumOU/Corvus
 - [x] Bundle-size / startup pass: self-test code, the MCP server and the Anthropic SDK load on demand
       (window ready ~22% sooner); the PDF library ships once (installers ~20% smaller)
@@ -122,12 +122,12 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 **Automation (M5)**
 - [~] WebScope depth: match/replace, block and host-override rules UI (Rules tab) and session save /
       open (scope, rules, intercept filters, optional traffic; opened disarmed) done; active checks
-      (opt-in) next
+      (opt-in) parked: to revisit later from another angle
 - [x] Per-tool audit log + rate limits surfaced in UI (Settings → AI agents)
 
 **Platform & reach (M6)**
-- [~] Release assets: Windows installer/portable, Linux AppImage and deb ship with every release; macOS dmg waits on the Developer ID certificate and notarization
-- [~] Mobile companion: Corvus for mobile 0.4.0, an Android preview (pair with a computer, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, Assist conversations, watched pages, notifications, English and Spanish); iOS once an Apple developer account is set up (docs/MOBILE.md)
+- [~] Release assets: Windows installer/portable, Linux AppImage and deb ship with every release; macOS dmg waits on a Mac to build and notarize it (certificate and API key are ready)
+- [~] Mobile companion: Corvus for mobile 0.4.0, an Android preview (pair with a computer, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, Assist conversations, watched pages, notifications, English and Spanish); Google Play internal testing under way; iOS needs a Mac or EAS Build (Apple account, App ID and API key ready; docs/MOBILE.md)
 - [x] Evaluate Chromium fork vs Electron for full extension-API coverage: stay on Electron and add
       the missing APIs in Corvus: a fork costs builds, a security cadence and a port out of scale
 - [~] Extension APIs Corvus adds itself: `bookmarks`, `history`, `tabGroups` + `tabs.group`, `sessions`,
@@ -178,9 +178,14 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 ## Open decisions (blocked on user)
 
-1. **Code-signing cert** — Azure Trusted Signing vs an OV cloud-HSM cert. Needed for an
-   un-warned Windows install. Self-signed test path already works.
-2. **macOS runner** — need a mac (or hosted mac CI) to produce + notarize `.dmg`.
+1. **Code-signing cert** — deferred (2026-10-26): Windows builds stay unsigned and SmartScreen
+   warns, which is accepted for now. When it is wanted: Azure Artifact Signing (about 120 $/year,
+   eligibility to confirm) or an OV cloud certificate (Certum, about 110 $/year). Free signing for
+   open source (SignPath Foundation) does not fit: it needs OSI licences for every bundled part
+   (the RAR decoder's licence is not) and builds on its CI.
+2. **macOS runner** — need a Mac (or hosted mac CI) to produce + notarize `.dmg`. The Developer ID
+   Application certificate (Parendum OU, `PZ5NDD82FC`, until 2027-11) and an App Store Connect API
+   key for notarization are kept with the other secrets.
 3. **Distribution target**: decided. Installers and the auto-update feed are GitHub Releases of
    ParendumOU/Corvus (see docs/RELEASE.md).
 

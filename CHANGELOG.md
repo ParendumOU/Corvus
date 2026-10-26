@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.26.1
+
+### Corvus for mobile 0.4.1
+- **Fixed: the app closed as soon as it opened** (0.3.0 and 0.4.0). The release build's code
+  shrinking broke the background task service at start-up; release builds are no longer shrunk.
+- Also on Google Play for testers (internal testing), signed with the same key as the APK on
+  GitHub, so either one updates the other.
+
 ## v0.26.0
 
 ### WebScope
