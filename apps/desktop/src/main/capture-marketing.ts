@@ -428,9 +428,9 @@ export async function runMarketingCapture(ctx: AppContext): Promise<void> {
     // 7. Run history.
     const runsTab = win.createTab("corvus://agent-runs/", { activate: true });
     const runs = runsTab.view.webContents;
-    await poll(runs, "document.querySelectorAll('.ar-row').length >= 3", "agent runs list");
-    await runs.executeJavaScript("document.querySelector('.ar-row .ar-title')?.click(); document.activeElement?.blur()");
-    await poll(runs, "document.querySelector('.ar-row .ar-steps')", "expanded run");
+    await poll(runs, "document.querySelectorAll('.ar-run').length >= 3", "agent runs list");
+    await runs.executeJavaScript("document.querySelector('.ar-run .ar-steps-toggle')?.click(); document.activeElement?.blur()");
+    await poll(runs, "document.querySelector('.ar-run .ar-steps')", "expanded run");
     // The virtual display's pointer rests mid-screen; park it on empty space so no row shows hover.
     const pageBounds = runsTab.view.getBounds();
     runs.sendInputEvent({ type: "mouseMove", x: pageBounds.width - 40, y: pageBounds.height - 40 });

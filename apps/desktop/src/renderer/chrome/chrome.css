@@ -711,6 +711,26 @@ body,
 .bar-spacer {
   flex: 1;
 }
+/* The bookmarks themselves: what does not fit is hidden and listed under "»". */
+.bar-items {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+.bar-item.bar-hidden {
+  visibility: hidden;
+}
+.bar-more {
+  font-size: 14px;
+  padding: 0 9px;
+  color: var(--text-2);
+}
+.bar-all {
+  margin-left: 2px;
+}
 /* A page dragged over the bar (the address bar's site chip, or a link): where it will land. */
 .bookmarks-bar.dropping {
   background: color-mix(in srgb, var(--accent) 7%, var(--toolbar));
@@ -835,26 +855,39 @@ body,
 
 /* ---------------------------------------------------------------- vertical tabs (left sidebar) */
 
-.chrome-root.vertical #chrome-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: var(--sidebar-w, 240px);
+/*
+ * The window's top band (title row, toolbar, bookmarks bar, notices) spans the window as with tabs
+ * on top; the tabs take a sidebar below it on the left. The page covers the rest of this view.
+ */
+.chrome-root.vertical {
   display: flex;
   flex-direction: column;
-  box-shadow: 1px 0 0 var(--border-soft);
-  overflow: hidden;
 }
-.chrome-root.vertical .v-topbar {
+.chrome-root.vertical #chrome-bar {
   flex: none;
-  height: 40px;
+}
+.v-topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 0 6px;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px;
   background: var(--strip);
   -webkit-app-region: drag;
+}
+.v-topbar.wco {
+  padding-right: 146px;
+}
+.v-topbar.mac {
+  padding-left: 80px;
+}
+.v-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-2);
 }
 .v-collapse {
   -webkit-app-region: no-drag;
@@ -866,40 +899,22 @@ body,
 .chrome-root.sidebar-collapsed .v-collapse svg {
   transform: none;
 }
-.chrome-root.vertical .toolbar {
-  flex: none;
-  height: auto;
-  flex-wrap: wrap;
-  row-gap: 4px;
-  padding: 2px 8px 8px;
-}
-.chrome-root.vertical .omnibox {
-  flex: 1 1 100%;
-  order: -1;
-  margin: 0 0 2px;
-}
-.chrome-root.vertical .toolbar-actions {
-  flex-wrap: wrap;
-  margin-left: 0;
-}
-.chrome-root.sidebar-collapsed .toolbar {
+.v-sidebar {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: var(--sidebar-w, 240px);
+  display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 2px 4px 8px;
-}
-.chrome-root.sidebar-collapsed .omnibox,
-.chrome-root.sidebar-collapsed .toolbar-actions {
-  flex-direction: column;
-}
-.chrome-root.sidebar-collapsed .omnibox {
-  display: none;
+  background: var(--toolbar);
+  box-shadow: 1px 0 0 var(--border-soft);
 }
 
 .sidebar-resize {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(var(--sidebar-w, 240px) - 3px);
+  right: -3px;
   width: 6px;
   cursor: col-resize;
   z-index: 3;

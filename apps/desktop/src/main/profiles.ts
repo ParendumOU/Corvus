@@ -1,5 +1,7 @@
+import path from "node:path";
 import { app, session as electronSession, webContents as allWebContents, type Session } from "electron";
 import type { Profile, ProfileId } from "@corvus/shared";
+import { FaviconCache } from "./favicon-cache";
 import { AdblockController } from "./adblock";
 import { AnnotationStore } from "./annotation-store";
 import { AutoSignInStore } from "./auto-sign-in-store";
@@ -96,10 +98,12 @@ export class ProfileRuntime {
   /** What the person ran from the Command Bar (its "Recent" list). */
   readonly commands: CommandHistoryStore;
   readonly userMemory: UserMemoryStore;
+  /** Site icons for Corvus's own UI (bookmarks bar, history, suggestions). */
+  readonly favicons: FaviconCache;
   readonly siteProfiles: SiteProfileStore;
   readonly semanticIndex: SemanticIndexStore;
   readonly credentials: CredentialVault;
-  /** KeePass databases (read-only; off until the person adds one). */
+  /** KeePass databases (read, and written only for entries the person adds or edits; off until they add one). */
   readonly keepass: KeePassStore;
   /** Logins the person chose to sign in with automatically (always confirmed first). */
   readonly autoSignIn: AutoSignInStore;
@@ -155,6 +159,7 @@ export class ProfileRuntime {
     this.assistHistory = new AssistHistoryStore(dataDir);
     this.commands = new CommandHistoryStore(dataDir);
     this.userMemory = new UserMemoryStore(dataDir);
+    this.favicons = new FaviconCache(path.join(dataDir, "Favicons"), (url, init) => this.session.fetch(url, init));
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
     this.credentials = new CredentialVault(dataDir, cipher);

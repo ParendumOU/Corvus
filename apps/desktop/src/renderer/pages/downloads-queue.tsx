@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { formatBytes, type QueueAction, type QueueItem, type QueuePackageView, type QueueView } from "../../shared/download-queue";
 import type { HosterReason } from "../../shared/hosters";
 import { errorMessage, internalApi } from "../common/api";
-import { IconChevronDown, IconChevronUp, IconGlobe, IconPause, IconPlay, IconReload, IconTrash } from "../common/icons";
+import { IconChevronDown, IconChevronRight, IconChevronUp, IconEdit, IconFolder, IconGlobe, IconPause, IconPlay, IconReload, IconTrash } from "../common/icons";
 
 import { t } from "../common/i18n";
 function duration(seconds: number): string {
@@ -170,11 +170,56 @@ function ExtractionRow({ pkg, extract }: { pkg: QueuePackageView; extract: (pass
   );
 }
 
-/** Corvus's download queue: packages downloading a few files at a time, with progress and time left. */
+/** A package's name that turns into a field with the pencil (Enter saves, Escape cancels). */
+export function EditableName({ name, onSave, title }: { name: string; onSave: (name: string) => void; title: string }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  if (draft === null) {
+    return (
+      <span className="pkg-name">
+        <span className="title">{name}</span>
+        <button className="icon-btn pkg-rename" title={title} aria-label={title} data-pkg-rename={name} onClick={() => setDraft(name)}>
+          <IconEdit size={13} />
+        </button>
+      </span>
+    );
+  }
+  const save = (): void => {
+    const value = draft.trim();
+    setDraft(null);
+    if (value && value !== name) onSave(value);
+  };
+  return (
+    <input
+      className="input pkg-name-input"
+      autoFocus
+      value={draft}
+      maxLength={120}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") save();
+        if (e.key === "Escape") setDraft(null);
+      }}
+    />
+  );
+}
+
+const ITEMS_SHOWN = 25;
+const PACKAGES_SHOWN = 10;
+
+/**
+ * Corvus's download queue: packages downloading a few files at a time, with progress and time left.
+ * A package folds to its header (finished ones start folded), can be renamed (its folder moves
+ * along) and shows its folder; long lists show a page at a time.
+ */
 export function QueueSection() {
   const api = internalApi();
   const [view, setView] = useState<QueueView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Packages the person folded or unfolded; the others follow their state (finished = folded).
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  const [itemLimit, setItemLimit] = useState<Record<string, number>>({});
+  const [packageLimit, setPackageLimit] = useState(PACKAGES_SHOWN);
 
   const load = useCallback(() => void api.call("queue.list").then(setView), [api]);
   useEffect(() => {
@@ -190,56 +235,59 @@ export function QueueSection() {
     };
   }, [api, load]);
 
-  const act = (id: string, a: QueueAction): void => {
+  const call = (p: Promise<unknown>): void => {
     setError(null);
-    api
-      .call("queue.act", id, a)
-      .then(load)
-      .catch((e: unknown) => setError(errorMessage(e)));
+    p.then(load).catch((e: unknown) => setError(errorMessage(e)));
   };
-  const move = (id: string, delta: -1 | 1): void => void api.call("queue.move", id, delta).then(load);
-  const openPage = (id: string): void => {
-    setError(null);
-    api
-      .call("queue.openPage", id)
-      .then(load)
-      .catch((e: unknown) => setError(errorMessage(e)));
-  };
-  const extract = (id: string, password?: string): void => {
-    setError(null);
-    api
-      .call("queue.extract", id, password)
-      .then(load)
-      .catch((e: unknown) => setError(errorMessage(e)));
-  };
+  const act = (id: string, a: QueueAction): void => call(api.call("queue.act", id, a));
+  const move = (id: string, delta: -1 | 1): void => call(api.call("queue.move", id, delta));
+  const openPage = (id: string): void => call(api.call("queue.openPage", id));
+  const extract = (id: string, password?: string): void => call(api.call("queue.extract", id, password));
 
   const packages = view?.packages ?? [];
   if (packages.length === 0) return null;
   const anyDone = packages.some((p) => p.items.every((i) => i.state === "done"));
+  const shownPackages = packages.slice(0, packageLimit);
   return (
     <div className="queue-section">
       <div className="inline queue-head">
         <strong>{t("Queue")}</strong>
+        <span className="muted small">{packages.length === 1 ? t("1 package") : t("{n} packages", { n: packages.length })}</span>
+        <span className="grow" />
         {anyDone && (
-          <button className="btn small ghost" onClick={() => void api.call("queue.clearDone").then(load)}>{t("Clear finished")}</button>
+          <button className="btn small ghost" onClick={() => call(api.call("queue.clearDone"))}>
+            {t("Clear finished")}
+          </button>
         )}
       </div>
       {error && <div className="notice error">{error}</div>}
-      {packages.map((pkg, index) => {
+      {shownPackages.map((pkg, index) => {
         const p = pkg.progress;
         const active = pkg.items.some((i) => i.state === "running" || i.state === "queued" || i.state === "waiting");
         const paused = pkg.items.some((i) => i.state === "paused");
+        const finished = p.count > 0 && p.done === p.count;
+        const isFolded = folded[pkg.id] ?? finished;
+        const limit = itemLimit[pkg.id] ?? ITEMS_SHOWN;
+        const pct = p.total ? Math.min(100, (p.received / p.total) * 100) : finished ? 100 : 0;
         return (
-          <div key={pkg.id} className="card queue-package" data-queue-package={pkg.name}>
-            <div className="grab-head">
-              <div className="grow">
-                <div className="title">{pkg.name}</div>
+          <div key={pkg.id} className={`card queue-package ${isFolded ? "folded" : ""} ${finished ? "finished" : ""}`} data-queue-package={pkg.name}>
+            <div className="pkg-head">
+              <button
+                className="icon-btn pkg-fold"
+                aria-expanded={!isFolded}
+                title={isFolded ? t("Show files") : t("Hide files")}
+                onClick={() => setFolded((f) => ({ ...f, [pkg.id]: !isFolded }))}
+              >
+                {isFolded ? <IconChevronRight size={15} /> : <IconChevronDown size={15} />}
+              </button>
+              <div className="grow pkg-info">
+                <EditableName name={pkg.name} title={t("Rename (and its folder)")} onSave={(name) => call(api.call("queue.rename", pkg.id, name))} />
                 <div className="sub" data-queue-status>
                   {packageStatus(pkg)}
                 </div>
-                {p.total !== null && p.total > 0 && p.done < p.count && (
-                  <div className="download-bar">
-                    <span style={{ width: `${Math.min(100, (p.received / p.total) * 100)}%` }} />
+                {(p.done < p.count || p.received > 0) && (
+                  <div className={`download-bar pkg-bar ${finished ? "done" : ""}`}>
+                    <span style={{ width: `${pct}%` }} />
                   </div>
                 )}
               </div>
@@ -259,6 +307,9 @@ export function QueueSection() {
                     <IconReload size={15} />
                   </button>
                 )}
+                <button className="icon-btn" title={t("Show the folder")} data-queue-folder={pkg.name} onClick={() => call(api.call("queue.openFolder", pkg.id))}>
+                  <IconFolder size={15} />
+                </button>
                 <button className="icon-btn" title={t("Move up")} disabled={index === 0} onClick={() => move(pkg.id, -1)}>
                   <IconChevronUp size={15} />
                 </button>
@@ -271,14 +322,26 @@ export function QueueSection() {
               </div>
             </div>
             <ExtractionRow pkg={pkg} extract={(password) => extract(pkg.id, password)} />
-            <div className="list">
-              {pkg.items.map((item) => (
-                <ItemRow key={item.id} item={item} speed={view?.speeds[item.id]} act={act} openPage={openPage} />
-              ))}
-            </div>
+            {!isFolded && (
+              <div className="list pkg-items">
+                {pkg.items.slice(0, limit).map((item) => (
+                  <ItemRow key={item.id} item={item} speed={view?.speeds[item.id]} act={act} openPage={openPage} />
+                ))}
+                {pkg.items.length > limit && (
+                  <button className="pkg-more" onClick={() => setItemLimit((l) => ({ ...l, [pkg.id]: limit + ITEMS_SHOWN }))}>
+                    {t("Show {n} more files", { n: Math.min(ITEMS_SHOWN, pkg.items.length - limit) })}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
+      {packages.length > packageLimit && (
+        <button className="btn small" style={{ alignSelf: "center" }} onClick={() => setPackageLimit((n) => n + PACKAGES_SHOWN)}>
+          {t("Show {n} more packages", { n: Math.min(PACKAGES_SHOWN, packages.length - packageLimit) })}
+        </button>
+      )}
     </div>
   );
 }

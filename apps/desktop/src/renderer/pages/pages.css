@@ -756,3 +756,27 @@ body {
 .page-search-status a {
   color: var(--accent);
 }
+
+/* History: select all shown, select a day. */
+.history-selectbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 10px;
+  font-size: 12.5px;
+}
+.history-selectbar .grow {
+  flex: 1;
+}
+.history-day {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.list-row.selected {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.history-ranges {
+  flex-wrap: wrap;
+}

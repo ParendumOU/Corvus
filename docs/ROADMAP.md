@@ -4,7 +4,7 @@ Corvus is an AI-native Electron browser that is also an MCP server, with AI sear
 end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what
 has shipped and where it goes next.
 
-Last updated: 2026-10-26 · current release: **v0.24.0** (Windows + Linux, unsigned) · Corvus for mobile **0.4.0** (Android preview)
+Last updated: 2026-10-26 · current release: **v0.25.0** (Windows + Linux, unsigned) · Corvus for mobile **0.4.0** (Android preview)
 
 ---
 
@@ -159,6 +159,18 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 - [x] Lighter on memory: background tabs that were never shown sleep too, and tabs sleep early when
       the computer runs low
 - [x] Corvus for mobile 0.4.0: Assist conversations from the computers in the Library
+
+**A browser of its own (M10)** (v0.25.0)
+- [x] Corvus's own dialogs instead of the system's boxes (its questions and pages' alert/confirm);
+      an agent's request to the person shows as a bar, so the page stays usable
+- [x] Clear history by time range, search or site, with a count before confirming
+- [x] Bookmarks page: table or grid, drag and drop into folders, clickable path; site icons kept
+      per profile; a "»" overflow on the bookmarks bar
+- [x] KeePass databases browsable and editable (groups, search, pages, new and edited entries
+      written after a .bak copy, with a conflict check)
+- [x] Downloads queue: named packages (their folder, renamable), folding, pages
+- [x] Vertical tabs redone: the toolbar keeps the top band, the sidebar holds only the tabs
+- [x] Assist: formatted answers, Retry and edit of the last question
 
 ---
 

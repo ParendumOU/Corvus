@@ -1,12 +1,11 @@
 /**
  * request_user_action for MCP clients: an AI client asks the person to do one step in a tab (sign
  * in, a payment, a 2FA code, anything it cannot or may not do). The tab comes to the front and a
- * native dialog says what was asked, with Done and Cancel. The dialog has no parent window, so the
- * page stays usable while it is open, and it closes by itself at the timeout or when the client
- * gives up. The Command Bar agent asks in its run panel instead (ask_user).
+ * bar under the toolbar says what was asked, with Done and Cancel. It is not a modal, so the page
+ * stays usable while it is open, and it closes by itself at the timeout or when the client gives up. The Command Bar agent asks in its run panel instead (ask_user).
  */
 import type { UserActionResult } from "@corvus/shared";
-import { dialog } from "electron";
+import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 
 export interface UserActionPrompt {
@@ -41,6 +40,8 @@ export function userActionDialog(prompt: UserActionPrompt): { title: string; mes
 export class UserActionService {
   private testAnswer: UserActionAnswer | null = null;
 
+  constructor(private readonly ctx: AppContext) {}
+
   /** Smoke tests answer without a person; null restores the dialog. */
   setTestAnswer(answer: UserActionAnswer | null): void {
     this.testAnswer = answer;
@@ -59,18 +60,12 @@ export class UserActionService {
         return { outcome, waitedMs: Date.now() - started };
       }
       const text = userActionDialog(prompt);
-      const res = await dialog.showMessageBox({
-        type: "info",
-        title: text.title,
-        message: text.message,
-        detail: text.detail,
-        buttons: [tr("Done"), tr("Cancel")],
-        defaultId: 0,
-        cancelId: 1,
-        noLink: true,
-        signal: controller.signal,
-      });
-      const outcome = controller.signal.aborted ? "timeout" : res.response === 0 ? "done" : "cancelled";
+      const res = await this.ctx.dialogs.ask(
+        { tone: "info", title: text.title, message: text.message, detail: text.detail, buttons: [tr("Cancel"), tr("Done")], defaultId: 1, cancelId: 0, bar: true },
+        undefined,
+        controller.signal,
+      );
+      const outcome = controller.signal.aborted ? "timeout" : res.button === 1 ? "done" : "cancelled";
       return { outcome, waitedMs: Date.now() - started };
     } finally {
       clearTimeout(timer);

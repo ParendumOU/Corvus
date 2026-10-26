@@ -14,25 +14,43 @@ type RunDialogListener = (this: WebContents, info: RunDialogInfo, reply: DialogR
 interface OpenDialog {
   info: DialogInfo;
   reply: DialogReply;
+  /** Withdraws Corvus's dialog (answered over MCP, or the page went away). */
+  withdraw: () => void;
 }
+
+/** What the person answered in Corvus's dialog; `suppress`: no more dialogs from this page. */
+export interface PageDialogAnswer {
+  accept: boolean;
+  text: string;
+  suppress: boolean;
+}
+
+/**
+ * Shows a page's dialog with Corvus's look (main/dialogs.ts), or returns null when the tab has no
+ * window to show it in (Electron's own box stands in then).
+ */
+export type PageDialogPresenter = (wc: WebContents, dialog: DialogInfo, signal: AbortSignal) => Promise<PageDialogAnswer> | null;
 
 const DIALOG_TYPES: readonly DialogType[] = ["alert", "confirm", "prompt"];
 
 /**
- * alert() and confirm() in the tabs agents work in, answerable over MCP (handle_dialog).
+ * Pages' alert(), confirm() and prompt(), in every tab: shown as Corvus's own dialog (the presenter)
+ * and answerable over MCP (handle_dialog) while they are open (page scripts wait behind them).
  *
- * Electron shows page dialogs itself: its own listener of the internal "-run-dialog" event opens a
- * native message box. watch() wraps that listener instead of replacing it, so the person still gets
- * the same box and can answer it, while Corvus knows a dialog is open (page scripts wait behind it).
- * answer() replies to the page and then emits "-cancel-dialogs", which closes Electron's box without
- * a second reply. prompt() keeps Electron's behaviour (it returns null at once), so it never stays
- * open. When the Electron internals are not there, tabs keep the stock dialogs and handle_dialog
- * finds nothing open.
+ * Electron shows page dialogs through its own listener of the internal "-run-dialog" event (a system
+ * message box). watch() takes that event over; Electron's listener only runs when the presenter has
+ * no window to show the dialog in. answer() replies to the page and withdraws the dialog. A page the
+ * person silenced ("Don't let this page open more dialogs") gets its dialogs dismissed at once until
+ * it navigates. When the Electron internals are not there, tabs keep the stock dialogs and
+ * handle_dialog finds nothing open.
  */
 export class PageDialogs {
   private readonly watched = new WeakSet<WebContents>();
   private readonly open = new WeakMap<WebContents, OpenDialog>();
   private readonly waiters = new WeakMap<WebContents, Set<(dialog: DialogInfo) => void>>();
+  private readonly silenced = new WeakSet<WebContents>();
+
+  constructor(private readonly present: PageDialogPresenter | null = null) {}
 
   watch(wc: WebContents): void {
     if (this.watched.has(wc) || wc.isDestroyed()) return;
@@ -43,17 +61,18 @@ export class PageDialogs {
     emitter.removeAllListeners("-run-dialog");
     emitter.on("-run-dialog", (info: RunDialogInfo, reply: DialogReply) => {
       let answered = false;
+      const controller = new AbortController();
       const once: DialogReply = (accept, promptText) => {
         if (answered) return;
         answered = true;
         if (this.open.get(wc)?.reply === once) this.open.delete(wc);
+        controller.abort();
         reply(accept, promptText);
       };
-      for (const listener of electron) {
-        void Promise.resolve(listener.call(wc, info, once)).catch(() => undefined);
+      if (this.silenced.has(wc)) {
+        once(false, "");
+        return;
       }
-      // Electron answered at once (prompt, disabled dialogs): nothing stays open.
-      if (answered) return;
       const type = DIALOG_TYPES.find((t) => t === info.dialogType) ?? "alert";
       const dialog: DialogInfo = {
         type,
@@ -62,18 +81,47 @@ export class PageDialogs {
         url: info.frame?.url || wc.getURL(),
         at: Date.now(),
       };
-      this.open.set(wc, { info: dialog, reply: once });
+      const shown = this.present?.(wc, dialog, controller.signal) ?? null;
+      if (shown) {
+        void shown.then(
+          (answer) => {
+            if (answer.suppress) this.silenced.add(wc);
+            once(answer.accept, answer.text.slice(0, 10_000));
+          },
+          () => once(false, ""),
+        );
+      } else {
+        for (const listener of electron) {
+          void Promise.resolve(listener.call(wc, info, once)).catch(() => undefined);
+        }
+        // Electron answered at once (prompt, disabled dialogs): nothing stays open.
+        if (answered) return;
+      }
+      this.open.set(wc, {
+        info: dialog,
+        reply: once,
+        // The page is gone or the dialog was cancelled: no reply after that.
+        withdraw: () => {
+          answered = true;
+          controller.abort();
+        },
+      });
       for (const waiter of [...(this.waiters.get(wc) ?? [])]) waiter(dialog);
     });
-    // Chromium cancels dialogs on navigation and when the tab closes; Electron closes its box then.
-    emitter.on("-cancel-dialogs", () => this.open.delete(wc));
+    // Chromium cancels dialogs on navigation and when the tab closes: withdraw Corvus's dialog too.
+    emitter.on("-cancel-dialogs", () => {
+      this.open.get(wc)?.withdraw();
+      this.open.delete(wc);
+    });
+    // A new page may ask again.
+    wc.on("did-navigate", () => this.silenced.delete(wc));
   }
 
   pending(wc: WebContents): DialogInfo | null {
     return this.open.get(wc)?.info ?? null;
   }
 
-  /** Replies to the open dialog and closes the native box; null when none is open. */
+  /** Replies to the open dialog and closes it (Corvus's dialog or Electron's box); null when none is open. */
   answer(wc: WebContents, accept: boolean, promptText = ""): DialogInfo | null {
     const open = this.open.get(wc);
     if (!open) return null;

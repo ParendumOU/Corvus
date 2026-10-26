@@ -36,12 +36,18 @@ import type { WebScopeService } from "./webscope-service";
 import type { WindowManager } from "./window-manager";
 import type { NewTabService } from "./newtab-service";
 import type { DictationService } from "./dictation-service";
+import type { DialogService } from "./dialogs";
+import type { PageDialogs } from "./page-dialogs";
 
 /** Main-process services, wired together once in index.ts. */
 export interface AppContext {
   settings: SettingsStore;
   profiles: ProfileRegistry;
   dictation: DictationService;
+  /** Corvus's modal dialogs (main/dialogs.ts). */
+  dialogs: DialogService;
+  /** Pages' alert(), confirm() and prompt() in every tab (main/page-dialogs.ts). */
+  pageDialogs: PageDialogs;
   windows: WindowManager;
   search: SearchService;
   semanticSearch: SemanticSearchService;

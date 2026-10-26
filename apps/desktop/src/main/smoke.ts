@@ -11,6 +11,8 @@ import { runAgentRunsSmoke } from "./smoke-agent-runs";
 import { runAnnotationsSmoke } from "./smoke-annotations";
 import { runAssistSmoke } from "./smoke-assist";
 import { runDictationSmoke } from "./smoke-dictation";
+import { runDialogsSmoke } from "./smoke-dialogs";
+import { runLibrarySmoke } from "./smoke-library";
 import { runAssistAgentSmoke } from "./smoke-assist-agent";
 import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
@@ -239,6 +241,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
 
     await runAssistSmoke(ctx, { win, check, capture });
     await runDictationSmoke(ctx, { url, win, check, capture });
+    await runDialogsSmoke(ctx, { url, win, check, capture });
+    await runLibrarySmoke(ctx, { win, check, capture });
     await runFeaturesSmoke(ctx, { win, check, capture });
     await runLocalModelsSmoke(ctx, { win, check, capture });
     await runPhoneSmoke(ctx, { url, win, check, capture });

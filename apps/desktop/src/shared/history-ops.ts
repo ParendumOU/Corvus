@@ -100,6 +100,48 @@ export function queryHistory(
   return { entries: filtered.slice(offset, offset + limit), total: filtered.length };
 }
 
+/** Which history "Clear history" removes: visits since a time, matching a search, on a site. */
+export interface HistoryFilter {
+  /** Visits at or after this time (ms); 0 or absent: all time. */
+  since?: number;
+  /** Only entries the search box would show for this text. */
+  query?: string;
+  /** Only this site and its subdomains ("example.com"). */
+  site?: string;
+}
+
+function hostOfUrl(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** The site a person typed ("https://www.Example.com/x" → "www.example.com"), or "" when none. */
+export function typedSite(input: string): string {
+  const raw = input.trim().toLowerCase();
+  if (!raw) return "";
+  const host = hostOfUrl(/^[a-z][a-z0-9+.-]*:\/\//.test(raw) ? raw : `https://${raw}`);
+  return /^[a-z0-9.-]+$/.test(host) && host.includes(".") ? host.replace(/^www\./, "") : "";
+}
+
+/** The entries a filter covers. */
+export function historyMatching(list: readonly HistoryRecord[], filter: HistoryFilter): HistoryRecord[] {
+  const terms = (filter.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  const site = filter.site ? typedSite(filter.site) : "";
+  const since = filter.since ?? 0;
+  return list.filter((e) => {
+    if (since > 0 && e.visitedAt < since) return false;
+    if (terms.length > 0 && !matches(e, terms)) return false;
+    if (site) {
+      const host = hostOfUrl(e.url);
+      if (host !== site && !host.endsWith(`.${site}`)) return false;
+    }
+    return true;
+  });
+}
+
 export function removeEntries(list: HistoryRecord[], ids: string[]): HistoryRecord[] {
   const gone = new Set(ids);
   return list.filter((e) => !gone.has(e.id));

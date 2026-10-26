@@ -385,7 +385,7 @@ async function keepassSmoke(ctx: AppContext, base: string, { url, win, check, ca
     const page = win.createTab("corvus://passwords");
     await delay(1400);
     const pageText = String(await page.view.webContents.executeJavaScript(`document.getElementById("keepass")?.innerText ?? ""`));
-    check("corvus://passwords shows the unlocked KeePass database", pageText.includes("Smoke vault") && pageText.includes("KeePass: Smoke vault") && !pageText.includes(KP_PASSWORD), {
+    check("corvus://passwords shows the unlocked KeePass database", pageText.includes("Smoke vault") && pageText.includes("Smoke site") && !pageText.includes(KP_PASSWORD), {
       hasDb: pageText.includes("Smoke vault"),
     });
     await capture("passwords-keepass", page.view.webContents);
@@ -507,6 +507,37 @@ async function keepassSmoke(ctx: AppContext, base: string, { url, win, check, ca
     const afterLock = ctx.autofill.suggestions(win).some((m) => m.source === "keepass");
     const hashAfter = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
     check("locking hides KeePass logins and the database file is unchanged", !afterLock && hashAfter === hashBefore, { afterLock });
+
+    // A new entry from the passwords page goes into the file, after a .bak copy of it.
+    await kp.unlock(dbId, KP_MASTER, null, false);
+    const editor = win.createTab("corvus://passwords/#keepass", { activate: true });
+    const ew = editor.view.webContents;
+    try {
+      const pollPage = async (expr: string): Promise<boolean> => {
+        for (let i = 0; i < 60; i++) {
+          if ((await ew.executeJavaScript(`Boolean(${expr})`).catch(() => false)) === true) return true;
+          await delay(100);
+        }
+        return false;
+      };
+      await pollPage("[...document.querySelectorAll('#keepass button')].some((b) => b.innerText.includes('New entry'))");
+      await ew.executeJavaScript("[...document.querySelectorAll('#keepass button')].find((b) => b.innerText.includes('New entry'))?.click()");
+      await pollPage("document.querySelector('.modal-card input.input')");
+      await ew.executeJavaScript(`(() => {
+        const set = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); };
+        const inputs = [...document.querySelectorAll(".modal-card input.input")];
+        set(inputs.find((i) => i.autofocus) ?? inputs[0], "Smoke new entry");
+      })()`);
+      await ew.executeJavaScript("[...document.querySelectorAll('.modal-card button')].find((b) => b.innerText.includes('Save to the database'))?.click()");
+      const listed = await pollPage("(document.getElementById('keepass')?.innerText ?? '').includes('Smoke new entry') && !document.querySelector('.modal-card')");
+      const backup = fs.existsSync(`${file}.bak`) && crypto.createHash("sha256").update(fs.readFileSync(`${file}.bak`)).digest("hex") === hashBefore;
+      const saved = kp.entries().some((e) => e.title === "Smoke new entry");
+      check("KeePass: a new entry from the passwords page is saved to the file, after a .bak copy of it", listed && backup && saved, { listed, backup, saved });
+      await capture("passwords-keepass-new", ew);
+    } finally {
+      win.closeTab(editor.id);
+      kp.lock(dbId);
+    }
   } finally {
     ctx.agentCredentials.setTestApprover(null);
     ctx.settings.update({ passwords: { agentAccess: before } });

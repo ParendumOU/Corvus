@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, dialog } from "electron";
+import { app } from "electron";
 import type { AccessLevel, McpClientInfo, McpServerHandle } from "@corvus/shared";
 import type { FlowRunner, FlowSummary, SiteMemoryReader, StartMcpServerOptions } from "@corvus/mcp-server";
 import { memoryHints } from "../shared/site-memory";
@@ -329,12 +329,11 @@ export class McpService {
   }
 
   private async prompt(info: McpClientInfo): Promise<boolean> {
-    const parent = this.ctx.windows.focused()?.win;
     const options: Electron.MessageBoxOptions = {
       type: "warning",
-      buttons: [tr("Allow"), tr("Deny")],
-      defaultId: 1,
-      cancelId: 1,
+      buttons: [tr("Deny"), tr("Allow")],
+      defaultId: 0,
+      cancelId: 0,
       title: tr("AI agent wants to control Corvus"),
       message: tr("Allow “{name}” to control this browser?", { name: info.name }),
       detail:
@@ -344,8 +343,8 @@ export class McpService {
       checkboxLabel: tr("Always allow this client"),
       checkboxChecked: true,
     };
-    const { response, checkboxChecked } = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
-    const allowed = response === 0;
+    const { response, checkboxChecked } = await this.ctx.dialogs.messageBox(options);
+    const allowed = response === 1;
     if (allowed && checkboxChecked) {
       const approved = this.ctx.settings.get().mcp.approvedClients;
       if (!approved.includes(info.name)) this.ctx.settings.update({ mcp: { approvedClients: [...approved, info.name] } });

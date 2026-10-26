@@ -2,10 +2,12 @@
  * KDBX 3.1 and 4 reading and writing through kdbxweb (MIT), with Argon2d/Argon2id from hash-wasm
  * (MIT, WebAssembly, no native build). Both load lazily, so they cost nothing until KeePass is used.
  *
- * Corvus only ever reads the user's databases. `createKdbx` writes a brand-new file for the export
- * of the built-in vault (and builds fixtures in tests); it never touches an existing database.
+ * Corvus writes to a person's database only to add or edit an entry they asked for on the passwords
+ * page (`saveKdbxEntry`; the store keeps a .bak copy of the file first). `createKdbx` writes a
+ * brand-new file for the export of the built-in vault (and builds fixtures in tests).
  */
 import type * as Kdbxweb from "kdbxweb";
+import { tr } from "./menu-i18n";
 import type { Credential } from "../shared/credentials";
 import { buildOtpauthUri, type TotpConfig } from "../shared/totp";
 import { additionalUrlFields, totpFromFields, type KeePassEntry } from "./keepass-entries";
@@ -47,6 +49,19 @@ export interface OpenedDatabase {
   /** Database name from its metadata (may be empty). */
   name: string;
   entries: KeePassEntry[];
+  /** Paths of its groups ("Banking / Cards"), Recycle Bin excluded; "" is the root. */
+  groups: string[];
+}
+
+/** An entry to add (no uuid) or to change (its uuid); a password left out stays as it is. */
+export interface EntryInput {
+  uuid?: string;
+  group: string;
+  title: string;
+  username: string;
+  password?: string;
+  url: string;
+  notes: string;
 }
 
 /** Turns kdbxweb errors into messages a person can act on (never echoing key material). */
@@ -115,7 +130,54 @@ export async function openKdbx(data: Uint8Array, password: string, keyFile: Uint
       });
     }
   }
-  return { name: db.meta.name ?? "", entries };
+  const inRecycleBinGroup = (group: Kdbxweb.KdbxGroup): boolean => {
+    if (!recycleBin || recycleBin.empty) return false;
+    for (let g: Kdbxweb.KdbxGroup | undefined = group; g; g = g.parentGroup) if (g.uuid.equals(recycleBin)) return true;
+    return false;
+  };
+  const groups: string[] = [""];
+  for (const root of db.groups) {
+    for (const group of root.allGroups()) {
+      if (group === root || inRecycleBinGroup(group)) continue;
+      const p = groupPath(group);
+      if (p) groups.push(p);
+    }
+  }
+  return { name: db.meta.name ?? "", entries, groups: [...new Set(groups)].sort((a, b) => a.localeCompare(b)) };
+}
+
+/**
+ * Opens a database, adds or changes one entry (an edit keeps the previous version in the entry's
+ * history, as KeePass does) and returns the file to write.
+ */
+export async function saveKdbxEntry(data: Uint8Array, password: string, keyFile: Uint8Array | null, input: EntryInput): Promise<{ data: Uint8Array; uuid: string }> {
+  const kdbxweb = await loadKdbxweb();
+  const credentials = await credentialsFor(kdbxweb, password, keyFile);
+  let db: Kdbxweb.Kdbx;
+  try {
+    db = await kdbxweb.Kdbx.load(arrayBufferOf(data), credentials);
+  } catch (err) {
+    throw openError(err, kdbxweb);
+  }
+  const root = db.getDefaultGroup();
+  let entry: Kdbxweb.KdbxEntry | undefined;
+  if (input.uuid) {
+    for (const e of root.allEntries()) if (e.uuid.id === input.uuid) entry = e;
+    if (!entry) throw new Error(tr("The entry is no longer in the database."));
+    entry.pushHistory();
+  } else {
+    let group = root;
+    for (const g of root.allGroups()) if (groupPath(g) === input.group) group = g;
+    entry = db.createEntry(group);
+  }
+  entry.fields.set("Title", input.title);
+  entry.fields.set("UserName", input.username);
+  entry.fields.set("URL", input.url);
+  entry.fields.set("Notes", input.notes);
+  if (input.password !== undefined) entry.fields.set("Password", kdbxweb.ProtectedValue.fromString(input.password));
+  entry.times.update();
+  const saved = await db.save();
+  return { data: new Uint8Array(saved), uuid: entry.uuid.id };
 }
 
 export interface ExportEntry {

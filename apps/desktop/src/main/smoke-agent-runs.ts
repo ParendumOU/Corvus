@@ -104,7 +104,7 @@ export async function runAgentRunsSmoke(ctx: AppContext, h: Helpers): Promise<vo
     // 2. The history page shows the run and a Resume control.
     const mounted = await poll(wc, "window.corvusInternal && document.querySelector('.side-nav a.active')");
     check("agent-runs page rendered", mounted);
-    const hasRow = await poll(wc, "document.querySelector('.ar-row')", 8000);
+    const hasRow = await poll(wc, "document.querySelector('.ar-run')", 8000);
     const hasResume = await poll(wc, "[...document.querySelectorAll('.ar-actions .btn')].some((b) => /resume/i.test(b.textContent))", 8000);
     check("run row + resume control render", hasRow && hasResume);
     // The scripted run stole the active tab; re-activate the history tab so capturePage has a surface.

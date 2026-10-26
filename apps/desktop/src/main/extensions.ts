@@ -83,6 +83,15 @@ export interface InstallRequest {
   window: BaseWindow | null;
 }
 
+type MessageBox = (options: Electron.MessageBoxOptions, window: BaseWindow | null) => Promise<{ response: number; checkboxChecked: boolean }>;
+
+/** How extensions ask the person: Corvus's dialog in the window (set in index.ts), the system's until then. */
+let messageBox: MessageBox = (options, window) => (window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options));
+
+export function setExtensionMessageBox(box: MessageBox): void {
+  messageBox = box;
+}
+
 /** Asks the user to confirm an install. Replaced by the smoke test to auto-accept. */
 export type InstallPrompt = (request: InstallRequest) => Promise<boolean>;
 
@@ -93,16 +102,16 @@ async function defaultInstallPrompt(request: InstallRequest): Promise<boolean> {
       : tr("It does not require any special permissions.");
   const options: Electron.MessageBoxOptions = {
     type: "question",
-    buttons: [tr("Add extension"), tr("Cancel")],
-    defaultId: 0,
-    cancelId: 1,
+    buttons: [tr("Cancel"), tr("Add extension")],
+    defaultId: 1,
+    cancelId: 0,
     title: tr("Add extension"),
     message: tr("Add “{name}”?", { name: request.name }),
     detail,
     ...(request.icon && !request.icon.isEmpty() ? { icon: request.icon.resize({ width: 48, height: 48 }) } : {}),
   };
-  const { response } = request.window ? await dialog.showMessageBox(request.window, options) : await dialog.showMessageBox(options);
-  return response === 0;
+  const { response } = await messageBox(options, request.window);
+  return response === 1;
 }
 
 let installPrompt: InstallPrompt = defaultInstallPrompt;
@@ -683,16 +692,16 @@ export class ExtensionHost {
       host_permissions: request.origins ?? [],
     });
     if (warnings.length === 0) return true;
-    const { response } = await dialog.showMessageBox({
+    const { response } = await messageBox({
       type: "question",
-      buttons: [tr("Allow"), tr("Deny")],
-      defaultId: 1,
-      cancelId: 1,
+      buttons: [tr("Deny"), tr("Allow")],
+      defaultId: 0,
+      cancelId: 0,
       title: tr("Extension permissions"),
       message: tr("“{name}” requests additional permissions", { name: extension.name }),
       detail: `${tr("It will be able to:")}\n${warnings.map((w) => `•  ${w}`).join("\n")}`,
-    });
-    return response === 0;
+    }, null);
+    return response === 1;
   }
 
   /** Checks loaded web store extensions for updates; returns the IDs that were updated. */

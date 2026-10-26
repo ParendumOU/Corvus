@@ -5,6 +5,7 @@
  * Each side uses a single RPC channel; the main process validates the sender and the method.
  * Web content never gets either API.
  */
+import type { HistoryFilter } from "./history-ops";
 import type { ImportKind, ImportResult, ImportScan } from "./browser-import";
 import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
@@ -130,6 +131,10 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "ui.tabMenu"(tabId: TabId, x: number, y: number): void;
   "ui.groupMenu"(groupId: GroupId, x: number, y: number): void;
   "ui.bookmarkFolderMenu"(folderId: string, x: number, y: number): void;
+  /** The person answered the window's dialog (WindowState.dialog). */
+  "dialog.answer"(id: string, button: number, checked: boolean, value: string): void;
+  /** The bar's bookmarks from index `from` on, which do not fit in the bar. */
+  "ui.bookmarkOverflowMenu"(from: number, x: number, y: number): void;
   "ui.bookmarkMenu"(bookmarkId: string, x: number, y: number): void;
   "ui.focusContent"(): void;
   "tabs.create"(opts?: { url?: string; groupId?: GroupId; background?: boolean }): TabId;
@@ -386,6 +391,10 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "history.query"(query: string, offset: number, limit: number): { entries: HistoryRecord[]; total: number };
   "history.remove"(ids: string[]): void;
   "history.clear"(): void;
+  /** How many entries "Clear history" would remove with this filter. */
+  "history.countMatching"(filter: HistoryFilter): number;
+  /** Removes what the filter covers; returns how many entries went. */
+  "history.removeMatching"(filter: HistoryFilter): number;
   "settings.get"(): SettingsView;
   "settings.update"(patch: SettingsPatch): SettingsView;
   "settings.setSecret"(key: SecretKey, value: string): SettingsView;

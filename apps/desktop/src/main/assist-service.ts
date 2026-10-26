@@ -189,6 +189,7 @@ export class AssistService {
   private readonly live = new Map<BrowserWindowCtl, LiveCapture>();
   private provider: { key: string; value: AnswerProvider | null } | null = null;
   private testProvider: AnswerProvider | null | undefined;
+  private widthSave: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly ctx: AppContext) {
     ctx.settings.onChange((next, prev) => {
@@ -278,6 +279,7 @@ export class AssistService {
         event.preventDefault();
         win.runCommand(command);
       });
+      panel.width = this.ctx.settings.get().appearance.assistWidth;
       this.panels.set(win, panel);
     }
     return panel;
@@ -335,6 +337,11 @@ export class AssistService {
     const panel = this.panel(win);
     panel.width = Math.max(ASSIST_MIN_WIDTH, Math.min(ASSIST_MAX_WIDTH, Math.round(width)));
     win.relayout();
+    // Remembered for new windows and the next start, once the drag settles.
+    clearTimeout(this.widthSave);
+    this.widthSave = setTimeout(() => {
+      if (this.ctx.settings.get().appearance.assistWidth !== panel.width) this.ctx.settings.update({ appearance: { assistWidth: panel.width } });
+    }, 600);
   }
 
   /** Width the window reserves for the panel on the right of the page. */
@@ -965,6 +972,36 @@ export class AssistService {
     }
     entry.runId = launched.id;
     abort.signal.addEventListener("abort", () => this.ctx.agentRunner.stopEmbedded(launched.id), { once: true });
+  }
+
+  /**
+   * Takes the active tab's last question (with its answer) back out of the conversation, to ask it
+   * again or to edit it. Only the last one, a question or selection action, and not while it runs.
+   */
+  private takeBackLast(win: BrowserWindowCtl, messageId: string): { tab: TabRuntime; message: AssistMessage } | null {
+    const tab = win.activeTab();
+    const entry = tab ? this.tabs.get(tab.id) : undefined;
+    const last = entry?.messages.at(-1);
+    if (!tab || !entry || !last || last.id !== messageId || entry.abort) return null;
+    if (last.kind !== "ask" && last.kind !== "explain" && last.kind !== "translate-selection") return null;
+    entry.messages = entry.messages.slice(0, -1);
+    this.refresh(win);
+    return { tab, message: last };
+  }
+
+  /** Asks the last question again (a new answer replaces the one shown). */
+  retry(win: BrowserWindowCtl, messageId: string): void {
+    const taken = this.takeBackLast(win, messageId);
+    if (!taken) return;
+    const { tab, message } = taken;
+    if (message.kind === "ask") this.activeAction(win, "ask", message.prompt);
+    else if (message.kind === "explain" || message.kind === "translate-selection") this.runSelection(win, tab, message.kind, message.prompt);
+  }
+
+  /** Takes the last question out so the person can change it; returns its text ("" when it cannot). */
+  editLast(win: BrowserWindowCtl, messageId: string): string {
+    const taken = this.takeBackLast(win, messageId);
+    return taken?.message.kind === "ask" ? taken.message.prompt : "";
   }
 
   cancel(win: BrowserWindowCtl): void {

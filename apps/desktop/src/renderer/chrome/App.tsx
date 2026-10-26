@@ -18,7 +18,8 @@ import { GROUP_COLORS } from "../../shared/tab-strip";
 import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
 import { IconGlobe, IconLock, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
-import { Favicon } from "../common/ui";
+import { DialogBars, DialogModal } from "./Dialogs";
+import { Favicon, setFaviconProfile } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
 import { FindBar } from "./FindBar";
@@ -141,7 +142,7 @@ export function App() {
 
   const prompt = state?.permissionPrompt ?? null;
   const [extMenuOpen, setExtMenuOpen] = useState(false);
-  const modalOpen = editor !== null || popover !== null || prompt !== null || organizer || palette;
+  const modalOpen = editor !== null || popover !== null || prompt !== null || organizer || palette || Boolean(state?.dialog);
   const overlayOpen = modalOpen || omniOpen || extMenuOpen;
   useEffect(() => {
     void api.call("ui.setOverlay", overlayOpen);
@@ -158,6 +159,7 @@ export function App() {
   }, []);
 
   if (!state) return null;
+  setFaviconProfile(state.profile.id);
   const active = state.tabs.find((t) => t.id === state.activeTabId);
   const mac = state.platform === "darwin";
   const vertical = state.tabLayout === "vertical";
@@ -178,7 +180,7 @@ export function App() {
     >
       <div id="chrome-bar" ref={barRef}>
         {vertical && (
-          <div className="v-topbar">
+          <div className={`v-topbar ${mac ? "mac" : "wco"}`}>
             <button
               className="icon-btn v-collapse"
               title={state.sidebarCollapsed ? tx("Expand sidebar") : tx("Collapse sidebar")}
@@ -186,6 +188,7 @@ export function App() {
             >
               <IconChevronRight size={16} />
             </button>
+            <span className="v-title">{active?.title || "Corvus"}</span>
           </div>
         )}
         {!vertical && tabStrip}
@@ -310,14 +313,19 @@ export function App() {
             </button>
           </div>
         </div>
-        {vertical && tabStrip}
-        {state.showBookmarksBar && !vertical && <BookmarksBar state={state} />}
+        {state.showBookmarksBar && <BookmarksBar state={state} />}
         {state.defaultBrowserOffer && <DefaultBrowserBar />}
+        {state.dialogBars.length > 0 && <DialogBars bars={state.dialogBars} />}
         {state.find && active && (
           <FindBar key={active.id} find={state.find} focusToken={findFocus} focusHandled={findFocusHandled} />
         )}
       </div>
-      {vertical && !state.sidebarCollapsed && <SidebarResize width={state.sidebarWidth} />}
+      {vertical && (
+        <aside className="v-sidebar">
+          {tabStrip}
+          {!state.sidebarCollapsed && <SidebarResize width={state.sidebarWidth} />}
+        </aside>
+      )}
       {overlayOpen && (
         <div
           className={`overlay-backdrop ${modalOpen ? "modal" : ""}`}
@@ -334,6 +342,7 @@ export function App() {
       {palette && <DebugBoundary><CommandBar state={state} onClose={closePalette} listenToken={listenToken} onOrganize={() => { setPalette(false); setOrganizer(true); }} /></DebugBoundary>}
       {editor && <GroupEditor state={state} editor={editor} onClose={() => setEditor(null)} />}
       {prompt && <PermissionPrompt key={prompt.id} prompt={prompt} anchor={omniboxAnchor()} />}
+      {state.dialog && <DialogModal view={state.dialog} />}
       {popover?.kind === "site" && <SiteInfoPopover anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "zoom" && <ZoomPopover anchor={popover.anchor} percent={state.zoomPercent} />}
       {organizer && <Organizer dark={state.dark} tabCount={state.tabs.length} onClose={() => setOrganizer(false)} />}
@@ -411,6 +420,23 @@ function BookmarksBar({ state }: { state: WindowState }) {
   const api = chromeApi();
   const [dropAt, setDropAt] = useState<number | null>(null);
   const count = state.bookmarksBar.length;
+  // Items that do not fit stay laid out but hidden; "»" lists them, and All bookmarks stays put.
+  const itemsRef = useRef<HTMLDivElement>(null);
+  const [fits, setFits] = useState(count);
+  useLayoutEffect(() => {
+    const box = itemsRef.current;
+    if (!box) return;
+    const measure = (): void => {
+      const limit = box.clientWidth;
+      const items = [...box.querySelectorAll<HTMLElement>("[data-bar-index]")];
+      const first = items.findIndex((el) => el.offsetLeft + el.offsetWidth > limit);
+      setFits(first < 0 ? items.length : first);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [count, state.bookmarksBar]);
   const carriesPage = (e: DragEvent<HTMLElement>): boolean => e.dataTransfer.types.includes(PAGE_DRAG_MIME) || e.dataTransfer.types.includes("text/uri-list");
   return (
     <div
@@ -433,12 +459,14 @@ function BookmarksBar({ state }: { state: WindowState }) {
       }}
     >
       {count === 0 && <span className="bar-empty">{dropAt !== null ? tx("Drop to bookmark this page") : tx("Bookmark pages with the star in the address bar, or drag the lock here.")}</span>}
+      <div className="bar-items" ref={itemsRef}>
       {state.bookmarksBar.map((b, i) =>
         b.kind === "folder" ? (
           <button
             key={b.id}
             data-bar-index={i}
-            className={`bar-item ${dropAt === i ? "drop-before" : ""}`}
+            className={`bar-item ${dropAt === i ? "drop-before" : ""} ${i >= fits ? "bar-hidden" : ""}`}
+            tabIndex={i >= fits ? -1 : undefined}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               void api.call("ui.bookmarkFolderMenu", b.id, r.left, r.bottom + 2);
@@ -455,7 +483,8 @@ function BookmarksBar({ state }: { state: WindowState }) {
           <button
             key={b.id}
             data-bar-index={i}
-            className={`bar-item ${dropAt === i ? "drop-before" : ""}`}
+            className={`bar-item ${dropAt === i ? "drop-before" : ""} ${i >= fits ? "bar-hidden" : ""}`}
+            tabIndex={i >= fits ? -1 : undefined}
             title={`${b.title}\n${b.url ?? ""}`}
             onClick={(e) => b.url && void api.call("tabs.openUrl", b.url, e.ctrlKey || e.metaKey ? "background-tab" : "current")}
             onAuxClick={(e) => e.button === 1 && b.url && void api.call("tabs.openUrl", b.url, "background-tab")}
@@ -470,8 +499,21 @@ function BookmarksBar({ state }: { state: WindowState }) {
         ),
       )}
       {dropAt !== null && dropAt === count && count > 0 && <span className="bar-drop-end" />}
-      <span className="bar-spacer" />
-      <button className="bar-item" onClick={() => void api.call("tabs.openUrl", "corvus://bookmarks/", "new-tab")}>
+      </div>
+      {fits < count && (
+        <button
+          className="bar-item bar-more"
+          title={tx("More bookmarks")}
+          aria-label={tx("More bookmarks")}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            void api.call("ui.bookmarkOverflowMenu", fits, r.left, r.bottom + 2);
+          }}
+        >
+          »
+        </button>
+      )}
+      <button className="bar-item bar-all" onClick={() => void api.call("tabs.openUrl", "corvus://bookmarks/", "new-tab")}>
         <IconFolder size={14} />
         <span>{tx("All bookmarks")}</span>
       </button>

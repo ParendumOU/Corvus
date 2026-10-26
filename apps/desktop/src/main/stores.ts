@@ -24,12 +24,13 @@ import {
   faviconsFromHistory,
   queryHistory,
   recordVisit,
-  removeEntries,
+  historyMatching, removeEntries,
   topSites,
   updateEntry,
   type HistoryRecord,
   type SyncedHistoryEntry,
 } from "../shared/history-ops";
+import type { HistoryFilter } from "../shared/history-ops";
 
 type Listener = () => void;
 
@@ -71,11 +72,11 @@ export class BookmarkStore {
    * empty folders and addresses that are not pages. Returns what was added.
    */
   importTree(parentId: string, title: string, nodes: readonly ImportedNode[]): { imported: number; folders: number } {
-    const counts = { imported: 0, folders: 0 };
+    const counts = { imported: 0, folders: 0, existing: 0 };
     if (countBookmarks([...nodes]) === 0) return counts;
     const container = this.create({ parentId, kind: "folder", title: title.slice(0, 120) });
     this.importInto(container.id, nodes, counts);
-    return counts;
+    return { imported: counts.imported, folders: counts.folders };
   }
 
   /**
@@ -83,14 +84,15 @@ export class BookmarkStore {
    * they were there. Importing again adds only what is new: a folder merges into one of the same
    * name already in place, and a page already in its folder is skipped.
    */
-  importRoots(roots: ImportedRoots): { imported: number; folders: number } {
-    const counts = { imported: 0, folders: 0 };
+  /** Adds the bookmarks Corvus does not have yet; `existing` counts the ones already in the same folder. */
+  importRoots(roots: ImportedRoots): { imported: number; folders: number; existing: number } {
+    const counts = { imported: 0, folders: 0, existing: 0 };
     this.importInto(BAR_FOLDER_ID, roots.bar, counts);
     this.importInto(OTHER_FOLDER_ID, roots.other, counts);
     return counts;
   }
 
-  private importInto(parentId: string, nodes: readonly ImportedNode[], counts: { imported: number; folders: number }): void {
+  private importInto(parentId: string, nodes: readonly ImportedNode[], counts: { imported: number; folders: number; existing: number }): void {
     for (const node of nodes) {
       if (counts.imported >= MAX_IMPORTED_BOOKMARKS) return;
       const siblings = childrenOf(this.file.get(), parentId);
@@ -103,7 +105,11 @@ export class BookmarkStore {
           counts.folders++;
         }
         this.importInto(folder.id, node.children, counts);
-      } else if (/^(https?|ftp|file|corvus):/i.test(node.url) && !siblings.some((b) => b.kind === "bookmark" && b.url === node.url)) {
+      } else if (/^(https?|ftp|file|corvus):/i.test(node.url)) {
+        if (siblings.some((b) => b.kind === "bookmark" && b.url === node.url)) {
+          counts.existing++;
+          continue;
+        }
         this.create({ parentId, kind: "bookmark", title: node.title || node.url, url: node.url });
         counts.imported++;
       }
@@ -246,6 +252,23 @@ export class HistoryStore {
     this.file.set(removeEntries(this.file.get(), ids));
     this.changes.emit();
     if (urls.length > 0) for (const l of this.removeListeners) l(urls);
+  }
+
+  /** How many entries a "Clear history" filter covers. */
+  countMatching(filter: HistoryFilter): number {
+    return historyMatching(this.file.get(), filter).length;
+  }
+
+  /** Removes what a "Clear history" filter covers (everything, for all time with no other limit). */
+  removeMatching(filter: HistoryFilter): number {
+    if (!filter.since && !filter.query?.trim() && !filter.site?.trim()) {
+      const all = this.file.get().length;
+      this.clear();
+      return all;
+    }
+    const ids = historyMatching(this.file.get(), filter).map((e) => e.id);
+    if (ids.length > 0) this.remove(ids);
+    return ids.length;
   }
 
   clear(): void {

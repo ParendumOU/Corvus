@@ -33,6 +33,8 @@ export interface Settings {
     tabLayout: TabLayout;
     /** Width of the vertical tab sidebar in pixels (when expanded). */
     sidebarWidth: number;
+    /** Width of the Corvus Assist panel in pixels, as the person last dragged it. */
+    assistWidth: number;
     /** Vertical sidebar collapsed to icons only. */
     sidebarCollapsed: boolean;
     /** Language of Corvus's own pages (settings and the page menu so far). */
@@ -259,7 +261,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
   const retriever: RetrieverKind =
     env.CORVUS_RETRIEVER === "brave" || env.CORVUS_RETRIEVER === "duckduckgo" ? env.CORVUS_RETRIEVER : "searxng";
   return {
-    appearance: { theme: "system", showBookmarksBar: true, tabLayout: "horizontal", sidebarWidth: 240, sidebarCollapsed: false, language: "system", showHomeButton: true, homePage: "corvus", homeUrl: "" },
+    appearance: { theme: "system", showBookmarksBar: true, tabLayout: "horizontal", sidebarWidth: 240, assistWidth: 380, sidebarCollapsed: false, language: "system", showHomeButton: true, homePage: "corvus", homeUrl: "" },
     ai: {
       provider,
       model: env.CORVUS_AI_MODEL || DEFAULT_MODEL,
@@ -331,6 +333,7 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   merged.passwords.keepassAutoLockMinutes = Math.max(0, Math.min(1440, Math.round(merged.passwords.keepassAutoLockMinutes) || 0));
   merged.webscope.maxBodyBytes = Math.max(64 * 1024, Math.min(50 * 1024 * 1024, Math.round(merged.webscope.maxBodyBytes)));
   merged.appearance.sidebarWidth = Math.max(180, Math.min(480, Math.round(merged.appearance.sidebarWidth)));
+  merged.appearance.assistWidth = Math.max(320, Math.min(960, Math.round(merged.appearance.assistWidth) || 380));
   merged.monitor.defaultIntervalMinutes = Math.max(5, Math.min(1440, Math.round(merged.monitor.defaultIntervalMinutes)));
   merged.monitor.maxWatches = Math.max(1, Math.min(200, Math.round(merged.monitor.maxWatches)));
   merged.scheduledAgents.maxSteps = Math.max(1, Math.min(50, Math.round(merged.scheduledAgents.maxSteps)));

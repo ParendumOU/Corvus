@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import type { AgentActivityView, AgentLiveView, LiveAgentTask, AssistBridge, AssistMessage, AssistPanelState, AssistTabView, WorkflowsPaneView } from "../../shared/assist-ipc";
 import { ASSIST_DEFAULT_WIDTH } from "../../shared/assist-ipc";
 import { MAX_COMPARE_TABS, type CompareCandidate } from "../../shared/compare";
@@ -36,6 +36,8 @@ import { useDictation } from "../common/dictation";
 import { insertDictation } from "../../shared/dictation";
 import { splitAnswer } from "../../shared/assist-artifacts";
 import { ArtifactPending, ArtifactView } from "./artifacts";
+import { RichMarkdown } from "../common/rich-text";
+import { modelLabel } from "../../shared/model-label";
 declare global {
   interface Window {
     corvusAssist?: AssistBridge;
@@ -55,11 +57,6 @@ function langName(tag: string): string {
   } catch {
     return tag;
   }
-}
-
-function modelName(model: string): string {
-  const m = /claude-([a-z]+)-(\d+)-(\d+)/.exec(model);
-  return m ? `${m[1]!.charAt(0).toUpperCase()}${m[1]!.slice(1)} ${m[2]}.${m[3]}` : model;
 }
 
 export function App() {
@@ -172,7 +169,7 @@ function AssistPane({ state }: { state: AssistPanelState }) {
         {tab.messages.length === 0 ? (
           <Intro tab={tab} />
         ) : (
-          tab.messages.map((m) => <Message key={m.id} m={m} lang={state.lang} canSend={!tab.busy} />)
+          tab.messages.map((m, i) => <Message key={m.id} m={m} lang={state.lang} canSend={!tab.busy} last={i === tab.messages.length - 1} />)
         )}
       </div>
       <Composer tab={tab} focusToken={state.focusToken} dictationReady={state.dictation} />
@@ -330,10 +327,10 @@ function Usage({ m }: { m: AssistMessage }) {
   return (
     <div className="usage" title={u.model}>
       {u.cached
-        ? tx("From cache, no tokens used ({model})", { model: modelName(u.model) })
+        ? tx("From cache, no tokens used ({model})", { model: modelLabel(u.model) })
         : u.cachedInputTokens
-          ? tx("{nf} tokens in ({cached} reused from the prompt cache), {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), cached: nf.format(u.cachedInputTokens), nf2: nf.format(u.outputTokens), secs, model: modelName(u.model) })
-          : tx("{nf} tokens in, {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), nf2: nf.format(u.outputTokens), secs, model: modelName(u.model) })}
+          ? tx("{nf} tokens in ({cached} reused from the prompt cache), {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), cached: nf.format(u.cachedInputTokens), nf2: nf.format(u.outputTokens), secs, model: modelLabel(u.model) })
+          : tx("{nf} tokens in, {nf2} out, {secs} s with {model}", { nf: nf.format(u.inputTokens), nf2: nf.format(u.outputTokens), secs, model: modelLabel(u.model) })}
     </div>
   );
 }
@@ -353,43 +350,17 @@ function Cite({ n, sections, video }: { n: number; sections: string[] | undefine
   );
 }
 
-/** Paragraphs, "- " bullets, **bold** and [n] section citations. */
+/** An answer's Markdown (headings, lists, code, tables, links) with [n] section citations. */
 function RichText({ text, sections, video }: { text: string; sections?: string[]; video?: boolean | undefined }) {
-  const inline = (line: string, key: string): ReactNode[] => {
-    const out: ReactNode[] = [];
-    const re = /\*\*([^*]+)\*\*|\[(\d+(?:\s*,\s*\d+)*)\]/g;
-    let last = 0;
-    let i = 0;
-    for (const m of line.matchAll(re)) {
-      if (m.index! > last) out.push(line.slice(last, m.index));
-      if (m[1]) out.push(<strong key={`${key}b${i++}`}>{m[1]}</strong>);
-      else
-        for (const part of m[2]!.split(",")) {
-          const n = Number(part.trim()) - 1;
-          if (sections && n >= 0 && n < sections.length) out.push(<Cite key={`${key}c${i++}`} n={n} sections={sections} video={video} />);
-        }
-      last = m.index! + m[0].length;
-    }
-    if (last < line.length) out.push(line.slice(last));
-    return out;
-  };
-  const blocks: ReactNode[] = [];
-  let bullets: string[] = [];
-  const flush = (k: number): void => {
-    if (bullets.length) blocks.push(<ul key={`u${k}`}>{bullets.map((b, j) => <li key={j}>{inline(b, `u${k}-${j}`)}</li>)}</ul>);
-    bullets = [];
-  };
-  text.split(/\n/).forEach((raw, k) => {
-    const line = raw.trim();
-    const bullet = /^(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
-    if (bullet) bullets.push(bullet[1]!);
-    else {
-      flush(k);
-      if (line) blocks.push(<p key={`p${k}`}>{inline(line.replace(/^#+\s*/, ""), `p${k}`)}</p>);
-    }
-  });
-  flush(-1);
-  return <div className="rich">{blocks}</div>;
+  return (
+    <RichMarkdown
+      text={text}
+      sectionCount={sections?.length ?? 0}
+      renderCite={(n, key) => <Cite key={key} n={n} sections={sections} video={video} />}
+      openUrl={(url) => void api().call("assist.openUrl", url)}
+      copy={(value) => api().call("assist.copyPlain", value)}
+    />
+  );
 }
 
 /** "Copy" under an answer: its text with any artifacts written out (main/assist-service.ts copyableText). */
@@ -438,9 +409,55 @@ function AnswerBody({ m, lang, canSend }: { m: AssistMessage; lang: string; canS
   );
 }
 
-function Message({ m, lang, canSend }: { m: AssistMessage; lang: string; canSend: boolean }) {
+/** Puts text in the composer (editing the last question). */
+const DRAFT_EVENT = "assist-draft";
+
+/** The person's question; the last one can be taken back to edit. */
+function Question({ m, last }: { m: AssistMessage; last: boolean }) {
+  const editable = last && m.kind === "ask" && m.status !== "streaming";
+  return (
+    <div className="question-row">
+      {editable && (
+        <button
+          className="question-edit"
+          title={tx("Edit the question")}
+          aria-label={tx("Edit the question")}
+          onClick={() =>
+            void api()
+              .call("assist.editLast", m.id)
+              .then((text) => {
+                if (text) window.dispatchEvent(new CustomEvent(DRAFT_EVENT, { detail: text }));
+              })
+          }
+        >
+          <GlyphPen size={13} />
+        </button>
+      )}
+      <div className="question">{m.prompt}</div>
+    </div>
+  );
+}
+
+/** Copy and, on the last answer, Retry. */
+function AnswerActions({ m, last }: { m: AssistMessage; last: boolean }) {
+  const done = m.status !== "streaming";
+  const retryable = last && done && (m.kind === "ask" || m.kind === "explain" || m.kind === "translate-selection") && !m.agent?.approval;
+  if (!done || (!m.text.trim() && !retryable)) return null;
+  return (
+    <div className="msg-actions">
+      {m.status === "done" && m.text.trim() ? <CopyAnswer id={m.id} /> : null}
+      {retryable && (
+        <button className="msg-copy" title={tx("Ask again for a new answer")} onClick={() => void api().call("assist.retry", m.id)}>
+          <GlyphUndo size={13} /> {tx("Retry")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Message({ m, lang, canSend, last }: { m: AssistMessage; lang: string; canSend: boolean; last: boolean }) {
   const streaming = m.status === "streaming";
-  const copy = m.status === "done" && m.text.trim() ? <CopyAnswer id={m.id} /> : null;
+  const copy = <AnswerActions m={m} last={last} />;
   const failed = m.status === "error" ? <p className="error">{m.error}</p> : m.status === "cancelled" ? <p className="muted small">{tx("Stopped.")}</p> : null;
 
   if (m.kind === "summarize") {
@@ -586,7 +603,7 @@ function Message({ m, lang, canSend }: { m: AssistMessage; lang: string; canSend
     const agent = m.agent;
     return (
       <>
-        <div className="question">{m.prompt}</div>
+        <Question m={m} last={last} />
         <article className="msg ask agent">
           <AgentSteps agent={agent} />
           {agent.approval && <AgentApproval agent={agent} />}
@@ -609,7 +626,7 @@ function Message({ m, lang, canSend }: { m: AssistMessage; lang: string; canSend
   const isSelection = m.kind === "explain" || m.kind === "translate-selection";
   return (
     <>
-      {m.kind === "ask" && <div className="question">{m.prompt}</div>}
+      {m.kind === "ask" && <Question m={m} last={last} />}
       <article className={`msg ${m.kind}`}>
         {isSelection && (
           <>
@@ -799,6 +816,21 @@ function Composer({ tab, focusToken, dictationReady }: { tab: AssistTabView; foc
   const listening = dictation.phase === "listening";
 
   useEffect(() => {
+    const fill = (e: Event): void => {
+      const text = (e as CustomEvent<string>).detail;
+      setValue(text);
+      requestAnimationFrame(() => {
+        const el = ref.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(text.length, text.length);
+      });
+    };
+    window.addEventListener(DRAFT_EVENT, fill);
+    return () => window.removeEventListener(DRAFT_EVENT, fill);
+  }, []);
+
+  useEffect(() => {
     ref.current?.focus();
   }, [focusToken, tab.tabId]);
 
@@ -824,6 +856,15 @@ function Composer({ tab, focusToken, dictationReady }: { tab: AssistTabView; foc
       e.preventDefault();
       if (e.key === "Enter") dictation.stop();
       else dictation.cancel();
+      return;
+    }
+    // Up in an empty box takes the last question back to edit it.
+    const lastMessage = tab.messages.at(-1);
+    if (e.key === "ArrowUp" && !value && lastMessage?.kind === "ask" && lastMessage.status !== "streaming" && !tab.busy) {
+      e.preventDefault();
+      void api()
+        .call("assist.editLast", lastMessage.id)
+        .then((text) => text && setValue(text));
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {

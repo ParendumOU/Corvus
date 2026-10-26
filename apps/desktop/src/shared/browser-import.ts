@@ -49,7 +49,8 @@ export interface ImportScan {
 }
 
 export interface ImportResult {
-  bookmarks?: { imported: number; folders: number };
+  /** `existing`: bookmarks already in Corvus (same address in the same folder), left as they were. */
+  bookmarks?: { imported: number; folders: number; existing?: number };
   history?: { imported: number };
   /** Open windows saved as Corvus workspaces. */
   tabs?: { windows: number; tabs: number };

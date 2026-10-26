@@ -84,6 +84,37 @@ export async function runFeaturesSmoke(ctx: AppContext, h: Helpers): Promise<voi
     check(`vertical tabs rendered (${theme})`, ok, ok ? undefined : await chrome.executeJavaScript("document.querySelector('.chrome-root')?.className"));
     await capture(`vertical-tabs-${theme}`, chrome);
   }
+  // The toolbar keeps the top band across the window; the page starts right of the tab sidebar and
+  // below that band, over the chrome UI, which comes on top only for its overlays.
+  {
+    const sidebar = ctx.settings.get().appearance.sidebarWidth;
+    const pageBounds = win.activeTab()?.view.getBounds();
+    const layout = (await chrome.executeJavaScript(`(() => {
+      const omni = document.querySelector(".omnibox")?.getBoundingClientRect();
+      const side = document.querySelector(".v-sidebar")?.getBoundingClientRect();
+      const bar = document.getElementById("chrome-bar")?.getBoundingClientRect();
+      return { omniRight: omni ? Math.round(omni.right) : 0, omniTop: omni ? Math.round(omni.top) : -1, sideTop: side ? Math.round(side.top) : -1, sideWidth: side ? Math.round(side.width) : 0, barWidth: bar ? Math.round(bar.width) : 0, width: window.innerWidth };
+    })()`)) as { omniRight: number; omniTop: number; sideTop: number; sideWidth: number; barWidth: number; width: number };
+    const children = win.win.contentView.children;
+    const chromeUnder = children.indexOf(win.chrome) === 0;
+    const ok =
+      Boolean(pageBounds) &&
+      pageBounds!.x === sidebar &&
+      pageBounds!.y > 40 &&
+      layout.barWidth === layout.width &&
+      layout.omniRight > sidebar &&
+      layout.sideTop >= pageBounds!.y - 2 &&
+      layout.sideWidth === sidebar &&
+      chromeUnder;
+    check("vertical tabs: the toolbar spans the window, the sidebar holds the tabs below it, the page sits right of it", ok, { pageBounds, sidebar, layout, chromeUnder });
+    win.sendCommand({ type: "open-command-palette" });
+    await sleep(300);
+    const onTop = win.win.contentView.children.at(-1) === win.chrome;
+    win.sendCommand({ type: "close-overlays" });
+    await sleep(300);
+    const backUnder = win.win.contentView.children.indexOf(win.chrome) === 0;
+    check("vertical tabs: the chrome UI comes over the page for the Command Bar and goes back under it", onTop && backUnder, { onTop, backUnder });
+  }
   // Collapse to icons, screenshot, then back to the default horizontal strip.
   ctx.settings.update({ appearance: { sidebarCollapsed: true } });
   await sleep(300);

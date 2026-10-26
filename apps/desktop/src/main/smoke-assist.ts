@@ -67,6 +67,18 @@ const SUMMARY = [
 const ASK =
   "Ravens differ from crows in three clear ways: they are noticeably larger, show a wedge-shaped tail in flight, and give a deep croaking call rather than a caw [1][3].";
 
+/** An answer in Markdown: a heading, a table, a code block and a link the panel opens in a tab. */
+const MARKDOWN_ANSWER = [
+  "## Install it",
+  "Run this, then open [the guide](https://corvus-smoke.test/guide) for *more*:",
+  "```sh",
+  "fieldkit init",
+  "```",
+  "| Step | Time |",
+  "|---|---:|",
+  "| Install | 2 min |",
+].join("\n");
+
 /** An answer with artifacts: a table, key figures and a short form, with a citation to drop on copy. */
 const ARTIFACT_ANSWER = [
   "Two airlines fly there [2].",
@@ -118,6 +130,7 @@ function replyFor(system: string, user: string): string {
   if (/Summarize the web page/.test(system)) return SUMMARY;
   if (/Group the user's numbered browser tabs/.test(system)) return GROUPS;
   if (/Answer the user's question/.test(system) && /<question>[^<]*options as a table/.test(user)) return ARTIFACT_ANSWER;
+  if (/Answer the user's question/.test(system) && /<question>[^<]*formatted/.test(user)) return MARKDOWN_ANSWER;
   if (/Answer the user's question/.test(system) && /<question>«Trip»/.test(user)) return "Noted: I will look for flights on those dates.";
   if (/Answer the user's question/.test(system)) return ASK;
   return ASK;
@@ -255,6 +268,34 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
     await panel.executeJavaScript("document.querySelector('.artifact-form button[type=submit]')?.click()");
     const replied = await poll(panel, "[...document.querySelectorAll('.question')].some((q) => q.innerText.includes('«Trip»') && q.innerText.includes('3-5 May')) && [...document.querySelectorAll('.msg.ask .rich')].some((e) => e.innerText.includes('Noted'))");
     check("a form in an answer sends what the person filled in as the next question", replied, replied ? undefined : await panel.executeJavaScript("document.querySelector('.thread')?.innerText?.slice(-400)"));
+    ctx.assist.clear(win);
+
+    // Markdown: headings, tables and code show formatted; a link opens in a new tab.
+    ctx.assist.activeAction(win, "ask", "How do I install it? Keep it formatted");
+    const formatted = await poll(panel, "document.querySelector('.msg.ask .rich h4') && document.querySelector('.msg.ask .md-table td') && document.querySelector('.msg.ask .code-block code')?.innerText === 'fieldkit init' && document.querySelector('.msg.ask .rich em')");
+    check("assist answers show their Markdown formatted (heading, table, code, italics)", formatted, formatted ? undefined : await panel.executeJavaScript("document.querySelector('.thread')?.innerHTML?.slice(-600)"));
+    await capture("assist-markdown", panel);
+    const tabsBeforeLink = new Set(win.tabIds());
+    await panel.executeJavaScript("document.querySelector('.msg.ask .rich a')?.click()");
+    let linkTab: string | undefined;
+    for (let i = 0; i < 30 && !linkTab; i++) {
+      await sleep(100);
+      linkTab = win.tabIds().find((id) => !tabsBeforeLink.has(id));
+    }
+    check("a link in an answer opens in a new tab", Boolean(linkTab && win.getTab(linkTab)?.url.startsWith("https://corvus-smoke.test/guide")), linkTab ? win.getTab(linkTab)?.url : "no new tab");
+    if (linkTab) win.closeTab(linkTab);
+    win.activate(pageTab.id);
+
+    // Retry asks the last question again in place; Edit takes it back into the composer.
+    await panel.executeJavaScript("[...document.querySelectorAll('.msg-actions .msg-copy')].find((b) => b.innerText.includes('Retry'))?.click()");
+    const retried = await poll(panel, "document.querySelectorAll('.question').length === 1 && document.querySelectorAll('.msg.ask').length === 1 && document.querySelector('.msg.ask .code-block') && document.querySelector('.msg-actions')");
+    check("retry asks the last question again and the new answer replaces the old one", retried, await panel.executeJavaScript("document.querySelectorAll('.msg.ask').length"));
+    await panel.executeJavaScript("document.querySelector('.question-edit')?.click()");
+    const editing = await poll(panel, "document.querySelectorAll('.question').length === 0 && document.querySelector('.composer textarea')?.value === 'How do I install it? Keep it formatted'");
+    check("edit takes the last question back into the composer", editing, await panel.executeJavaScript("document.querySelector('.composer textarea')?.value ?? ''"));
+    await panel.executeJavaScript(
+      "(() => { const t = document.querySelector('.composer textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(t, ''); t.dispatchEvent(new Event('input', { bubbles: true })); })()",
+    );
     ctx.assist.clear(win);
 
     // The panel's left edge drags it wider; a double-click puts the default width back.

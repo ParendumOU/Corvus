@@ -2,6 +2,7 @@
  * IPC contracts for the daily-browser features (permissions, site info, find, zoom, downloads).
  * Merged into ChromeRpc / InternalRpc / WindowState in ./ipc.ts.
  */
+import type { DialogView } from "./dialog";
 import type { DownloadAction, DownloadRecord } from "./downloads";
 import type { QueueAction, QueueView } from "./download-queue";
 import type { GrabbedPackage } from "./link-grabber";
@@ -62,6 +63,10 @@ export interface QueueSummary {
 
 export interface BrowserWindowExtras {
   permissionPrompt: PermissionPromptView | null;
+  /** A question Corvus asks in this window (shared/dialog.ts), shown as a modal over everything. */
+  dialog: DialogView | null;
+  /** Questions shown as bars under the toolbar (an AI agent asks for a hand in the page). */
+  dialogBars: DialogView[];
   find: FindState | null;
   zoomPercent: number;
   downloads: DownloadsSummary;
@@ -145,7 +150,9 @@ export interface BrowserInternalRpc {
   "downloads.chooseDirectory"(): SettingsView | null;
   "grabber.list"(): GrabbedPackage[];
   /** Adds the download links in pasted text; returns how many were new. */
-  "grabber.addText"(text: string): number;
+  /** `name`: all the links as one package of that name (its folder in Downloads). */
+  "grabber.addText"(text: string, name?: string): number;
+  "grabber.rename"(id: string, name: string): void;
   "grabber.remove"(ids: string[]): void;
   "grabber.clear"(): void;
   /** Watching the clipboard for download links: the setting, changed when `on` is given. */
@@ -164,6 +171,10 @@ export interface BrowserInternalRpc {
   "queue.act"(id: string, action: QueueAction): void;
   /** Moves a package up (-1) or down (1) in the queue. */
   "queue.move"(id: string, delta: number): void;
+  /** Renames a package and moves its folder (not while it downloads). */
+  "queue.rename"(id: string, name: string): void;
+  /** Shows a package's folder in the system's file manager. */
+  "queue.openFolder"(id: string): void;
   "queue.clearDone"(): void;
   /** Extracts a finished package's archives now, trying the password first when one is given. */
   "queue.extract"(id: string, password?: string): void;

@@ -63,6 +63,8 @@ function panelHandlers(ctx: AppContext): Handlers<AssistRpc> {
     "assist.cancelWrite": (w) => ctx.assist.cancelWrite(w),
     "assist.insertWrite": (w, id) => ctx.assist.insertWrite(w, text(id, "message", 128)),
     "assist.copyText": (w, id) => ctx.assist.copyText(w, text(id, "message", 128)),
+    "assist.retry": (w, id) => ctx.assist.retry(w, text(id, "message", 128)),
+    "assist.editLast": (w, id) => ctx.assist.editLast(w, text(id, "message", 128)),
     "assist.copyPlain": (_w, value) => clipboard.writeText(text(value, "text", 200_000)),
     "assist.compare": (w, tabIds, focus) => {
       if (!Array.isArray(tabIds) || tabIds.length > 50) throw new IpcError("Invalid tabs");

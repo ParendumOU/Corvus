@@ -1425,9 +1425,15 @@ function SettingsPage() {
     document.title = t("Settings");
   });
 
+  // Opened on a section (corvus://settings/#semantic-search): go to it once the page is drawn, and
+  // again a moment later, after sections that load their own data have taken their height.
   useEffect(() => {
     const hash = location.hash.slice(1);
-    if (view && hash) document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    if (!view || !hash) return;
+    const go = (): void => document.getElementById(hash)?.scrollIntoView({ block: "start" });
+    go();
+    const later = setTimeout(go, 400);
+    return () => clearTimeout(later);
   }, [view !== null]);
 
   const update = useCallback(

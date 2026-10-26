@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { clipboard, dialog, ipcMain, nativeImage, type IpcMainEvent } from "electron";
+import { tr } from "./menu-i18n";
 import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
 import {
   AUTOFILL_CAPTURE_CHANNEL,
@@ -11,7 +12,7 @@ import {
   type TotpQrImport,
 } from "../shared/credentials-ipc";
 import type { InternalPage } from "../shared/internal-urls";
-import type { KeePassExportResult, KeePassRpc, KeePassState } from "../shared/keepass-ipc";
+import type { KeePassExportResult, KeePassEntryInput, KeePassRpc, KeePassState } from "../shared/keepass-ipc";
 import { buildOtpauthUri, parseTotpInput, totpCode, type TotpConfig } from "../shared/totp";
 import type { AppContext } from "./context";
 import type { CredentialPatch } from "./credential-store";
@@ -239,6 +240,23 @@ function parseFieldBox(raw: unknown): LoginFieldBox | null {
 
 // ------------------------------------------------------------------------- KeePass
 
+/** An entry from the passwords page: known fields only, with their types and sizes checked. */
+function keepassInput(value: unknown): KeePassEntryInput {
+  const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  const field = (name: string, max: number): string => (typeof v[name] === "string" ? (v[name] as string).slice(0, max) : "");
+  const title = field("title", 500).trim();
+  if (!title) throw new Error(tr("Give the entry a title."));
+  return {
+    ...(typeof v.uuid === "string" && /^[A-Za-z0-9+/=_-]{8,64}$/.test(v.uuid) ? { uuid: v.uuid } : {}),
+    group: field("group", 1000),
+    title,
+    username: field("username", 500),
+    ...(typeof v.password === "string" ? { password: v.password.slice(0, 4096) } : {}),
+    url: field("url", 4096).trim(),
+    notes: field("notes", 20_000),
+  };
+}
+
 export const KEEPASS_INTERNAL_PERMISSIONS: Record<keyof KeePassRpc, readonly InternalPage[]> = {
   "keepass.state": ["passwords"],
   "keepass.addFiles": ["passwords"],
@@ -248,6 +266,9 @@ export const KEEPASS_INTERNAL_PERMISSIONS: Record<keyof KeePassRpc, readonly Int
   "keepass.unlock": ["passwords"],
   "keepass.lock": ["passwords"],
   "keepass.entries": ["passwords"],
+  "keepass.groups": ["passwords"],
+  "keepass.details": ["passwords"],
+  "keepass.saveEntry": ["passwords"],
   "keepass.reveal": ["passwords"],
   "keepass.copyPassword": ["passwords"],
   "keepass.totpCode": ["passwords"],
@@ -327,6 +348,9 @@ export function keepassInternalHandlers(ctx: AppContext): InternalHandlers<KeePa
       return keepassState(ctx, c.profile);
     },
     "keepass.entries": (c, query) => c.profile.keepass.entries(str(query ?? "", "query", 512)),
+    "keepass.groups": (c, dbId) => c.profile.keepass.groups(str(dbId, "database", 64)),
+    "keepass.details": (c, id) => c.profile.keepass.details(str(id, "entry", 256)),
+    "keepass.saveEntry": (c, dbId, input) => c.profile.keepass.saveEntry(str(dbId, "database", 64), keepassInput(input)),
     "keepass.reveal": (c, id) => entry(c, id).password,
     "keepass.copyPassword": (c, id) => clipboard.writeText(entry(c, id).password),
     "keepass.totpCode": async (c, id) => {

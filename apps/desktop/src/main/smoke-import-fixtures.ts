@@ -149,7 +149,8 @@ export function writeBrowserFixtures(root: string): DataRoots {
   // and a policy one are not.
   const webData = new DatabaseSync(path.join(chrome, "Default", "Web Data"));
   webData.exec(
-    "CREATE TABLE keywords (id INTEGER PRIMARY KEY, short_name TEXT, keyword TEXT, url TEXT, safe_for_autoreplace INTEGER, prepopulate_id INTEGER, created_by_policy INTEGER, is_active INTEGER, starter_pack_id INTEGER)",
+    // last_visited: Chromium's 64-bit microsecond dates are past JavaScript's safe integers.
+    "CREATE TABLE keywords (id INTEGER PRIMARY KEY, short_name TEXT, keyword TEXT, url TEXT, safe_for_autoreplace INTEGER, prepopulate_id INTEGER, created_by_policy INTEGER, is_active INTEGER, starter_pack_id INTEGER, last_visited INTEGER DEFAULT 13437435205103838)",
   );
   const addKeyword = webData.prepare("INSERT INTO keywords (short_name, keyword, url, safe_for_autoreplace, prepopulate_id, created_by_policy, is_active, starter_pack_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
   const google = "{google:baseURL}search?q={searchTerms}&{google:RLZ}{google:originalQueryForSuggestion}ie={inputEncoding}";

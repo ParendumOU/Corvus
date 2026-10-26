@@ -4,6 +4,7 @@ import type { GrabbedLink, GrabbedPackage } from "../../shared/link-grabber";
 import { errorMessage, internalApi } from "../common/api";
 import { IconAgent, IconClose, IconDownload, IconTrash } from "../common/icons";
 import { hostOf } from "../common/ui";
+import { EditableName } from "./downloads-queue";
 
 import { t } from "../common/i18n";
 type GrabberCall = "grabber.download" | "grabber.downloadWithAi" | "grabber.remove";
@@ -14,13 +15,13 @@ function kindLabel(link: GrabbedLink): string {
   return hosterFor(link.url)?.name ?? t("page");
 }
 
-function PackageCard({ pkg, act }: { pkg: GrabbedPackage; act: (call: GrabberCall, ids: string[]) => void }) {
+function PackageCard({ pkg, act, rename }: { pkg: GrabbedPackage; act: (call: GrabberCall, ids: string[]) => void; rename: (id: string, name: string) => void }) {
   const source = pkg.source === "clipboard" || pkg.source === "pasted" ? `from ${pkg.source === "clipboard" ? "copied" : "pasted"} text` : `from ${hostOf(pkg.source)}`;
   return (
     <div className="card grab-package" data-package={pkg.name}>
       <div className="grab-head">
         <div className="grow">
-          <div className="title">{pkg.name}</div>
+          <EditableName name={pkg.name} title={t("Rename (the name of its folder)")} onSave={(name) => rename(pkg.id, name)} />
           <div className="sub">
             {pkg.links.length === 1 ? t("1 file") : t("{length} files", { length: pkg.links.length })} · {source}
             {pkg.passwords.map((pw) => (
@@ -70,6 +71,7 @@ export function GrabberView() {
   const api = internalApi();
   const [packages, setPackages] = useState<GrabbedPackage[] | null>(null);
   const [text, setText] = useState("");
+  const [packageName, setPackageName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [watching, setWatching] = useState<boolean | null>(null);
@@ -99,10 +101,13 @@ export function GrabberView() {
   const addText = (): void => {
     setError(null);
     api
-      .call("grabber.addText", text)
+      .call("grabber.addText", text, packageName.trim() || undefined)
       .then((added) => {
         setNotice(added > 0 ? added === 1 ? t("Added 1 link.") : t("Added {added} links.", { added }) : t("No new download links in that text."));
-        if (added > 0) setText("");
+        if (added > 0) {
+          setText("");
+          setPackageName("");
+        }
         load();
       })
       .catch((e: unknown) => setError(errorMessage(e)));
@@ -121,6 +126,14 @@ export function GrabberView() {
           onChange={(e) => setText(e.target.value)}
         />
         <div className="inline">
+          <input
+            className="input grab-name"
+            data-grab-name
+            placeholder={t("Package name (optional): its folder")}
+            value={packageName}
+            maxLength={120}
+            onChange={(e) => setPackageName(e.target.value)}
+          />
           <button className="btn small" disabled={!text.trim()} data-grab-add onClick={addText}>{t("Add links")}</button>
           <span className="muted small grow">{t("Or right-click a link (Add link to download queue), a selection or a tab (Grab download links).")}</span>
           {watching !== null && (
@@ -146,7 +159,7 @@ export function GrabberView() {
         </div>
       )}
       {all.map((pkg) => (
-        <PackageCard key={pkg.id} pkg={pkg} act={act} />
+        <PackageCard key={pkg.id} pkg={pkg} act={act} rename={(id, name) => void api.call("grabber.rename", id, name).then(load)} />
       ))}
     </>
   );

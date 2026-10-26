@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { Menu, app, dialog, nativeTheme, safeStorage, session } from "electron";
+import { Menu, app, nativeTheme, safeStorage, session } from "electron";
 import { ElectronChromeExtensions } from "electron-chrome-extensions";
 import { AdblockService } from "./adblock";
 import { CleanExitTracker } from "./clean-exit";
@@ -35,7 +35,7 @@ import { ProfileManager } from "./profile-manager";
 import { installConnectionHooks } from "./connection-hooks";
 import { ProfileRegistry, installUserAgents } from "./profiles";
 import { ReaderService } from "./reader-service";
-import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setNewTabRoutes } from "./protocol";
+import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setFaviconSource, setNewTabRoutes } from "./protocol";
 import { NewTabService } from "./newtab-service";
 import { ScheduledAgentRunner } from "./scheduled-agent-runner";
 import { FlowService } from "./flow-service";
@@ -48,8 +48,10 @@ import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
 import { setMenuLanguage, tr } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
 import { DictationService } from "./dictation-service";
+import { DialogService, pageDialogPresenter } from "./dialogs";
+import { PageDialogs } from "./page-dialogs";
+import { setExtensionMessageBox } from "./extensions";
 import { dictationReady, internalMicrophoneAllowed } from "../shared/dictation";
-import type { BrowserWindowCtl } from "./window";
 import { SyncService } from "./sync-service";
 import { UpdateService } from "./update-service";
 import { WebScopeService } from "./webscope-service";
@@ -125,19 +127,40 @@ function setApplicationMenu(): void {
  * Which windows to open at startup. "restore" always continues the session. "newtab" normally opens
  * a fresh tab, but after an unclean shutdown with a saved session it offers to restore it instead.
  */
-async function decideRestore(ctx: AppContext, unclean: boolean): Promise<BrowserWindowCtl[]> {
-  if (ctx.settings.get().startup.mode === "restore") return ctx.sessionRestore.restore();
-  const hasSession = restorePlan(ctx.sessionRestore.saved(), ctx.profiles.list().map((p) => p.id)).length > 0;
-  if (!unclean || !hasSession || process.env.CORVUS_SMOKE_TEST === "1") return [];
-  const { response } = await dialog.showMessageBox({
-    type: "warning",
-    buttons: [tr("Restore previous session"), tr("Start fresh")],
-    defaultId: 0,
-    cancelId: 1,
-    message: tr("Corvus didn't shut down normally"),
-    detail: tr("Your windows and tabs from the last session were saved. Reopen them?"),
+/**
+ * The first windows: the saved session when Corvus reopens it, else a new window. After a crash
+ * with a session saved, Corvus asks in that new window whether to reopen the session, and closes
+ * the new window again when it does (unless it holds pages Corvus was started with).
+ */
+function openStartWindows(ctx: AppContext, unclean: boolean, profileId: string, startUrls: string[]): void {
+  if (ctx.settings.get().startup.mode === "restore") {
+    const first = ctx.sessionRestore.restore()[0];
+    if (first) for (const url of startUrls) first.createTab(url);
+    else ctx.windows.open(profileId, startUrls);
+    return;
+  }
+  // Read before any window opens: the new window's own state is saved over it.
+  const snapshot = ctx.sessionRestore.saved();
+  const hasSession = restorePlan(snapshot, ctx.profiles.list().map((p) => p.id)).length > 0;
+  const win = ctx.windows.open(profileId, startUrls);
+  if (!unclean || !hasSession || process.env.CORVUS_SMOKE_TEST === "1") return;
+  // Asked without holding up the rest of the start.
+  void ctx.dialogs.ask(
+    {
+      tone: "warning",
+      title: tr("Corvus didn't shut down normally"),
+      message: tr("Corvus didn't shut down normally"),
+      detail: tr("Your windows and tabs from the last session were saved. Reopen them?"),
+      buttons: [tr("Start fresh"), tr("Restore previous session")],
+      defaultId: 1,
+      cancelId: 0,
+    },
+    win,
+  ).then(({ button }) => {
+    if (button !== 1) return;
+    const restored = ctx.sessionRestore.restore(snapshot);
+    if (restored.length > 0 && startUrls.length === 0) win.close();
   });
-  return response === 0 ? ctx.sessionRestore.restore() : [];
 }
 
 async function main(): Promise<void> {
@@ -166,6 +189,9 @@ async function main(): Promise<void> {
   const ctx = { settings, profiles } as AppContext;
   ctx.crashReporter = crashReporter;
   ctx.dictation = new DictationService(settings);
+  ctx.dialogs = new DialogService(ctx);
+  ctx.pageDialogs = new PageDialogs(pageDialogPresenter(ctx));
+  setExtensionMessageBox((options, window) => ctx.dialogs.messageBox(options, ctx.windows.all().find((w) => w.win === window)));
   ctx.windows = new WindowManager(ctx);
   ctx.search = new SearchService(settings);
   ctx.semanticSearch = new SemanticSearchService(ctx);
@@ -178,10 +204,17 @@ async function main(): Promise<void> {
   ctx.agentRunner = new AgentRunner(ctx);
   ctx.agentCredentials = new AgentCredentialService(ctx);
   ctx.spendApprovals = new SpendApprovalService(ctx);
-  ctx.userActions = new UserActionService();
+  ctx.userActions = new UserActionService(ctx);
   ctx.webscope = new WebScopeService(ctx);
   ctx.monitor = new PageMonitor(ctx);
   ctx.newtab = new NewTabService(ctx);
+  setFaviconSource({
+    forSession: (s) => {
+      const runtime = profiles.bySession(s);
+      return runtime ? (url) => runtime.favicons.icon(url) : null;
+    },
+    forProfile: (id) => (profiles.list().some((p) => p.id === id) ? (url) => profiles.get(id).favicons.icon(url) : null),
+  });
   setNewTabRoutes({
     widget: (s, id, tone) => {
       const runtime = profiles.bySession(s);
@@ -300,10 +333,7 @@ async function main(): Promise<void> {
   });
 
   const startUrls = urlsFromArgv(process.argv);
-  const restored = await decideRestore(ctx, uncleanShutdown);
-  const first = restored[0];
-  if (first) for (const url of startUrls) first.createTab(url);
-  else ctx.windows.open(profiles.manager.lastUsed, startUrls);
+  openStartWindows(ctx, uncleanShutdown, profiles.manager.lastUsed, startUrls);
   systemOpen = (urls) => openUrls(ctx, urls);
   if (pendingSystemOpens.length > 0) openUrls(ctx, pendingSystemOpens.splice(0));
   const automated = process.env.CORVUS_SMOKE_TEST === "1" || process.env.CORVUS_CAPTURE === "1";

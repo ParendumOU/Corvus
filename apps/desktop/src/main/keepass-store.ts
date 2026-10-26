@@ -13,12 +13,13 @@
  * opt-ins stored here (per entry) because the database itself is never modified.
  */
 import crypto from "node:crypto";
+import { tr } from "./menu-i18n";
 import fs from "node:fs";
 import path from "node:path";
 import type { KeePassDbStatus, KeePassDbView, KeePassEntrySummary, KeePassSourceKind, KeePassSourceView, KeePassUnlockResult } from "../shared/keepass-ipc";
 import { JsonFile } from "./json-file";
 import { entryMatchScore, entrySite, type KeePassEntry } from "./keepass-entries";
-import { openKdbx } from "./keepass-format";
+import { openKdbx, saveKdbxEntry, type EntryInput } from "./keepass-format";
 import type { LoginProvider, LoginRecord } from "./login-sources";
 import type { SecretCipher } from "./settings-store";
 
@@ -58,6 +59,7 @@ interface Db {
   status: KeePassDbStatus;
   error: string | null;
   entries: KeePassEntry[];
+  groups: string[];
   byUuid: Map<string, KeePassEntry>;
   key: DbKey | null;
   stamp: string;
@@ -110,6 +112,8 @@ export class KeePassStore {
   private readonly dbs = new Map<string, Db>();
   private readonly watchers = new Map<string, fs.FSWatcher>();
   private readonly listeners = new Set<Listener>();
+  /** Database files this run already kept a .bak copy of. */
+  private readonly backedUp = new Set<string>();
   private refreshTimer: NodeJS.Timeout | null = null;
   private refreshing: Promise<void> = Promise.resolve();
   private readonly watch: boolean;
@@ -238,6 +242,7 @@ export class KeePassStore {
         status: exists ? "locked" : "missing",
         error: null,
         entries: [],
+        groups: [],
         byUuid: new Map(),
         key: null,
         stamp: "",
@@ -326,6 +331,7 @@ export class KeePassStore {
     const data = await fs.promises.readFile(db.path);
     const opened = await openKdbx(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), key.password, key.keyFile);
     db.entries = opened.entries;
+    db.groups = opened.groups;
     db.byUuid = new Map(opened.entries.map((e) => [e.uuid, e]));
     db.key = key;
     db.stamp = stamp;
@@ -440,6 +446,7 @@ export class KeePassStore {
     db.key = null;
     db.entries = [];
     db.byUuid = new Map();
+    db.groups = [];
     db.stamp = "";
   }
 
@@ -514,6 +521,46 @@ export class KeePassStore {
       agentTotp: optIn.totp === true && Boolean(e.totp),
       agentSignIn: optIn.signIn === true,
     };
+  }
+
+  /** The groups of an unlocked database, for the entry form ("" is the root). */
+  groups(dbId: string): string[] {
+    const db = this.dbs.get(dbId);
+    return db?.status === "unlocked" ? db.groups : [];
+  }
+
+  /** An entry's fields for the edit form (its password only on reveal). */
+  details(id: string): { title: string; username: string; url: string; notes: string; group: string } | null {
+    const found = this.find(id);
+    if (!found) return null;
+    const e = found.entry;
+    return { title: e.title, username: e.username, url: e.urls[0] ?? "", notes: e.notes, group: e.group };
+  }
+
+  /**
+   * Adds or changes an entry in an unlocked database file. The file must not have changed since
+   * Corvus read it (another app editing it): then Corvus reloads it and asks to try again. The first
+   * write of a run keeps the file as it was in "<file>.bak"; the new file replaces the old in one step.
+   */
+  async saveEntry(dbId: string, input: EntryInput): Promise<string> {
+    const db = this.dbs.get(dbId);
+    if (!db || db.status !== "unlocked" || !db.key) throw new Error(tr("Unlock the database first."));
+    if ((await this.stampOf(db.path)) !== db.stamp) {
+      await this.refresh();
+      throw new Error(tr("The database changed on disk since Corvus read it (another app saved it). It has been reloaded: try again."));
+    }
+    const data = await fs.promises.readFile(db.path);
+    const saved = await saveKdbxEntry(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), db.key.password, db.key.keyFile, input);
+    if (!this.backedUp.has(db.path)) {
+      await fs.promises.copyFile(db.path, `${db.path}.bak`);
+      this.backedUp.add(db.path);
+    }
+    const temp = `${db.path}.corvus-tmp`;
+    await fs.promises.writeFile(temp, saved.data);
+    await fs.promises.rename(temp, db.path);
+    await this.load(db, db.key);
+    this.emit();
+    return `${KEEPASS_ID_PREFIX}${db.id}:${saved.uuid}`;
   }
 
   /** Every entry of the unlocked databases, with its password (the password checkup only). */

@@ -35,6 +35,7 @@ import {
   type QueueItem,
   type QueuePackage,
   type QueueView,
+  safeName,
 } from "../shared/download-queue";
 import { archiveSets, cleanPasswords, passwordCandidates, type ArchiveSet } from "../shared/archives";
 import { agentPackages, describeAgentLinks, parseAgentDownloadRequest, splitAgentLinks, type AgentDownloadRequest } from "../shared/download-ai";
@@ -353,6 +354,43 @@ export class DownloadQueue {
     const entry = this.entry(runtime);
     entry.file.set(movePackage(entry.file.get(), id, delta));
     this.notify(entry);
+  }
+
+  /**
+   * Renames a package, and its folder with it: the files already there move along. Not while it is
+   * downloading or extracting (pause it first).
+   */
+  rename(runtime: ProfileRuntime, id: string, name: string): void {
+    const clean = name.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!clean) throw new Error(tr("Give the package a name."));
+    const entry = this.entry(runtime);
+    const pkg = entry.file.get().find((p) => p.id === id);
+    if (!pkg) return;
+    if (pkg.items.some((i) => i.state === "running") || pkg.extraction?.state === "running") throw new Error(tr("Pause the package before renaming it."));
+    const parent = path.dirname(pkg.dir);
+    const base = safeName(clean);
+    let dir = path.join(parent, base);
+    if (dir !== pkg.dir) {
+      for (let n = 2; fs.existsSync(dir); n++) dir = path.join(parent, `${base} (${n})`);
+      if (fs.existsSync(pkg.dir)) fs.renameSync(pkg.dir, dir);
+    }
+    const moved = (p: string | undefined): string | undefined => (p && (p === pkg.dir || p.startsWith(pkg.dir + path.sep)) ? path.join(dir, path.relative(pkg.dir, p)) : p);
+    const items = pkg.items.map((i) => {
+      const savePath = moved(i.savePath);
+      if (i.savePath && savePath !== i.savePath) {
+        this.reserved.delete(i.savePath);
+        if (savePath) this.reserved.add(savePath);
+      }
+      return savePath ? { ...i, savePath } : i;
+    });
+    entry.file.set(entry.file.get().map((p) => (p.id === id ? { ...p, name: clean, dir, items } : p)));
+    this.notify(entry);
+  }
+
+  /** The folder a package downloads into (the downloads folder until it has one). */
+  folderOf(runtime: ProfileRuntime, id: string): string {
+    const pkg = this.entry(runtime).file.get().find((p) => p.id === id);
+    return pkg && fs.existsSync(pkg.dir) ? pkg.dir : this.ctx.downloads.directory();
   }
 
   /** Removes finished packages. */

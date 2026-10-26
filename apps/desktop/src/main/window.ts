@@ -103,7 +103,6 @@ export interface DockedPanel {
 
 /** Vertical tabs: collapsed sidebar width, and the top band left for the window caption buttons. */
 const SIDEBAR_COLLAPSED_WIDTH = 52;
-const VERTICAL_TOP_INSET = TAB_STRIP_HEIGHT;
 /** Isolated world that checks whether a page has typed text before its tab sleeps. */
 const SLEEP_CHECK_WORLD_ID = 1999;
 
@@ -332,15 +331,17 @@ export class BrowserWindowCtl {
     if (this.disposed) return;
     const [width = 0, height = 0] = this.win.getContentSize();
     const fullscreen = this.htmlFullscreen;
-    // Vertical tabs put the whole chrome UI in a full-height left sidebar; the page is inset to its
-    // right and a top band is left clear for the window caption buttons.
+    // Vertical tabs: the toolbar keeps the top band across the window and the tabs take a sidebar
+    // below it. The chrome UI then covers the whole window but sits under the page and the panels,
+    // which leave it the top band and the sidebar; it comes on top only for its overlays (menus,
+    // the Command Bar, dialogs).
     const vertical = !fullscreen && this.ctx.settings.get().appearance.tabLayout === "vertical";
     const left = vertical ? this.sidebarWidth() : 0;
-    const top = fullscreen ? 0 : vertical ? VERTICAL_TOP_INSET : this.chromeHeight;
+    const top = fullscreen ? 0 : this.chromeHeight;
     this.chrome.setVisible(!fullscreen);
-    if (this.overlay) this.chrome.setBounds({ x: 0, y: 0, width, height });
-    else if (vertical) this.chrome.setBounds({ x: 0, y: 0, width: left, height });
+    if (this.overlay || vertical) this.chrome.setBounds({ x: 0, y: 0, width, height });
     else this.chrome.setBounds({ x: 0, y: 0, width, height: top });
+    this.stackChrome(!vertical || this.overlay);
     // Right docks, outermost first: Corvus Assist panel, then an extension side panel inset to its left.
     const side = fullscreen ? 0 : this.ctx.assist.reservedWidth(this, width);
     const panel = this.sidePanel && !fullscreen ? Math.min(SIDE_PANEL_WIDTH, Math.floor((width - left - side) / 2)) : 0;
@@ -369,6 +370,21 @@ export class BrowserWindowCtl {
 
   relayout(): void {
     this.layout();
+  }
+
+  /**
+   * The chrome UI on top of the window's views (its usual place), or under all of them (vertical
+   * tabs, where the page and the panels cover all of it but the top band and the sidebar).
+   */
+  private stackChrome(onTop: boolean): void {
+    const parent = this.win.contentView;
+    const children = parent.children;
+    const index = children.indexOf(this.chrome);
+    if (index < 0 || (onTop ? index === children.length - 1 : index === 0)) return;
+    // Re-adding a child only reorders it (nothing is removed, so the chrome UI keeps its focus):
+    // the chrome UI to the top, or every other view above it in the order they are in.
+    if (onTop) parent.addChildView(this.chrome);
+    else for (const child of children.filter((c) => c !== this.chrome)) parent.addChildView(child);
   }
 
   /** Docks an extension side panel on the right (null removes it). The caller owns its views. */
@@ -510,6 +526,8 @@ export class BrowserWindowCtl {
       sidebarCollapsed: settings.appearance.sidebarCollapsed,
       watches: this.ctx.monitor.barState(this.profile),
       permissionPrompt: active ? this.profile.permissions.promptFor(active.view.webContents) : null,
+      dialog: this.ctx.dialogs.current(this),
+      dialogBars: this.ctx.dialogs.bars(this),
       find: active?.find ? { ...active.find } : null,
       zoomPercent: active && !active.view.webContents.isDestroyed() ? zoomPercent(active.view.webContents.getZoomFactor()) : 100,
       downloads: this.ctx.downloads.summary(this.profile),
@@ -652,6 +670,16 @@ export class BrowserWindowCtl {
   }
 
   /** Give a webContents of this window the keyboard and remember it as where focus belongs. */
+  /** Asks in this window with Corvus's dialog (same options as Electron's dialog.showMessageBox). */
+  messageBox(options: Electron.MessageBoxOptions): Promise<{ response: number; checkboxChecked: boolean }> {
+    return this.ctx.dialogs.messageBox(options, this);
+  }
+
+  /** Gives the keyboard to Corvus's UI (a dialog it shows takes Enter and Escape). */
+  focusChrome(): void {
+    this.focusWebContents(this.chrome.webContents);
+  }
+
   private focusWebContents(wc: WebContents): void {
     if (wc.isDestroyed()) return;
     this.lastFocused = wc;
@@ -868,11 +896,14 @@ export class BrowserWindowCtl {
       if (isHistoryWorthy(tab.url)) this.profile.history.update(tab.url, { title });
       push();
     });
+    this.ctx.pageDialogs.watch(wc);
     wc.on("page-favicon-updated", (_e, favicons) => {
       const favicon = pickFavicon(favicons);
       if (!favicon) return;
       tab.faviconUrl = favicon;
       if (isHistoryWorthy(tab.url)) this.profile.history.update(tab.url, { faviconUrl: favicon });
+      // Kept for the bookmarks bar and Corvus's pages; a private window keeps nothing.
+      if (!this.isPrivate) this.profile.favicons.remember(tab.url, favicon, (url, init) => wc.session.fetch(url, init));
       push();
     });
     wc.on("did-fail-load", (_e, code, description, validatedURL, isMainFrame) => {
@@ -2033,6 +2064,7 @@ export class BrowserWindowCtl {
   }
 
   private dispose(): void {
+    this.ctx.dialogs.forget(this);
     if (this.disposed) return;
     this.disposed = true;
     if (this.stateTimer) clearTimeout(this.stateTimer);

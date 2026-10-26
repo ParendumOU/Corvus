@@ -1,4 +1,4 @@
-import { clipboard, dialog, type WebContents } from "electron";
+import { clipboard, dialog, type WebContents, shell } from "electron";
 import type { BrowserChromeRpc, BrowserInternalRpc, PermissionResponse } from "../shared/browser-ipc";
 import { isDownloadAction } from "../shared/downloads";
 import type { InternalPage } from "../shared/internal-urls";
@@ -101,6 +101,9 @@ export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, read
   "downloads.chooseDirectory": ["settings"],
   "grabber.list": ["downloads"],
   "grabber.addText": ["downloads"],
+  "grabber.rename": ["downloads"],
+  "queue.rename": ["downloads"],
+  "queue.openFolder": ["downloads"],
   "grabber.remove": ["downloads"],
   "grabber.clear": ["downloads"],
   "grabber.watchClipboard": ["downloads"],
@@ -126,7 +129,8 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
     "downloads.act": (c, id, a) => ctx.downloads.act(c.profile, str(id, "download"), action(a)),
     "downloads.clear": (c) => ctx.downloads.clear(c.profile),
     "grabber.list": (c) => ctx.grabber.list(c.profile),
-    "grabber.addText": (c, text) => ctx.grabber.addText(c.profile, str(text, "text", 200_000), "pasted"),
+    "grabber.addText": (c, text, name) => ctx.grabber.addText(c.profile, str(text, "text", 200_000), "pasted", typeof name === "string" ? name.slice(0, 200) : ""),
+    "grabber.rename": (c, id, name) => ctx.grabber.rename(c.profile, str(id, "id", 64), str(name, "name", 200)),
     "grabber.remove": (c, list) => ctx.grabber.remove(c.profile, ids(list)),
     "grabber.clear": (c) => ctx.grabber.clear(c.profile),
     "grabber.watchClipboard": (_c, on) => {
@@ -156,6 +160,8 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
       ctx.queue.act(c.profile, str(id, "id", 64), a);
     },
     "queue.move": (c, id, delta) => ctx.queue.move(c.profile, str(id, "id", 64), delta === -1 ? -1 : 1),
+    "queue.rename": (c, id, name) => ctx.queue.rename(c.profile, str(id, "id", 64), str(name, "name", 200)),
+    "queue.openFolder": (c, id) => void shell.openPath(ctx.queue.folderOf(c.profile, str(id, "id", 64))),
     "queue.clearDone": (c) => ctx.queue.clearDone(c.profile),
     "queue.openPage": (c, id) => {
       if (!c.window) throw new IpcError("No browser window");

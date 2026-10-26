@@ -58,7 +58,7 @@ import {
   type RawSnapshot,
 } from "./page-scripts";
 import { checkScript, fillScript, focusScript, selectScript } from "./element-scripts";
-import { PageDialogs } from "./page-dialogs";
+import type { PageDialogs } from "./page-dialogs";
 import { extractScript, findScript, htmlScript, textScript, waitProbeScript } from "./read-scripts";
 import { TabLogs } from "./tab-logs";
 import { captureTab, dragBetween, hoverAt, mouseClickAt, pressKeys, scrollAt, typeTextPaced } from "./visual-input";
@@ -171,7 +171,9 @@ export class Controller implements BrowserController {
     sensitiveRequest: (wc, request) => this.ctx.secretFills.isSensitiveRequest(this.ctx.windows.byTabWebContents(wc)?.tab.id ?? null, request),
     sensitiveText: (text) => this.ctx.secretFills.containsFilledValue(text),
   });
-  private readonly dialogs = new PageDialogs();
+  private get dialogs(): PageDialogs {
+    return this.ctx.pageDialogs;
+  }
 
   constructor(private readonly ctx: AppContext) {}
 

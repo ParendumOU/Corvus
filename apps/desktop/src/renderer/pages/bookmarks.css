@@ -1,0 +1,228 @@
+/* Bookmarks page: path, table and grid views, drag and drop. */
+
+.bm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bm-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bm-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text-3);
+}
+.bm-crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.bm-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.bm-crumb:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.bm-crumb.current {
+  color: var(--text);
+  font-weight: 600;
+  cursor: default;
+}
+.bm-crumb.current:hover {
+  background: transparent;
+}
+.bm-crumb.drop-target {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Table */
+.bm-table {
+  padding: 4px 0;
+}
+.bm-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 12px 0 6px;
+  border-top: 1px solid var(--border-soft);
+}
+.bm-row:first-child {
+  border-top: none;
+}
+.bm-header {
+  min-height: 30px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+.bm-row:not(.bm-header):hover {
+  background: var(--hover);
+}
+.bm-row.editing {
+  display: block;
+  padding: 8px 12px;
+}
+.bm-grip {
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: -2px;
+  cursor: grab;
+  opacity: 0;
+  text-align: center;
+  user-select: none;
+}
+.bm-row:hover .bm-grip {
+  opacity: 1;
+}
+.bm-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.bm-name .title,
+.bm-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-url {
+  font-size: 12px;
+}
+.bm-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.bm-row:hover .bm-actions,
+.bm-row:focus-within .bm-actions,
+.bm-tile:hover .bm-actions,
+.bm-tile:focus-within .bm-actions {
+  opacity: 1;
+}
+
+/* Grid */
+.bm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.bm-tile {
+  position: relative;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: grab;
+}
+.bm-tile:hover {
+  border-color: var(--border);
+}
+.bm-tile.editing {
+  grid-column: 1 / -1;
+  padding: 10px;
+  cursor: default;
+}
+.bm-tile-main {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  padding: 14px 14px 12px;
+  color: var(--text);
+  text-decoration: none;
+}
+.bm-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.bm-tile.folder .bm-tile-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.bm-tile-title {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-tile-sub {
+  width: 100%;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bm-tile .bm-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* Drag and drop */
+.dragging {
+  opacity: 0.4;
+}
+.bm-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.bm-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.bm-tile.drop-before {
+  box-shadow: -3px 0 0 var(--accent);
+}
+.bm-tile.drop-after {
+  box-shadow: 3px 0 0 var(--accent);
+}
+.bm-row.drop-into,
+.bm-tile.drop-into {
+  background: var(--accent-soft);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.bm-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+.bm-edit .input {
+  flex: 1;
+  min-width: 160px;
+}

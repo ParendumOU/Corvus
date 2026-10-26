@@ -76,6 +76,7 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "webscope.enabled": "Captures local browser traffic for security testing; a per-device decision.",
   "webscope.maxBodyBytes": "Capture buffer size tuned to this machine.",
   "appearance.sidebarWidth": "Vertical tab sidebar width tuned to this screen.",
+  "appearance.assistWidth": "Assist panel width tuned to this screen.",
   "appearance.sidebarCollapsed": "Sidebar collapse is a per-device UI state.",
   "memory.sleepTabs": "Memory pressure is a property of this machine.",
   "memory.sleepAfterMinutes": "Tuned to this machine's memory.",

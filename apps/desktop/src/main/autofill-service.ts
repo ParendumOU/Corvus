@@ -1,4 +1,3 @@
-import { dialog } from "electron";
 import type { TabId } from "@corvus/shared";
 import type { CredentialMatch } from "../shared/credentials";
 import { originKeyOf } from "../shared/credentials";
@@ -87,18 +86,18 @@ export class AutofillService {
 
   private async askAutoSignIn(win: BrowserWindowCtl, req: AutoSignInRequest): Promise<{ approved: boolean; stopOffering: boolean }> {
     if (this.autoApprover) return this.autoApprover(win, req);
-    const { response, checkboxChecked } = await dialog.showMessageBox(win.win, {
+    const { response, checkboxChecked } = await this.ctx.dialogs.messageBox({
       type: "question",
-      buttons: [tr("Sign in"), tr("Not now")],
-      defaultId: 0,
-      cancelId: 1,
+      buttons: [tr("Not now"), tr("Sign in")],
+      defaultId: 1,
+      cancelId: 0,
       title: tr("Sign in automatically"),
       message: tr("Sign in to {host}?", { host: req.host }),
       detail: req.username ? tr("Corvus will fill the saved login for {username} and submit the form.", { username: req.username }) : tr("Corvus will fill the saved login and submit the form."),
       checkboxLabel: tr("Stop signing in automatically with this login"),
       checkboxChecked: false,
-    });
-    return { approved: response === 0, stopOffering: checkboxChecked };
+    }, win);
+    return { approved: response === 1, stopOffering: checkboxChecked };
   }
 
   /**

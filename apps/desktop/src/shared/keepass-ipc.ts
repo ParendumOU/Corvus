@@ -1,6 +1,7 @@
 /**
- * IPC contract for KeePass databases on corvus://passwords. Corvus reads .kdbx files and never writes
- * to them; passwords stay in the main process and leave it only on an explicit reveal or copy.
+ * IPC contract for KeePass databases on corvus://passwords. Corvus reads .kdbx files and writes to
+ * them only to add or edit an entry the person asked for; passwords stay in the main process and
+ * leave it only on an explicit reveal or copy.
  */
 import type { TotpCode } from "./totp";
 
@@ -52,6 +53,21 @@ export interface KeePassEntrySummary {
   agentSignIn: boolean;
 }
 
+export interface KeePassEntryDetails {
+  title: string;
+  username: string;
+  url: string;
+  notes: string;
+  group: string;
+}
+
+export interface KeePassEntryInput extends KeePassEntryDetails {
+  /** The entry to change; absent for a new one. */
+  uuid?: string;
+  /** Absent: the password stays as it is. */
+  password?: string;
+}
+
 export type KeePassUnlockResult = { ok: true } | { ok: false; error: string };
 
 /** Export of the built-in vault to a new .kdbx; null when the save dialog was cancelled. */
@@ -70,12 +86,18 @@ export interface KeePassRpc {
   /** Locks one database (null: all) and forgets a kept master password. */
   "keepass.lock"(dbId: string | null): KeePassState;
   "keepass.entries"(query: string): KeePassEntrySummary[];
+  /** Group paths of an unlocked database ("" is its root). */
+  "keepass.groups"(dbId: string): string[];
+  /** An entry's fields for editing, without its password. */
+  "keepass.details"(id: string): KeePassEntryDetails | null;
+  /** Adds (no uuid) or changes an entry in the database file; returns the entry's id. */
+  "keepass.saveEntry"(dbId: string, input: KeePassEntryInput): string;
   /** The password of one entry, only on an explicit (confirmed) reveal. */
   "keepass.reveal"(id: string): string;
   "keepass.copyPassword"(id: string): void;
   "keepass.totpCode"(id: string): TotpCode | null;
   "keepass.copyTotp"(id: string): void;
-  /** Agent opt-ins live in Corvus (the database is never written). */
+  /** Agent opt-ins live in Corvus, not in the database. */
   "keepass.setAgentOptIn"(id: string, optIn: { signIn?: boolean; totp?: boolean }): KeePassEntrySummary | null;
   /** Writes the built-in saved logins (with 2FA) to a new .kdbx protected by `password`. */
   "keepass.export"(password: string): KeePassExportResult;

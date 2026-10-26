@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { Menu, View, WebContentsView, app, dialog, nativeTheme, shell, webContents as allWebContents, type BaseWindow, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { Menu, View, WebContentsView, app, nativeTheme, shell, webContents as allWebContents, type BaseWindow, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { parseRemoteSessionId, type ChromeSessionTab, type ClosedTabEntry } from "../shared/chrome-sessions";
 import type { GroupPlacement } from "../shared/chrome-tab-groups";
@@ -344,7 +344,7 @@ export function showExtensionMenu(win: BrowserWindowCtl, id: string, x: number, 
   if (!info) return;
   const homepage = info.storeUrl ?? info.homepageUrl;
   const report = (p: Promise<unknown>): void => {
-    p.catch((err: unknown) => void dialog.showMessageBox(win.win, { type: "error", message: (err as Error).message }));
+    p.catch((err: unknown) => void win.messageBox({ type: "error", title: info.name, message: (err as Error).message }));
   };
   const template: MenuItemConstructorOptions[] = [
     { label: info.name, enabled: homepage !== null, click: () => homepage && win.createTab(homepage) },
@@ -355,16 +355,17 @@ export function showExtensionMenu(win: BrowserWindowCtl, id: string, x: number, 
       label: "Remove from Corvus…",
       click: () =>
         report(
-          dialog
-            .showMessageBox(win.win, {
+          win
+            .messageBox({
               type: "warning",
-              buttons: [tr("Remove"), tr("Cancel")],
-              defaultId: 1,
-              cancelId: 1,
+              buttons: [tr("Cancel"), tr("Remove")],
+              defaultId: 0,
+              cancelId: 0,
+              title: tr("Remove “{name}”?", { name: info.name }),
               message: tr("Remove “{name}”?", { name: info.name }),
               detail: tr("The extension and its data are removed from this profile."),
             })
-            .then(({ response }) => (response === 0 ? host.remove(id) : undefined)),
+            .then(({ response }) => (response === 1 ? host.remove(id) : undefined)),
         ),
     },
     { type: "separator" },

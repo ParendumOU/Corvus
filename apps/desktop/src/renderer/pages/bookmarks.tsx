@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import type { Bookmark } from "@corvus/shared";
-import { BAR_FOLDER_ID, OTHER_FOLDER_ID, ROOT_IDS, childrenOf, pathTo } from "../../shared/bookmark-tree";
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID, ROOT_IDS, childrenOf, isDescendant, pathTo } from "../../shared/bookmark-tree";
 import { classifyOmnibox } from "../../shared/omnibox";
 import { errorMessage, internalApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFolder, IconPlus, IconTrash } from "../common/icons";
-import { Favicon } from "../common/ui";
+import { Favicon, hostOf } from "../common/ui";
+import "./bookmarks.css";
 import { PageShell, mount } from "./shell";
 
 import { t } from "../common/i18n";
 const DRAG_MIME = "application/x-corvus-bookmark";
+const VIEW_KEY = "corvus.bookmarks.view";
+
+type View = "table" | "grid";
+/** Where a dragged bookmark lands relative to the one under the pointer. */
+type DropAt = { id: string; where: "before" | "after" | "into" };
 
 /** The two root folders keep English names in the data; they are shown in the person's language. */
 function folderTitle(b: { id: string; title: string }): string {
@@ -20,6 +26,22 @@ function folderTitle(b: { id: string; title: string }): string {
 function normalizeUrl(input: string): string {
   const intent = classifyOmnibox(input);
   return intent.kind === "url" ? intent.url : input.trim();
+}
+
+function readView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "table";
+  } catch {
+    return "table";
+  }
+}
+
+/** Before or after the item, or into it when it is a folder and the pointer is in its middle. */
+function dropPosition(e: DragEvent<HTMLElement>, item: Bookmark, horizontal: boolean): DropAt["where"] {
+  const r = e.currentTarget.getBoundingClientRect();
+  const at = horizontal ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height;
+  if (item.kind === "folder" && at > 0.28 && at < 0.72) return "into";
+  return at < 0.5 ? "before" : "after";
 }
 
 function FolderTree({
@@ -79,16 +101,7 @@ function FolderTree({
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{folderTitle(f)}</span>
             </button>
             {open && hasChildren && (
-              <FolderTree
-                list={list}
-                parentId={f.id}
-                selected={selected}
-                depth={depth + 1}
-                expanded={expanded}
-                toggle={toggle}
-                select={select}
-                onDropInto={onDropInto}
-              />
+              <FolderTree list={list} parentId={f.id} selected={selected} depth={depth + 1} expanded={expanded} toggle={toggle} select={select} onDropInto={onDropInto} />
             )}
           </div>
         );
@@ -97,15 +110,62 @@ function FolderTree({
   );
 }
 
+/** Where the folder is: each step opens it, and takes a dragged bookmark. */
+function Breadcrumbs({ crumbs, onOpen, onDropInto }: { crumbs: Bookmark[]; onOpen: (id: string) => void; onDropInto: (folderId: string, e: DragEvent) => void }) {
+  const [over, setOver] = useState<string | null>(null);
+  return (
+    <nav className="bm-crumbs" aria-label={t("Folder path")}>
+      {crumbs.map((c, i) => {
+        const last = i === crumbs.length - 1;
+        return (
+          <span key={c.id} className="bm-crumb-wrap">
+            {i > 0 && <IconChevronRight size={13} />}
+            <button
+              className={`bm-crumb ${last ? "current" : ""} ${over === c.id ? "drop-target" : ""}`}
+              aria-current={last ? "page" : undefined}
+              onClick={() => onOpen(c.id)}
+              onDragOver={(e) => {
+                if (!last && e.dataTransfer.types.includes(DRAG_MIME)) {
+                  e.preventDefault();
+                  setOver(c.id);
+                }
+              }}
+              onDragLeave={() => setOver(null)}
+              onDrop={(e) => {
+                setOver(null);
+                onDropInto(c.id, e);
+              }}
+            >
+              {i === 0 && <IconFolder size={14} />}
+              {folderTitle(c)}
+            </button>
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
 function BookmarksPage() {
   const api = internalApi();
   const [list, setList] = useState<Bookmark[]>([]);
   const [folder, setFolder] = useState(BAR_FOLDER_ID);
   const [query, setQuery] = useState("");
+  const [view, setViewState] = useState<View>(readView);
   const [editing, setEditing] = useState<{ id: string | "new-bookmark" | "new-folder"; title: string; url: string } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set([BAR_FOLDER_ID]));
-  const [dropBefore, setDropBefore] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<DropAt | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const setView = (v: View): void => {
+    setViewState(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // The choice lasts for this page only.
+    }
+  };
 
   const reload = useCallback(() => void api.call("bookmarks.list").then(setList), [api]);
   useEffect(() => {
@@ -131,11 +191,34 @@ function BookmarksPage() {
   }, [list, folder, query]);
 
   const crumbs = pathTo(list, folder);
+  const open = (id: string): void => {
+    setFolder(id);
+    setQuery("");
+    setExpanded((s) => new Set([...s, ...pathTo(list, id).map((b) => b.id)]));
+  };
 
+  /** A dragged bookmark into a folder (not into itself or one of its own subfolders). */
   const moveInto = (folderId: string, e: DragEvent): void => {
     e.preventDefault();
     const id = e.dataTransfer.getData(DRAG_MIME);
-    if (id && id !== folderId) run(api.call("bookmarks.move", id, folderId));
+    setDragging(null);
+    if (!id || id === folderId || isDescendant(list, folderId, id)) return;
+    run(api.call("bookmarks.move", id, folderId));
+  };
+
+  /** A drop on an item of the current folder: before it, after it, or into it (a folder). */
+  const dropOn = (target: Bookmark, e: DragEvent<HTMLElement>, horizontal: boolean): void => {
+    e.preventDefault();
+    // Where it lands is read from the drop itself (the last dragover may not have rendered yet).
+    const at = { id: target.id, where: dropPosition(e, target, horizontal) };
+    setDropAt(null);
+    setDragging(null);
+    const id = e.dataTransfer.getData(DRAG_MIME);
+    if (!id || id === target.id) return;
+    if (at.where === "into") return moveInto(target.id, e);
+    const siblings = childrenOf(list, folder).filter((x) => x.id !== id);
+    const index = siblings.findIndex((x) => x.id === target.id) + (at.where === "after" ? 1 : 0);
+    run(api.call("bookmarks.move", id, folder, index));
   };
 
   const saveEdit = (): void => {
@@ -154,18 +237,58 @@ function BookmarksPage() {
 
   const editor = (kind: Bookmark["kind"]) =>
     editing && (
-      <div className="list-row">
+      <div className="bm-edit">
         {kind === "folder" ? <IconFolder size={16} /> : <IconPlus size={16} />}
-        <div className="edit-row">
-          <input className="input" autoFocus placeholder={t("Name")} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
-          {kind === "bookmark" && (
-            <input className="input" placeholder={t("URL")} value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
-          )}
-          <button className="btn small primary" onClick={saveEdit}>{t("Save")}</button>
-          <button className="btn small ghost" onClick={() => setEditing(null)}>{t("Cancel")}</button>
-        </div>
+        <input className="input" autoFocus placeholder={t("Name")} value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
+        {kind === "bookmark" && (
+          <input className="input" placeholder={t("URL")} value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveEdit()} />
+        )}
+        <button className="btn small primary" onClick={saveEdit}>
+          {t("Save")}
+        </button>
+        <button className="btn small ghost" onClick={() => setEditing(null)}>
+          {t("Cancel")}
+        </button>
       </div>
     );
+
+  /** What every item shares: dragging, dropping, opening a folder with a double-click. */
+  const itemProps = (b: Bookmark, horizontal: boolean) => ({
+    "data-bookmark-id": b.id,
+    draggable: !ROOT_IDS.has(b.id) && !query,
+    onDragStart: (e: DragEvent<HTMLElement>) => {
+      e.dataTransfer.setData(DRAG_MIME, b.id);
+      e.dataTransfer.effectAllowed = "move";
+      setDragging(b.id);
+    },
+    onDragEnd: () => {
+      setDragging(null);
+      setDropAt(null);
+    },
+    onDragOver: (e: DragEvent<HTMLElement>) => {
+      if (query || !e.dataTransfer.types.includes(DRAG_MIME) || dragging === b.id) return;
+      e.preventDefault();
+      const where = dropPosition(e, b, horizontal);
+      if (dropAt?.id !== b.id || dropAt.where !== where) setDropAt({ id: b.id, where });
+    },
+    onDrop: (e: DragEvent<HTMLElement>) => dropOn(b, e, horizontal),
+    onDoubleClick: () => b.kind === "folder" && open(b.id),
+  });
+  const dropClass = (b: Bookmark): string =>
+    `${dragging === b.id ? "dragging" : ""} ${dropAt?.id === b.id ? `drop-${dropAt.where}` : ""}`;
+
+  const actions = (b: Bookmark) => (
+    <div className="bm-actions">
+      <button className="icon-btn" title={t("Edit")} onClick={() => setEditing({ id: b.id, title: b.title, url: b.url ?? "" })}>
+        <IconEdit size={15} />
+      </button>
+      <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("bookmarks.remove", b.id))}>
+        <IconTrash size={15} />
+      </button>
+    </div>
+  );
+
+  const folderCount = (id: string): number => childrenOf(list, id).length;
 
   return (
     <PageShell
@@ -188,94 +311,118 @@ function BookmarksPage() {
                 return next;
               })
             }
-            select={(id) => {
-              setFolder(id);
-              setQuery("");
-              setExpanded((s) => new Set([...s, ...pathTo(list, id).map((b) => b.id)]));
-            }}
+            select={open}
             onDropInto={moveInto}
           />
         </div>
       }
     >
-      <div className="inline" style={{ justifyContent: "space-between" }}>
-        <div className="muted">{query ? t("Results for “{query}”", { query }) : crumbs.map(folderTitle).join(" › ")}</div>
-        {!query && (
-          <div className="inline">
-            <button className="btn small" onClick={() => setEditing({ id: "new-folder", title: "", url: "" })}>
-              <IconFolder size={14} />{" "}{t("New folder")}</button>
-            <button className="btn small primary" onClick={() => setEditing({ id: "new-bookmark", title: "", url: "" })}>
-              <IconPlus size={14} />{" "}{t("Add bookmark")}</button>
+      <div className="bm-head">
+        {query ? <div className="muted">{t("Results for “{query}”", { query })}</div> : <Breadcrumbs crumbs={crumbs} onOpen={open} onDropInto={moveInto} />}
+        <div className="bm-head-actions">
+          <div className="segmented bm-view" role="radiogroup" aria-label={t("View")}>
+            <button className={view === "table" ? "on" : ""} role="radio" aria-checked={view === "table"} onClick={() => setView("table")}>
+              {t("Table")}
+            </button>
+            <button className={view === "grid" ? "on" : ""} role="radio" aria-checked={view === "grid"} onClick={() => setView("grid")}>
+              {t("Grid")}
+            </button>
           </div>
-        )}
+          {!query && (
+            <>
+              <button className="btn small" onClick={() => setEditing({ id: "new-folder", title: "", url: "" })}>
+                <IconFolder size={14} /> {t("New folder")}
+              </button>
+              <button className="btn small primary" onClick={() => setEditing({ id: "new-bookmark", title: "", url: "" })}>
+                <IconPlus size={14} /> {t("Add bookmark")}
+              </button>
+            </>
+          )}
+        </div>
       </div>
       {error && <div className="notice error">{error}</div>}
-      <div className="card">
-        <div className="list">
-          {editing?.id === "new-folder" && editor("folder")}
-          {editing?.id === "new-bookmark" && editor("bookmark")}
-          {items.length === 0 && !editing && <div className="empty">{query ? t("No bookmarks match.") : t("This folder is empty.")}</div>}
+      {(editing?.id === "new-folder" || editing?.id === "new-bookmark") && <div className="card">{editor(editing.id === "new-folder" ? "folder" : "bookmark")}</div>}
+
+      {items.length === 0 && !editing ? (
+        <div className="card">
+          <div className="empty">{query ? t("No bookmarks match.") : t("This folder is empty.")}</div>
+        </div>
+      ) : view === "table" ? (
+        <div className="card bm-table" role="table">
+          <div className="bm-row bm-header" role="row">
+            <span role="columnheader" />
+            <span role="columnheader">{t("Name")}</span>
+            <span role="columnheader">{t("Address")}</span>
+            <span role="columnheader" />
+          </div>
           {items.map((b) =>
             editing?.id === b.id ? (
-              <div key={b.id}>{editor(b.kind)}</div>
+              <div key={b.id} className="bm-row editing">
+                {editor(b.kind)}
+              </div>
             ) : (
-              <div
-                key={b.id}
-                className={`list-row ${dropBefore === b.id ? "drop-target" : ""}`}
-                draggable={!ROOT_IDS.has(b.id)}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(DRAG_MIME, b.id);
-                  e.dataTransfer.effectAllowed = "move";
-                }}
-                onDragOver={(e) => {
-                  if (!query && e.dataTransfer.types.includes(DRAG_MIME)) {
-                    e.preventDefault();
-                    setDropBefore(b.id);
-                  }
-                }}
-                onDragLeave={() => setDropBefore(null)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDropBefore(null);
-                  const id = e.dataTransfer.getData(DRAG_MIME);
-                  if (!id || id === b.id) return;
-                  if (b.kind === "folder" && e.altKey) return run(api.call("bookmarks.move", id, b.id));
-                  const siblings = childrenOf(list, folder).filter((x) => x.id !== id);
-                  run(api.call("bookmarks.move", id, folder, siblings.findIndex((x) => x.id === b.id)));
-                }}
-                onDoubleClick={() => b.kind === "folder" && setFolder(b.id)}
-              >
-                {b.kind === "folder" ? <IconFolder size={16} /> : <Favicon url={b.url ?? ""} size={16} />}
-                <div className="grow">
+              <div key={b.id} role="row" className={`bm-row ${dropClass(b)}`} {...itemProps(b, false)}>
+                <span className="bm-grip" aria-hidden title={t("Drag to move")}>
+                  ⋮⋮
+                </span>
+                <span className="bm-name">
+                  {b.kind === "folder" ? <IconFolder size={16} /> : <Favicon url={b.url ?? ""} size={16} />}
                   {b.kind === "folder" ? (
-                    <a className="title" href="#" onClick={(e) => {
+                    <a
+                      className="title"
+                      href="#"
+                      onClick={(e) => {
                         e.preventDefault();
-                        setFolder(b.id);
+                        open(b.id);
                       }}
                     >
                       {b.title}
                     </a>
                   ) : (
-                    <a className="title" href={b.url}>
-                      {b.title}
+                    <a className="title" href={b.url} title={b.url}>
+                      {b.title || b.url}
                     </a>
                   )}
-                  {b.url && <div className="sub">{b.url}</div>}
-                </div>
-                <div className="actions">
-                  <button className="icon-btn" title={t("Edit")} onClick={() => setEditing({ id: b.id, title: b.title, url: b.url ?? "" })}>
-                    <IconEdit size={15} />
-                  </button>
-                  <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("bookmarks.remove", b.id))}>
-                    <IconTrash size={15} />
-                  </button>
-                </div>
+                </span>
+                <span className="bm-url muted" title={b.url}>
+                  {b.kind === "folder" ? t("{n} items", { n: folderCount(b.id) }) : b.url}
+                </span>
+                {actions(b)}
               </div>
             ),
           )}
         </div>
-      </div>
-      <p className="muted small">{t("Drag bookmarks to reorder them, or onto a folder in the sidebar to move them.")}</p>
+      ) : (
+        <div className="bm-grid">
+          {items.map((b) =>
+            editing?.id === b.id ? (
+              <div key={b.id} className="bm-tile editing">
+                {editor(b.kind)}
+              </div>
+            ) : (
+              <div key={b.id} className={`bm-tile ${b.kind} ${dropClass(b)}`} {...itemProps(b, true)}>
+                <a
+                  className="bm-tile-main"
+                  href={b.kind === "folder" ? "#" : b.url}
+                  title={b.url ?? b.title}
+                  onClick={(e) => {
+                    if (b.kind === "folder") {
+                      e.preventDefault();
+                      open(b.id);
+                    }
+                  }}
+                >
+                  <span className="bm-tile-icon">{b.kind === "folder" ? <IconFolder size={22} /> : <Favicon url={b.url ?? ""} size={24} />}</span>
+                  <span className="bm-tile-title">{b.title || b.url}</span>
+                  <span className="bm-tile-sub muted">{b.kind === "folder" ? t("{n} items", { n: folderCount(b.id) }) : hostOf(b.url ?? "")}</span>
+                </a>
+                {actions(b)}
+              </div>
+            ),
+          )}
+        </div>
+      )}
+      <p className="muted small">{t("Drag to reorder; drop on a folder, a folder in the sidebar or a step of the path to move into it.")}</p>
     </PageShell>
   );
 }

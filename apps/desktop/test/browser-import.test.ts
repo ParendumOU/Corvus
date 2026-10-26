@@ -207,16 +207,16 @@ describe("BrowserImport", () => {
       siteSearch: new SiteSearchStore(data),
     } as unknown as ProfileRuntime;
     const chrome = await service.run(runtime, "chrome", "Default", ["bookmarks", "history"]);
-    expect(chrome).toEqual({ bookmarks: { imported: 3, folders: 1 }, history: { imported: 2 }, errors: {} });
+    expect(chrome).toEqual({ bookmarks: { imported: 3, folders: 1, existing: 0 }, history: { imported: 2 }, errors: {} });
     const firefox = await service.run(runtime, "firefox", "abcd1234.default-release", ["bookmarks", "history"]);
-    expect(firefox).toEqual({ bookmarks: { imported: 2, folders: 1 }, history: { imported: 1 }, errors: {} });
+    expect(firefox).toEqual({ bookmarks: { imported: 2, folders: 1, existing: expect.any(Number) }, history: { imported: 1 }, errors: {} });
 
     // Straight into Corvus's own folders: each browser's bar onto the bar, the rest into Other bookmarks.
     const titlesIn = (parentId: string): string[] => childrenOf(runtime.bookmarks.list(), parentId).map((b) => b.title);
     expect(titlesIn(BAR_FOLDER_ID)).toEqual(["Corvus", "News", "MDN Web Docs", "Reading"]);
     expect(titlesIn(OTHER_FOLDER_ID)).toEqual(["Docs"]);
-    // Importing again adds nothing.
-    expect(await service.run(runtime, "chrome", "Default", ["bookmarks"])).toEqual({ bookmarks: { imported: 0, folders: 0 }, errors: {} });
+    // Importing again adds nothing, and says the bookmarks were already there.
+    expect(await service.run(runtime, "chrome", "Default", ["bookmarks"])).toEqual({ bookmarks: { imported: 0, folders: 0, existing: 3 }, errors: {} });
     expect(runtime.bookmarks.list().filter((b) => b.url)).toHaveLength(5);
     const history = runtime.history.all();
     expect(history.map((h) => h.url).sort()).toEqual(["https://corvus.example/", "https://firefox.example/", "https://news.example/daily"]);
@@ -271,7 +271,7 @@ describe("BrowserImport", () => {
     ]);
 
     const runtime = { bookmarks: new BookmarkStore(tempDir()) } as unknown as ProfileRuntime;
-    expect(await service.run(runtime, "chrome", "Profile 2", ["bookmarks"])).toEqual({ bookmarks: { imported: 1, folders: 0 }, errors: {} });
+    expect(await service.run(runtime, "chrome", "Profile 2", ["bookmarks"])).toEqual({ bookmarks: { imported: 1, folders: 0, existing: 0 }, errors: {} });
     expect(runtime.bookmarks.list().map((b) => b.url)).toContain("https://account.example/");
   });
 });

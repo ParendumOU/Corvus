@@ -1,6 +1,6 @@
 import { Menu, app, clipboard, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
-import { childrenOf } from "../shared/bookmark-tree";
+import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { CredentialMatch } from "../shared/credentials";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
@@ -323,6 +323,23 @@ function bookmarkItems(win: BrowserWindowCtl, list: Bookmark[], folderId: string
 
 export function showBookmarkFolderMenu(win: BrowserWindowCtl, folderId: string, x: number, y: number): void {
   popup(win, bookmarkItems(win, win.profile.bookmarks.list(), folderId, 0), x, y);
+}
+
+/** The bookmarks bar's items that do not fit, from the first hidden one (the bar's "»" button). */
+export function showBookmarkOverflowMenu(win: BrowserWindowCtl, from: number, x: number, y: number): void {
+  const list = win.profile.bookmarks.list();
+  const hidden = childrenOf(list, BAR_FOLDER_ID).slice(Math.max(0, from));
+  if (hidden.length === 0) return;
+  popup(
+    win,
+    hidden.map((b) =>
+      b.kind === "folder"
+        ? { label: b.title, submenu: bookmarkItems(win, list, b.id, 1) }
+        : { label: b.title || b.url || tr("Untitled"), click: () => b.url && win.openUrl(b.url, "current") },
+    ),
+    x,
+    y,
+  );
 }
 
 export function showBookmarkMenu(win: BrowserWindowCtl, bookmarkId: string, x: number, y: number): void {

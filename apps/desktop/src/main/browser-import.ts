@@ -250,7 +250,7 @@ export class BrowserImport {
   private async searches(family: Family, dir: string): Promise<SiteSearch[]> {
     if (family === "chromium") {
       const file = path.join(dir, "Web Data");
-      return exists(file) ? withDatabase(file, (db) => chromiumSiteSearches(db.prepare("SELECT * FROM keywords").all() as Array<Record<string, unknown>>)) : [];
+      return exists(file) ? withDatabase(file, (db) => chromiumSiteSearches(rows<Record<string, unknown>>(db, "SELECT * FROM keywords"))) : [];
     }
     const keywords = await withDatabase(path.join(dir, "places.sqlite"), firefoxKeywords);
     return cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]);

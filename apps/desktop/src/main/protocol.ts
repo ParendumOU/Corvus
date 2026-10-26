@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { net, protocol, type Session } from "electron";
+import { net, protocol, session as electronSession, type Session } from "electron";
+import type { CachedIcon } from "./favicon-cache";
 import { ADBLOCK_RESOURCE_SCHEME } from "../shared/adblock";
 import { translate } from "../shared/i18n-es";
 import { INTERNAL_PAGES, INTERNAL_SCHEME } from "../shared/internal-urls";
@@ -40,7 +41,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https: http: crx:",
+  "img-src 'self' data: blob: https: http: crx: corvus:",
   "font-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
@@ -100,9 +101,40 @@ function newTabRoute(session: Session, pathname: string, search: URLSearchParams
   return null;
 }
 
+export interface FaviconSource {
+  /** The icons of the profile a session belongs to (pages in tabs). */
+  forSession(session: Session): ((pageUrl: string) => Promise<CachedIcon | null>) | null;
+  /** The icons of a profile by id (the browser UI, outside the profiles' sessions). */
+  forProfile(id: string): ((pageUrl: string) => Promise<CachedIcon | null>) | null;
+}
+
+let faviconSource: FaviconSource | null = null;
+
+export function setFaviconSource(source: FaviconSource): void {
+  faviconSource = source;
+}
+
+/**
+ * corvus://favicon/?url=…[&profile=…]: a site's icon from the profile's cache. Only Corvus's UI and
+ * its own pages may ask (a web page could otherwise learn which sites the person visits).
+ */
+async function faviconRoute(request: Request, url: URL, session: Session): Promise<Response> {
+  const fromUi = session === electronSession.defaultSession;
+  const fromInternalPage = (request.headers.get("referer") ?? "").startsWith(`${INTERNAL_SCHEME}://`);
+  if (!faviconSource || (!fromUi && !fromInternalPage)) return new Response("Not found", { status: 404 });
+  const lookup = fromUi ? faviconSource.forProfile(url.searchParams.get("profile") ?? "") : faviconSource.forSession(session);
+  const icon = lookup ? await lookup(url.searchParams.get("url") ?? "") : null;
+  if (!icon) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  return new Response(new Uint8Array(icon.body), {
+    status: 200,
+    headers: { "Content-Type": icon.type, "Cache-Control": "max-age=86400", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'" },
+  });
+}
+
 async function handle(request: Request, session: Session): Promise<Response> {
   const url = new URL(request.url);
   const page = url.hostname;
+  if (page === "favicon") return faviconRoute(request, url, session);
   if (!(INTERNAL_PAGES as readonly string[]).includes(page)) {
     return new Response("Not found", { status: 404 });
   }

@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.25.0
+
+### Browser
+- **Corvus's own dialogs**: questions from Corvus (an AI agent that wants to connect, a payment or
+  a saved login to approve, adding or removing an extension, deleting a profile, reopening the
+  session after a crash) and pages' alert() and confirm() now show as a Corvus dialog in
+  the window instead of the system's box. A page's dialog names the site and has "Don't let this
+  page open more dialogs". When an AI agent asks you to do something in a page, it shows as a bar
+  under the toolbar, so the page stays usable.
+- **Clear history your way**: Clear history… asks for a time range (last hour, 24 hours, 7 days,
+  4 weeks or all time) and can keep to what the search shows or to one site, with how many pages
+  will go before you confirm. Days and the whole list have a select-all box.
+- **Bookmarks page**: a table (the default) or a grid of tiles; the folder path is clickable and
+  takes dropped bookmarks; dragging shows where an item will land, and dropping on the middle of a
+  folder moves it inside (no key needed). Folders show how many items they hold.
+- **Site icons on the bookmarks bar and in Corvus's pages**: bookmarks, history, suggestions and
+  the like show each site's icon instead of a letter. Corvus keeps the icons of the pages you open
+  and fetches a missing one from the site through the profile's own connection (its proxy too);
+  web pages cannot read this store.
+- **Bookmarks bar**: bookmarks that do not fit go under a "»" button, and All bookmarks always stays
+  at the end of the bar.
+- A link to a Settings section opened in a new page now reaches the section after the page loads.
+
+### Tabs
+- **Vertical tabs, redone**: with tabs on the side, the toolbar, the address bar, the bookmarks bar
+  and notices keep the full width at the top as with tabs on top, and the sidebar holds only the
+  tabs (with its collapse button and its draggable edge).
+
+### Passwords
+- **KeePass, browsable and editable**: the entries of your unlocked databases show their groups as
+  folders, a search and a compact table a page at a time; a row opens to its password, 2FA code,
+  AI agent options and Edit. Add a new entry or edit one (title, user, password with a generator,
+  address, notes) and Corvus saves it to the .kdbx file, after keeping a .bak copy of it the first
+  time; if another app changed the file meanwhile, Corvus reloads it and asks to try again.
+
+### Downloads
+- **Name your packages**: give pasted links a package name and they go into one folder of that
+  name; rename a package in the grabber or in the queue (its folder and the files already in it
+  move along; pause it first if it is downloading).
+- **A tidier queue**: each package folds to its header (finished ones start folded), shows its
+  folder, and long packages and long queues show a page at a time.
+
+### AI
+- **Assist answers read better**: headings, numbered lists, quotes, tables and code blocks (with a
+  Copy button) show formatted, *italics* and inline code too, and a link in an answer opens in a
+  new tab.
+- **Retry and edit in Assist**: the last answer has a Retry button that asks again for a new one,
+  and the pencil next to your last question (or the Up arrow in the empty box) takes it back into
+  the box to change and send again. The panel keeps the width you drag it to, in new windows and
+  after a restart.
+- **A cleaner agent runs page**: runs are grouped by day, each with a status dot, the task, a quiet
+  line of details (source, when, tokens, model) and its result as formatted text (lists, bold, links,
+  tables), folded when long; actions show on hover. Steps fold into a compact list with small
+  captures that open full size.
+
+### Import
+- Search shortcuts from Brave (and other Chromium browsers) import again: the import failed with
+  "Value is too large to be represented as a JavaScript number" on some profiles.
+- Importing a profile again says how many bookmarks were already in Corvus, instead of "0 bookmarks".
+
 ## v0.24.0
 
 ### AI

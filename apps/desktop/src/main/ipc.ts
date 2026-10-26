@@ -1,3 +1,4 @@
+import type { HistoryFilter } from "../shared/history-ops";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -40,6 +41,7 @@ import { WEBSCOPE_INTERNAL_PERMISSIONS, webscopeInternalHandlers } from "./ipc-w
 import {
   showAppMenu,
   showBookmarkFolderMenu,
+  showBookmarkOverflowMenu,
   showBookmarkMenu,
   showGroupMenu,
   showConnectionMenu, showProfileMenu,
@@ -60,6 +62,16 @@ const num = (value: unknown, name: string): number => {
   if (typeof value !== "number" || !Number.isFinite(value)) throw new IpcError(`Invalid ${name}`);
   return value;
 };
+/** A "Clear history" filter from a page: only the known fields, with their types checked. */
+function historyFilter(value: unknown): HistoryFilter {
+  const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  return {
+    ...(typeof v.since === "number" && Number.isFinite(v.since) && v.since > 0 ? { since: v.since } : {}),
+    ...(typeof v.query === "string" && v.query.trim() ? { query: v.query.slice(0, 500) } : {}),
+    ...(typeof v.site === "string" && v.site.trim() ? { site: v.site.slice(0, 300) } : {}),
+  };
+}
+
 const strArray = (value: unknown, name: string): string[] => {
   if (!Array.isArray(value) || value.length > 500 || !value.every((v) => typeof v === "string")) throw new IpcError(`Invalid ${name}`);
   return value as string[];
@@ -99,7 +111,9 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "ui.connectionMenu": (w, x, y) => showConnectionMenu(w, num(x, "x"), num(y, "y")),
     "ui.tabMenu": (w, id, x, y) => showTabMenu(ctx, w, str(id, "tab"), num(x, "x"), num(y, "y")),
     "ui.groupMenu": (w, id, x, y) => showGroupMenu(w, str(id, "group"), num(x, "x"), num(y, "y")),
+    "dialog.answer": (w, id, button, checked, value) => ctx.dialogs.answer(w, str(id, "dialog", 64), { button: num(button, "button"), checked: checked === true, value: typeof value === "string" ? value : "" }),
     "ui.bookmarkFolderMenu": (w, id, x, y) => showBookmarkFolderMenu(w, str(id, "folder"), num(x, "x"), num(y, "y")),
+    "ui.bookmarkOverflowMenu": (w, from, x, y) => showBookmarkOverflowMenu(w, num(from, "index"), num(x, "x"), num(y, "y")),
     "ui.bookmarkMenu": (w, id, x, y) => showBookmarkMenu(w, str(id, "bookmark"), num(x, "x"), num(y, "y")),
     "ui.focusContent": (w) => w.focusContent(),
     "tabs.create": (w, opts) => {
@@ -245,6 +259,8 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "history.query": ["history"],
   "history.remove": ["history"],
   "history.clear": ["history"],
+  "history.countMatching": ["history"],
+  "history.removeMatching": ["history"],
   "settings.get": ["settings", "welcome"],
   "settings.update": ["settings", "welcome"],
   "settings.setSecret": ["settings", "welcome"],
@@ -446,6 +462,8 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       c.profile.history.query(str(q, "query", 512), Math.max(0, num(offset, "offset")), Math.min(500, Math.max(1, num(limit, "limit")))),
     "history.remove": (c, ids) => c.profile.history.remove(strArray(ids, "ids")),
     "history.clear": (c) => c.profile.history.clear(),
+    "history.countMatching": (c, filter) => c.profile.history.countMatching(historyFilter(filter)),
+    "history.removeMatching": (c, filter) => c.profile.history.removeMatching(historyFilter(filter)),
     "settings.get": () => ctx.settings.view(),
     "settings.update": (_c, patch) => {
       ctx.settings.update(patch as SettingsPatch);
@@ -544,17 +562,20 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const others = ctx.profiles.list().filter((p) => p.id !== profileId);
       const fallback = others[0];
       if (!fallback) throw new IpcError("Cannot delete the only profile");
-      const parent = c.window?.win;
-      const confirmOptions: Electron.MessageBoxOptions = {
-        type: "warning",
-        buttons: [tr("Delete"), tr("Cancel")],
-        defaultId: 1,
-        cancelId: 1,
-        message: tr("Delete this profile?"),
-        detail: tr("Its bookmarks, history, cookies, saved site data and extensions will be removed from this device."),
-      };
-      const { response } = parent ? await dialog.showMessageBox(parent, confirmOptions) : await dialog.showMessageBox(confirmOptions);
-      if (response !== 0) return;
+      const { button } = await ctx.dialogs.ask(
+        {
+          tone: "danger",
+          title: tr("Delete this profile?"),
+          message: tr("Delete this profile?"),
+          detail: tr("Its bookmarks, history, cookies, saved site data and extensions will be removed from this device."),
+          buttons: [tr("Cancel"), tr("Delete")],
+          defaultId: 0,
+          cancelId: 0,
+          dangerId: 1,
+        },
+        c.window,
+      );
+      if (button !== 1) return;
       if (ctx.windows.all().every((w) => w.profile.profile.id === profileId)) ctx.windows.open(fallback.id);
       ctx.windows.closeProfileWindows(profileId);
       await ctx.profiles.remove(profileId);

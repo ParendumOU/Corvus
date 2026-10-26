@@ -19,11 +19,17 @@ function countsLine(counts: ImportProfile["counts"], extensions: number): string
 
 function resultLine(result: ImportResult): string {
   const parts: string[] = [];
-  if (result.bookmarks) parts.push(t("{n} bookmarks in {folders} folders", { n: n(result.bookmarks.imported), folders: n(result.bookmarks.folders) }));
+  const existing = result.bookmarks?.existing ?? 0;
+  if (result.bookmarks && (result.bookmarks.imported > 0 || existing === 0)) {
+    parts.push(t("{n} bookmarks in {folders} folders", { n: n(result.bookmarks.imported), folders: n(result.bookmarks.folders) }));
+  }
   if (result.history) parts.push(t("{n} pages of history", { n: n(result.history.imported) }));
   if (result.search) parts.push(t("{n} search shortcuts", { n: n(result.search.imported) }));
   if (result.tabs) parts.push(t("{n} open tabs saved as {windows} workspaces", { n: n(result.tabs.tabs), windows: n(result.tabs.windows) }));
-  return parts.length > 0 ? t("Imported {what}.", { what: parts.join(t(" and ")) }) : "";
+  const imported = parts.length > 0 ? t("Imported {what}.", { what: parts.join(t(" and ")) }) : "";
+  // Bookmarks already in Corvus (an earlier import) are not added twice: say so instead of "0 bookmarks".
+  const kept = existing > 0 ? (existing === 1 ? t("1 bookmark was already in Corvus.") : t("{n} bookmarks were already in Corvus.", { n: n(existing) })) : "";
+  return [imported, kept].filter(Boolean).join(" ");
 }
 
 function ProfileRow({ source, profile }: { source: ImportSource; profile: ImportProfile }) {

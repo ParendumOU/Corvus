@@ -176,6 +176,10 @@ export interface AssistRpc {
   /** Puts a written text into its field (the person approved it). */
   "assist.insertWrite"(messageId: string): void;
   "assist.copyText"(messageId: string): void;
+  /** Asks the active tab's last question again (only the last message, once it finished). */
+  "assist.retry"(messageId: string): void;
+  /** Takes the last question back out of the conversation and returns its text, to edit and send again. */
+  "assist.editLast"(messageId: string): string;
   /** Copies text the panel wrote out (an artifact as a table or a list). */
   "assist.copyPlain"(text: string): void;
   /** Compares these tabs (2 to 6), with what matters to the person first. */

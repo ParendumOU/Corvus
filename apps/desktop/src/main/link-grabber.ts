@@ -65,10 +65,16 @@ export class LinkGrabber {
     return this.file(runtime).get();
   }
 
-  private add(runtime: ProfileRuntime, urls: string[], source: string, text: string): number {
+  private add(runtime: ProfileRuntime, urls: string[], source: string, text: string, name = ""): number {
     const file = this.file(runtime);
     const before = file.get();
-    const added = buildPackages(urls, { source, text, now: Date.now(), newId: () => crypto.randomUUID() });
+    const built = buildPackages(urls, { source, text, now: Date.now(), newId: () => crypto.randomUUID() });
+    // A name the person gave: all the links go in one package of that name (its folder).
+    const named = name.replace(/\s+/g, " ").trim().slice(0, 120);
+    const added =
+      named && built.length > 0
+        ? [{ ...built[0]!, name: named, links: built.flatMap((p) => p.links), passwords: [...new Set(built.flatMap((p) => p.passwords))] }]
+        : built;
     const next = mergePackages(before, added).slice(-MAX_PACKAGES);
     const count = next.reduce((n, p) => n + p.links.length, 0) - before.reduce((n, p) => n + p.links.length, 0);
     if (count > 0) {
@@ -111,9 +117,18 @@ export class LinkGrabber {
     return this.ctx.queue.addGrabbed(win.profile, packages);
   }
 
-  /** Grabs the download links of pasted or copied text. */
-  addText(runtime: ProfileRuntime, text: string, source = "clipboard"): number {
-    return this.add(runtime, downloadLinksIn(text), source, text);
+  /** Grabs the download links of pasted or copied text; with a name, as one package of that name. */
+  addText(runtime: ProfileRuntime, text: string, source = "clipboard", name = ""): number {
+    return this.add(runtime, downloadLinksIn(text), source, text, name);
+  }
+
+  /** Renames a package before it is downloaded (the name of its folder). */
+  rename(runtime: ProfileRuntime, id: string, name: string): void {
+    const clean = name.replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!clean) return;
+    const file = this.file(runtime);
+    file.set(file.get().map((p) => (p.id === id ? { ...p, name: clean } : p)));
+    this.changed(runtime);
   }
 
   /** Removes packages or single links by id. */
