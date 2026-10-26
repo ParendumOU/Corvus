@@ -1,5 +1,6 @@
 import type http from "node:http";
 import type { WebContents } from "electron";
+import { BAR_FOLDER_ID } from "../shared/bookmark-tree";
 import type { SessionWindow } from "../shared/session-state";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
@@ -111,6 +112,39 @@ export async function runFaviconSmoke(ctx: AppContext, { url, win, check, captur
   const first = await waitIcon(chrome, "Favicon smoke");
   check("favicon: tab strip shows the site icon (loaded <img>, not the letter tile)", loaded(first), { first, faviconUrl: tab.faviconUrl ?? null });
   await capture("favicon-tab", chrome);
+
+  // 1b. Corvus's own pages show the site's icon from the cache too (a bookmark on the bookmarks
+  // page), while a web page cannot load it from there, with or without a made-up key.
+  const mark = win.profile.bookmarks.create({ parentId: BAR_FOLDER_ID, kind: "bookmark", title: "Favicon mark", url: `${url}favicon-page` });
+  const library = win.createTab("corvus://bookmarks/", { activate: true });
+  try {
+    const rowIcon = `document.querySelector('.bm-row[data-bookmark-id="${mark.id}"] img.favicon')`;
+    let shown: { naturalWidth: number; key: boolean } | null = null;
+    for (let i = 0; i < 40 && !(shown && shown.naturalWidth > 0); i++) {
+      await delay(200);
+      shown = (await library.view.webContents
+        .executeJavaScript(`(() => { const img = ${rowIcon}; return img && img.complete ? { naturalWidth: img.naturalWidth, key: img.src.includes("key=") } : null; })()`)
+        .catch(() => null)) as { naturalWidth: number; key: boolean } | null;
+    }
+    check("favicon: the bookmarks page shows a bookmark's site icon from Corvus's cache", Boolean(shown && shown.naturalWidth > 0 && shown.key), shown);
+    await capture("favicon-bookmarks-page", library.view.webContents);
+  } finally {
+    win.closeTab(library.id);
+    win.activate(tab.id);
+    win.profile.bookmarks.remove(mark.id);
+  }
+  const leaked = await tab.view.webContents.executeJavaScript(`(async () => {
+    const tryLoad = (src) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img.naturalWidth);
+      img.onerror = () => resolve(0);
+      img.src = src;
+      setTimeout(() => resolve(-1), 3000);
+    });
+    const icon = "corvus://favicon/?url=" + encodeURIComponent(location.href);
+    return [await tryLoad(icon), await tryLoad(icon + "&key=0123456789abcdef0123456789abcdef")];
+  })()`);
+  check("favicon: a web page cannot load icons from Corvus's cache", JSON.stringify(leaked) === "[0,0]", leaked);
 
   // 2. Navigate away and back.
   win.loadUrl(tab.id, `${url}favicon-other`);

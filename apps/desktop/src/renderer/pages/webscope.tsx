@@ -23,7 +23,7 @@ import type {
 } from "@corvus/webscope";
 import type { WebScopeInterceptState, WebScopeState } from "../../shared/webscope-ipc";
 import { internalApi, errorMessage } from "../common/api";
-import { IconChevronDown, IconChevronRight, IconPlus, IconShield, IconWarning } from "../common/icons";
+import { IconActivity, IconChevronDown, IconChevronRight, IconCopy, IconGlobe, IconPause, IconPlay, IconPlus, IconSearch, IconShield, IconWarning } from "../common/icons";
 import "../common/theme.css";
 import "./webscope.css";
 import {
@@ -280,7 +280,7 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
           </tbody>
         </table>
         {rows !== null && sorted.length === 0 && (
-          <EmptyState title={tx("No traffic captured yet")} hint={tx("Turn capture on, arm a scope, then browse an in-scope site. Captured exchanges appear here.")} />
+          <EmptyState icon={<IconActivity size={18} />} title={tx("No traffic captured yet")} hint={tx("Turn capture on, arm a scope, then browse an in-scope site. Captured exchanges appear here.")} />
         )}
         {rows === null && <Loading label={tx("Loading history")} />}
       </div>
@@ -291,10 +291,12 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
         </span>
         <div className="ws-spacer" />
         <button className="btn small" disabled={marked.length !== 2} onClick={() => onCompare(marked)} title={tx("Mark two rows (checkbox or Space) to compare their responses")}>{tx("Compare")}</button>
+        <span className="ws-toolbar-sep" />
         <button className="btn small" onClick={exportHar}>{tx("Export HAR")}</button>
         <button className="btn small" onClick={() => fileRef.current?.click()}>{tx("Import HAR")}</button>
         <input ref={fileRef} type="file" accept=".har,.json,application/json" hidden onChange={(e) => e.target.files?.[0] && importHar(e.target.files[0])} />
-        <button className="btn small danger" onClick={clearHistory}>{tx("Clear")}</button>
+        <span className="ws-toolbar-sep" />
+        <button className="btn small ghost danger" onClick={clearHistory}>{tx("Clear")}</button>
       </div>
     </div>
   );
@@ -309,7 +311,7 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
           title={tx("Request")}
           msg={reqMsg}
           meta={selected?.aiHidden ? <AiHiddenBadge /> : undefined}
-          emptyHint="Select a row, or use Up and Down, to inspect it here."
+          emptyHint={tx("Select a row, or use Up and Down, to inspect it here.")}
           actions={
             selected ? (
               <>
@@ -334,29 +336,34 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
   return (
     <div className="ws-view">
       <div className="ws-toolbar ws-filters" role="search">
-        <input className="input sm ws-f-host" placeholder={tx("Host")} aria-label={tx("Filter by host")} onChange={(e) => setF({ host: e.target.value || undefined })} />
-        <input className="input sm ws-f-search" placeholder={tx("Search URL, headers, body")} aria-label={tx("Search URL, headers and bodies")} onChange={(e) => setF({ search: e.target.value || undefined })} />
-        <select className="input sm" aria-label={tx("Method")} onChange={(e) => setF({ method: e.target.value || undefined })}>
+        <div className="ws-search">
+          <IconSearch size={14} />
+          <input className={`input sm${filter.search ? " is-set" : ""}`} placeholder={tx("Search URL, headers, body")} aria-label={tx("Search URL, headers and bodies")} onChange={(e) => setF({ search: e.target.value || undefined })} />
+        </div>
+        <input className={`input sm ws-f-host${filter.host ? " is-set" : ""}`} placeholder={tx("Host")} aria-label={tx("Filter by host")} onChange={(e) => setF({ host: e.target.value || undefined })} />
+        <span className="ws-toolbar-sep" />
+        <select className={`input sm${filter.method ? " is-set" : ""}`} aria-label={tx("Method")} onChange={(e) => setF({ method: e.target.value || undefined })}>
           <option value="">{tx("Method")}</option>
           {METHODS.map((m) => <option key={m}>{m}</option>)}
         </select>
-        <select className="input sm" aria-label={tx("Status")} onChange={(e) => setF({ statusClass: e.target.value ? (Number(e.target.value) as HistoryFilter["statusClass"]) : undefined })}>
+        <select className={`input sm${filter.statusClass ? " is-set" : ""}`} aria-label={tx("Status")} onChange={(e) => setF({ statusClass: e.target.value ? (Number(e.target.value) as HistoryFilter["statusClass"]) : undefined })}>
           <option value="">{tx("Status")}</option>
           <option value="2">{tx("2xx")}</option>
           <option value="3">{tx("3xx")}</option>
           <option value="4">{tx("4xx")}</option>
           <option value="5">{tx("5xx")}</option>
         </select>
-        <select className="input sm" aria-label={tx("Resource type")} onChange={(e) => setF({ type: (e.target.value || undefined) as ContentType | undefined })}>
+        <select className={`input sm${filter.type ? " is-set" : ""}`} aria-label={tx("Resource type")} onChange={(e) => setF({ type: (e.target.value || undefined) as ContentType | undefined })}>
           <option value="">{tx("Type")}</option>
           {TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
-        <select className="input sm" aria-label={tx("Source")} onChange={(e) => setF({ source: (e.target.value || undefined) as HistoryFilter["source"] })}>
+        <select className={`input sm${filter.source ? " is-set" : ""}`} aria-label={tx("Source")} onChange={(e) => setF({ source: (e.target.value || undefined) as HistoryFilter["source"] })}>
           <option value="">{tx("Source")}</option>
           <option value="capture">{tx("capture")}</option>
           <option value="repeater">{tx("repeater")}</option>
           <option value="fuzzer">{tx("fuzzer")}</option>
         </select>
+        <span className="ws-toolbar-sep" />
         <label className="ws-check"><input type="checkbox" onChange={(e) => setF({ onlyInScope: e.target.checked || undefined })} />{" "}{tx("In scope only")}</label>
       </div>
       {importError && <div className="ws-inline-error">{importError}</div>}
@@ -457,30 +464,35 @@ function RepeaterView({ seed, seedNonce }: { seed: HistoryEntry | null; seedNonc
         initial={0.5}
         className="ws-grow"
         first={
-          <div className="ws-req-editor" onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") send(current); }}>
-            <div className="ws-req-line">
-              <select className="input sm" value={current.draft.method} onChange={(e) => updDraft(current.id, { method: e.target.value })} aria-label={tx("Method")}>
-                {METHODS.map((m) => <option key={m}>{m}</option>)}
-              </select>
-              <input className="input sm grow mono" placeholder={tx("https://host.in.scope/path")} value={current.draft.url} onChange={(e) => updDraft(current.id, { url: e.target.value })} aria-label={tx("URL")} />
-              <button className="btn small primary" disabled={current.busy || !current.draft.url} onClick={() => send(current)}>
-                {current.busy ? tx("Sending…") : tx("Send")}
-              </button>
+          <div className="ws-pane">
+            <div className="ws-msg-head">
+              <span className="ws-msg-title">{tx("Request")}</span>
+              <span className="ws-msg-actions"><span className="ws-hint-inline">{tx("Ctrl+Enter sends")}</span></span>
             </div>
-            <div className="ws-field fill">
-              <label className="ws-flabel">{tx("Headers")}</label>
-              <textarea className="input mono" rows={6} placeholder={tx("Header-Name: value (one per line)")} value={current.draft.headersText} onChange={(e) => updDraft(current.id, { headersText: e.target.value })} />
+            <div className="ws-req-editor" onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") send(current); }}>
+              <div className="ws-req-line">
+                <select className="input sm" value={current.draft.method} onChange={(e) => updDraft(current.id, { method: e.target.value })} aria-label={tx("Method")}>
+                  {METHODS.map((m) => <option key={m}>{m}</option>)}
+                </select>
+                <input className="input sm grow mono" placeholder={tx("https://host.in.scope/path")} value={current.draft.url} onChange={(e) => updDraft(current.id, { url: e.target.value })} aria-label={tx("URL")} />
+                <button className="btn small primary" disabled={current.busy || !current.draft.url} onClick={() => send(current)}>
+                  {current.busy ? tx("Sending…") : tx("Send")}
+                </button>
+              </div>
+              <div className="ws-field fill">
+                <label className="ws-flabel">{tx("Headers")}</label>
+                <textarea className="input mono" rows={6} placeholder={tx("Header-Name: value (one per line)")} value={current.draft.headersText} onChange={(e) => updDraft(current.id, { headersText: e.target.value })} />
+              </div>
+              <div className="ws-field fill">
+                <label className="ws-flabel">{tx("Body")}</label>
+                <textarea className="input mono" rows={5} placeholder={tx("Request body")} value={current.draft.body} onChange={(e) => updDraft(current.id, { body: e.target.value })} />
+              </div>
+              <div className="ws-req-opts">
+                <label className="ws-check"><input type="checkbox" checked={current.draft.useProfileCookies} onChange={(e) => updDraft(current.id, { useProfileCookies: e.target.checked })} />{" "}{tx("Reuse cookies")}</label>
+                <label className="ws-check"><input type="checkbox" checked={current.draft.followRedirects} onChange={(e) => updDraft(current.id, { followRedirects: e.target.checked })} />{" "}{tx("Follow redirects")}</label>
+              </div>
+              {current.error && <div className="ws-inline-error">{current.error}</div>}
             </div>
-            <div className="ws-field fill">
-              <label className="ws-flabel">{tx("Body")}</label>
-              <textarea className="input mono" rows={5} placeholder={tx("Request body")} value={current.draft.body} onChange={(e) => updDraft(current.id, { body: e.target.value })} />
-            </div>
-            <div className="ws-req-opts">
-              <label className="ws-check"><input type="checkbox" checked={current.draft.useProfileCookies} onChange={(e) => updDraft(current.id, { useProfileCookies: e.target.checked })} />{" "}{tx("Reuse cookies")}</label>
-              <label className="ws-check"><input type="checkbox" checked={current.draft.followRedirects} onChange={(e) => updDraft(current.id, { followRedirects: e.target.checked })} />{" "}{tx("Follow redirects")}</label>
-              <span className="ws-hint-inline">{tx("Ctrl+Enter sends")}</span>
-            </div>
-            {current.error && <div className="ws-inline-error">{current.error}</div>}
           </div>
         }
         second={
@@ -489,7 +501,7 @@ function RepeaterView({ seed, seedNonce }: { seed: HistoryEntry | null; seedNonc
             title={tx("Response")}
             msg={resMsg}
             meta={current.result ? <ResponseMeta entry={current.result} /> : current.busy ? <span className="ws-muted">{tx("Sending…")}</span> : undefined}
-            emptyHint="Send the request (Ctrl+Enter) to see the response here."
+            emptyHint={tx("Send the request (Ctrl+Enter) to see the response here.")}
           />
         }
       />
@@ -622,7 +634,7 @@ function FuzzerView({ seed, seedNonce }: { seed: HistoryEntry | null; seedNonce:
           <label className="ws-flabel">{tx("Body")}</label>
           <textarea className="input mono" rows={3} placeholder={tx("Optional. Mark positions with §payload§.")} value={draft.body} onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))} />
         </div>
-        <div className="ws-count">
+        <div className={`ws-count${positions === 0 ? " none" : ""}`}>
           {positions === 0
             ? tx("No positions marked: the request is sent once, unchanged.")
             : tx("Positions marked: {positions}. Requests planned: {planned}", { positions, planned: planned.toLocaleString() })}
@@ -664,7 +676,7 @@ function FuzzerView({ seed, seedNonce }: { seed: HistoryEntry | null; seedNonce:
 
       <Section title={tx("Payload processing")} aside={<button className="btn small" onClick={addRule}>{tx("Add rule")}</button>}>
         {rules.length === 0 ? (
-          <div className="ws-muted">{tx("Each payload is inserted as-is. Add a rule to encode, hash or wrap it first.")}</div>
+          <div className="ws-empty-slot">{tx("Each payload is inserted as-is. Add a rule to encode, hash or wrap it first.")}</div>
         ) : (
           rules.map((r, i) => (
             <div className="ws-row" key={i}>
@@ -718,34 +730,35 @@ function FuzzerView({ seed, seedNonce }: { seed: HistoryEntry | null; seedNonce:
         {rows.length > 0 && <button className="btn small" onClick={() => exportCsv(rows)}>{tx("Export CSV")}</button>}
       </div>
       <div className="ws-tablewrap">
-        <table className="ws-table">
-          <thead>
-            <tr>
-              <SortHeader label="#" col="index" sort={sort} onSort={toggle} />
-              <th>{tx("Payloads")}</th>
-              <SortHeader label={tx("Status")} col="status" sort={sort} onSort={toggle} />
-              <SortHeader label={tx("Size")} col="len" sort={sort} onSort={toggle} />
-              <SortHeader label={tx("Time")} col="time" sort={sort} onSort={toggle} />
-              <th>{tx("Grep")}</th>
-              <th>{tx("Extract")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((r) => (
-              <tr key={r.index} className={r.matched.length ? "ws-hit-row" : ""}>
-                <td>{r.index}</td>
-                <td className="path">{r.payloads.join(" · ")}</td>
-                <td>{r.error ? <span className="st-5" title={r.error}>{tx("ERR")}</span> : <StatusCell status={r.status} />}</td>
-                <td>{fmtBytes(r.length)}</td>
-                <td>{fmtMs(r.durationMs)}</td>
-                <td className="hit">{r.matched.join(", ")}</td>
-                <td className="hit">{(r.extracted ?? []).join(", ")}</td>
+        {rows.length === 0 && !running ? (
+          <EmptyState icon={<IconPlay size={18} />} title={tx("No attack has run")} hint={tx("Mark positions with §payload§, add a payload set, confirm authorization, then start.")} />
+        ) : (
+          <table className="ws-table">
+            <thead>
+              <tr>
+                <SortHeader label="#" col="index" sort={sort} onSort={toggle} />
+                <th>{tx("Payloads")}</th>
+                <SortHeader label={tx("Status")} col="status" sort={sort} onSort={toggle} />
+                <SortHeader label={tx("Size")} col="len" sort={sort} onSort={toggle} />
+                <SortHeader label={tx("Time")} col="time" sort={sort} onSort={toggle} />
+                <th>{tx("Grep")}</th>
+                <th>{tx("Extract")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && !running && (
-          <EmptyState title={tx("No attack has run")} hint={tx("Mark positions with §payload§, add a payload set, confirm authorization, then start.")} />
+            </thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.index} className={r.matched.length ? "ws-hit-row" : ""}>
+                  <td>{r.index}</td>
+                  <td className="path">{r.payloads.join(" · ")}</td>
+                  <td>{r.error ? <span className="st-5" title={r.error}>{tx("ERR")}</span> : <StatusCell status={r.status} />}</td>
+                  <td>{fmtBytes(r.length)}</td>
+                  <td>{fmtMs(r.durationMs)}</td>
+                  <td className="hit">{r.matched.join(", ")}</td>
+                  <td className="hit">{(r.extracted ?? []).join(", ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
@@ -845,16 +858,18 @@ function InterceptView({ state, visible }: { state: WebScopeState; visible: bool
   return (
     <div className="ws-view">
       <div className="ws-toolbar">
-        <label className="ws-toggle"><input type="checkbox" checked={config.enabled} onChange={(e) => setConfig({ enabled: e.target.checked })} />{" "}{tx("Intercept")}{" "}{config.enabled ? "on" : "off"}</label>
+        <label className="ws-toggle master"><input type="checkbox" checked={config.enabled} onChange={(e) => setConfig({ enabled: e.target.checked })} />{" "}{tx("Intercept")}{" "}{config.enabled ? "on" : "off"}</label>
         <label className="ws-toggle"><input type="checkbox" checked={config.interceptResponses} disabled={!config.enabled} onChange={(e) => setConfig({ interceptResponses: e.target.checked })} />{" "}{tx("Hold responses")}</label>
         <div className="ws-spacer" />
-        <span className="ws-muted">{tx("Match filters")}</span>
-        <input className="input sm" style={{ width: 120 }} placeholder={tx("host")} value={matchDraft?.host ?? ""} onChange={(e) => setMatch({ host: e.target.value })} aria-label={tx("Match host")} />
-        <select className="input sm" value={matchDraft?.method ?? ""} onChange={(e) => setMatch({ method: e.target.value })} aria-label={tx("Match method")}>
-          <option value="">{tx("any")}</option>
-          {METHODS.map((m) => <option key={m}>{m}</option>)}
-        </select>
-        <input className="input sm" style={{ width: 120 }} placeholder={tx("path")} value={matchDraft?.path ?? ""} onChange={(e) => setMatch({ path: e.target.value })} aria-label={tx("Match path")} />
+        <div className="ws-tool-group" role="group" aria-label={tx("Match filters")}>
+          <span className="ws-tool-label">{tx("Match filters")}</span>
+          <input className={`input sm ws-f-match${matchDraft?.host ? " is-set" : ""}`} placeholder={tx("host")} value={matchDraft?.host ?? ""} onChange={(e) => setMatch({ host: e.target.value })} aria-label={tx("Match host")} />
+          <select className={`input sm${matchDraft?.method ? " is-set" : ""}`} value={matchDraft?.method ?? ""} onChange={(e) => setMatch({ method: e.target.value })} aria-label={tx("Match method")}>
+            <option value="">{tx("any")}</option>
+            {METHODS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+          <input className={`input sm ws-f-match${matchDraft?.path ? " is-set" : ""}`} placeholder={tx("path")} value={matchDraft?.path ?? ""} onChange={(e) => setMatch({ path: e.target.value })} aria-label={tx("Match path")} />
+        </div>
       </div>
       {!state.enabled && <div className="ws-inline-warn">{tx("Capture is off. Turn it on (top right) so WebScope can attach to your traffic.")}</div>}
       <div
@@ -867,46 +882,59 @@ function InterceptView({ state, visible }: { state: WebScopeState; visible: bool
           if (e.key === "d" || e.key === "D") { e.preventDefault(); drop(); }
         }}
       >
-        <div className="ws-queue" role="listbox" aria-label={tx("Held requests")}>
-          {queue.length === 0 ? (
-            <EmptyState title={config.enabled ? tx("Nothing held") : tx("Interception off")} hint={config.enabled ? tx("In-scope requests that match the filters will pause here.") : tx("Turn interception on to hold matching requests.")} />
-          ) : (
-            queue.map((q) => (
-              <button key={q.id} role="option" aria-selected={q.id === held?.id} className={`ws-queue-row ${q.id === held?.id ? "on" : ""}`} onClick={() => setSelected(q.id)}>
-                <span className={`ws-phase ${q.phase}`}>{q.phase === "response" ? "RESP" : q.request.method}</span>
-                <span className="ws-queue-host">{q.host}</span>
-                <span className="ws-queue-path">
-                  {q.aiHidden && <AiHiddenBadge />}
-                  {q.path}
-                </span>
-              </button>
-            ))
-          )}
+        <div className="ws-queue">
+          <div className="ws-msg-head">
+            <span className="ws-msg-title">{tx("Held requests")}</span>
+            {queue.length > 0 && <span className="ws-tab-count">{queue.length}</span>}
+          </div>
+          <div className="ws-queue-list" role="listbox" aria-label={tx("Held requests")}>
+            {queue.length === 0 ? (
+              <div className="ws-queue-empty">{config.enabled ? tx("In-scope requests that match the filters will pause here.") : tx("Turn interception on to hold matching requests.")}</div>
+            ) : (
+              queue.map((q) => (
+                <button key={q.id} role="option" aria-selected={q.id === held?.id} className={`ws-queue-row ${q.id === held?.id ? "on" : ""}`} onClick={() => setSelected(q.id)}>
+                  <span className={`ws-phase ${q.phase}`}>{q.phase === "response" ? "RESP" : q.request.method}</span>
+                  <span className="ws-queue-host">{q.host}</span>
+                  <span className="ws-queue-path">
+                    {q.aiHidden && <AiHiddenBadge />}
+                    {q.path}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
         <div className="ws-editor">
           {held && edit ? (
             <>
-              <div className="ws-req-line">
-                <input className="input sm mono" style={{ width: 90 }} value={edit.method} onChange={(e) => setEdit({ ...edit, method: e.target.value })} disabled={held.phase === "response"} aria-label={tx("Method")} />
-                <input className="input sm grow mono" value={edit.url} onChange={(e) => setEdit({ ...edit, url: e.target.value })} disabled={held.phase === "response"} aria-label={tx("URL")} />
+              <div className="ws-msg-head">
+                <span className={`ws-phase ${held.phase}`}>{held.phase === "response" ? "RESP" : held.request.method}</span>
+                <span className="ws-msg-meta ws-editor-target">{held.host}{held.path}</span>
               </div>
-              <div className="ws-field fill">
-                <label className="ws-flabel">{tx("Headers")}</label>
-                <textarea className="input mono" rows={6} value={edit.headers} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} />
-              </div>
-              <div className="ws-field fill">
-                <label className="ws-flabel">{tx("Body")}</label>
-                <textarea className="input mono" rows={6} value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
+              <div className="ws-editor-body">
+                <div className="ws-req-line">
+                  <input className="input sm mono" style={{ width: 90 }} value={edit.method} onChange={(e) => setEdit({ ...edit, method: e.target.value })} disabled={held.phase === "response"} aria-label={tx("Method")} />
+                  <input className="input sm grow mono" value={edit.url} onChange={(e) => setEdit({ ...edit, url: e.target.value })} disabled={held.phase === "response"} aria-label={tx("URL")} />
+                </div>
+                <div className="ws-field fill">
+                  <label className="ws-flabel">{tx("Headers")}</label>
+                  <textarea className="input mono" rows={6} value={edit.headers} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} />
+                </div>
+                <div className="ws-field fill">
+                  <label className="ws-flabel">{tx("Body")}</label>
+                  <textarea className="input mono" rows={6} value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
+                </div>
               </div>
               <div className="ws-editor-actions">
                 <button className="btn small primary" onClick={() => forward(true)}>{tx("Forward edited")}</button>
                 <button className="btn small" onClick={() => forward(false)}>{tx("Forward")}</button>
-                <button className="btn small danger" onClick={drop}>{tx("Drop")}</button>
+                <span className="ws-toolbar-sep" />
+                <button className="btn small ghost danger" onClick={drop}>{tx("Drop")}</button>
                 <span className="ws-hint-inline">{tx("F forwards · D drops")}</span>
               </div>
             </>
           ) : (
-            <EmptyState title={tx("Nothing held")} hint={tx("Matching in-scope requests pause here so you can edit and forward them.")} />
+            <EmptyState icon={<IconPause size={18} />} title={config.enabled ? tx("Nothing held") : tx("Interception off")} hint={tx("Matching in-scope requests pause here so you can edit and forward them.")} />
           )}
         </div>
       </div>
@@ -941,7 +969,7 @@ function SitemapRows({ nodes, depth }: { nodes: SitemapNode[]; depth: number }) 
                 <span className="ws-tree-twist" />
               )}
               <span className="ws-tree-seg">{n.segment}</span>
-              <span className="ws-tree-methods">{n.methods.join(" ")}</span>
+              <span className="ws-tree-methods">{n.methods.map((m) => <MethodBadge key={m} method={m} />)}</span>
               <span className="ws-tree-count">{n.count}</span>
             </div>
             {hasChildren && open && <SitemapRows nodes={n.children} depth={depth + 1} />}
@@ -967,7 +995,7 @@ function TargetView() {
         </div>
       )}
       <div className="ws-scroll ws-tree">
-        {tree === null ? <Loading label={tx("Building sitemap")} /> : tree.length > 0 ? <SitemapRows nodes={tree} depth={0} /> : <EmptyState title={tx("No captured traffic")} hint={tx("Browse an in-scope site to build a host-to-path tree here.")} />}
+        {tree === null ? <Loading label={tx("Building sitemap")} /> : tree.length > 0 ? <SitemapRows nodes={tree} depth={0} /> : <EmptyState icon={<IconGlobe size={18} />} title={tx("No captured traffic")} hint={tx("Browse an in-scope site to build a host-to-path tree here.")} />}
       </div>
     </div>
   );
@@ -1043,7 +1071,7 @@ function FindingsView() {
         {findings === null ? (
           <Loading label={tx("Scanning captured responses")} />
         ) : findings.length === 0 ? (
-          <EmptyState title={tx("No findings")} hint={tx("Browse in-scope sites. WebScope flags passive observations such as missing security headers here.")} />
+          <EmptyState icon={<IconShield size={18} />} title={tx("No findings")} hint={tx("Browse in-scope sites. WebScope flags passive observations such as missing security headers here.")} />
         ) : (
           SEV_ORDER.filter((s) => groups[s].length > 0).map((sev) => (
             <div key={sev} className="ws-finding-group">
@@ -1081,7 +1109,7 @@ function ScopeView({ scope, reload, goBack }: { scope: Scope; reload: () => void
   const list = (key: "include" | "exclude") => (
     <Section title={key === "include" ? tx("In scope (allowlist)") : tx("Excluded (always wins)")} aside={<button className="btn small" onClick={() => addEntry(key)}>{tx("Add entry")}</button>}>
       {draft[key].length === 0 ? (
-        <div className="ws-muted">{key === "include" ? tx("Nothing is in scope until you add a host here.") : tx("No exclusions.")}</div>
+        <div className="ws-empty-slot">{key === "include" ? tx("Nothing is in scope until you add a host here.") : tx("No exclusions.")}</div>
       ) : (
         <table className="ws-entry-table">
           <thead>
@@ -1106,7 +1134,7 @@ function ScopeView({ scope, reload, goBack }: { scope: Scope; reload: () => void
   return (
     <div className="ws-view">
       <div className="ws-toolbar">
-        <label className="ws-toggle"><input type="checkbox" checked={draft.enabled} onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))} />{" "}{tx("Scope armed")}</label>
+        <label className="ws-toggle inscope"><input type="checkbox" checked={draft.enabled} onChange={(e) => setDraft((d) => ({ ...d, enabled: e.target.checked }))} />{" "}{tx("Scope armed")}</label>
         <span className="ws-muted">{tx("Nothing is acted on unless it matches an enabled include and no exclude.")}</span>
         <div className="ws-spacer" />
         {saved && <span className="ws-ok">{tx("Saved")}</span>}
@@ -1118,7 +1146,7 @@ function ScopeView({ scope, reload, goBack }: { scope: Scope; reload: () => void
         {list("exclude")}
         <Section title={tx("Audit log")}>
           {audit.length === 0 ? (
-            <div className="ws-muted">{tx("No actions recorded yet.")}</div>
+            <div className="ws-empty-slot">{tx("No actions recorded yet.")}</div>
           ) : (
             <table className="ws-audit">
               <tbody>
@@ -1163,7 +1191,7 @@ function RulesView({ rules, reload }: { rules: RuleSet; reload: () => void }) {
       </div>
       <div className="ws-scroll ws-form">
         <Section title={tx("Match and replace")} aside={<button className="btn small" onClick={addMr}>{tx("Add rule")}</button>}>
-          {draft.matchReplace.length === 0 ? <div className="ws-muted">{tx("No rewrite rules.")}</div> : (
+          {draft.matchReplace.length === 0 ? <div className="ws-empty-slot">{tx("No rewrite rules.")}</div> : (
             <table className="ws-entry-table">
               <thead><tr><th className="ws-col-dot"></th><th>{tx("Target")}</th><th>{tx("Match")}</th><th>{tx("Replace")}</th><th>{tx("Regex")}</th><th></th></tr></thead>
               <tbody>
@@ -1190,7 +1218,7 @@ function RulesView({ rules, reload }: { rules: RuleSet; reload: () => void }) {
           )}
         </Section>
         <Section title={tx("Block")} aside={<button className="btn small" onClick={addBlock}>{tx("Add rule")}</button>}>
-          {draft.block.length === 0 ? <div className="ws-muted">{tx("No block rules.")}</div> : (
+          {draft.block.length === 0 ? <div className="ws-empty-slot">{tx("No block rules.")}</div> : (
             <table className="ws-entry-table">
               <thead><tr><th className="ws-col-dot"></th><th>{tx("Name")}</th><th>{tx("URL glob")}</th><th></th></tr></thead>
               <tbody>
@@ -1207,7 +1235,7 @@ function RulesView({ rules, reload }: { rules: RuleSet; reload: () => void }) {
           )}
         </Section>
         <Section title={tx("Host overrides (DNS-style)")} aside={<button className="btn small" onClick={addOv}>{tx("Add rule")}</button>}>
-          {draft.hostOverride.length === 0 ? <div className="ws-muted">{tx("No host overrides.")}</div> : (
+          {draft.hostOverride.length === 0 ? <div className="ws-empty-slot">{tx("No host overrides.")}</div> : (
             <table className="ws-entry-table">
               <thead><tr><th className="ws-col-dot"></th><th>{tx("Host")}</th><th>{tx("Address")}</th><th></th></tr></thead>
               <tbody>
@@ -1274,7 +1302,7 @@ function DecoderView() {
               <span className="ws-msg-title">{tx("Output")}</span>
               <span className="ws-msg-actions">{output && <button className="btn small" onClick={() => { setInput(output); setOutput(""); }}>{tx("Use as input")}</button>}</span>
             </div>
-            <pre className="ws-mono-body">{output || tx("Results appear here.")}</pre>
+            <pre className={`ws-mono-body${output ? "" : " placeholder"}`}>{output || tx("Results appear here.")}</pre>
           </div>
         }
       />
@@ -1308,7 +1336,7 @@ function ComparerView({ seedIds }: { seedIds: string[] }) {
         </label>
       </div>
       <div className="ws-scroll">
-        {error ? <EmptyState title={tx("Could not compare")} hint={error} /> : diff ? <DiffPane diff={diff} /> : <EmptyState title={tx("Pick two responses")} hint={tx("Choose A and B above, or mark two rows in History and open Compare, to diff their headers and bodies.")} />}
+        {error ? <EmptyState icon={<IconWarning size={18} />} title={tx("Could not compare")} hint={error} /> : diff ? <DiffPane diff={diff} /> : <EmptyState icon={<IconCopy size={18} />} title={tx("Pick two responses")} hint={tx("Choose A and B above, or mark two rows in History and open Compare, to diff their headers and bodies.")} />}
       </div>
     </div>
   );
@@ -1396,9 +1424,9 @@ function App() {
         <button className="ws-caution" onClick={() => setShowCaution((s) => !s)} aria-expanded={showCaution}>
           <IconWarning size={13} />{" "}{tx("Authorized testing only")}</button>
         <div className="ws-spacer" />
-        <span className="ws-readout">{state?.historySize ?? 0}{" "}{tx("captured")}</span>
-        <span className="ws-readout">{state?.attachedTabs ?? 0}{" "}{tx("tab")}{state?.attachedTabs === 1 ? "" : "s"}</span>
-        <label className="ws-capture">
+        <span className="ws-readout"><b>{state?.historySize ?? 0}</b>{" "}{tx("captured")}</span>
+        <span className="ws-readout"><b>{state?.attachedTabs ?? 0}</b>{" "}{tx("tab")}{state?.attachedTabs === 1 ? "" : "s"}</span>
+        <label className={`ws-capture${state?.enabled ? " on" : ""}`}>
           <span>{tx("Capture")}</span>
           <button className={`toggle ${state?.enabled ? "on" : ""}`} onClick={toggleEnabled} role="switch" aria-checked={!!state?.enabled} aria-label={tx("Capture traffic")}><span className="knob" /></button>
         </label>

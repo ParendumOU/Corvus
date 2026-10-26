@@ -33,20 +33,23 @@ export function LetterIcon({ text, size = 16 }: { text: string; size?: number })
   );
 }
 
-/** Favicon with graceful fallback (letter tile, globe, or the Corvus mark for internal pages). */
 /** The profile the browser UI shows icons of (pages in tabs get their own profile's). */
 let faviconProfile = "";
 export function setFaviconProfile(id: string): void {
   faviconProfile = id;
 }
 
+/** The key the main process wrote on this page's <html> for its corvus://favicon/ requests. */
+const faviconKey = typeof document !== "undefined" ? (document.documentElement.dataset.faviconKey ?? "") : "";
+
+/** Favicon with graceful fallback (letter tile, globe, or the Corvus mark for internal pages). */
 export function Favicon({ url, src, size = 16 }: { url: string; src?: string; size?: number }) {
   // Remember which icon failed, not that one did: a tab's <Favicon> stays mounted while its page
   // swaps icons, and a working icon must not stay hidden behind an earlier one's load error.
   const [failed, setFailed] = useState<string[]>([]);
   if (url.startsWith("corvus:")) return <CorvusMark size={size} />;
   // No icon of its own (a bookmark, a history entry): the site's icon from Corvus's cache.
-  const own = src ?? (/^https?:/i.test(url) ? cachedFaviconUrl(url, faviconProfile || undefined) : undefined);
+  const own = src ?? (/^https?:/i.test(url) ? cachedFaviconUrl(url, faviconProfile || undefined, faviconKey || undefined) : undefined);
   const shown = faviconSrcToShow(own, failed, url, src !== undefined);
   if (shown) {
     return (

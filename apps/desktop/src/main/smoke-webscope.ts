@@ -115,6 +115,10 @@ export async function runWebscopeSmoke(
       await capture(`webscope-target-${theme}`, wc);
       await showView("Findings");
       await capture(`webscope-findings-${theme}`, wc);
+      for (const tool of ["Scope", "Rules", "Decoder", "Comparer"]) {
+        await showView(tool);
+        await capture(`webscope-${tool.toLowerCase()}-${theme}`, wc);
+      }
     }
     // Intercept view: hold a request so the queue + editor render, screenshot both themes, then release.
     await ctx.webscope.setInterceptConfig({ enabled: true, interceptRequests: true, interceptResponses: false });

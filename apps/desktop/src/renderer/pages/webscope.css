@@ -125,15 +125,55 @@ textarea.input {
 .ws-readout {
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--text-2);
+  color: var(--text-3);
   white-space: nowrap;
 }
+.ws-readout b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ws-readout + .ws-readout::before {
+  content: "·";
+  margin: 0 8px 0 -4px;
+  color: var(--text-3);
+}
+/* Capture sits apart from the readouts; a live dot shows when traffic is being recorded. */
 .ws-capture {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-2);
+}
+.ws-capture::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+  opacity: 0.45;
+}
+.ws-capture.on {
+  color: var(--text);
+}
+.ws-capture.on::before {
+  background: var(--ws-inscope);
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--ws-inscope-soft);
+  animation: ws-live 2.4s ease-in-out infinite;
+}
+@keyframes ws-live {
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-capture.on::before {
+    animation: none;
+  }
 }
 .ws-caution-panel {
   padding: 8px 16px;
@@ -175,6 +215,7 @@ textarea.input {
 }
 .ws-tab {
   position: relative;
+  isolation: isolate;
   border: none;
   background: transparent;
   color: var(--text-2);
@@ -184,8 +225,19 @@ textarea.input {
   cursor: pointer;
   white-space: nowrap;
 }
+.ws-tab::before {
+  content: "";
+  position: absolute;
+  inset: 6px 2px;
+  z-index: -1;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
 .ws-tab:hover {
   color: var(--text);
+}
+.ws-tab:hover:not(.active)::before {
+  background: var(--hover);
 }
 .ws-tab.active {
   color: var(--text);
@@ -239,6 +291,20 @@ textarea.input {
 .ws-scopestrip.armed .ws-scope-dot {
   background: var(--ws-inscope);
   box-shadow: 0 0 0 3px var(--ws-inscope-soft);
+}
+/* A disarmed scope blocks every tool, so it reads as a caution rather than a quiet default. */
+.ws-scopestrip.off {
+  background: color-mix(in srgb, var(--ws-signal) 9%, var(--ws-rail));
+}
+.ws-scopestrip.off .ws-scope-label {
+  color: var(--ws-signal);
+}
+.ws-scopestrip.off .ws-scope-dot {
+  background: var(--ws-signal);
+  box-shadow: 0 0 0 3px var(--ws-signal-soft);
+}
+.ws-scopestrip.off .ws-scope-chips .ws-muted {
+  color: var(--text-2);
 }
 .ws-scope-chips {
   display: flex;
@@ -297,14 +363,49 @@ textarea.input {
 }
 
 /* ---- toolbars ---- */
+/* Every control in a toolbar is 28px tall, and related controls sit in groups split by a rule. */
+.ws-root .btn.small {
+  height: 28px;
+}
+.btn.ghost.danger:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
 .ws-toolbar {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  min-height: 46px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   flex: none;
   flex-wrap: wrap;
+}
+.ws-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--border);
+  flex: none;
+}
+.ws-tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ws-tool-label {
+  margin-right: 2px;
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.ws-f-match {
+  width: 120px;
+}
+/* A filter that is narrowing the list is tinted, so active filters are visible at a glance. */
+.ws-root .input.is-set {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
 }
 .ws-check {
   display: inline-flex;
@@ -330,6 +431,62 @@ textarea.input {
   color: var(--text-2);
   cursor: pointer;
   white-space: nowrap;
+}
+/* Toolbar switches read as chips that light up while on. */
+.ws-toggle,
+.ws-toolbar .ws-check,
+.ws-results-head .ws-check {
+  height: 28px;
+  padding: 0 11px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.ws-toggle:hover,
+.ws-toolbar .ws-check:hover,
+.ws-results-head .ws-check:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.ws-toggle:has(input:checked),
+.ws-toolbar .ws-check:has(input:checked),
+.ws-results-head .ws-check:has(input:checked) {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  font-weight: 560;
+}
+/* Intercept on holds live traffic: caution colour. Scope armed: the in-scope colour. */
+.ws-toggle.master:has(input:checked) {
+  color: var(--ws-signal);
+  background: var(--ws-signal-soft);
+  border-color: color-mix(in srgb, var(--ws-signal) 45%, transparent);
+}
+.ws-toggle.inscope:has(input:checked) {
+  color: var(--ws-inscope);
+  background: var(--ws-inscope-soft);
+  border-color: color-mix(in srgb, var(--ws-inscope) 40%, transparent);
+}
+.ws-toggle.master input {
+  accent-color: var(--ws-signal);
+}
+.ws-toggle.inscope input {
+  accent-color: var(--ws-inscope);
+}
+.ws-toggle:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+.ws-toggle:has(input:disabled):hover {
+  background: var(--surface);
+  color: var(--text-2);
+}
+.ws-toggle input,
+.ws-toolbar .ws-check input,
+.ws-results-head .ws-check input {
+  margin: 0;
 }
 
 /* ---- resizable split ---- */
@@ -724,8 +881,22 @@ textarea.input {
   justify-content: center;
   gap: 6px;
   text-align: center;
-  padding: 32px 20px;
+  padding: 44px 24px;
   color: var(--text-3);
+}
+/* Empty states fill the area they stand in for, so the message sits in its middle. */
+.ws-tablewrap > .ws-state:only-child,
+.ws-scroll > .ws-state:only-child {
+  min-height: 100%;
+}
+/* Flex columns (and the padded findings list) centre by growing instead. */
+.ws-editor > .ws-state,
+.ws-scroll.ws-findings > .ws-state {
+  flex: 1;
+  min-height: 0;
+}
+.ws-tree:has(> .ws-state) {
+  padding: 0;
 }
 .ws-state.loading {
   flex-direction: row;
@@ -739,17 +910,43 @@ textarea.input {
   text-align: left;
 }
 .ws-state-icon {
-  color: var(--text-3);
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-2);
+  color: var(--text-2);
 }
 .ws-state-title {
   font-size: 14px;
-  font-weight: 560;
-  color: var(--text-2);
+  font-weight: 600;
+  color: var(--text);
 }
 .ws-state-hint {
   font-size: 12.5px;
-  max-width: 420px;
+  max-width: 400px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.ws-msg-empty .ws-state-hint {
+  color: var(--text-3);
+}
+/* An empty list inside a form: a dashed slot where the entries will go. */
+.ws-empty-slot,
+.ws-queue-empty {
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--ws-radius);
+  font-size: 12px;
   line-height: 1.5;
+  color: var(--text-3);
+  text-align: center;
+}
+.ws-queue-empty {
+  margin: 12px;
 }
 .ws-inline-error {
   margin: 8px 12px;
@@ -761,9 +958,10 @@ textarea.input {
   font-family: var(--mono);
 }
 .ws-inline-warn {
-  margin: 8px 12px 0;
+  margin: 8px 12px;
   padding: 7px 10px;
   border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--ws-signal) 30%, transparent);
   background: var(--ws-signal-soft);
   color: var(--text);
   font-size: 12px;
@@ -771,15 +969,30 @@ textarea.input {
 }
 
 /* ---- request editor (repeater / intercept / fuzzer) ---- */
-.ws-req-editor,
+/* A titled pane: the same header strip as the message viewer, then its content. */
+.ws-pane,
 .ws-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.ws-req-editor,
+.ws-editor-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 12px;
   overflow: auto;
+  flex: 1;
   min-height: 0;
-  height: 100%;
+}
+.ws-editor-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
 }
 .ws-req-line {
   display: flex;
@@ -808,19 +1021,28 @@ textarea.input {
   color: var(--text-3);
   font-family: var(--mono);
 }
+/* Held-request actions stay pinned under the editor, however long the headers get. */
 .ws-editor-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  padding: 8px 12px;
+  border-top: 1px solid var(--ws-grid);
+  background: var(--surface-2);
+  flex: none;
+}
+.ws-editor-actions .ws-hint-inline {
+  margin-left: auto;
 }
 
 /* ---- repeater subtabs ---- */
 .ws-subtabs {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   padding: 5px 8px;
+  background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   flex: none;
   overflow-x: auto;
@@ -833,9 +1055,13 @@ textarea.input {
   background: transparent;
   max-width: 220px;
 }
+.ws-subtab:hover:not(.on) {
+  background: var(--hover);
+}
 .ws-subtab.on {
   background: var(--surface);
   border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 .ws-subtab-label {
   border: none;
@@ -884,14 +1110,18 @@ textarea.input {
 }
 
 /* ---- fuzzer setup ---- */
+/* Each step of the attack is its own band, split by a hairline; the authorization bar is the
+   last band and stays pinned to the bottom so Start is always in reach. */
 .ws-setup {
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
   height: 100%;
+}
+.ws-setup > .ws-section {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid var(--ws-grid);
 }
 .ws-section {
   display: flex;
@@ -928,22 +1158,37 @@ textarea.input {
   padding: 10px;
 }
 .ws-count {
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--surface-2);
   font-family: var(--mono);
   font-size: 11.5px;
+  color: var(--text-2);
+}
+.ws-count.none {
+  background: var(--ws-signal-soft);
   color: var(--ws-signal);
 }
 .ws-authbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
   display: flex;
   align-items: center;
   gap: 8px 12px;
   flex-wrap: wrap;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--ws-signal) 35%, transparent);
-  border-radius: var(--ws-radius);
-  background: var(--ws-signal-soft);
+  padding: 10px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--ws-signal) 35%, transparent);
+  background: color-mix(in srgb, var(--ws-signal) 10%, var(--bg));
+  flex: none;
 }
 .ws-authbar .btn {
   margin-left: auto;
+}
+.ws-setup > .ws-inline-error {
+  flex: none;
 }
 
 /* ---- fuzzer results ---- */
@@ -956,8 +1201,9 @@ textarea.input {
 .ws-results-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 8px;
+  min-height: 40px;
+  padding: 5px 8px 5px 12px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--ws-grid);
   flex: none;
@@ -979,13 +1225,27 @@ textarea.input {
 }
 .ws-queue {
   border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ws-rail);
+}
+.ws-queue-list {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  background: var(--ws-rail);
+}
+/* Held count in the caution colour: something is waiting on you. */
+.ws-queue .ws-tab-count {
+  background: var(--ws-signal-soft);
+  color: var(--ws-signal);
+  font-weight: 650;
 }
 .ws-queue-row {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
@@ -1039,8 +1299,15 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 28px;
   padding: 3px 12px 3px 0;
   border-radius: 5px;
+}
+.ws-tree-row.host {
+  margin-top: 4px;
+}
+.ws-tree > div:first-child > .ws-tree-row.host {
+  margin-top: 0;
 }
 .ws-tree-row:hover {
   background: var(--hover);
@@ -1049,9 +1316,11 @@ textarea.input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: none;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
@@ -1059,6 +1328,10 @@ textarea.input {
 }
 .ws-tree-twist:hover {
   color: var(--text);
+  background: var(--hover);
+}
+span.ws-tree-twist:hover {
+  background: transparent;
 }
 .ws-tree-seg {
   font-family: var(--mono);
@@ -1070,16 +1343,21 @@ textarea.input {
   white-space: nowrap;
 }
 .ws-tree-methods {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-3);
+  display: flex;
+  gap: 3px;
+  overflow: hidden;
 }
 .ws-tree-count {
   min-width: 34px;
   text-align: right;
   color: var(--text-2);
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 11.5px;
+}
+.ws-tree-row.host .ws-tree-count {
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* ---- findings ---- */
@@ -1175,11 +1453,15 @@ textarea.input {
 
 /* ---- scope / rules forms ---- */
 .ws-form {
-  padding: 14px;
+  padding: 16px 18px 24px;
   display: flex;
   flex-direction: column;
   gap: 18px;
   max-width: 1000px;
+}
+.ws-form > .ws-section + .ws-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--ws-grid);
 }
 .ws-entry-table {
   width: 100%;
@@ -1264,11 +1546,16 @@ textarea.input {
   flex-wrap: wrap;
 }
 .ws-op-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-2);
-  width: 60px;
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--text-3);
+  width: 64px;
   flex: none;
+}
+.ws-mono-body.placeholder {
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12.5px;
 }
 
 /* ---- comparer / diff ---- */
@@ -1344,18 +1631,33 @@ textarea.input {
 }
 
 /* ---- history filters + status bar ---- */
-.ws-filters .ws-f-host {
-  width: 110px;
+.ws-search {
+  position: relative;
+  display: flex;
+  flex: 1 1 200px;
+  min-width: 160px;
 }
-.ws-filters .ws-f-search {
-  flex: 1 1 150px;
-  min-width: 140px;
+.ws-search svg {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-3);
+  pointer-events: none;
+}
+.ws-search .input {
+  flex: 1;
+  padding-left: 29px;
+}
+.ws-filters .ws-f-host {
+  width: 130px;
 }
 .ws-statusbar {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  min-height: 40px;
+  padding: 5px 8px 5px 12px;
   border-top: 1px solid var(--border);
   background: var(--surface-2);
   flex: none;
@@ -1386,8 +1688,8 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 16px 0 34px;
-  height: 30px;
+  padding: 0 16px 0 40px;
+  height: 32px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 11.5px;
@@ -1400,7 +1702,7 @@ textarea.input {
 }
 .ws-tree-head-methods,
 .ws-tree-methods {
-  width: 130px;
+  width: 170px;
   flex: none;
 }
 .ws-tree-head-count,

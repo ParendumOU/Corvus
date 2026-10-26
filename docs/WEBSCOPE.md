@@ -115,8 +115,9 @@ untrusted content.
 - Desktop UI helpers: `apps/desktop/test/webscope-format.test.ts` (formatting, pretty-print, hex
   dump, and the Fuzzer request preview checked against the engine's `planRequests`).
 - Desktop smoke: `apps/desktop/src/main/smoke-webscope.ts` captures a request over CDP, replays it,
-  runs a 3-payload in-scope fuzz, holds and forwards an intercepted request, and screenshots Target,
-  Intercept, History, Repeater, Fuzzer and Findings in light and dark.
+  runs a 3-payload in-scope fuzz, holds and forwards an intercepted request, and screenshots every
+  tool (History, Intercept, Repeater, Fuzzer, Target, Findings, Scope, Rules, Decoder, Comparer) in
+  light and dark.
 
 ## Interactive intercept
 

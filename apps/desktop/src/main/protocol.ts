@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { net, protocol, session as electronSession, type Session } from "electron";
@@ -57,13 +58,21 @@ export function setInternalPageLanguage(language: () => string): void {
 }
 
 /**
+ * The key Corvus's own pages add to corvus://favicon/ requests, new on each run. Chromium sends no
+ * Referer from a corvus:// page, and a web page can neither read these pages (no CORS, no framing)
+ * nor guess it, so it tells Corvus's pages apart from the sites a person visits.
+ */
+const FAVICON_KEY = randomBytes(16).toString("hex");
+
+/**
  * Pages read their language synchronously from <html lang>, so they render translated at once. The
- * <title> is translated here too: it names the tab before (and unless) the page sets its own.
+ * <title> is translated here too: it names the tab before (and unless) the page sets its own. The
+ * favicon key goes on <html> too.
  */
 function withLanguage(html: string): string {
   const language = pageLanguage();
   return html
-    .replace(/<html lang="[^"]*">/, `<html lang="${language}">`)
+    .replace(/<html lang="[^"]*">/, `<html lang="${language}" data-favicon-key="${FAVICON_KEY}">`)
     .replace(/<title>([^<]*)<\/title>/, (_m, title: string) => `<title>${translate(language as UiLanguage, title)}</title>`);
 }
 
@@ -120,7 +129,7 @@ export function setFaviconSource(source: FaviconSource): void {
  */
 async function faviconRoute(request: Request, url: URL, session: Session): Promise<Response> {
   const fromUi = session === electronSession.defaultSession;
-  const fromInternalPage = (request.headers.get("referer") ?? "").startsWith(`${INTERNAL_SCHEME}://`);
+  const fromInternalPage = url.searchParams.get("key") === FAVICON_KEY;
   if (!faviconSource || (!fromUi && !fromInternalPage)) return new Response("Not found", { status: 404 });
   const lookup = fromUi ? faviconSource.forProfile(url.searchParams.get("profile") ?? "") : faviconSource.forSession(session);
   const icon = lookup ? await lookup(url.searchParams.get("url") ?? "") : null;

@@ -547,7 +547,9 @@ export async function runExtensionSmoke(ctx: AppContext, h: SmokeHelpers): Promi
       const panelPage = await waitFor(() => allWebContents.getAllWebContents().find((w) => w.getURL() === `chrome-extension://${id}/panel.html`), 5000);
       const docked = win.dockedPanel() !== null;
       const header = allWebContents.getAllWebContents().find((w) => w.getURL().startsWith("data:text/html") && decodeURIComponent(w.getURL()).includes("Corvus Probe"));
-      await header?.executeJavaScript("document.querySelector('a').click()").catch(() => undefined);
+      // The ✕ closes the bar's own view: click it after this script has answered, since a reply
+      // from a view closed meanwhile never comes and the await would hang the smoke run.
+      await header?.executeJavaScript("setTimeout(() => document.querySelector('a').click(), 50); true").catch(() => undefined);
       const undocked = await waitFor(() => win.dockedPanel() === null, 3000);
       await sleep(300);
       const counts = await optionsTab.view.webContents.executeJavaScript("window.__panel").catch(() => null);

@@ -70,8 +70,9 @@ export function sniffImageType(bytes: Uint8Array): string | null {
 
 /**
  * The address Corvus's own UI loads a site's icon from (main/favicon-cache.ts). Pages in a profile
- * get their profile's icons; the browser UI, which runs outside the profiles, names one.
+ * get their profile's icons and prove they are Corvus's with the key it gave them; the browser UI,
+ * which runs outside the profiles, names a profile.
  */
-export function cachedFaviconUrl(pageUrl: string, profileId?: string): string {
-  return `corvus://favicon/?url=${encodeURIComponent(pageUrl)}${profileId ? `&profile=${encodeURIComponent(profileId)}` : ""}`;
+export function cachedFaviconUrl(pageUrl: string, profileId?: string, key?: string): string {
+  return `corvus://favicon/?url=${encodeURIComponent(pageUrl)}${profileId ? `&profile=${encodeURIComponent(profileId)}` : ""}${key ? `&key=${encodeURIComponent(key)}` : ""}`;
 }

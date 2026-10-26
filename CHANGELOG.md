@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.25.1
+
+### Browser
+- Site icons now show on Corvus's own pages (bookmarks, history and the like) as on the bookmarks
+  bar; in 0.25.0 these pages showed a letter instead.
+- **WebScope, tidier**: toolbars group related controls and highlight the filters in use, switches
+  (Intercept, Hold responses, Scope armed, In scope only) light up while on, Repeater and Intercept
+  panes have titled headers, Intercept's Forward and Drop stay pinned under the editor, the
+  Fuzzer's Start attack bar stays in reach while you scroll, Target shows methods as badges, a
+  disarmed scope is flagged in amber, and empty views explain themselves with an icon. The tools
+  work as before.
+
 ## v0.25.0
 
 ### Browser
