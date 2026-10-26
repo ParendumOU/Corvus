@@ -19,15 +19,16 @@ export function hostOf(url: string): string {
   }
 }
 
+/** The letter and colour of a site's letter tile (also drawn into native menus). */
+export function letterTile(text: string): { letter: string; color: string } {
+  return { letter: (text.replace(/^www\./, "")[0] ?? "?").toUpperCase(), color: LETTER_COLORS[hash(text) % LETTER_COLORS.length]! };
+}
+
 /** Letter tile for a site; no network request involved. */
 export function LetterIcon({ text, size = 16 }: { text: string; size?: number }) {
-  const letter = (text.replace(/^www\./, "")[0] ?? "?").toUpperCase();
+  const { letter, color } = letterTile(text);
   return (
-    <span
-      className="letter-icon"
-      style={{ width: size, height: size, fontSize: size * 0.6, background: LETTER_COLORS[hash(text) % LETTER_COLORS.length] }}
-      aria-hidden="true"
-    >
+    <span className="letter-icon" style={{ width: size, height: size, fontSize: size * 0.6, background: color }} aria-hidden="true">
       {letter}
     </span>
   );
@@ -35,8 +36,11 @@ export function LetterIcon({ text, size = 16 }: { text: string; size?: number })
 
 /** The profile the browser UI shows icons of (pages in tabs get their own profile's). */
 let faviconProfile = "";
-export function setFaviconProfile(id: string): void {
+/** Its icon cache's revision: when it goes up, a bookmark may show another icon (cachedFaviconUrl). */
+let faviconRevision = 0;
+export function setFaviconProfile(id: string, revision = 0): void {
   faviconProfile = id;
+  faviconRevision = revision;
 }
 
 /** The key the main process wrote on this page's <html> for its corvus://favicon/ requests. */
@@ -49,7 +53,7 @@ export function Favicon({ url, src, size = 16 }: { url: string; src?: string; si
   const [failed, setFailed] = useState<string[]>([]);
   if (url.startsWith("corvus:")) return <CorvusMark size={size} />;
   // No icon of its own (a bookmark, a history entry): the site's icon from Corvus's cache.
-  const own = src ?? (/^https?:/i.test(url) ? cachedFaviconUrl(url, faviconProfile || undefined, faviconKey || undefined) : undefined);
+  const own = src ?? (/^https?:/i.test(url) ? cachedFaviconUrl(url, faviconProfile || undefined, faviconKey || undefined, faviconRevision) : undefined);
   const shown = faviconSrcToShow(own, failed, url, src !== undefined);
   if (shown) {
     return (

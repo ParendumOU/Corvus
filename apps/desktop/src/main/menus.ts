@@ -1,12 +1,13 @@
-import { Menu, app, clipboard, type MenuItemConstructorOptions } from "electron";
+import { Menu, app, clipboard, nativeImage, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
-import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
+import { BAR_FOLDER_ID, childrenOf, folderUrls } from "../shared/bookmark-tree";
 import type { CredentialMatch } from "../shared/credentials";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { searchUrl } from "../shared/omnibox";
 import type { ConnectionChoice } from "../shared/connections";
+import { editBookmark, openBookmarkFolder } from "./bookmark-actions";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
@@ -306,43 +307,55 @@ export function showGroupMenu(win: BrowserWindowCtl, groupId: GroupId, x: number
   );
 }
 
-function bookmarkItems(win: BrowserWindowCtl, list: Bookmark[], folderId: string, depth: number): MenuItemConstructorOptions[] {
+function bookmarkItems(ctx: AppContext, win: BrowserWindowCtl, list: Bookmark[], folderId: string, depth: number): MenuItemConstructorOptions[] {
   const children = childrenOf(list, folderId);
   if (children.length === 0) return [{ label: tr("(empty)"), enabled: false }];
   const items: MenuItemConstructorOptions[] = children.map((b) =>
     b.kind === "folder"
-      ? { label: b.title, submenu: depth < 8 ? bookmarkItems(win, list, b.id, depth + 1) : [] }
+      ? { label: b.title, submenu: depth < 8 ? bookmarkItems(ctx, win, list, b.id, depth + 1) : [] }
       : { label: b.title || b.url || tr("Untitled"), click: () => b.url && win.openUrl(b.url, "current") },
   );
-  const urls = children.filter((b) => b.kind === "bookmark" && b.url).map((b) => b.url as string);
-  if (urls.length > 1) {
-    items.push({ type: "separator" }, { label: tr("Open all ({count})", { count: urls.length }), click: () => urls.forEach((u) => win.openUrl(u, "background-tab")) });
+  const count = folderUrls(list, folderId).length;
+  if (count > 1) {
+    items.push({ type: "separator" }, { label: tr("Open all ({count})", { count }), click: () => void openBookmarkFolder(ctx, win, folderId) });
   }
   return items;
 }
 
-export function showBookmarkFolderMenu(win: BrowserWindowCtl, folderId: string, x: number, y: number): void {
-  popup(win, bookmarkItems(win, win.profile.bookmarks.list(), folderId, 0), x, y);
+export function showBookmarkFolderMenu(ctx: AppContext, win: BrowserWindowCtl, folderId: string, x: number, y: number): void {
+  popup(win, bookmarkItems(ctx, win, win.profile.bookmarks.list(), folderId, 0), x, y);
 }
 
-/** The bookmarks bar's items that do not fit, from the first hidden one (the bar's "»" button). */
-export function showBookmarkOverflowMenu(win: BrowserWindowCtl, from: number, x: number, y: number): void {
+/** A menu item's icon from the chrome UI's drawing of it (a 32px PNG data: URL), shown at 16px. */
+function menuIcon(dataUrl: string | undefined): Electron.NativeImage | undefined {
+  if (!dataUrl) return undefined;
+  const image = nativeImage.createEmpty();
+  image.addRepresentation({ scaleFactor: 2, dataURL: dataUrl });
+  return image.isEmpty() ? undefined : image;
+}
+
+/**
+ * The bookmarks bar's items that do not fit, from the first hidden one (the bar's "»" button), with
+ * the icons the bar shows for them (`icons`, by bookmark id).
+ */
+export function showBookmarkOverflowMenu(ctx: AppContext, win: BrowserWindowCtl, from: number, x: number, y: number, icons: Record<string, string> = {}): void {
   const list = win.profile.bookmarks.list();
   const hidden = childrenOf(list, BAR_FOLDER_ID).slice(Math.max(0, from));
   if (hidden.length === 0) return;
   popup(
     win,
-    hidden.map((b) =>
-      b.kind === "folder"
-        ? { label: b.title, submenu: bookmarkItems(win, list, b.id, 1) }
-        : { label: b.title || b.url || tr("Untitled"), click: () => b.url && win.openUrl(b.url, "current") },
-    ),
+    hidden.map((b): MenuItemConstructorOptions => {
+      const icon = menuIcon(icons[b.id]);
+      return b.kind === "folder"
+        ? { label: b.title, submenu: bookmarkItems(ctx, win, list, b.id, 1), ...(icon ? { icon } : {}) }
+        : { label: b.title || b.url || tr("Untitled"), click: () => b.url && win.openUrl(b.url, "current"), ...(icon ? { icon } : {}) };
+    }),
     x,
     y,
   );
 }
 
-export function showBookmarkMenu(win: BrowserWindowCtl, bookmarkId: string, x: number, y: number): void {
+export function showBookmarkMenu(ctx: AppContext, win: BrowserWindowCtl, bookmarkId: string, x: number, y: number): void {
   const bookmark = win.profile.bookmarks.get(bookmarkId);
   if (!bookmark) return;
   const url = bookmark.url;
@@ -357,9 +370,9 @@ export function showBookmarkMenu(win: BrowserWindowCtl, bookmarkId: string, x: n
             { type: "separator" },
           ] as MenuItemConstructorOptions[])
         : bookmark.kind === "folder"
-          ? ([{ label: tr("Open folder"), submenu: bookmarkItems(win, win.profile.bookmarks.list(), bookmark.id, 0) }, { type: "separator" }] as MenuItemConstructorOptions[])
+          ? ([{ label: tr("Open folder"), submenu: bookmarkItems(ctx, win, win.profile.bookmarks.list(), bookmark.id, 0) }, { type: "separator" }] as MenuItemConstructorOptions[])
           : []),
-      { label: tr("Edit in bookmarks manager"), click: () => win.openSingleton("corvus://bookmarks/") },
+      { id: "bookmark-edit", label: tr("Edit…"), click: () => void editBookmark(ctx, win, bookmarkId) },
       { label: tr("Delete"), click: () => win.profile.bookmarks.remove(bookmarkId) },
     ],
     x,

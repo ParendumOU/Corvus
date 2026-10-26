@@ -21,6 +21,7 @@ import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
 import { runChromeUiSmoke } from "./smoke-chrome-ui";
+import { runBookmarksBarSmoke } from "./smoke-bookmarks-bar";
 import { runSleepSmoke } from "./smoke-sleep";
 import { runMediaSmoke, serveMediaSmokeRoute } from "./smoke-media";
 import { runFlowsSmoke } from "./smoke-flows";
@@ -229,6 +230,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runSignInSmoke(ctx, { url, win, check });
     await runNewTabSmoke(ctx, { url, win, check, capture });
     await runChromeUiSmoke(ctx, { url, win, check, capture });
+    await runBookmarksBarSmoke(ctx, { url, win, check, capture });
     await runSleepSmoke(ctx, { url, win, check });
     await runMediaSmoke(ctx, { url, win, check, capture });
 

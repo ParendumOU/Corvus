@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.27.0
+
+### Browser
+- The ad blocker panel's buttons ("Hide an element…", "Ad blocker settings") no longer spill out
+  of it when their labels are long, as in Spanish: they now sit one per line. Buttons in other
+  panels move to a new line instead of overflowing.
+- **Bookmarks that redirect to another site get their icon**: a bookmark whose address takes you
+  somewhere else (an old domain, a short link, a page that moves on by itself) now shows the icon
+  of the page you end up on, on the bookmarks bar and the bookmarks page, instead of a letter or
+  the old site's icon. Corvus learns it when you open the bookmark, and for one you have not
+  opened yet it follows the redirects itself, through your profile's connection and without
+  cookies.
+- **Reorder the bookmarks bar by dragging**: drag a bookmark or folder along the bar to move it; a
+  line shows where it will land, and dropping it on the middle of a folder puts it inside, as on the
+  bookmarks page. A spot past the last bookmark that fits puts it there, before the ones under "»".
+- **Edit bookmarks from the bar**: Edit… in a bookmark's right-click menu opens a Corvus dialog with
+  its name and address (a folder's, its name) instead of taking you to the bookmarks page. Enter
+  saves, Escape cancels, and an address is completed as on the bookmarks page ("example.com" saves
+  https://example.com/); an empty one is not accepted.
+- **Middle-click a folder** on the bookmarks bar to open its bookmarks in background tabs, as in
+  Chrome; with more than 15 it asks first. Open all in a folder's menu asks the same way.
+- The bookmarks bar's "»" menu shows each bookmark's site icon (or its letter tile) and the folder
+  icon, as the bar does.
+
+### Downloads
+- **You see a download start and finish**: the toolbar's downloads button bounces and rings ripple
+  out from it the moment a download begins, and when one you started finishes, the downloads
+  bubble opens by itself for a few seconds (it stays if you point at it, and never opens over
+  another popover, the address bar or a dialog). The green check stays until you look at it.
+
+### Tabs
+- **Closing tabs with the mouse keeps the others in place**: after you close a tab with its close
+  button or a middle click, the remaining tabs keep their width while the pointer stays on the tab
+  strip, so the next close button lands under it; they spread out again when the pointer leaves
+  the strip (as in Chrome and Brave).
+
+### Corvus for mobile 0.5.0
+- **Roomier, clearer screens before pairing**: Home shows Corvus's logo and the three steps to
+  pair, numbered, above the Pair button; Library explains what will appear there; Settings groups
+  its cards under section names (Sync, About) and shows the version as a row. Titles, explanations
+  and buttons now have distinct sizes and more space between them, and buttons are taller.
+- **Pairing fields you can see**: the server address and recovery phrase fields on the pairing
+  screen now have their own background and border (they blended into the card), with each label
+  right above its field.
+
 ## v0.26.1
 
 ### Corvus for mobile 0.4.1

@@ -5,6 +5,7 @@ import { Alert, Platform, RefreshControl, ScrollView, StyleSheet, Switch, View }
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { Card, CardHeader, SectionLabel } from '@/components/card';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -59,69 +60,79 @@ export default function SettingsScreen() {
           }>
           <ThemedText type="subtitle">{t('Settings')}</ThemedText>
 
-          <ThemedView type="backgroundElement" style={styles.card} testID="sync-card">
-            <ThemedText type="smallBold">{t('Sync')}</ThemedText>
+          <SectionLabel>{t('Sync')}</SectionLabel>
+          <Card testID="sync-card">
             {session.pairing ? (
               <>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t('Paired as “{name}” with {server}.', { name: session.pairing.deviceName, server: session.pairing.serverUrl })}
-                </ThemedText>
-                <ThemedText type="smallBold" style={styles.subhead}>
-                  {t('Devices on this sync chain')}
-                </ThemedText>
-                {session.devices.length === 0 && (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {session.refreshed ? t('Could not list them right now.') : t('Loading…')}
-                  </ThemedText>
-                )}
-                {session.devices.map((d) => (
-                  <View key={d.id} testID={`device-${d.name}`}>
-                    <ThemedText type="small">
-                      {d.name}
-                      {d.id === session.self ? ` ${t('(this phone)')}` : ''}
+                <CardHeader
+                  title={t('Paired')}
+                  description={t('Paired as “{name}” with {server}.', { name: session.pairing.deviceName, server: session.pairing.serverUrl })}
+                />
+                <View style={styles.devices}>
+                  <ThemedText type="smallBold">{t('Devices on this sync chain')}</ThemedText>
+                  {session.devices.length === 0 && (
+                    <ThemedText type="body" themeColor="textSecondary">
+                      {session.refreshed ? t('Could not list them right now.') : t('Loading…')}
                     </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {d.platform} · {t('seen {when}', { when: ago(d.lastSeen) })}
-                    </ThemedText>
-                  </View>
-                ))}
+                  )}
+                  {session.devices.map((d) => (
+                    <View key={d.id} style={styles.device} testID={`device-${d.name}`}>
+                      <ThemedText type="body">
+                        {d.name}
+                        {d.id === session.self ? ` ${t('(this phone)')}` : ''}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {d.platform} · {t('seen {when}', { when: ago(d.lastSeen) })}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
                 <Button label={t('Unpair this phone')} kind="danger" busy={busy} onPress={() => void unpair()} testID="settings-unpair" />
               </>
             ) : (
               <>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t('Not paired. What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.')}
-                </ThemedText>
+                <CardHeader
+                  title={t('Not paired')}
+                  description={t('What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.')}
+                />
                 <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} testID="settings-pair" />
               </>
             )}
-          </ThemedView>
+          </Card>
 
           {session.pairing && Platform.OS !== 'web' && (
-            <ThemedView type="backgroundElement" style={styles.card} testID="notify-card">
-              <View style={styles.row}>
-                <ThemedText type="smallBold" style={styles.grow}>
-                  {t('Notifications')}
+            <>
+              <SectionLabel>{t('Notifications')}</SectionLabel>
+              <Card testID="notify-card">
+                <View style={styles.row}>
+                  <ThemedText type="heading" style={styles.grow}>
+                    {t('Notifications')}
+                  </ThemedText>
+                  <Switch value={notify} onValueChange={(v) => void toggleNotify(v)} accessibilityLabel={t('Notifications')} />
+                </View>
+                <ThemedText type="body" themeColor="textSecondary">
+                  {t('Pages your computer sends to this phone, and watched pages that change. The phone checks about every 15 minutes in the background, when the system allows it.')}
                 </ThemedText>
-                <Switch value={notify} onValueChange={(v) => void toggleNotify(v)} accessibilityLabel={t('Notifications')} />
-              </View>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t('Pages your computer sends to this phone, and watched pages that change. The phone checks about every 15 minutes in the background, when the system allows it.')}
-              </ThemedText>
-              {notifyDenied && (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {t('Notifications are blocked for Corvus: allow them in the system settings, then turn this on again.')}
-                </ThemedText>
-              )}
-            </ThemedView>
+                {notifyDenied && (
+                  <ThemedText type="body" themeColor="textSecondary">
+                    {t('Notifications are blocked for Corvus: allow them in the system settings, then turn this on again.')}
+                  </ThemedText>
+                )}
+              </Card>
+            </>
           )}
 
-          <ThemedView type="backgroundElement" style={styles.card}>
-            <ThemedText type="smallBold">{t('About')}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" testID="app-version">
-              {t('Corvus for mobile {version}', { version })}
-            </ThemedText>
-          </ThemedView>
+          <SectionLabel>{t('About')}</SectionLabel>
+          <Card>
+            <View style={styles.row}>
+              <ThemedText type="body" style={styles.grow}>
+                {t('Version')}
+              </ThemedText>
+              <ThemedText type="body" themeColor="textSecondary" testID="app-version" accessibilityLabel={t('Corvus for mobile {version}', { version })}>
+                {version}
+              </ThemedText>
+            </View>
+          </Card>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -143,13 +154,11 @@ const styles = StyleSheet.create({
     paddingBottom: BottomTabInset + Spacing.four,
     gap: Spacing.three,
   },
-  card: {
-    gap: Spacing.two,
-    padding: Spacing.four,
-    borderRadius: Spacing.four,
+  devices: {
+    gap: Spacing.three,
   },
-  subhead: {
-    marginTop: Spacing.two,
+  device: {
+    gap: 2,
   },
   row: {
     flexDirection: 'row',

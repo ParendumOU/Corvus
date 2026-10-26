@@ -26,8 +26,6 @@ export const ES: Record<string, string> = {
   'Tabs from your computers': 'Pestañas de tus ordenadores',
   "Your computer's Corvus, in your pocket.": 'El Corvus de tu ordenador, en tu bolsillo.',
   'Not paired with a computer yet': 'Aún no está emparejado con un ordenador',
-  'On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Then scan the code here.':
-    'En tu ordenador, abre los Ajustes de Corvus, luego Sincronización, y elige «Emparejar un móvil». Después escanea el código aquí.',
   'Sent to this phone': 'Enviado a este móvil',
   'From {device}': 'De {device}',
   'Send a page to your computer': 'Enviar una página a tu ordenador',
@@ -174,8 +172,6 @@ export const ES: Record<string, string> = {
   '(this phone)': '(este móvil)',
   'seen {when}': 'visto {when}',
   'Unpair this phone': 'Desemparejar este móvil',
-  'Not paired. What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.':
-    'Sin emparejar. Lo que comparten el móvil y tu ordenador va cifrado de extremo a extremo: el servidor de sincronización solo guarda datos cifrados.',
   Notifications: 'Notificaciones',
   'Pages your computer sends to this phone, and watched pages that change. The phone checks about every 15 minutes in the background, when the system allows it.':
     'Páginas que tu ordenador envía a este móvil y páginas vigiladas que cambian. El móvil lo comprueba en segundo plano unas cada 15 minutos, cuando el sistema lo permite.',
@@ -193,6 +189,17 @@ export const ES: Record<string, string> = {
     'Tu servidor de sincronización aún no permite preguntas: actualízalo a la última versión del servidor de Corvus.',
 
   // Times
+  'Pair it once and your tabs, pages and library follow you here.': 'Empareja una vez y tus pestañas, páginas y biblioteca te seguirán aquí.',
+  'On your computer, open Corvus Settings, then Sync.': 'En tu ordenador, abre los Ajustes de Corvus y luego Sincronización.',
+  'Choose “Pair a phone”: a code appears.': 'Elige «Emparejar un móvil»: aparecerá un código.',
+  'Scan the code with this phone.': 'Escanea el código con este móvil.',
+  'Your library, on your phone': 'Tu biblioteca, en el móvil',
+  'Paired': 'Emparejado',
+  'Not paired': 'Sin emparejar',
+  'What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.':
+    'Lo que comparten el móvil y tu ordenador va cifrado de extremo a extremo: el servidor de sincronización solo guarda datos cifrados.',
+  'Version': 'Versión',
+  'Point the camera at the code your computer shows.': 'Apunta la cámara al código que muestra tu ordenador.',
   'just now': 'ahora mismo',
   '{n} min ago': 'hace {n} min',
   '{n} h ago': 'hace {n} h',

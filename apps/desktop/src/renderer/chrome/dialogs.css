@@ -91,6 +91,29 @@
   margin: 12px 0 0 44px;
   box-sizing: border-box;
 }
+/* Labelled fields of a dialog that edits something (a bookmark's name and address). */
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 12px 0 0 44px;
+}
+.dialog-field-label {
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+.dialog-field .input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.dialog-field .input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.dialog-field-error {
+  font-size: 12px;
+  color: var(--danger);
+}
 .dialog-foot {
   display: flex;
   align-items: center;

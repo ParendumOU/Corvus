@@ -5,22 +5,22 @@ import { chromeApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconShield, IconSparkle } from "../common/icons";
 
-function answer(view: DialogView, button: number, checked: boolean, value: string): void {
-  void chromeApi().call("dialog.answer", view.id, button, checked, value);
+function answer(view: DialogView, button: number, checked: boolean, value: string, values?: string[]): void {
+  void chromeApi().call("dialog.answer", view.id, button, checked, value, values);
 }
 
 /** Buttons in order; the default one is the primary, a destructive one is red. */
-function Buttons({ view, checked, value, focus }: { view: DialogView; checked: boolean; value: string; focus: boolean }) {
+function Buttons({ view, focus, onPress }: { view: DialogView; focus: boolean; onPress: (button: number) => void }) {
   return (
     <>
       {view.buttons.map((label, i) => (
         <button
           key={i}
           type="button"
-          autoFocus={focus && i === view.defaultId && !view.input}
+          autoFocus={focus && i === view.defaultId && !view.input && !view.fields?.length}
           className={`btn ${i === view.dangerId ? "danger-solid" : i === view.defaultId ? "primary" : ""}`}
           data-dialog-button={i}
-          onClick={() => answer(view, i, checked, value)}
+          onClick={() => onPress(i)}
         >
           {label}
         </button>
@@ -31,26 +31,44 @@ function Buttons({ view, checked, value, focus }: { view: DialogView; checked: b
 
 /**
  * The window's question (main/dialogs.ts) as a modal over everything: Enter presses the default
- * button, Escape the cancel one. Clicking outside does nothing, as with the system's box.
+ * button, Escape the cancel one. Clicking outside does nothing, as with the system's box. A field
+ * that may not be empty keeps the dialog open, with its message under it, until it is filled.
  */
 export function DialogModal({ view }: { view: DialogView }) {
   const [checked, setChecked] = useState(view.checkbox?.checked ?? false);
   const [value, setValue] = useState(view.input?.value ?? "");
+  const [values, setValues] = useState(() => view.fields?.map((f) => f.value) ?? []);
+  const [missing, setMissing] = useState<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const fields = useRef<Array<HTMLInputElement | null>>([]);
+  // The view is a new object on every state push: focus once per dialog, not on each push.
+  const hasInput = Boolean(view.input);
+  const fieldCount = view.fields?.length ?? 0;
   useEffect(() => {
-    if (view.input) {
-      input.current?.focus();
-      input.current?.select();
+    const first = hasInput ? input.current : fieldCount > 0 ? fields.current[0] : null;
+    first?.focus();
+    first?.select();
+  }, [view.id, hasInput, fieldCount]);
+
+  const press = (button: number): void => {
+    if (button !== view.cancelId) {
+      const empty = view.fields?.findIndex((f, i) => f.required !== undefined && !(values[i] ?? "").trim()) ?? -1;
+      if (empty >= 0) {
+        setMissing(empty);
+        fields.current[empty]?.focus();
+        return;
+      }
     }
-  }, [view.id, view.input]);
+    answer(view, button, checked, value, view.fields ? values : undefined);
+  };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>): void => {
     if (e.key === "Escape") {
       e.preventDefault();
-      answer(view, view.cancelId, checked, value);
+      press(view.cancelId);
     } else if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "BUTTON") {
       e.preventDefault();
-      answer(view, view.defaultId, checked, value);
+      press(view.defaultId);
     }
   };
 
@@ -96,6 +114,33 @@ export function DialogModal({ view }: { view: DialogView }) {
             onChange={(e) => setValue(e.target.value)}
           />
         )}
+        {view.fields?.map((field, i) => (
+          <label key={i} className="dialog-field">
+            <span className="dialog-field-label">{field.label}</span>
+            <input
+              ref={(el) => {
+                fields.current[i] = el;
+              }}
+              className="input"
+              value={values[i] ?? ""}
+              placeholder={field.placeholder}
+              spellCheck={false}
+              data-dialog-field={i}
+              aria-invalid={missing === i || undefined}
+              onChange={(e) => {
+                const next = [...values];
+                next[i] = e.target.value;
+                setValues(next);
+                if (missing === i) setMissing(null);
+              }}
+            />
+            {missing === i && field.required ? (
+              <span className="dialog-field-error" role="alert">
+                {field.required}
+              </span>
+            ) : null}
+          </label>
+        ))}
         <div className="dialog-foot">
           {view.checkbox ? (
             <label className="dialog-check">
@@ -106,7 +151,7 @@ export function DialogModal({ view }: { view: DialogView }) {
             <span />
           )}
           <div className="dialog-buttons">
-            <Buttons view={view} checked={checked} value={value} focus />
+            <Buttons view={view} focus onPress={press} />
           </div>
         </div>
       </div>
@@ -127,7 +172,7 @@ export function DialogBars({ bars }: { bars: DialogView[] }) {
             <strong>{view.message}</strong>
             {view.detail ? <span className="dialog-bar-detail">{view.detail.split("\n\n")[0]}</span> : null}
           </div>
-          <Buttons view={view} checked={false} value="" focus={false} />
+          <Buttons view={view} focus={false} onPress={(button) => answer(view, button, false, "")} />
         </div>
       ))}
     </>

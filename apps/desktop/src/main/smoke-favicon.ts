@@ -1,4 +1,5 @@
-import type http from "node:http";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import type { WebContents } from "electron";
 import { BAR_FOLDER_ID } from "../shared/bookmark-tree";
 import type { SessionWindow } from "../shared/session-state";
@@ -20,8 +21,27 @@ const PAGES: Record<string, string> = {
   ),
 };
 
+/** Where /favicon-away and /favicon-meta send the tab: a page of another local test server. */
+const LOCAL_TARGET = /^http:\/\/127\.0\.0\.1:\d+\/[\w/-]*$/;
+
 export function serveFaviconSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
+  if (pathname === "/favicon-away" || pathname === "/favicon-meta") {
+    const to = new URL(req.url ?? "/", "http://127.0.0.1/").searchParams.get("to") ?? "";
+    if (!LOCAL_TARGET.test(to)) {
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("bad target");
+    } else if (pathname === "/favicon-away") {
+      // A server redirect to another site.
+      res.writeHead(302, { Location: to });
+      res.end();
+    } else {
+      // A page that sends the tab on by itself as soon as it opens.
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><html><head><title>Favicon meta</title><meta http-equiv="refresh" content="0;url=${to}"></head><body>Moving on</body></html>`);
+    }
+    return true;
+  }
   const html = PAGES[pathname];
   if (html) {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -200,4 +220,120 @@ export async function runFaviconSmoke(ctx: AppContext, { url, win, check, captur
     await delay(300);
   }
   win.closeTab(tab.id);
+
+  await runRedirectSmoke({ url, win, check, capture });
+}
+
+// A 32x32 icon, so the bookmarks that lead to its site are told apart from the 16x16 one of the
+// main test server (naturalWidth).
+const LANDING_ICON = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" fill="#1a73e8"/></svg>');
+
+function listen(handler: http.RequestListener): Promise<{ server: http.Server; url: string }> {
+  const server = http.createServer(handler);
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/` })));
+}
+
+/** The loaded icon of a bookmark on the bookmarks page, or null while it has none. */
+async function bookmarkRowIcon(page: WebContents, id: string): Promise<{ naturalWidth: number } | null> {
+  return (await page
+    .executeJavaScript(`(() => { const img = document.querySelector('.bm-row[data-bookmark-id="${id}"] img.favicon'); return img && img.complete ? { naturalWidth: img.naturalWidth } : null; })()`)
+    .catch(() => null)) as { naturalWidth: number } | null;
+}
+
+/** Polls `probe` until `done` holds or `timeoutMs` passes; the last value either way. */
+async function until<T>(probe: () => Promise<T>, done: (value: T) => boolean, timeoutMs = 8000): Promise<T> {
+  const end = Date.now() + timeoutMs;
+  let value = await probe();
+  while (!done(value) && Date.now() < end) {
+    await delay(200);
+    value = await probe();
+  }
+  return value;
+}
+
+/**
+ * Bookmarks whose address leads to another site show the icon of the page they end on: one never
+ * opened (Corvus follows its redirects), one opened through a server redirect, and one through a
+ * page that moves on by itself (meta refresh). Another test server plays the other site; the main
+ * one already has an icon of its own (16x16), which those bookmarks must not show.
+ */
+async function runRedirectSmoke({ url, win, check, capture }: SmokeCtx): Promise<void> {
+  const landing = await listen((req, res) => {
+    const pathname = (req.url ?? "/").split("?")[0];
+    if (pathname === "/landing") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(page("Favicon landing", `<link rel="icon" type="image/svg+xml" href="/landing-icon.svg">`));
+    } else if (pathname === "/landing-icon.svg") {
+      res.writeHead(200, { "Content-Type": "image/svg+xml" });
+      res.end(LANDING_ICON);
+    } else {
+      // No /favicon.ico: the icon is only found through the page that names it.
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("not here");
+    }
+  });
+  const landingPage = `${landing.url}landing`;
+  // A site that moved: every address (its /favicon.ico too) redirects to the landing page.
+  const moved = await listen((_req, res) => {
+    res.writeHead(302, { Location: landingPage });
+    res.end();
+  });
+  const bookmarks = win.profile.bookmarks;
+  const mark = (title: string, address: string): { id: string; url: string } => {
+    const b = bookmarks.create({ parentId: BAR_FOLDER_ID, kind: "bookmark", title, url: address });
+    return { id: b.id, url: address };
+  };
+  const neverOpened = mark("Favicon moved", moved.url);
+  const away = mark("Favicon away", `${url}favicon-away?to=${encodeURIComponent(landingPage)}`);
+  const meta = mark("Favicon meta", `${url}favicon-meta?to=${encodeURIComponent(landingPage)}`);
+  const chrome = win.chrome.webContents;
+  const barIcon = (): Promise<{ naturalWidth: number } | null> =>
+    chrome
+      .executeJavaScript(`(() => { const img = document.querySelector('.bookmarks-bar .bar-item[title^="Favicon away"] img.favicon'); return img && img.complete ? { naturalWidth: img.naturalWidth, src: img.src } : null; })()`)
+      .catch(() => null) as Promise<{ naturalWidth: number } | null>;
+  try {
+    // 1. Never opened: fetched and followed to the landing page, whose <link rel=icon> it shows.
+    const library = win.createTab("corvus://bookmarks/", { activate: true });
+    const fresh = await until(
+      () => bookmarkRowIcon(library.view.webContents, neverOpened.id),
+      (icon) => icon?.naturalWidth === 32,
+    );
+    check("favicon: a bookmark never opened that redirects to another site shows that site's icon", fresh?.naturalWidth === 32, fresh);
+    win.closeTab(library.id);
+    // Before it is opened, the redirecting bookmark of the main server shows that server's icon.
+    const before = await until(barIcon, (icon) => (icon?.naturalWidth ?? 0) > 0, 4000);
+
+    // 2. Opened in a tab: a server redirect, then a page that moves on by itself.
+    const visits: unknown[] = [];
+    for (const bookmark of [away, meta]) {
+      const tab = win.createTab(bookmark.url, { activate: true });
+      const landed = await until(
+        async () => ({ url: tab.url, faviconUrl: tab.faviconUrl ?? null }),
+        (t) => t.url === landingPage && t.faviconUrl !== null,
+      );
+      visits.push(landed);
+      await delay(300);
+      win.closeTab(tab.id);
+    }
+    const shown = win.createTab("corvus://bookmarks/", { activate: true });
+    const awayIcon = await until(
+      () => bookmarkRowIcon(shown.view.webContents, away.id),
+      (icon) => icon?.naturalWidth === 32,
+    );
+    const metaIcon = await until(
+      () => bookmarkRowIcon(shown.view.webContents, meta.id),
+      (icon) => icon?.naturalWidth === 32,
+    );
+    check("favicon: a bookmark opened through a server redirect shows the final page's icon", awayIcon?.naturalWidth === 32, { awayIcon, visits });
+    check("favicon: a bookmark opened through a page that moves on by itself shows the final page's icon", metaIcon?.naturalWidth === 32, { metaIcon, visits });
+    await capture("favicon-redirects", shown.view.webContents);
+    win.closeTab(shown.id);
+    // The bookmarks bar, which had already shown an icon for it, asks again.
+    const after = await until(barIcon, (icon) => icon?.naturalWidth === 32);
+    check("favicon: the bookmarks bar picks up the icon of where a bookmark leads", before !== null && before.naturalWidth !== 32 && after?.naturalWidth === 32, { before, after });
+  } finally {
+    for (const b of [neverOpened, away, meta]) bookmarks.remove(b.id);
+    landing.server.close();
+    moved.server.close();
+  }
 }

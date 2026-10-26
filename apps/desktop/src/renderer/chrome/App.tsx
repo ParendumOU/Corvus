@@ -7,10 +7,12 @@ import {
   useState,
   type CSSProperties,
   type DragEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import type { GroupColor } from "@corvus/shared";
+import type { Bookmark, GroupColor } from "@corvus/shared";
+import { BAR_FOLDER_ID, BOOKMARK_DRAG_MIME, dropMoveIndex } from "../../shared/bookmark-tree";
 import { GROUP_COLOR_HEX, type WindowState } from "../../shared/ipc";
 import type { PhoneShare } from "../../shared/phone-share";
 import { isNewTabUrl } from "../../shared/internal-urls";
@@ -23,6 +25,7 @@ import { Favicon, setFaviconProfile } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
 import { FindBar } from "./FindBar";
+import { barMenuIcons } from "./menu-icons";
 import { Omnibox, PAGE_DRAG_MIME, type OmniboxHandle } from "./Omnibox";
 import { Organizer } from "./Organizer";
 import {
@@ -104,6 +107,7 @@ export function App() {
       } else if (command.type === "open-organizer") {
         setOrganizer((open) => !open);
       } else if (command.type === "open-downloads") {
+        setBubbleAuto(false);
         setPopover({ kind: "downloads", anchor: downloadsAnchor() });
       } else if (command.type === "open-share") {
         const rect = document.querySelector(".omnibox")?.getBoundingClientRect();
@@ -152,14 +156,38 @@ export function App() {
   useEffect(() => setPopover((p) => (p?.kind === "downloads" ? p : null)), [state?.activeTabId]);
 
   const onOmniOpen = useCallback((open: boolean) => setOmniOpen(open), []);
-  const closePopover = useCallback(() => setPopover(null), []);
+  const [bubbleAuto, setBubbleAuto] = useState(false);
+  const closePopover = useCallback(() => {
+    setPopover(null);
+    setBubbleAuto(false);
+  }, []);
+
+  // Downloads: the toolbar button pulses when one starts, and the bubble opens by itself for a few
+  // seconds when one the person started finishes (not the agent's, and never over another overlay).
+  const [downloadPulse, setDownloadPulse] = useState(0);
+  const lastDownloads = useRef<Map<string, string> | null>(null);
+  const overlayBusy = useRef(false);
+  overlayBusy.current = overlayOpen;
+  useEffect(() => {
+    if (!state) return;
+    const recent = state.downloads.recent;
+    const before = lastDownloads.current;
+    lastDownloads.current = new Map(recent.map((d) => [d.id, d.state]));
+    if (!before) return; // the first state after launch: nothing in it is new
+    if (recent.some((d) => !before.has(d.id) && d.state !== "cancelled")) setDownloadPulse((n) => n + 1);
+    const finished = recent.some((d) => !d.agent && d.state === "completed" && before.get(d.id) !== "completed");
+    if (finished && !overlayBusy.current) {
+      setBubbleAuto(true);
+      setPopover({ kind: "downloads", anchor: downloadsAnchor() });
+    }
+  }, [state?.downloads]);
   const closePalette = useCallback(() => {
     setPalette(false);
     setListenToken(0);
   }, []);
 
   if (!state) return null;
-  setFaviconProfile(state.profile.id);
+  setFaviconProfile(state.profile.id, state.faviconRevision);
   const active = state.tabs.find((t) => t.id === state.activeTabId);
   const mac = state.platform === "darwin";
   const vertical = state.tabLayout === "vertical";
@@ -259,7 +287,11 @@ export function App() {
             <CopiedLinksChip count={state.copiedLinks} />
             <DownloadsButton
               summary={state.downloads}
-              onOpen={(rect) => setPopover({ kind: "downloads", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })}
+              pulse={downloadPulse}
+              onOpen={(rect) => {
+                setBubbleAuto(false);
+                setPopover({ kind: "downloads", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } });
+              }}
             />
             <WatchesButton watches={state.watches} onOpen={() => void api.call("tabs.openUrl", "corvus://watches/", "new-tab")} />
             <WorkspacesButton onOpen={(rect) => setPopover({ kind: "workspaces", anchor: { left: 0, top: rect.bottom + 6, right: rect.right } })} />
@@ -342,11 +374,11 @@ export function App() {
       {palette && <DebugBoundary><CommandBar state={state} onClose={closePalette} listenToken={listenToken} onOrganize={() => { setPalette(false); setOrganizer(true); }} /></DebugBoundary>}
       {editor && <GroupEditor state={state} editor={editor} onClose={() => setEditor(null)} />}
       {prompt && <PermissionPrompt key={prompt.id} prompt={prompt} anchor={omniboxAnchor()} />}
-      {state.dialog && <DialogModal view={state.dialog} />}
+      {state.dialog && <DialogModal key={state.dialog.id} view={state.dialog} />}
       {popover?.kind === "site" && <SiteInfoPopover anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "zoom" && <ZoomPopover anchor={popover.anchor} percent={state.zoomPercent} />}
       {organizer && <Organizer dark={state.dark} tabCount={state.tabs.length} onClose={() => setOrganizer(false)} />}
-      {popover?.kind === "downloads" && <DownloadsBubble summary={state.downloads} anchor={popover.anchor} onClose={closePopover} />}
+      {popover?.kind === "downloads" && <DownloadsBubble summary={state.downloads} anchor={popover.anchor} autoCloseMs={bubbleAuto ? 6000 : undefined} onClose={closePopover} />}
       {popover?.kind === "adblock" && <AdblockPopover state={state.adblock} anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "share" && <SharePopover share={popover.share} anchor={popover.anchor} onClose={closePopover} />}
       {popover?.kind === "workspaces" && (
@@ -395,13 +427,34 @@ class DebugBoundary extends Component<{ children: ReactNode }, { err: boolean }>
   }
 }
 
-/** Bookmarks bar position a drop at `clientX` lands on: before the first item whose middle is right of it. */
-function barDropIndex(bar: HTMLElement, clientX: number, count: number): number {
-  const hit = [...bar.querySelectorAll<HTMLElement>("[data-bar-index]")].find((el) => {
+/** Where a drag over the bookmarks bar lands. */
+interface BarDrop {
+  /** Before the bar's item at this index (the number shown: after the last one); with `into`, into that folder. */
+  slot: number;
+  into: boolean;
+}
+
+/**
+ * Where a drop at `clientX` lands among the bar's `shown` items (the rest are under "»"): into a
+ * folder when on its middle (with `intoFolders`, as on the bookmarks page), else before the first
+ * item whose middle is right of it, else after the last one shown.
+ */
+function barDrop(bar: HTMLElement, clientX: number, shown: number, intoFolders: boolean): BarDrop {
+  const items = [...bar.querySelectorAll<HTMLElement>("[data-bar-index]")].filter((el) => Number(el.dataset.barIndex) < shown);
+  const folder = intoFolders
+    ? items.find((el) => {
+        if (el.dataset.barFolder === undefined) return false;
+        const r = el.getBoundingClientRect();
+        const at = (clientX - r.left) / r.width;
+        return at > 0.28 && at < 0.72;
+      })
+    : undefined;
+  if (folder) return { slot: Number(folder.dataset.barIndex), into: true };
+  const hit = items.find((el) => {
     const r = el.getBoundingClientRect();
     return clientX < r.left + r.width / 2;
   });
-  return hit ? Number(hit.dataset.barIndex) : count;
+  return { slot: hit ? Number(hit.dataset.barIndex) : shown, into: false };
 }
 
 /** The page a drop carries: the site chip's `{ url, title }`, else the first link of a uri-list. */
@@ -418,7 +471,9 @@ function droppedPage(data: DataTransfer): { url: string; title: string } | null 
 
 function BookmarksBar({ state }: { state: WindowState }) {
   const api = chromeApi();
-  const [dropAt, setDropAt] = useState<number | null>(null);
+  const [drop, setDrop] = useState<BarDrop | null>(null);
+  /** The bar's own item being dragged along it (a drag from the bookmarks page has none). */
+  const [dragging, setDragging] = useState<string | null>(null);
   const count = state.bookmarksBar.length;
   // Items that do not fit stay laid out but hidden; "»" lists them, and All bookmarks stays put.
   const itemsRef = useRef<HTMLDivElement>(null);
@@ -438,43 +493,94 @@ function BookmarksBar({ state }: { state: WindowState }) {
     return () => observer.disconnect();
   }, [count, state.bookmarksBar]);
   const carriesPage = (e: DragEvent<HTMLElement>): boolean => e.dataTransfer.types.includes(PAGE_DRAG_MIME) || e.dataTransfer.types.includes("text/uri-list");
+  const carriesBookmark = (e: DragEvent<HTMLElement>): boolean => e.dataTransfer.types.includes(BOOKMARK_DRAG_MIME);
+  // Dropping an item back where it is changes nothing, so it shows no marker.
+  const from = dragging === null ? -1 : state.bookmarksBar.findIndex((b) => b.id === dragging);
+  const stays = (at: BarDrop): boolean => from >= 0 && (at.into ? at.slot === from : at.slot === from || at.slot === from + 1);
+  const shown = drop && !stays(drop) ? drop : null;
+  const marker = (i: number): string => {
+    if (!shown) return "";
+    if (shown.into) return shown.slot === i ? "drop-into" : "";
+    if (shown.slot === i && i < fits) return "drop-before";
+    return shown.slot >= fits && i === fits - 1 ? "drop-after" : "";
+  };
+  const endDrag = (): void => {
+    setDragging(null);
+    setDrop(null);
+  };
+  /** A bookmark dropped on the bar: moved there with bookmarks.move, as the bookmarks page moves it. */
+  const moveTo = (id: string, at: BarDrop): void => {
+    if (!id || stays(at)) return;
+    const folder = at.into ? state.bookmarksBar[at.slot] : undefined;
+    const move = folder
+      ? api.call("bookmarks.move", id, folder.id)
+      : api.call("bookmarks.move", id, BAR_FOLDER_ID, dropMoveIndex(state.bookmarksBar, id, at.slot));
+    // A bookmark that went away meanwhile, or a folder dropped into itself: nothing moves.
+    void move.catch(() => undefined);
+  };
+  /** What every item shares: dragging it along the bar, its drop marker, hiding it under "»". */
+  const itemProps = (b: Bookmark, i: number) => ({
+    "data-bar-index": i,
+    "data-bookmark-id": b.id,
+    className: `bar-item ${marker(i)} ${dragging === b.id ? "dragging" : ""} ${i >= fits ? "bar-hidden" : ""}`,
+    tabIndex: i >= fits ? -1 : undefined,
+    draggable: true,
+    onDragStart: (e: DragEvent<HTMLElement>) => {
+      e.dataTransfer.setData(BOOKMARK_DRAG_MIME, b.id);
+      // A bookmark also drags as its link (into a page, the address bar or another app).
+      if (b.url) {
+        e.dataTransfer.setData("text/uri-list", b.url);
+        e.dataTransfer.setData("text/plain", b.url);
+      }
+      e.dataTransfer.effectAllowed = "copyMove";
+      setDragging(b.id);
+    },
+    onDragEnd: endDrag,
+    onContextMenu: (e: ReactMouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      void api.call("ui.bookmarkMenu", b.id, e.clientX, e.clientY);
+    },
+  });
   return (
     <div
-      className={`bookmarks-bar ${dropAt !== null ? "dropping" : ""}`}
+      className={`bookmarks-bar ${shown ? "dropping" : ""}`}
       onDragOver={(e) => {
-        if (!carriesPage(e)) return;
+        const moving = carriesBookmark(e);
+        if (!moving && !carriesPage(e)) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        setDropAt(barDropIndex(e.currentTarget, e.clientX, count));
+        e.dataTransfer.dropEffect = moving ? "move" : "copy";
+        const at = barDrop(e.currentTarget, e.clientX, fits, moving);
+        if (drop?.slot !== at.slot || drop.into !== at.into) setDrop(at);
       }}
       onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null);
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrop(null);
       }}
       onDrop={(e) => {
-        if (!carriesPage(e)) return;
+        const moving = carriesBookmark(e);
+        if (!moving && !carriesPage(e)) return;
         e.preventDefault();
-        setDropAt(null);
+        // Where it lands is read from the drop itself (the last dragover may not have rendered yet).
+        const at = barDrop(e.currentTarget, e.clientX, fits, moving);
+        endDrag();
+        if (moving) return moveTo(e.dataTransfer.getData(BOOKMARK_DRAG_MIME), at);
         const page = droppedPage(e.dataTransfer);
-        if (page) void api.call("bookmarks.addToBar", page.url, page.title, barDropIndex(e.currentTarget, e.clientX, count));
+        if (page) void api.call("bookmarks.addToBar", page.url, page.title, at.slot);
       }}
     >
-      {count === 0 && <span className="bar-empty">{dropAt !== null ? tx("Drop to bookmark this page") : tx("Bookmark pages with the star in the address bar, or drag the lock here.")}</span>}
+      {count === 0 && <span className="bar-empty">{shown ? tx("Drop to bookmark this page") : tx("Bookmark pages with the star in the address bar, or drag the lock here.")}</span>}
       <div className="bar-items" ref={itemsRef}>
       {state.bookmarksBar.map((b, i) =>
         b.kind === "folder" ? (
           <button
             key={b.id}
-            data-bar-index={i}
-            className={`bar-item ${dropAt === i ? "drop-before" : ""} ${i >= fits ? "bar-hidden" : ""}`}
-            tabIndex={i >= fits ? -1 : undefined}
+            {...itemProps(b, i)}
+            data-bar-folder=""
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               void api.call("ui.bookmarkFolderMenu", b.id, r.left, r.bottom + 2);
             }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              void api.call("ui.bookmarkMenu", b.id, e.clientX, e.clientY);
-            }}
+            // A middle click opens the folder's bookmarks in background tabs, as in Chrome.
+            onAuxClick={(e) => e.button === 1 && void api.call("bookmarks.openFolder", b.id)}
           >
             <IconFolder size={14} />
             <span>{b.title}</span>
@@ -482,23 +588,16 @@ function BookmarksBar({ state }: { state: WindowState }) {
         ) : (
           <button
             key={b.id}
-            data-bar-index={i}
-            className={`bar-item ${dropAt === i ? "drop-before" : ""} ${i >= fits ? "bar-hidden" : ""}`}
-            tabIndex={i >= fits ? -1 : undefined}
+            {...itemProps(b, i)}
             title={`${b.title}\n${b.url ?? ""}`}
             onClick={(e) => b.url && void api.call("tabs.openUrl", b.url, e.ctrlKey || e.metaKey ? "background-tab" : "current")}
             onAuxClick={(e) => e.button === 1 && b.url && void api.call("tabs.openUrl", b.url, "background-tab")}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              void api.call("ui.bookmarkMenu", b.id, e.clientX, e.clientY);
-            }}
           >
             <Favicon url={b.url ?? ""} size={14} />
             <span>{b.title || b.url}</span>
           </button>
         ),
       )}
-      {dropAt !== null && dropAt === count && count > 0 && <span className="bar-drop-end" />}
       </div>
       {fits < count && (
         <button
@@ -507,7 +606,11 @@ function BookmarksBar({ state }: { state: WindowState }) {
           aria-label={tx("More bookmarks")}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            void api.call("ui.bookmarkOverflowMenu", fits, r.left, r.bottom + 2);
+            const hidden = state.bookmarksBar.slice(fits).map((bookmark, i) => ({ bookmark, index: fits + i }));
+            // The menu shows the icons the bar shows for them (drawn here: menu-icons.ts).
+            void barMenuIcons(itemsRef.current, hidden)
+              .catch((): Record<string, string> => ({}))
+              .then((icons) => api.call("ui.bookmarkOverflowMenu", fits, r.left, r.bottom + 2, icons));
           }}
         >
           »

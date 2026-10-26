@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import type { Bookmark } from "@corvus/shared";
-import { BAR_FOLDER_ID, OTHER_FOLDER_ID, ROOT_IDS, childrenOf, isDescendant, pathTo } from "../../shared/bookmark-tree";
-import { classifyOmnibox } from "../../shared/omnibox";
+import { BAR_FOLDER_ID, BOOKMARK_DRAG_MIME, OTHER_FOLDER_ID, ROOT_IDS, bookmarkUrlFromInput, childrenOf, isDescendant, pathTo } from "../../shared/bookmark-tree";
 import { errorMessage, internalApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFolder, IconPlus, IconTrash } from "../common/icons";
 import { Favicon, hostOf } from "../common/ui";
@@ -9,7 +8,6 @@ import "./bookmarks.css";
 import { PageShell, mount } from "./shell";
 
 import { t } from "../common/i18n";
-const DRAG_MIME = "application/x-corvus-bookmark";
 const VIEW_KEY = "corvus.bookmarks.view";
 
 type View = "table" | "grid";
@@ -21,11 +19,6 @@ function folderTitle(b: { id: string; title: string }): string {
   if (b.id === BAR_FOLDER_ID) return t("Bookmarks bar");
   if (b.id === OTHER_FOLDER_ID) return t("Other bookmarks");
   return b.title;
-}
-
-function normalizeUrl(input: string): string {
-  const intent = classifyOmnibox(input);
-  return intent.kind === "url" ? intent.url : input.trim();
 }
 
 function readView(): View {
@@ -77,7 +70,7 @@ function FolderTree({
               style={{ paddingLeft: 14 + depth * 14 }}
               onClick={() => select(f.id)}
               onDragOver={(e) => {
-                if (e.dataTransfer.types.includes(DRAG_MIME)) {
+                if (e.dataTransfer.types.includes(BOOKMARK_DRAG_MIME)) {
                   e.preventDefault();
                   setOver(f.id);
                 }
@@ -125,7 +118,7 @@ function Breadcrumbs({ crumbs, onOpen, onDropInto }: { crumbs: Bookmark[]; onOpe
               aria-current={last ? "page" : undefined}
               onClick={() => onOpen(c.id)}
               onDragOver={(e) => {
-                if (!last && e.dataTransfer.types.includes(DRAG_MIME)) {
+                if (!last && e.dataTransfer.types.includes(BOOKMARK_DRAG_MIME)) {
                   e.preventDefault();
                   setOver(c.id);
                 }
@@ -200,7 +193,7 @@ function BookmarksPage() {
   /** A dragged bookmark into a folder (not into itself or one of its own subfolders). */
   const moveInto = (folderId: string, e: DragEvent): void => {
     e.preventDefault();
-    const id = e.dataTransfer.getData(DRAG_MIME);
+    const id = e.dataTransfer.getData(BOOKMARK_DRAG_MIME);
     setDragging(null);
     if (!id || id === folderId || isDescendant(list, folderId, id)) return;
     run(api.call("bookmarks.move", id, folderId));
@@ -213,7 +206,7 @@ function BookmarksPage() {
     const at = { id: target.id, where: dropPosition(e, target, horizontal) };
     setDropAt(null);
     setDragging(null);
-    const id = e.dataTransfer.getData(DRAG_MIME);
+    const id = e.dataTransfer.getData(BOOKMARK_DRAG_MIME);
     if (!id || id === target.id) return;
     if (at.where === "into") return moveInto(target.id, e);
     const siblings = childrenOf(list, folder).filter((x) => x.id !== id);
@@ -226,11 +219,13 @@ function BookmarksPage() {
     const { id, title, url } = editing;
     if (id === "new-folder") run(api.call("bookmarks.create", { parentId: folder, kind: "folder", title }));
     else if (id === "new-bookmark") {
-      if (!url.trim()) return setError(t("Enter a URL"));
-      run(api.call("bookmarks.create", { parentId: folder, kind: "bookmark", title, url: normalizeUrl(url) }));
+      const address = bookmarkUrlFromInput(url);
+      if (!address) return setError(t("Enter a URL"));
+      run(api.call("bookmarks.create", { parentId: folder, kind: "bookmark", title, url: address }));
     } else {
       const node = list.find((b) => b.id === id);
-      run(api.call("bookmarks.update", id, { title, ...(node?.kind === "bookmark" && url.trim() ? { url: normalizeUrl(url) } : {}) }));
+      const address = node?.kind === "bookmark" ? bookmarkUrlFromInput(url) : null;
+      run(api.call("bookmarks.update", id, { title, ...(address ? { url: address } : {}) }));
     }
     setEditing(null);
   };
@@ -257,7 +252,7 @@ function BookmarksPage() {
     "data-bookmark-id": b.id,
     draggable: !ROOT_IDS.has(b.id) && !query,
     onDragStart: (e: DragEvent<HTMLElement>) => {
-      e.dataTransfer.setData(DRAG_MIME, b.id);
+      e.dataTransfer.setData(BOOKMARK_DRAG_MIME, b.id);
       e.dataTransfer.effectAllowed = "move";
       setDragging(b.id);
     },
@@ -266,7 +261,7 @@ function BookmarksPage() {
       setDropAt(null);
     },
     onDragOver: (e: DragEvent<HTMLElement>) => {
-      if (query || !e.dataTransfer.types.includes(DRAG_MIME) || dragging === b.id) return;
+      if (query || !e.dataTransfer.types.includes(BOOKMARK_DRAG_MIME) || dragging === b.id) return;
       e.preventDefault();
       const where = dropPosition(e, b, horizontal);
       if (dropAt?.id !== b.id || dropAt.where !== where) setDropAt({ id: b.id, where });

@@ -71,8 +71,10 @@ export function sniffImageType(bytes: Uint8Array): string | null {
 /**
  * The address Corvus's own UI loads a site's icon from (main/favicon-cache.ts). Pages in a profile
  * get their profile's icons and prove they are Corvus's with the key it gave them; the browser UI,
- * which runs outside the profiles, names a profile.
+ * which runs outside the profiles, names a profile. `revision` changes when a bookmark may now show
+ * another icon (it was found, or the bookmark turned out to lead to another site), so the browser UI
+ * asks again instead of keeping the icon, or the failed load, it already has for that address.
  */
-export function cachedFaviconUrl(pageUrl: string, profileId?: string, key?: string): string {
-  return `corvus://favicon/?url=${encodeURIComponent(pageUrl)}${profileId ? `&profile=${encodeURIComponent(profileId)}` : ""}${key ? `&key=${encodeURIComponent(key)}` : ""}`;
+export function cachedFaviconUrl(pageUrl: string, profileId?: string, key?: string, revision = 0): string {
+  return `corvus://favicon/?url=${encodeURIComponent(pageUrl)}${profileId ? `&profile=${encodeURIComponent(profileId)}` : ""}${key ? `&key=${encodeURIComponent(key)}` : ""}${revision > 0 ? `&v=${revision}` : ""}`;
 }

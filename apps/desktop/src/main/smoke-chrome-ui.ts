@@ -67,6 +67,32 @@ export async function runChromeUiSmoke(ctx: AppContext, h: ChromeUiSmokeHelpers)
     const closed = await waitForJs(chrome, "!document.querySelector('.shield-popover')");
     check("a click on the toolbar or tab strip closes an open popover", hits.every((c) => typeof c === "string" && c.includes("overlay-backdrop")) && closed, { hits, closed });
 
+    // Closing tabs with a middle click keeps the others at their width while the pointer is on the
+    // strip; they spread out again once it leaves. (The smoke window may hold so many tabs that they
+    // sit at their minimum width, so this checks the freeze itself rather than a visible growth.)
+    const extra = Array.from({ length: 14 }, () => win.createTab("about:blank", { activate: false }));
+    const countJs = "document.querySelectorAll('.tab-strip .tab').length";
+    await waitForJs(chrome, `${countJs} >= ${extra.length + 1}`);
+    const count = (await chrome.executeJavaScript(countJs)) as number;
+    const widthsJs = "[...document.querySelectorAll('.tab-strip .tab:not(.pinned)')].map((t) => Math.round(t.getBoundingClientRect().width))";
+    const before = Math.max(...((await chrome.executeJavaScript(widthsJs)) as number[]));
+    await chrome.executeJavaScript("document.querySelectorAll('.tab-strip .tab:not(.pinned)')[2].dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }))");
+    const closedOne = await waitForJs(chrome, `${countJs} === ${count - 1}`);
+    const frozen = (await chrome.executeJavaScript(`({
+      frozen: document.querySelector('.tab-strip').classList.contains('frozen'),
+      width: parseFloat(document.querySelector('.tab-strip').style.getPropertyValue('--frozen-tab-width')),
+      widths: ${widthsJs},
+    })`)) as { frozen: boolean; width: number; widths: number[] };
+    await chrome.executeJavaScript("document.querySelector('.tab-strip').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }))");
+    const unfrozen = await waitForJs(chrome, "!document.querySelector('.tab-strip.frozen')");
+    const after = Math.max(...((await chrome.executeJavaScript(widthsJs)) as number[]));
+    check(
+      "tabs keep their width after a middle-click close until the pointer leaves the strip",
+      closedOne && frozen.frozen && Math.abs(frozen.width - before) <= 1 && frozen.widths.every((w) => Math.abs(w - before) <= 1) && unfrozen && after >= before,
+      { before, frozen, after, closedOne, unfrozen },
+    );
+    for (const t of extra) if (win.hasTab(t.id)) win.closeTab(t.id);
+
     // Drag the site chip onto the bookmarks bar: the page is bookmarked there with the tab's title.
     // The chip shows while the address bar is not being edited.
     win.sendCommand({ type: "close-overlays" });

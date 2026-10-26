@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { dialog } from "electron";
-import { cancelAnswer, toneOf, type DialogAnswer, type DialogSpec, type DialogView } from "../shared/dialog";
+import { cancelAnswer, fieldValues, toneOf, type DialogAnswer, type DialogSpec, type DialogView } from "../shared/dialog";
 import type { DialogInfo } from "@corvus/shared";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
@@ -73,7 +73,17 @@ export class DialogService {
     const pending = this.queues.get(win)?.find((p) => p.view.id === id);
     if (!pending) return;
     const button = typeof answer.button === "number" && answer.button >= 0 && answer.button < pending.view.buttons.length ? answer.button : pending.view.cancelId;
-    this.settle(win, id, { button, checked: answer.checked === true, value: typeof answer.value === "string" ? answer.value.slice(0, 10_000) : "" });
+    const typed = Array.isArray(answer.values) ? answer.values : [];
+    const values = pending.view.fields?.map((f, i) => {
+      const v = typed[i];
+      return typeof v === "string" ? v.slice(0, 10_000) : f.value;
+    });
+    this.settle(win, id, {
+      button,
+      checked: answer.checked === true,
+      value: typeof answer.value === "string" ? answer.value.slice(0, 10_000) : "",
+      ...(values ? { values } : {}),
+    });
   }
 
   /** The window closes: whatever it was asking is cancelled. */
@@ -116,7 +126,7 @@ export class DialogService {
       ...(spec.checkbox ? { checkboxLabel: spec.checkbox.label, checkboxChecked: spec.checkbox.checked } : {}),
       noLink: true,
     });
-    return { button: response, checked: checkboxChecked, value: spec.input?.value ?? "" };
+    return { button: response, checked: checkboxChecked, value: spec.input?.value ?? "", ...fieldValues(spec) };
   }
 }
 

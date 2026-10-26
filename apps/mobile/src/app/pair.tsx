@@ -2,9 +2,10 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import * as Device from 'expo-device';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, TextInput } from 'react-native';
+import { Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/button';
+import { CardHeader } from '@/components/card';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -49,19 +50,20 @@ export default function PairScreen() {
     });
   };
 
-  const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }];
+  // Fields sit on the card, so they take the page's background and a border to stand out from it.
+  const inputStyle = [styles.input, { color: theme.text, backgroundColor: theme.background, borderColor: theme.backgroundSelected }];
   const canScan = Platform.OS !== 'web';
 
   return (
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <ThemedText type="small" themeColor="textSecondary">
+        <ThemedText type="body" themeColor="textSecondary">
           {t('On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Anyone with that code can read your synced data, so pair only your own phone.')}
         </ThemedText>
 
         {canScan && (
           <ThemedView type="backgroundElement" style={styles.card}>
-            <ThemedText type="smallBold">{t('Scan the code')}</ThemedText>
+            <CardHeader title={t('Scan the code')} description={t('Point the camera at the code your computer shows.')} />
             {permission?.granted ? (
               <CameraView style={styles.camera} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onScanned} />
             ) : (
@@ -71,36 +73,40 @@ export default function PairScreen() {
         )}
 
         <ThemedView type="backgroundElement" style={styles.card}>
-          <ThemedText type="smallBold">{canScan ? t('Or enter it by hand') : t('Enter the code')}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t('Sync server address')}
-          </ThemedText>
-          <TextInput
-            testID="pair-server"
-            style={inputStyle}
-            value={server}
-            onChangeText={setServer}
-            placeholder="https://sync.example.com"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="url"
-          />
-          <ThemedText type="small" themeColor="textSecondary">
-            {t('Recovery phrase (24 words), or the pairing code')}
-          </ThemedText>
-          <TextInput
-            testID="pair-phrase"
-            style={[inputStyle, styles.phrase]}
-            value={phrase}
-            onChangeText={setPhrase}
-            placeholder="raven common …"
-            placeholderTextColor={theme.textSecondary}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry={false}
-            multiline
-          />
+          <CardHeader title={canScan ? t('Or enter it by hand') : t('Enter the code')} />
+          <View style={styles.field}>
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              {t('Sync server address')}
+            </ThemedText>
+            <TextInput
+              testID="pair-server"
+              style={inputStyle}
+              value={server}
+              onChangeText={setServer}
+              placeholder="https://sync.example.com"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+          </View>
+          <View style={styles.field}>
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              {t('Recovery phrase (24 words), or the pairing code')}
+            </ThemedText>
+            <TextInput
+              testID="pair-phrase"
+              style={[inputStyle, styles.phrase]}
+              value={phrase}
+              onChangeText={setPhrase}
+              placeholder="raven common …"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry={false}
+              multiline
+            />
+          </View>
           <Button label={t('Pair')} busy={busy} disabled={!phrase.trim()} onPress={() => void finish(checkManualPairing(server, phrase))} testID="pair-submit" />
         </ThemedView>
 
@@ -126,8 +132,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   card: {
-    gap: Spacing.two,
-    padding: Spacing.four,
+    gap: 20,
+    padding: 20,
     borderRadius: Spacing.four,
   },
   camera: {
@@ -135,15 +141,19 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     overflow: 'hidden',
   },
+  field: {
+    gap: Spacing.two,
+  },
   input: {
-    minHeight: 44,
+    minHeight: 52,
     paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
     fontSize: 16,
   },
   phrase: {
-    minHeight: 96,
-    paddingVertical: Spacing.two,
+    minHeight: 112,
+    paddingVertical: 14,
     textAlignVertical: 'top',
   },
   error: {

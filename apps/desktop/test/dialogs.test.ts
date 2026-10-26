@@ -53,6 +53,22 @@ describe("Corvus's dialogs", () => {
     service.forget(win);
     expect((await modal).button).toBe(0);
   });
+
+  it("answers what a dialog's fields hold, and their first values when cancelled", async () => {
+    const win = fakeWindow();
+    const service = new DialogService({ windows: { focused: () => win, regular: () => [win] } } as unknown as AppContext);
+    const fields = [
+      { label: "Name", value: "Old" },
+      { label: "URL", value: "https://old.test/", required: "Enter a URL" },
+    ];
+    const edited = service.ask(spec("Edit bookmark", { fields }));
+    // A value too many is dropped, a missing one keeps the field's own.
+    service.answer(win, service.current(win)!.id, { button: 1, values: ["New", 7 as unknown as string, "extra"] });
+    expect(await edited).toEqual({ button: 1, checked: false, value: "", values: ["New", "https://old.test/"] });
+    const cancelled = service.ask(spec("Edit bookmark", { fields }));
+    service.forget(win);
+    expect((await cancelled).values).toEqual(["Old", "https://old.test/"]);
+  });
 });
 
 /** A tab's webContents as PageDialogs sees it: Electron's internal events and its own listener. */

@@ -424,7 +424,7 @@ app.whenReady().then(async () => {
   try {
     const home = await screen(win, base, "/", "home", "document.querySelector('[data-testid=home-title]')?.textContent === 'Corvus' && document.querySelector('[data-testid=pairing-card]')");
     check("home screen shows Corvus and how to pair", home);
-    const settings = await screen(win, base, "/settings", "settings", "/Corvus for mobile \\d/.test(document.querySelector('[data-testid=app-version]')?.textContent ?? '')");
+    const settings = await screen(win, base, "/settings", "settings", "/^\\d+\\.\\d+\\.\\d+/.test(document.querySelector('[data-testid=app-version]')?.textContent ?? '')");
     check("settings screen shows the app version", settings);
     if (process.env.CORVUS_SYNC_URL) await pairingSmoke(win, base, process.env.CORVUS_SYNC_URL);
     else check("pairing (needs CORVUS_SYNC_URL and the sync-server service)", false, "CORVUS_SYNC_URL is not set");

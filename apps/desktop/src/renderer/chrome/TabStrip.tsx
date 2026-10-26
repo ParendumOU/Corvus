@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
 import type { TabGroup } from "@corvus/shared";
 import { GROUP_COLOR_HEX, type TabView, type WindowState } from "../../shared/ipc";
 import { computeDropTarget, type TabStripState } from "../../shared/tab-strip";
@@ -66,6 +66,20 @@ function HorizontalTabStrip({
   const [hint, setHint] = useState<DropHint>(null);
   const api = chromeApi();
   const groupsById = new Map(state.groups.map((g) => [g.id, g]));
+
+  // Closing tabs with the mouse keeps the others at their width while the pointer stays on the strip,
+  // so the next close button lands under it instead of a tab sliding in (as in Chrome and Brave).
+  // They spread out again once the pointer leaves the strip, or when a tab opens.
+  const [frozenWidth, setFrozenWidth] = useState<number | null>(null);
+  const tabCount = useRef(state.tabs.length);
+  useEffect(() => {
+    if (state.tabs.length > tabCount.current) setFrozenWidth(null);
+    tabCount.current = state.tabs.length;
+  }, [state.tabs.length]);
+  const onMouseClose = (tabElement: HTMLElement): void => {
+    const width = tabElement.getBoundingClientRect().width;
+    if (width > 0) setFrozenWidth((current) => current ?? width);
+  };
   const mac = state.platform === "darwin";
 
   const sideOf = (e: DragEvent<HTMLElement>): "before" | "after" => {
@@ -162,13 +176,16 @@ function HorizontalTabStrip({
         hint={hint?.id === tab.id ? hint.side : null}
         onDragOver={(e) => onTabDragOver(e, tab)}
         onDrop={(e) => onTabDrop(e, tab)}
+        onMouseClose={onMouseClose}
       />,
     );
   }
 
   return (
     <div
-      className={`tab-strip ${mac ? "mac" : "wco"}`}
+      className={`tab-strip ${mac ? "mac" : "wco"} ${frozenWidth !== null ? "frozen" : ""}`}
+      style={frozenWidth !== null ? ({ "--frozen-tab-width": `${frozenWidth}px` } as CSSProperties) : undefined}
+      onMouseLeave={() => setFrozenWidth(null)}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(TAB_MIME) || e.dataTransfer.types.includes(GROUP_MIME)) e.preventDefault();
       }}
@@ -202,16 +219,21 @@ function Tab({
   hint,
   onDragOver,
   onDrop,
+  onMouseClose,
 }: {
   tab: TabView;
   color: string | undefined;
   hint: "before" | "after" | null;
   onDragOver: (e: DragEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>) => void;
+  /** Told before a mouse close (close button or middle click), with the closing tab's element. */
+  onMouseClose: (tabElement: HTMLElement) => void;
 }) {
   const api = chromeApi();
   const close = (e: MouseEvent): void => {
     e.stopPropagation();
+    const element = (e.currentTarget as HTMLElement).closest<HTMLElement>(".tab");
+    if (element && !tab.pinned) onMouseClose(element);
     void api.call("tabs.close", tab.id);
   };
   const classes = [

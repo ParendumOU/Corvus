@@ -1,10 +1,11 @@
 import type { GroupColor, SyncedTab } from '@corvus/shared';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '@/components/button';
+import { ACCENT, Button } from '@/components/button';
+import { CardHeader } from '@/components/card';
 import { Favicon } from '@/components/favicon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -100,21 +101,33 @@ export default function HomeScreen() {
           refreshControl={
             session.status === 'paired' ? <RefreshControl refreshing={session.refreshing} onRefresh={() => void refreshSession()} /> : undefined
           }>
-          <ThemedView style={styles.hero}>
+          <ThemedView style={[styles.hero, session.status === 'unpaired' && styles.heroWelcome]}>
+            {session.status === 'unpaired' && <Image source={require('@/assets/images/splash-icon.png')} style={styles.logo} />}
             <ThemedText type="title" testID="home-title">
               Corvus
             </ThemedText>
-            <ThemedText themeColor="textSecondary">
+            <ThemedText type="body" themeColor="textSecondary" style={styles.center}>
               {session.status === 'paired' ? t('Tabs from your computers') : t("Your computer's Corvus, in your pocket.")}
             </ThemedText>
           </ThemedView>
 
           {session.status === 'unpaired' && (
-            <ThemedView type="backgroundElement" style={styles.card} testID="pairing-card">
-              <ThemedText type="smallBold">{t('Not paired with a computer yet')}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t('On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Then scan the code here.')}
-              </ThemedText>
+            <ThemedView type="backgroundElement" style={styles.welcome} testID="pairing-card">
+              <CardHeader title={t('Not paired with a computer yet')} description={t('Pair it once and your tabs, pages and library follow you here.')} />
+              <View style={styles.steps}>
+                {[t('On your computer, open Corvus Settings, then Sync.'), t('Choose “Pair a phone”: a code appears.'), t('Scan the code with this phone.')].map((step, i) => (
+                  <View key={step} style={styles.step}>
+                    <View style={styles.stepNumber}>
+                      <ThemedText type="smallBold" themeColor="accentText">
+                        {i + 1}
+                      </ThemedText>
+                    </View>
+                    <ThemedText type="body" style={styles.stepText}>
+                      {step}
+                    </ThemedText>
+                  </View>
+                ))}
+              </View>
               <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} testID="home-pair" />
             </ThemedView>
           )}
@@ -248,10 +261,44 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingVertical: Spacing.four,
   },
+  heroWelcome: {
+    paddingTop: Spacing.five,
+    paddingBottom: Spacing.four,
+  },
+  logo: {
+    width: 88,
+    height: 88,
+    marginBottom: Spacing.two,
+  },
   card: {
-    gap: Spacing.one,
-    padding: Spacing.three,
+    gap: Spacing.two,
+    padding: 20,
     borderRadius: Spacing.four,
+  },
+  welcome: {
+    gap: 20,
+    padding: 20,
+    borderRadius: Spacing.four,
+  },
+  steps: {
+    gap: 14,
+  },
+  step: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.three,
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${ACCENT}33`,
+  },
+  stepText: {
+    flex: 1,
+    paddingTop: 3,
   },
   tab: {
     flexDirection: 'row',

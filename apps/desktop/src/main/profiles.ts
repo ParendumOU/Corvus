@@ -2,6 +2,7 @@ import path from "node:path";
 import { app, session as electronSession, webContents as allWebContents, type Session } from "electron";
 import type { Profile, ProfileId } from "@corvus/shared";
 import { FaviconCache } from "./favicon-cache";
+import { probePage } from "./favicon-probe";
 import { AdblockController } from "./adblock";
 import { AnnotationStore } from "./annotation-store";
 import { AutoSignInStore } from "./auto-sign-in-store";
@@ -159,7 +160,22 @@ export class ProfileRuntime {
     this.assistHistory = new AssistHistoryStore(dataDir);
     this.commands = new CommandHistoryStore(dataDir);
     this.userMemory = new UserMemoryStore(dataDir);
-    this.favicons = new FaviconCache(path.join(dataDir, "Favicons"), (url, init) => this.session.fetch(url, init));
+    // Icons are fetched through the profile's connection, once its proxy is in place (nothing leaks
+    // around it right after start or a change); bookmarks never opened are followed to where they lead.
+    this.favicons = new FaviconCache(
+      path.join(dataDir, "Favicons"),
+      async (url, init) => {
+        await this.whenConnected(this.session);
+        return this.session.fetch(url, init);
+      },
+      {
+        probe: async (url) => {
+          await this.whenConnected(this.session);
+          return probePage(this.session, url);
+        },
+        probes: (url) => this.bookmarks.isBookmarked(url),
+      },
+    );
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
     this.credentials = new CredentialVault(dataDir, cipher);

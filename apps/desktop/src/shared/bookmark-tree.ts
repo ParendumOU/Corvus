@@ -4,9 +4,16 @@
  * renamed, moved or deleted.
  */
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID, type Bookmark } from "@corvus/shared";
+import { classifyOmnibox } from "./omnibox";
 
 export { BAR_FOLDER_ID, OTHER_FOLDER_ID };
 export const ROOT_IDS: ReadonlySet<string> = new Set([BAR_FOLDER_ID, OTHER_FOLDER_ID]);
+
+/** Opening more of a folder's bookmarks at once than this asks first (as Chrome does). */
+export const OPEN_ALL_ASK_ABOVE = 15;
+
+/** A bookmark being dragged (the bookmarks page, the bookmarks bar): its id. */
+export const BOOKMARK_DRAG_MIME = "application/x-corvus-bookmark";
 
 export class BookmarkError extends Error {}
 
@@ -29,6 +36,35 @@ export function getNode(list: Bookmark[], id: string): Bookmark | undefined {
 
 export function childrenOf(list: Bookmark[], parentId: string | null): Bookmark[] {
   return list.filter((b) => b.parentId === parentId).sort((a, b) => a.position - b.position);
+}
+
+/** The addresses of a folder's own bookmarks (not its subfolders'), in order: what "Open all" opens. */
+export function folderUrls(list: Bookmark[], folderId: string): string[] {
+  return childrenOf(list, folderId)
+    .filter((b) => b.kind === "bookmark" && b.url)
+    .map((b) => b.url as string);
+}
+
+/**
+ * The address a bookmark is saved with, from what the person typed (the bookmarks page and the
+ * bookmarks bar's Edit dialog): an address is completed as the address bar would ("example.com"
+ * becomes https://example.com/), anything else is kept as typed. Null when nothing was typed.
+ */
+export function bookmarkUrlFromInput(input: string): string | null {
+  const text = input.trim();
+  if (!text) return null;
+  const intent = classifyOmnibox(text);
+  return intent.kind === "url" ? intent.url : text;
+}
+
+/**
+ * The index moveNode takes for an item dropped in a folder before the child shown at `slot` (the
+ * folder's length: at the end). The slot counts the item itself when it is already there, moveNode's
+ * index does not.
+ */
+export function dropMoveIndex(siblings: readonly { id: string }[], id: string, slot: number): number {
+  const from = siblings.findIndex((b) => b.id === id);
+  return from >= 0 && from < slot ? slot - 1 : slot;
 }
 
 export function isDescendant(list: Bookmark[], nodeId: string, ancestorId: string): boolean {

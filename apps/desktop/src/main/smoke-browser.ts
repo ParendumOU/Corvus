@@ -216,6 +216,11 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   check("download from local server", Boolean(done) && saved === DOWNLOAD_BODY && path.dirname(done?.savePath ?? "") === dir, done);
   await sleep(300);
   check("finished download shows a check on the toolbar", (await chromeHas(".downloads-btn.done .downloads-done")) === true);
+  check("a started download pulses the toolbar button", (await chromeHas(".downloads-btn [data-downloads-pulse]")) === true);
+  check("a finished download opens the bubble by itself", (await chromeHas('.downloads-bubble[data-downloads-bubble="auto"]')) === true);
+  await capture("downloads-auto-bubble", chrome);
+  await sleep(6500);
+  check("the bubble that opened by itself closes after a few seconds", (await chromeHas(".downloads-bubble")) === false && ctx.downloads.summary(profile).finished > 0);
   await capture("downloads-done", chrome);
   await chrome.executeJavaScript("document.querySelector('.downloads-btn')?.click()");
   await sleep(500);

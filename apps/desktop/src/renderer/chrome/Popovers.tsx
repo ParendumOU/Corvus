@@ -316,7 +316,11 @@ export function CopiedLinksChip({ count }: { count: number }) {
   );
 }
 
-export function DownloadsButton({ summary, onOpen }: { summary: DownloadsSummary; onOpen: (rect: DOMRect) => void }) {
+/**
+ * The toolbar's downloads button. `pulse` grows by one each time a download starts: the icon bounces
+ * and rings ripple out from it (the keyed elements remount, which restarts their animation).
+ */
+export function DownloadsButton({ summary, pulse, onOpen }: { summary: DownloadsSummary; pulse: number; onOpen: (rect: DOMRect) => void }) {
   const queue = summary.queue;
   if (summary.recent.length === 0 && !queue) return null;
   const active = summary.active + (queue?.running ?? 0);
@@ -341,7 +345,10 @@ export function DownloadsButton({ summary, onOpen }: { summary: DownloadsSummary
       style={ring !== null ? ({ "--progress": `${Math.round(ring * 360)}deg` } as CSSProperties) : undefined}
       onClick={(e) => onOpen(e.currentTarget.getBoundingClientRect())}
     >
-      <IconDownload size={17} />
+      {pulse > 0 && <span key={`ring-${pulse}`} className="downloads-pulse" aria-hidden="true" data-downloads-pulse />}
+      <span key={`icon-${pulse}`} className={`downloads-icon ${pulse > 0 ? "bump" : ""}`}>
+        <IconDownload size={17} />
+      </span>
       {done && (
         <span className="downloads-done" aria-hidden="true">
           <IconCheck size={9} />
@@ -374,14 +381,37 @@ function QueueRow({ queue, onOpen }: { queue: QueueSummary; onOpen: () => void }
   );
 }
 
-export function DownloadsBubble({ summary, anchor, onClose }: { summary: DownloadsSummary; anchor: Anchor; onClose: () => void }) {
+/**
+ * The downloads bubble. Opened by itself when a download finishes (`autoCloseMs`), it closes after
+ * that delay unless the pointer goes over it or it is clicked; then it stays like an opened one.
+ */
+export function DownloadsBubble({ summary, anchor, autoCloseMs, onClose }: { summary: DownloadsSummary; anchor: Anchor; autoCloseMs?: number; onClose: () => void }) {
   const api = chromeApi();
-  // Looking at the bubble counts as having seen the finished downloads, also ones that end while it is open.
+  const [held, setHeld] = useState(false);
+  // Looking at the bubble counts as having seen the finished downloads, also ones that end while it is
+  // open. One that opened by itself counts only once the person points at it or clicks it.
+  const looked = !autoCloseMs || held;
   useEffect(() => {
-    if (summary.finished > 0) void api.call("downloads.markSeen");
-  }, [api, summary.finished]);
+    if (looked && summary.finished > 0) void api.call("downloads.markSeen");
+  }, [api, looked, summary.finished]);
+  useEffect(() => {
+    if (!autoCloseMs || held) return;
+    const timer = setTimeout(onClose, autoCloseMs);
+    return () => clearTimeout(timer);
+  }, [autoCloseMs, held, onClose]);
   return (
-    <div className="popover downloads-bubble" role="dialog" aria-label={t("Recent downloads")} style={placement(anchor)} onMouseDown={stop}>
+    <div
+      className="popover downloads-bubble"
+      role="dialog"
+      aria-label={t("Recent downloads")}
+      style={placement(anchor)}
+      data-downloads-bubble={autoCloseMs ? "auto" : "open"}
+      onMouseEnter={() => setHeld(true)}
+      onMouseDown={(e) => {
+        stop(e);
+        setHeld(true);
+      }}
+    >
       <div className="popover-title">{t("Recent downloads")}</div>
       {summary.queue && <QueueRow queue={summary.queue} onOpen={onClose} />}
       {summary.recent.length === 0 && summary.queue ? null : summary.recent.length === 0 ? (

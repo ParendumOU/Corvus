@@ -883,7 +883,6 @@ export const ES: Record<string, string> = {
   "Open in new tab": "Abrir en una pestaña nueva",
   "Copy link": "Copiar enlace",
   "Open folder": "Abrir carpeta",
-  "Edit in bookmarks manager": "Editar en el gestor de marcadores",
   "No spelling suggestions": "No hay sugerencias ortográficas",
   "Add to dictionary": "Añadir al diccionario",
   "Open link in new tab": "Abrir enlace en una pestaña nueva",

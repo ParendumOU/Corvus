@@ -5,6 +5,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/button';
+import { EmptyState } from '@/components/empty-state';
 import { Favicon } from '@/components/favicon';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -314,12 +315,12 @@ export default function LibraryScreen() {
           </ThemedText>
 
           {session.status === 'unpaired' ? (
-            <ThemedView type="backgroundElement" style={styles.card}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {t('Pair this phone with your computer to see your bookmarks and reading list here.')}
-              </ThemedText>
-              <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} />
-            </ThemedView>
+            <EmptyState
+              icon={require('@/assets/images/tabIcons/library.png')}
+              title={t('Your library, on your phone')}
+              description={t('Pair this phone with your computer to see your bookmarks and reading list here.')}
+              action={<Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} />}
+            />
           ) : (
             <>
               <Segment value={section} onChange={setSection} />

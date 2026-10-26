@@ -23,6 +23,7 @@ import { GROUP_COLORS, type GroupPatch } from "../shared/tab-strip";
 import type { SecretKey, SettingsPatch } from "../shared/settings";
 import { toRecordView } from "./agent-run-store";
 import { ANNOTATIONS_INTERNAL_PERMISSIONS, annotationsInternalHandlers, registerAnnotationCapture } from "./ipc-annotations";
+import { openBookmarkFolder, siteIcons } from "./bookmark-actions";
 import { checkConnection, testProxy, type ProxyInput } from "./connections";
 import type { AppContext } from "./context";
 import { showExtensionMenu } from "./extension-windows";
@@ -78,6 +79,16 @@ const strArray = (value: unknown, name: string): string[] => {
 };
 const optStr = (value: unknown, name: string): string | undefined => (value === undefined || value === null ? undefined : str(value, name));
 
+/** The "»" menu's icons from the chrome UI: PNG data: URLs by bookmark id; anything else is left out. */
+function menuIcons(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null) return {};
+  const icons: Record<string, string> = {};
+  for (const [id, url] of Object.entries(value as Record<string, unknown>).slice(0, 500)) {
+    if (typeof url === "string" && url.length <= 200_000 && url.startsWith("data:image/png;base64,")) icons[id] = url;
+  }
+  return icons;
+}
+
 function groupPatch(value: unknown): GroupPatch {
   if (typeof value !== "object" || value === null) throw new IpcError("Invalid group patch");
   const v = value as Record<string, unknown>;
@@ -111,10 +122,16 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "ui.connectionMenu": (w, x, y) => showConnectionMenu(w, num(x, "x"), num(y, "y")),
     "ui.tabMenu": (w, id, x, y) => showTabMenu(ctx, w, str(id, "tab"), num(x, "x"), num(y, "y")),
     "ui.groupMenu": (w, id, x, y) => showGroupMenu(w, str(id, "group"), num(x, "x"), num(y, "y")),
-    "dialog.answer": (w, id, button, checked, value) => ctx.dialogs.answer(w, str(id, "dialog", 64), { button: num(button, "button"), checked: checked === true, value: typeof value === "string" ? value : "" }),
-    "ui.bookmarkFolderMenu": (w, id, x, y) => showBookmarkFolderMenu(w, str(id, "folder"), num(x, "x"), num(y, "y")),
-    "ui.bookmarkOverflowMenu": (w, from, x, y) => showBookmarkOverflowMenu(w, num(from, "index"), num(x, "x"), num(y, "y")),
-    "ui.bookmarkMenu": (w, id, x, y) => showBookmarkMenu(w, str(id, "bookmark"), num(x, "x"), num(y, "y")),
+    "dialog.answer": (w, id, button, checked, value, values) =>
+      ctx.dialogs.answer(w, str(id, "dialog", 64), {
+        button: num(button, "button"),
+        checked: checked === true,
+        value: typeof value === "string" ? value : "",
+        ...(values === undefined ? {} : { values: strArray(values, "values") }),
+      }),
+    "ui.bookmarkFolderMenu": (w, id, x, y) => showBookmarkFolderMenu(ctx, w, str(id, "folder"), num(x, "x"), num(y, "y")),
+    "ui.bookmarkOverflowMenu": (w, from, x, y, icons) => showBookmarkOverflowMenu(ctx, w, num(from, "index"), num(x, "x"), num(y, "y"), menuIcons(icons)),
+    "ui.bookmarkMenu": (w, id, x, y) => showBookmarkMenu(ctx, w, str(id, "bookmark"), num(x, "x"), num(y, "y")),
     "ui.focusContent": (w) => w.focusContent(),
     "tabs.create": (w, opts) => {
       const o = (opts ?? {}) as { url?: unknown; groupId?: unknown; background?: unknown };
@@ -157,6 +174,10 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       });
       return true;
     },
+    "bookmarks.move": (w, id, parentId, index) =>
+      w.profile.bookmarks.move(str(id, "id"), str(parentId, "parent"), index === undefined ? undefined : Math.max(0, Math.floor(num(index, "index")))),
+    "bookmarks.openFolder": (w, id) => openBookmarkFolder(ctx, w, str(id, "folder")),
+    "bookmarks.siteIcons": (w, urls) => siteIcons(w, strArray(urls, "urls")),
     "profiles.openWindow": (w, id) => {
       const profileId = str(id, "profile");
       const existing = ctx.windows.forProfile(profileId)[0];

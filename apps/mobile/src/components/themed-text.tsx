@@ -4,7 +4,7 @@ import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
+  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'heading' | 'body' | 'label' | 'link' | 'linkPrimary' | 'code';
   themeColor?: ThemeColor;
 };
 
@@ -31,14 +31,35 @@ const styles = StyleSheet.create({
     fontWeight: 500,
   },
   title: {
-    fontSize: 48,
-    fontWeight: 600,
-    lineHeight: 52,
+    fontSize: 44,
+    fontWeight: 700,
+    lineHeight: 50,
   },
+  /** A screen's title. */
   subtitle: {
     fontSize: 32,
-    lineHeight: 44,
+    lineHeight: 40,
+    fontWeight: 700,
+  },
+  /** A card's or a section's title. */
+  heading: {
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: 600,
+  },
+  /** Running text: explanations and descriptions. */
+  body: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: 400,
+  },
+  /** A section's name above its card. */
+  label: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: 600,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   link: {
     lineHeight: 30,

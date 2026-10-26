@@ -39,9 +39,9 @@ export function Button({
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 44,
+    minHeight: 52,
     paddingHorizontal: Spacing.four,
-    borderRadius: Spacing.three,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },

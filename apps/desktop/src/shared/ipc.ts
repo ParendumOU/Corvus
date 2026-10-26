@@ -83,6 +83,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   activeTabId: TabId | null;
   activeBookmarked: boolean;
   bookmarksBar: Bookmark[];
+  /** Goes up when a bookmark may show another site icon: the UI asks Corvus's icon cache again. */
+  faviconRevision: number;
   showBookmarksBar: boolean;
   showHomeButton: boolean;
   dark: boolean;
@@ -131,10 +133,13 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "ui.tabMenu"(tabId: TabId, x: number, y: number): void;
   "ui.groupMenu"(groupId: GroupId, x: number, y: number): void;
   "ui.bookmarkFolderMenu"(folderId: string, x: number, y: number): void;
-  /** The person answered the window's dialog (WindowState.dialog). */
-  "dialog.answer"(id: string, button: number, checked: boolean, value: string): void;
-  /** The bar's bookmarks from index `from` on, which do not fit in the bar. */
-  "ui.bookmarkOverflowMenu"(from: number, x: number, y: number): void;
+  /** The person answered the window's dialog (WindowState.dialog); `values`: what its fields hold. */
+  "dialog.answer"(id: string, button: number, checked: boolean, value: string, values?: string[]): void;
+  /**
+   * The bar's bookmarks from index `from` on, which do not fit in the bar. `icons`: each one's icon
+   * as the bar draws it (bookmark id to a 32px PNG data: URL, shown at 16px).
+   */
+  "ui.bookmarkOverflowMenu"(from: number, x: number, y: number, icons?: Record<string, string>): void;
   "ui.bookmarkMenu"(bookmarkId: string, x: number, y: number): void;
   "ui.focusContent"(): void;
   "tabs.create"(opts?: { url?: string; groupId?: GroupId; background?: boolean }): TabId;
@@ -161,6 +166,12 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "bookmarks.toggleActive"(): boolean;
   /** A page dropped on the bookmarks bar (the address bar's site chip, or a link), at `index`. */
   "bookmarks.addToBar"(url: string, title: string, index: number): boolean;
+  /** A bookmark dragged along the bookmarks bar, or into one of its folders (as bookmarks.move of the bookmarks page). */
+  "bookmarks.move"(id: string, parentId: string, index?: number): void;
+  /** A folder middle-clicked on the bar: its bookmarks in background tabs (asks first when many); how many opened. */
+  "bookmarks.openFolder"(folderId: string): number;
+  /** The sites' icons from Corvus's cache (as corvus://favicon/ serves them), as data: URLs; null for none. */
+  "bookmarks.siteIcons"(urls: string[]): Array<string | null>;
   "profiles.openWindow"(profileId: string): void;
   "extensions.toolbar"(): ToolbarExtension[];
   "extensions.setPinned"(id: string, pinned: boolean): void;

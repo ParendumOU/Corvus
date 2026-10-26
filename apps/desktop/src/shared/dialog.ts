@@ -6,6 +6,18 @@
 
 export type DialogTone = "info" | "question" | "warning" | "danger";
 
+/** A labelled text field of a dialog that edits something (a bookmark's name and address). */
+export interface DialogField {
+  label: string;
+  value: string;
+  placeholder?: string;
+  /**
+   * The field may not be left empty: the message shown under it when it is, and the dialog stays
+   * open (the cancel button still closes it).
+   */
+  required?: string;
+}
+
 export interface DialogSpec {
   tone: DialogTone;
   title: string;
@@ -22,6 +34,8 @@ export interface DialogSpec {
   checkbox?: { label: string; checked: boolean };
   /** A text field (a page's prompt()). */
   input?: { value: string; placeholder?: string };
+  /** Labelled fields, answered in `values` in the same order; Enter presses the default button. */
+  fields?: DialogField[];
   /** A data: URL picture (an extension's icon). */
   icon?: string;
   /** The page that asks, shown so the person knows a page and not Corvus is asking. */
@@ -41,11 +55,18 @@ export interface DialogAnswer {
   button: number;
   checked: boolean;
   value: string;
+  /** What the `fields` hold, in their order (only for a dialog with fields). */
+  values?: string[];
+}
+
+/** What a dialog's fields hold when nothing was typed in them. */
+export function fieldValues(spec: DialogSpec): Pick<DialogAnswer, "values"> {
+  return spec.fields ? { values: spec.fields.map((f) => f.value) } : {};
 }
 
 /** What an unanswered dialog resolves to (Escape, the window closed, the page went away). */
 export function cancelAnswer(spec: DialogSpec): DialogAnswer {
-  return { button: spec.cancelId, checked: spec.checkbox?.checked ?? false, value: spec.input?.value ?? "" };
+  return { button: spec.cancelId, checked: spec.checkbox?.checked ?? false, value: spec.input?.value ?? "", ...fieldValues(spec) };
 }
 
 /** The tone of an Electron message box type. */

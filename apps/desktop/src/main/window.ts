@@ -4,6 +4,7 @@ import { hostFromUrl, isYouTubeHost } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
+import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
@@ -136,6 +137,8 @@ export interface TabRuntime {
   containerId?: string;
   /** Its video was floated (picture-in-picture) when the tab was left; it returns when shown. */
   autoPip?: boolean;
+  /** The pages its current navigation went through (redirects), for the icons of bookmarks that lead elsewhere. */
+  redirects?: RedirectChain;
 }
 
 export interface OpenTabOptions {
@@ -304,6 +307,8 @@ export class BrowserWindowCtl {
       }),
     );
     this.cleanups.push(profile.siteSettings.onChange(() => this.notifyInternalPages({ type: "site-permissions-changed" }, ["settings"])));
+    // A bookmark may show another icon (see faviconRevision).
+    this.cleanups.push(profile.favicons.onChange(() => this.pushState()));
     const onTheme = (): void => this.applyTheme();
     nativeTheme.on("updated", onTheme);
     this.cleanups.push(() => nativeTheme.off("updated", onTheme));
@@ -517,6 +522,7 @@ export class BrowserWindowCtl {
       activeTabId: this.strip.activeId,
       activeBookmarked: active ? this.profile.bookmarks.isBookmarked(active.url) : false,
       bookmarksBar: childrenOf(this.profile.bookmarks.list(), BAR_FOLDER_ID),
+      faviconRevision: this.profile.favicons.revision,
       showBookmarksBar: settings.appearance.showBookmarksBar,
       showHomeButton: settings.appearance.showHomeButton,
       dark: nativeTheme.shouldUseDarkColors,
@@ -839,8 +845,13 @@ export class BrowserWindowCtl {
   private wire(tab: TabRuntime): void {
     const wc = tab.view.webContents;
     const push = (): void => this.pushState();
+    const redirects = (tab.redirects ??= new RedirectChain());
     // A click or key press in a tab an agent works in: the person takes over (see AgentRunner).
-    wc.on("input-event", (_event, input) => this.ctx.agentRunner.personInput(this, tab.id, input.type));
+    wc.on("input-event", (_event, input) => {
+      this.ctx.agentRunner.personInput(this, tab.id, input.type);
+      // Where the page goes next is the person's doing, not a redirect.
+      if (isPersonInput(input.type)) redirects.interrupt();
+    });
     followSignInUserAgent(wc, this.profile.userAgents);
     wc.on("did-start-loading", () => {
       tab.loading = true;
@@ -849,18 +860,30 @@ export class BrowserWindowCtl {
     wc.on("did-stop-loading", () => {
       tab.loading = false;
       tab.committed = true;
+      redirects.loaded(Date.now());
       push();
     });
     // A web page gets its white base before it can first paint; a Corvus page paints its own
     // background, so its themed base waits for the commit and a page being left never flashes dark.
     wc.on("did-start-navigation", (details) => {
-      if (details.isMainFrame && !details.isSameDocument && !isInternalUrl(details.url)) this.applyPageBase(tab, details.url);
+      if (!details.isMainFrame || details.isSameDocument) return;
+      redirects.start(details.url, Boolean(details.initiator), Date.now());
+      if (!isInternalUrl(details.url)) this.applyPageBase(tab, details.url);
+    });
+    wc.on("did-redirect-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument) redirects.redirect(details.url);
     });
     wc.on("did-navigate", (_e, url) => {
       tab.committed = true;
       this.applyPageBase(tab, url);
       // The recovery page is loaded over a crashed tab; keep the tab's real URL and crashed flag.
       if (internalPageOf(url) === "crash") return;
+      const chain = redirects.commit(url, Date.now());
+      // Bookmarks it went through on the way to another site show that site's icon from now on.
+      if (!this.isPrivate) {
+        let bookmarked: Set<string> | null = null;
+        this.profile.favicons.navigated(chain, (key) => (bookmarked ??= bookmarkPageKeys(this.profile.bookmarks.list())).has(key));
+      }
       const previous = tab.url;
       tab.url = url;
       tab.crashed = false;

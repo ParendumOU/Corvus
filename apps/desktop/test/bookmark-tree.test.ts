@@ -3,12 +3,15 @@ import type { Bookmark } from "@corvus/shared";
 import {
   BAR_FOLDER_ID,
   BookmarkError,
+  bookmarkUrlFromInput,
   OTHER_FOLDER_ID,
   addNode,
   childrenOf,
   defaultTree,
   ensureRoots,
+  dropMoveIndex,
   findByUrl,
+  folderUrls,
   moveNode,
   pathTo,
   removeNode,
@@ -155,5 +158,45 @@ describe("bookmark tree", () => {
     list = upsertNode(list, { ...folder, id: "f3", parentId: "f2" });
     expect(upsertNode(list, loop)).toBe(list);
     expect(upsertNode(list, { ...folder, parentId: "f1" })).toBe(list);
+  });
+});
+
+describe("bookmarks bar helpers", () => {
+  it("lists what Open all opens: a folder's own bookmarks, in order, not its subfolders'", () => {
+    let list = defaultTree(1);
+    let f: string;
+    let sub: string;
+    ({ list, id: f } = add(list, BAR_FOLDER_ID, "folder", "Folder"));
+    ({ list } = add(list, f, "bookmark", "B", "https://b.test/"));
+    ({ list, id: sub } = add(list, f, "folder", "Sub"));
+    ({ list } = add(list, sub, "bookmark", "Deep", "https://deep.test/"));
+    ({ list } = add(list, f, "bookmark", "A", "https://a.test/", 0));
+    expect(folderUrls(list, f)).toEqual(["https://a.test/", "https://b.test/"]);
+    expect(folderUrls(list, sub)).toEqual(["https://deep.test/"]);
+  });
+
+  it("completes a typed address as the address bar does and keeps anything else as typed", () => {
+    expect(bookmarkUrlFromInput("  example.com ")).toBe("https://example.com/");
+    expect(bookmarkUrlFromInput("http://a.test/x")).toBe("http://a.test/x");
+    expect(bookmarkUrlFromInput("corvus://history")).toBe("corvus://history");
+    expect(bookmarkUrlFromInput("not an address")).toBe("not an address");
+    expect(bookmarkUrlFromInput("   ")).toBeNull();
+  });
+
+  it("turns a drop slot on the bar into the index moveNode takes", () => {
+    let list = defaultTree(1);
+    const ids: string[] = [];
+    for (const title of ["A", "B", "C", "D"]) {
+      const added = add(list, BAR_FOLDER_ID, "bookmark", title, `https://${title.toLowerCase()}.test/`);
+      list = added.list;
+      ids.push(added.id);
+    }
+    const bar = childrenOf(list, BAR_FOLDER_ID);
+    // A dropped before D (slot 3) and after D (slot 4); D dropped before A (slot 0).
+    expect(titles(moveNode(list, ids[0]!, BAR_FOLDER_ID, dropMoveIndex(bar, ids[0]!, 3), 2), BAR_FOLDER_ID)).toEqual(["B", "C", "A", "D"]);
+    expect(titles(moveNode(list, ids[0]!, BAR_FOLDER_ID, dropMoveIndex(bar, ids[0]!, 4), 2), BAR_FOLDER_ID)).toEqual(["B", "C", "D", "A"]);
+    expect(titles(moveNode(list, ids[3]!, BAR_FOLDER_ID, dropMoveIndex(bar, ids[3]!, 0), 2), BAR_FOLDER_ID)).toEqual(["D", "A", "B", "C"]);
+    // A bookmark from elsewhere (not on the bar yet) goes exactly at the slot.
+    expect(dropMoveIndex(bar, "elsewhere", 2)).toBe(2);
   });
 });
