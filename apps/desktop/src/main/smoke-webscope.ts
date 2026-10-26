@@ -1,3 +1,4 @@
+import { WebScopeEngine } from "@corvus/webscope";
 import { nativeTheme } from "electron";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
@@ -58,6 +59,16 @@ export async function runWebscopeSmoke(
       () => null,
     );
   check("webscope 3-payload in-scope fuzz", fuzz?.summary.completed === 3 && fuzz.summary.total === 3, fuzz?.summary);
+
+  // Session: save with the captured traffic and open it in a fresh engine; its scope arrives disarmed.
+  const saved = JSON.parse(JSON.stringify(engine.exportSession({ includeHistory: true }))) as { history?: unknown[] };
+  const copy = new WebScopeEngine();
+  const opened = await copy.importSession(saved).catch(() => null);
+  check(
+    "webscope session save and open",
+    !!opened && opened.history === saved.history?.length && opened.history > 0 && copy.getScope().include.length === 1 && !copy.getScope().enabled,
+    { opened, saved: saved.history?.length },
+  );
   check("webscope fuzz grep + audit", Boolean(fuzz?.rows.some((r) => r.matched.includes("smoke page"))) && engine.auditLog().some((a) => a.action === "fuzz-finish"), {
     matched: fuzz?.rows.filter((r) => r.matched.length).length,
   });
@@ -119,6 +130,12 @@ export async function runWebscopeSmoke(
         await showView(tool);
         await capture(`webscope-${tool.toLowerCase()}-${theme}`, wc);
       }
+      // The session panel opens under the command bar; close it again for the next screenshots.
+      const toggleSession = "(()=>{const b=document.querySelector('.ws-topbtn');if(b)b.click();return !!b;})()";
+      await click(toggleSession);
+      if (theme === "light") check("webscope session panel opens", (await wc.executeJavaScript("Boolean(document.querySelector('.ws-session-panel'))")) === true);
+      await capture(`webscope-session-${theme}`, wc);
+      await click(toggleSession);
     }
     // Intercept view: hold a request so the queue + editor render, screenshot both themes, then release.
     await ctx.webscope.setInterceptConfig({ enabled: true, interceptRequests: true, interceptResponses: false });

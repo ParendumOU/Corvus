@@ -10,6 +10,7 @@ import { HistoryBuffer, summarize } from "./history.js";
 import { sendRequest, type SendResult } from "./http-client.js";
 import { applyRequestRules, emptyRuleSet } from "./rules.js";
 import { emptyScope, isInScope, scopeRejectionReason } from "./scope.js";
+import { buildSession, parseSession, type WebScopeSession } from "./session.js";
 import type {
   AuditEntry,
   CdpClient,
@@ -168,6 +169,38 @@ export class WebScopeEngine {
     const entries = importHar(json, { profileId: this.profileId, inScope: (url) => isInScope(this.scope, url), nextId: () => this.newId("har") });
     for (const entry of entries) this.history.add(entry);
     return entries.length;
+  }
+
+  // ---- sessions
+
+  /** Scope, rules and intercept filters, plus the captured traffic when `includeHistory` is set. */
+  exportSession(opts: { includeHistory?: boolean } = {}): WebScopeSession {
+    const history = opts.includeHistory ? this.history.all() : undefined;
+    const match = this.interceptConfig.match;
+    this.audit.record("session-export", history ? `scope, rules and ${history.length} requests` : "scope and rules");
+    return buildSession({ scope: this.getScope(), rules: this.getRules(), ...(match ? { interceptMatch: structuredClone(match) } : {}), ...(history ? { history: structuredClone(history) } : {}) });
+  }
+
+  /**
+   * Replace the scope, rules and intercept filters with a saved session's and add its traffic to
+   * history. The scope always arrives disarmed: nothing it lists is acted on until the person arms it.
+   */
+  async importSession(json: unknown): Promise<{ history: number }> {
+    const session = parseSession(json, {
+      profileId: this.profileId,
+      nextId: () => this.newId("ses"),
+      inScope: (scope, url) => isInScope(scope, url),
+      now: Date.now(),
+    });
+    this.setScope(session.scope);
+    this.setRules(session.rules);
+    const config: InterceptConfig = { ...this.interceptConfig };
+    delete config.match;
+    if (session.interceptMatch) config.match = session.interceptMatch;
+    await this.setInterceptConfig(config);
+    for (const entry of session.history) this.history.add(entry);
+    this.audit.record("session-import", `${session.scope.include.length} include / ${session.scope.exclude.length} exclude, ${session.history.length} requests`);
+    return { history: session.history.length };
   }
 
   // ---- capture

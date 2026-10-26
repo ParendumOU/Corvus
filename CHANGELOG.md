@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.26.0
+
+### WebScope
+- **Save and open sessions**: Session in WebScope's command bar saves the scope, rules and
+  intercept filters to a file, and the captured traffic too if you tick it (it is off by default,
+  since it can hold cookies, tokens and passwords). Opening a session brings them back after a
+  restart or on another computer. Its scope always arrives disarmed, so a file can never put
+  targets in scope on its own: you review it on the Scope tab and arm it yourself.
+
 ## v0.25.1
 
 ### Browser

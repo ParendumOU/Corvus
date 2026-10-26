@@ -47,6 +47,8 @@ Private, Electron-free engine so it is unit-testable and reusable. Key exports (
 - `applyRequestRules` / `applyResponseRules` — match/replace, block and host-override rules.
 - `compareResponses` / `diffLines` — response comparer.
 - `exportHar` / `importHar` — HAR 1.2 round-trip.
+- `buildSession` / `parseSession` — WebScope session files (see Sessions below); the engine wraps
+  them as `exportSession` / `importSession`.
 - `encode` / `hash` / `jwtDecode` — decoder/encoder (base64, url, html, hex, md5/sha1/sha256/sha512,
   JWT decode).
 
@@ -62,8 +64,8 @@ The `corvus://webscope` page talks to the engine over the typed internal IPC in
 
 The page has three thin rows of chrome above one working surface:
 
-- **Command bar:** the *Authorized testing only* notice, captured and attached-tab counts, and the
-  **Capture** switch.
+- **Command bar:** the *Authorized testing only* notice, **Session** (save or open a session, see
+  below), captured and attached-tab counts, and the **Capture** switch.
 - **Tool tabs**, grouped by job: History, Intercept, Repeater, Fuzzer | Target, Findings | Scope,
   Rules, Decoder, Comparer. Left/Right arrows move between tabs when one has focus.
 - **Scope strip**, visible on every tool: whether the scope is armed and the in-scope hosts, with
@@ -109,15 +111,17 @@ untrusted content.
 ## Tests
 
 - Engine units: `packages/webscope/test/` (scope, capture parsing, fuzzer expansion + rate limiter,
-  match/replace, encoders, HAR round-trip, HTTP client, scope enforcement incl. out-of-scope refusal).
+  match/replace, encoders, HAR round-trip, session save/open, HTTP client, scope enforcement incl.
+  out-of-scope refusal).
 - MCP tools: `packages/mcp-server/test/webscope-tools.test.ts` (full-level gating, scope refusal,
   untrusted wrapping, bounded fuzz) against a local test server.
 - Desktop UI helpers: `apps/desktop/test/webscope-format.test.ts` (formatting, pretty-print, hex
   dump, and the Fuzzer request preview checked against the engine's `planRequests`).
 - Desktop smoke: `apps/desktop/src/main/smoke-webscope.ts` captures a request over CDP, replays it,
-  runs a 3-payload in-scope fuzz, holds and forwards an intercepted request, and screenshots every
-  tool (History, Intercept, Repeater, Fuzzer, Target, Findings, Scope, Rules, Decoder, Comparer) in
-  light and dark.
+  runs a 3-payload in-scope fuzz, saves a session with that traffic and opens it in a fresh engine,
+  holds and forwards an intercepted request, and screenshots every tool (History, Intercept,
+  Repeater, Fuzzer, Target, Findings, Scope, Rules, Decoder, Comparer) and the session panel in light
+  and dark.
 
 ## Interactive intercept
 
@@ -139,3 +143,22 @@ without Secure/HttpOnly/SameSite, version disclosure, mixed content, and reflect
 parameters, each with a plain-language explanation and an advisory severity. These are
 observations only — WebScope never sends a request or attempts an exploit to produce them.
 Agents can read them at Full access via webscope_findings and webscope_sitemap.
+
+## Sessions
+
+Scope, rules and captured traffic live in memory and are gone when Corvus closes. **Session** in the
+command bar saves them to a JSON file (`corvus-webscope-session-<date>.json`) and opens one again:
+
+- **Save session** writes the scope, the rules and the intercept filters. **Include captured
+  traffic** adds every request in History, in full: it can hold cookies, tokens and passwords you
+  typed, so it is off by default and the panel says so when you tick it.
+- **Open session** replaces the scope, rules and intercept filters, adds the saved traffic to
+  History and takes you to the Scope tab. The scope always arrives **disarmed**: a session file can
+  never put targets in scope on its own; you review it and arm it yourself. Intercept stays on or
+  off as it was.
+- Everything in the file is checked before use: unknown fields, malformed entries and rules are
+  dropped, IDs are new, and each request's host, path and in-scope flag are worked out again from its
+  URL (in scope means the session's scope would include it once armed). Requests that were hidden
+  from AI stay hidden from AI.
+- Saving and opening are recorded in the audit log. Sessions are a page feature only: there is no
+  MCP tool for them.

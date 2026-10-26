@@ -23,7 +23,7 @@ import type {
 } from "@corvus/webscope";
 import type { WebScopeInterceptState, WebScopeState } from "../../shared/webscope-ipc";
 import { internalApi, errorMessage } from "../common/api";
-import { IconActivity, IconChevronDown, IconChevronRight, IconCopy, IconGlobe, IconPause, IconPlay, IconPlus, IconSearch, IconShield, IconWarning } from "../common/icons";
+import { IconActivity, IconChevronDown, IconChevronRight, IconChevronUp, IconCopy, IconGlobe, IconPause, IconPlay, IconPlus, IconSearch, IconShield, IconWarning } from "../common/icons";
 import "../common/theme.css";
 import "./webscope.css";
 import {
@@ -1367,6 +1367,70 @@ function ScopeStrip({ scope, onEdit }: { scope: Scope; onEdit: () => void }) {
   );
 }
 
+function downloadJson(data: unknown, name: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/** Save the scope, rules and (optionally) the captured traffic to a file, or open one. */
+function SessionPanel({ state, onOpened }: { state: WebScopeState; onOpened: () => void }) {
+  const [includeHistory, setIncludeHistory] = useState(false);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const save = (): void => {
+    setMessage(null);
+    api.call("webscope.exportSession", includeHistory).then(
+      (session) => downloadJson(session, `corvus-webscope-session-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.json`),
+      (err: unknown) => setMessage({ kind: "error", text: errorMessage(err) }),
+    );
+  };
+  const open = (file: File): void => {
+    setMessage(null);
+    const replacing = state.scope.include.length + state.scope.exclude.length + state.rules.matchReplace.length + state.rules.block.length + state.rules.hostOverride.length > 0;
+    if (replacing && !confirm(tx("Opening a session replaces the current scope and rules. Continue?"))) return;
+    void file.text().then((text) => {
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        setMessage({ kind: "error", text: tx("That file is not valid JSON.") });
+        return;
+      }
+      api.call("webscope.importSession", json).then(
+        (res) => {
+          setMessage({ kind: "ok", text: tx("Session opened: {n} requests added. Review the scope, then arm it.", { n: res.history }) });
+          onOpened();
+        },
+        (err: unknown) => setMessage({ kind: "error", text: errorMessage(err) }),
+      );
+    });
+  };
+
+  return (
+    <div className="ws-session-panel">
+      <section className="ws-session-col">
+        <h3>{tx("Save session")}</h3>
+        <p>{tx("Saves the scope, rules and intercept filters to a file you can open later.")}</p>
+        <label className="ws-check"><input type="checkbox" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />{" "}{tx("Include captured traffic ({n} requests)", { n: state.historySize })}</label>
+        {includeHistory && <p className="ws-session-warn"><IconWarning size={13} />{" "}{tx("It can hold cookies, tokens and passwords you typed. Keep the file private.")}</p>}
+        <div><button className="btn small primary" onClick={save}>{tx("Save session")}</button></div>
+      </section>
+      <section className="ws-session-col">
+        <h3>{tx("Open session")}</h3>
+        <p>{tx("Replaces the scope, rules and intercept filters and adds the saved traffic to History. The scope arrives disarmed so you can review it before arming it.")}</p>
+        <div><button className="btn small" onClick={() => fileRef.current?.click()}>{tx("Open session…")}</button></div>
+        <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) open(f); }} />
+      </section>
+      {message && <div className={`ws-session-msg ${message.kind}`} role="status">{message.text}</div>}
+    </div>
+  );
+}
+
 function App() {
   const [view, setView] = useState<View>("history");
   const [state, setState] = useState<WebScopeState | null>(null);
@@ -1376,6 +1440,7 @@ function App() {
   const [fuzzNonce, setFuzzNonce] = useState(0);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showCaution, setShowCaution] = useState(false);
+  const [showSession, setShowSession] = useState(false);
   // Workspace tools opened so far; they stay mounted (hidden) after the first visit.
   const [openedSet, setOpenedSet] = useState<ReadonlySet<View>>(() => new Set<View>());
   useEffect(() => {
@@ -1424,6 +1489,9 @@ function App() {
         <button className="ws-caution" onClick={() => setShowCaution((s) => !s)} aria-expanded={showCaution}>
           <IconWarning size={13} />{" "}{tx("Authorized testing only")}</button>
         <div className="ws-spacer" />
+        <button className={`ws-topbtn${showSession ? " on" : ""}`} onClick={() => setShowSession((s) => !s)} aria-expanded={showSession} disabled={!state}>
+          {tx("Session")}{showSession ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
+        </button>
         <span className="ws-readout"><b>{state?.historySize ?? 0}</b>{" "}{tx("captured")}</span>
         <span className="ws-readout"><b>{state?.attachedTabs ?? 0}</b>{" "}{tx("tab")}{state?.attachedTabs === 1 ? "" : "s"}</span>
         <label className={`ws-capture${state?.enabled ? " on" : ""}`}>
@@ -1435,6 +1503,7 @@ function App() {
         <div className="ws-caution-panel">
           <b>{tx("Authorized testing only.")}</b>{" "}{tx("Only capture, replay, intercept or fuzz systems you own or have explicit written permission to test. WebScope works on your own browser traffic and is gated to the scope allowlist.")}</div>
       )}
+      {showSession && state && <SessionPanel state={state} onOpened={() => { reload(); setView("scope"); }} />}
       <nav className="ws-tabs" role="tablist" aria-label={tx("WebScope tools")}>
         {NAV_GROUPS.map((g, gi) => (
           <div className="ws-tabgroup" key={gi}>

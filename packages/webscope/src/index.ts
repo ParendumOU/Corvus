@@ -47,5 +47,7 @@ export type { PlannedRequest, RunFuzzDeps } from "./fuzzer.js";
 export { compareResponses, diffLines } from "./compare.js";
 export { exportHar, importHar } from "./har.js";
 export type { ImportOptions } from "./har.js";
+export { buildSession, parseSession, SessionFormatError, SESSION_FORMAT, SESSION_VERSION } from "./session.js";
+export type { ParsedSession, SessionImportOptions, WebScopeSession } from "./session.js";
 
 export { encode, hash, jwtDecode, htmlEncode, htmlDecode } from "./encoders.js";

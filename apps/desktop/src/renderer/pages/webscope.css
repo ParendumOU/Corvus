@@ -186,6 +186,79 @@ textarea.input {
 .ws-caution-panel b {
   color: var(--ws-signal);
 }
+.ws-topbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ws-topbtn:hover:not(:disabled),
+.ws-topbtn.on {
+  color: var(--text);
+  background: var(--hover);
+}
+.ws-topbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- session panel (save / open) ---- */
+.ws-session-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px 28px;
+  padding: 14px 16px;
+  background: var(--ws-chrome);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.ws-session-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.ws-session-col h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--text);
+}
+.ws-session-col p {
+  margin: 0;
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.ws-session-col .ws-session-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ws-signal);
+}
+.ws-session-msg {
+  grid-column: 1 / -1;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.ws-session-msg.ok {
+  background: var(--ws-inscope-soft);
+  color: var(--ws-inscope);
+}
+.ws-session-msg.error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
 
 /* ---- tool tabs ---- */
 .ws-tabs {
@@ -1611,6 +1684,7 @@ span.ws-tree-twist:hover {
 .ws-msg-tab:focus-visible,
 .ws-caution:focus-visible,
 .ws-scope-edit:focus-visible,
+.ws-topbtn:focus-visible,
 .ws-tablewrap:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

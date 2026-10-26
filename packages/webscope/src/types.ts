@@ -239,7 +239,9 @@ export type AuditAction =
   | "intercept-forward"
   | "intercept-drop"
   | "intercept-modify"
-  | "intercept-toggle";
+  | "intercept-toggle"
+  | "session-export"
+  | "session-import";
 
 export interface AuditEntry {
   at: number;

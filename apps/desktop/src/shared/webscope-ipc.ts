@@ -47,6 +47,8 @@ export interface WebScopeRpc {
   "webscope.compare"(idA: string, idB: string): ResponseComparison;
   "webscope.exportHar"(ids: string[] | null): unknown;
   "webscope.importHar"(json: unknown): number;
+  "webscope.exportSession"(includeHistory: boolean): unknown;
+  "webscope.importSession"(json: unknown): { history: number };
   "webscope.audit"(limit: number): AuditEntry[];
   "webscope.encode"(op: EncoderOp, input: string): string;
   "webscope.hash"(alg: HashAlg, input: string): string;
