@@ -2,7 +2,7 @@
  * Checking what the person scanned or typed to pair the phone with a computer. Pure (no React
  * Native), so it unit-tests in Node.
  */
-import { decodePairing, normalizeServerUrl, type PairingInfo } from '@corvus/shared';
+import { decodePairing, isLoopbackUrl, normalizeServerUrl, type PairingInfo } from '@corvus/shared';
 
 import { chainIdForPhrase } from './sync';
 import { t } from './i18n';
@@ -29,6 +29,19 @@ export function checkManualPairing(server: string, phraseOrCode: string): Pairin
   const serverUrl = normalizeServerUrl(server);
   if (!serverUrl) return { ok: false, error: t('Enter the sync server address, starting with https:// or http://.') };
   return withPhrase(serverUrl, phraseOrCode);
+}
+
+/**
+ * What to show when joining the chain failed. A code from an older Corvus on the computer can carry
+ * the server's localhost address, which on the phone means the phone itself: instead of the raw
+ * connection error, say what to do. An answer from a server (an HTTP status) is shown as it is.
+ */
+export function pairingFailedMessage(err: unknown, serverUrl: string): string {
+  const answered = typeof (err as { status?: unknown } | null)?.status === 'number';
+  if (!answered && isLoopbackUrl(serverUrl)) {
+    return t('This code points to the computer itself (localhost). Update Corvus on the computer, or enter its network address by hand.');
+  }
+  return t('Could not join the sync chain: {error}', { error: err instanceof Error ? err.message : String(err) });
 }
 
 /** How the phone appears in the computer's device list: its model, or the kind of phone. */

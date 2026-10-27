@@ -28,5 +28,6 @@ export {
   type CorvusSyncClientOptions,
 } from "./client.js";
 export { SyncEngine, fingerprint, type SyncAdapter, type SyncConflict, type SyncEngineOptions, type SyncCycleResult, type LocalItem } from "./engine.js";
+export { withDeadline } from "./deadline.js";
 export { SYNC_COLLECTIONS, isSyncCollection, isBase64, toBase64, fromBase64 } from "./encoding.js";
 export { generateVaultKey, sealSecret, openSecret, VAULT_KEY_LENGTH } from "./vault.js";

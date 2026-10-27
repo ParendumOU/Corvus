@@ -7,7 +7,7 @@
  */
 import type { HistoryFilter } from "./history-ops";
 import type { ImportKind, ImportResult, ImportScan } from "./browser-import";
-import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
+import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, PhoneServerAddress, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
 import type { Container, TabContainer } from "./containers";
@@ -347,6 +347,34 @@ export interface SyncDeviceView extends DeviceInfo {
   current: boolean;
 }
 
+/** Where "Pair a phone" points the phone: the sync server address in the pairing code. */
+export interface PairingAddress {
+  /** The sync server address in the code. */
+  serverUrl: string;
+  /** This profile's own sync server setting (unchanged; differs from serverUrl when lanOnly). */
+  desktopServerUrl: string;
+  /**
+   * The setting is a loopback address (the server runs on this computer), so the code carries this
+   * computer's network address instead: the phone must be on the same network (or Tailscale).
+   */
+  lanOnly: boolean;
+  /**
+   * lanOnly: whether the sync server answered at serverUrl, checked from this computer. Otherwise
+   * whether a phone can likely reach the address at all (not localhost or a bare Docker name).
+   */
+  reachable: boolean;
+  /** The address of this computer in the code (lanOnly only). */
+  address: PhoneServerAddress | null;
+  /** This computer's other addresses the code can carry instead (lanOnly only). */
+  alternatives: PhoneServerAddress[];
+}
+
+/** "Pair a phone": the pairing code as text and as a QR code (it holds the recovery phrase). */
+export interface PairingCodeView extends PairingAddress {
+  code: string;
+  qrSvg: string;
+}
+
 export interface SyncOptions {
   intervalMinutes?: number;
   syncServiceUrls?: boolean;
@@ -444,8 +472,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "sync.removeDevice"(deviceId: string): SyncDeviceView[];
   "sync.renameDevice"(name: string): SyncDeviceView[];
   "sync.revealPhrase"(): string;
-  /** "Pair a phone": the pairing code as text and QR (it holds the recovery phrase). */
-  "sync.pairingCode"(): { code: string; qrSvg: string; serverUrl: string; reachableFromPhone: boolean };
+  /** "Pair a phone": the pairing code as text and QR (it holds the recovery phrase); `address` picks another of this computer's addresses. */
+  "sync.pairingCode"(address?: string): PairingCodeView;
   "sync.wipe"(confirmation: string): SyncStatus;
   "sync.remoteTabs"(): RemoteDeviceTabs[];
   "sync.extensionSuggestions"(): ExtensionSuggestion[];

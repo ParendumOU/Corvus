@@ -631,6 +631,20 @@ export const ES: Record<string, string> = {
   "Sync server: {url}": "Servidor de sincronización: {url}",
   "Your phone probably cannot reach this sync server address. Use one it can reach (on your network or on the internet) in the sync server setting, then show the code again.":
     "Probablemente el móvil no puede llegar a esta dirección del servidor de sincronización. Pon una a la que pueda llegar (en tu red o en internet) en el ajuste del servidor y vuelve a mostrar el código.",
+  "{address} (Tailscale)": "{address} (Tailscale)",
+  "Address in the code": "Dirección en el código",
+  "The sync server runs on this computer, so the code uses this computer's Tailscale address.":
+    "El servidor de sincronización está en este ordenador, así que el código usa la dirección de Tailscale de este ordenador.",
+  "The sync server runs on this computer, so the code uses this computer's address on your network.":
+    "El servidor de sincronización está en este ordenador, así que el código usa la dirección de este ordenador en tu red.",
+  "Your phone needs Tailscale on, in the same tailnet as this computer.": "El móvil necesita Tailscale activado, en la misma tailnet que este ordenador.",
+  "Your phone must be on the same Wi-Fi as this computer.": "El móvil tiene que estar en la misma wifi que este ordenador.",
+  "If the phone cannot connect, allow port {port} in this computer's firewall.": "Si el móvil no consigue conectar, permite el puerto {port} en el cortafuegos de este ordenador.",
+  "If this computer's address changes, pair the phone again.": "Si cambia la dirección de este ordenador, vuelve a emparejar el móvil.",
+  "To sync away from home, use a sync server reachable from the internet, or Tailscale.":
+    "Para sincronizar fuera de casa, usa un servidor de sincronización accesible desde internet, o Tailscale.",
+  "The sync server does not answer at {url}. It may only listen on this computer (127.0.0.1): make it listen on all network addresses, then show the code again.":
+    "El servidor de sincronización no responde en {url}. Puede que solo escuche en este ordenador (127.0.0.1): haz que escuche en todas las direcciones de red y vuelve a mostrar el código.",
   "Delete sync chain": "Eliminar la cadena de sincronización",
   "Deletes all synced data from the server and signs out every device. Local data on each device is kept.":
     "Borra del servidor todos los datos sincronizados y desconecta todos los dispositivos. Los datos locales de cada dispositivo se conservan.",

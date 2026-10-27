@@ -1,6 +1,7 @@
+import type { PhoneServerAddress } from "@corvus/shared";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ExtensionSuggestion } from "../../shared/extension-suggestions";
-import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncStatus } from "../../shared/ipc";
+import { SYNC_INTERVALS_MINUTES, type PairingCodeView, type SyncDeviceView, type SyncStatus } from "../../shared/ipc";
 import type { ConflictCollection, SyncConflictView } from "../../shared/sync-conflicts";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
@@ -338,16 +339,85 @@ function RecoveryPhrase() {
 /** How long the pairing QR code stays on screen. */
 const PAIRING_VISIBLE_MS = 120_000;
 
+/** A sync server URL's port, written out when the URL leaves it implicit. */
+function portOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.port || (u.protocol === "https:" ? "443" : "80");
+  } catch {
+    return "";
+  }
+}
+
+function addressLabel(a: PhoneServerAddress): string {
+  return a.kind === "tailscale" ? t("{address} (Tailscale)", { address: a.address }) : `${a.address} (${a.adapter})`;
+}
+
+/**
+ * Under the QR code when it carries this computer's own address because the sync server runs on
+ * it (its setting is localhost): what the phone needs to reach it, and whether it answered there.
+ */
+function PairingNetworkNote({ pairing, busy, onPick }: { pairing: PairingCodeView; busy: boolean; onPick: (url: string) => void }) {
+  const tailscale = pairing.address?.kind === "tailscale";
+  const options = pairing.address ? [pairing.address, ...pairing.alternatives] : [];
+  return (
+    <>
+      {options.length > 1 && (
+        <label className="pair-address small">
+          {t("Address in the code")}
+          <select className="input" value={pairing.serverUrl} disabled={busy} onChange={(e) => onPick(e.target.value)}>
+            {options.map((a) => (
+              <option key={a.url} value={a.url}>
+                {addressLabel(a)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <div className="notice pair-network">
+        {tailscale
+          ? t("The sync server runs on this computer, so the code uses this computer's Tailscale address.")
+          : t("The sync server runs on this computer, so the code uses this computer's address on your network.")}
+        <ul>
+          <li>{tailscale ? t("Your phone needs Tailscale on, in the same tailnet as this computer.") : t("Your phone must be on the same Wi-Fi as this computer.")}</li>
+          <li>{t("If the phone cannot connect, allow port {port} in this computer's firewall.", { port: portOf(pairing.serverUrl) })}</li>
+          <li>{t("If this computer's address changes, pair the phone again.")}</li>
+          {!tailscale && <li>{t("To sync away from home, use a sync server reachable from the internet, or Tailscale.")}</li>}
+        </ul>
+      </div>
+      {!pairing.reachable && (
+        <div className="notice warn">
+          {t("The sync server does not answer at {url}. It may only listen on this computer (127.0.0.1): make it listen on all network addresses, then show the code again.", {
+            url: pairing.serverUrl,
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** "Pair a phone": a QR code the Corvus mobile app scans to join this sync chain. */
 function PairPhone() {
   const api = internalApi();
-  const [pairing, setPairing] = useState<{ code: string; qrSvg: string; serverUrl: string; reachableFromPhone: boolean } | null>(null);
+  const [pairing, setPairing] = useState<PairingCodeView | null>(null);
+  // Making the code can take a moment: a sync server on this computer is checked on its network address.
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!pairing) return;
     const timer = setTimeout(() => setPairing(null), PAIRING_VISIBLE_MS);
     return () => clearTimeout(timer);
   }, [pairing]);
+  /** Shows the code; `address` puts another of this computer's addresses in it (only while it is shown). */
+  const show = (address?: string): void => {
+    setBusy(true);
+    setError(null);
+    api
+      .call("sync.pairingCode", address)
+      .then((next) => setPairing((shown) => (address === undefined || shown ? next : shown)))
+      .catch((e: unknown) => setError(errorMessage(e)))
+      .finally(() => setBusy(false));
+  };
   return (
     <>
       <Row label={t("Pair a phone")} hint={t("Shows a QR code for the Corvus app on your phone, which then syncs with this profile.")}>
@@ -358,13 +428,10 @@ function PairPhone() {
         ) : (
           <button
             className="btn small"
+            disabled={busy}
             onClick={() => {
               if (!confirm(t("Show the pairing code? It holds your recovery phrase: make sure nobody else can see your screen."))) return;
-              setError(null);
-              api
-                .call("sync.pairingCode")
-                .then(setPairing)
-                .catch((e: unknown) => setError(errorMessage(e)));
+              show();
             }}
           >
             {t("Pair a phone…")}
@@ -378,7 +445,8 @@ function PairPhone() {
             <strong>{t("In the Corvus app on your phone, open Settings and choose “Pair with a computer”, then scan this code.")}</strong>
             <span className="muted small">{t("Anyone who scans it can read your synced data. It hides itself after two minutes.")}</span>
             <span className="muted small">{t("Sync server: {url}", { url: pairing.serverUrl })}</span>
-            {!pairing.reachableFromPhone && (
+            {pairing.lanOnly && <PairingNetworkNote pairing={pairing} busy={busy} onPick={show} />}
+            {!pairing.lanOnly && !pairing.reachable && (
               <div className="notice warn">
                 {t("Your phone probably cannot reach this sync server address. Use one it can reach (on your network or on the internet) in the sync server setting, then show the code again.")}
               </div>

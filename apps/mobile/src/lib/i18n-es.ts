@@ -75,6 +75,8 @@ export const ES: Record<string, string> = {
 
   // Pair
   'Could not join the sync chain: {error}': 'No se pudo unir a la cadena de sincronización: {error}',
+  'This code points to the computer itself (localhost). Update Corvus on the computer, or enter its network address by hand.':
+    'Este código apunta al propio ordenador (localhost). Actualiza Corvus en el ordenador o escribe a mano su dirección de red.',
   'On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Anyone with that code can read your synced data, so pair only your own phone.':
     'En tu ordenador, abre los Ajustes de Corvus, luego Sincronización, y elige «Emparejar un móvil». Quien tenga ese código puede leer tus datos sincronizados: empareja solo tu propio móvil.',
   'Scan the code': 'Escanea el código',
@@ -204,4 +206,58 @@ export const ES: Record<string, string> = {
   '{n} min ago': 'hace {n} min',
   '{n} h ago': 'hace {n} h',
   '{n} d ago': 'hace {n} d',
+  'Refreshing stopped while {step}. Pull down to try again.': 'La actualización se quedó parada mientras {step}. Desliza hacia abajo para volver a intentarlo.',
+  'listing your devices': 'se listaban tus dispositivos',
+  'downloading the changes': 'se descargaban los cambios',
+  'saving what was downloaded ({collection})': 'se guardaba lo descargado ({collection})',
+  'finishing the download': 'se terminaba la descarga',
+  'reading what is saved on the phone': 'se leía lo guardado en el móvil',
+
+  // Redesign (2026-10)
+  Reading: 'Lectura',
+  Unread: 'Sin leer',
+  Read: 'Leídos',
+  'Clear the search': 'Borrar la búsqueda',
+  'No bookmark matches “{query}”.': 'Ningún favorito coincide con «{query}».',
+  // The root folders, with the app's word for bookmarks.
+  'Bookmarks bar': 'Barra de favoritos',
+  'Other bookmarks': 'Otros favoritos',
+  'Your question': 'Tu pregunta',
+  'Your questions': 'Tus preguntas',
+  'Page address': 'Dirección de la página',
+  'the price is under 100': 'el precio baja de 100',
+  'Check it every': 'Comprobarla cada',
+  '{n} min': '{n} min',
+  '{n} h': '{n} h',
+  '1 day': '1 día',
+  '{n} days': '{n} días',
+  Watching: 'Vigilando',
+  // Default browser (Android)
+  'Default browser': 'Navegador predeterminado',
+  'Corvus is your default browser': 'Corvus es tu navegador predeterminado',
+  'Corvus is not your default browser': 'Corvus no es tu navegador predeterminado',
+  'As your default browser, Corvus opens each link in the browser below, and lets you send it to a computer or save it first.':
+    'Como navegador predeterminado, Corvus abre cada enlace en el navegador que elijas aquí, y te deja antes enviarlo a un ordenador o guardarlo.',
+  'Set as default browser': 'Establecer como navegador predeterminado',
+  'You can also choose it in the system settings, under Default apps → Browser app.':
+    'También puedes elegirlo en los ajustes del sistema, en Aplicaciones predeterminadas → Aplicación de navegador.',
+  'Open default apps settings': 'Abrir las aplicaciones predeterminadas',
+  'Open pages in': 'Abrir las páginas en',
+  'No other browser app found. Install one to open pages from Corvus.': 'No se ha encontrado otro navegador. Instala uno para abrir páginas desde Corvus.',
+  'Make Corvus your default browser': 'Haz de Corvus tu navegador predeterminado',
+  'Links you open on this phone come to Corvus first: open them in your browser with one tap, or send them to a computer or save them.':
+    'Los enlaces que abras en este móvil pasan antes por Corvus: ábrelos en tu navegador con un toque, o envíalos a un ordenador o guárdalos.',
+  'Not now': 'Ahora no',
+  'No browser app': 'No hay ningún navegador',
+  'Corvus opens pages in another browser app. Install one, then pick it in Settings → Default browser.':
+    'Corvus abre las páginas en otro navegador. Instala uno y elígelo en Ajustes → Navegador predeterminado.',
+  'Open link': 'Abrir enlace',
+  Open: 'Abrir',
+  'Open in {browser}': 'Abrir en {browser}',
+  'Pair this phone with your computer to also send links to it, or save them to your reading list and bookmarks.':
+    'Empareja este móvil con tu ordenador para poder también enviarle enlaces o guardarlos en tu lista de lectura y tus favoritos.',
+  'Sent to {computer}': 'Enviado a {computer}',
+  'Saved to your reading list': 'Guardado en tu lista de lectura',
+  Bookmarked: 'Añadido a favoritos',
+  'Watching it for changes': 'Vigilando sus cambios',
 };

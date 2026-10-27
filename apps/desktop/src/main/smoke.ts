@@ -31,6 +31,7 @@ import { runSyncLearnedSmoke } from "./smoke-sync-learned";
 import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
+import { runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
 import { runPhoneSmoke } from "./smoke-phone";
 import { runConnectionsSmoke } from "./smoke-connections";
 import { runPrivateSmoke } from "./smoke-private";
@@ -218,7 +219,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await new Promise((r) => setTimeout(r, 1000));
     const remoteTabs = await historyTab.view.webContents.executeJavaScript("window.corvusInternal.call('sync.remoteTabs')");
     check("history sync.remoteTabs IPC", Array.isArray(remoteTabs), remoteTabs);
-    if (process.env.CORVUS_SMOKE_SYNC_URL) await smokeSync(ctx, process.env.CORVUS_SMOKE_SYNC_URL, url, check);
+    await runPairingAddressSmoke(check);
+    if (process.env.CORVUS_SMOKE_SYNC_URL) await smokeSync(ctx, process.env.CORVUS_SMOKE_SYNC_URL, url, check, capture);
 
     const webTab = ctx.windows.findTab(tab.id)?.tab;
     const leaked = await webTab?.view.webContents.executeJavaScript("typeof window.corvusInternal + '/' + typeof window.corvus");
@@ -282,7 +284,13 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
  * Live sync round trip (CORVUS_SMOKE_SYNC_URL=http://sync-server:8787): turn sync on for the window's
  * profile, act as a second device with sync-core directly, and check every collection both ways.
  */
-async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, check: (name: string, ok: boolean, detail?: unknown) => void): Promise<void> {
+async function smokeSync(
+  ctx: AppContext,
+  serverUrl: string,
+  pageUrl: string,
+  check: (name: string, ok: boolean, detail?: unknown) => void,
+  capture: (name: string, wc: Electron.WebContents) => Promise<void>,
+): Promise<void> {
   const win = ctx.windows.target();
   const profile = win.profile;
   profile.credentials.add({ origin: "https://sync-login.example", username: "sync-user", password: "sync-pass" });
@@ -293,8 +301,14 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
   const decoded = decodePairing(pairing.code);
   check(
     "pair a phone: the QR code carries this chain's server and phrase",
-    decoded?.phrase === phrase && decoded.serverUrl === serverUrl.replace(/\/+$/, "") && pairing.qrSvg.startsWith("<svg") && !pairing.reachableFromPhone,
-    { serverUrl: decoded?.serverUrl, reachableFromPhone: pairing.reachableFromPhone },
+    decoded?.phrase === phrase &&
+      decoded.serverUrl === serverUrl.replace(/\/+$/, "") &&
+      pairing.qrSvg.startsWith("<svg") &&
+      // A bare Docker name is not localhost: it goes in the code as it is, with the warning.
+      !pairing.lanOnly &&
+      !pairing.reachable &&
+      pairing.desktopServerUrl === decoded.serverUrl,
+    { serverUrl: decoded?.serverUrl, lanOnly: pairing.lanOnly, reachable: pairing.reachable },
   );
 
   const memory = new Map<string, string>();
@@ -442,6 +456,7 @@ async function smokeSync(ctx: AppContext, serverUrl: string, pageUrl: string, ch
   const settings = win.createTab("corvus://settings#sync");
   const devicesShown = await waitForText(settings.view.webContents, ".sync-devices", "Smoke phone");
   check("settings lists devices", devicesShown.includes("Smoke phone") && devicesShown.includes("This device"), devicesShown);
+  await runPairPhoneUiSmoke(ctx, { profile, settings: settings.view.webContents, phrase, check, capture });
 
   const devices = await ctx.sync.removeDevice(profile, phoneId);
   check("sync remove device", devices.length === 1 && devices[0]?.current === true, devices);

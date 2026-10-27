@@ -1,0 +1,16 @@
+// Corvus as the phone's default browser (see modules/default-browser/index.ts).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.corvus.defaultbrowser'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.corvus.defaultbrowser"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

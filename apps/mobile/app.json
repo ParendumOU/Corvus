@@ -2,7 +2,7 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
@@ -13,20 +13,30 @@
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 6,
+      "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [{ "scheme": "http" }, { "scheme": "https" }]
+        }
+      ],
       "predictiveBackGestureEnabled": false,
+      "allowBackup": false,
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "com.google.android.c2dm.permission.RECEIVE",
+        "com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE"
       ]
     },
     "web": {
@@ -49,7 +59,8 @@
         {
           "cameraPermission": "Corvus uses the camera to scan the pairing code that Corvus shows on your computer.",
           "microphonePermission": false,
-          "recordAudioAndroid": false
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
         }
       ],
       [

@@ -1,15 +1,20 @@
-import type { Bookmark, ReadingItem, SyncedHistoryEntry } from '@corvus/shared';
+import { BAR_FOLDER_ID, OTHER_FOLDER_ID, type Bookmark, type ReadingItem, type SyncedHistoryEntry } from '@corvus/shared';
 import { router } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Fragment, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Button } from '@/components/button';
-import { EmptyState } from '@/components/empty-state';
+import { AnswerText } from '@/components/answer-text';
+import { Button, Fab, IconButton } from '@/components/button';
+import { SectionHeader } from '@/components/card';
+import { EmptyState, LoadingState } from '@/components/empty-state';
 import { Favicon } from '@/components/favicon';
+import { SearchField } from '@/components/fields';
+import { Icon } from '@/components/icon';
+import { IconTile, ListGroup, ListRow } from '@/components/list';
+import { Screen, ScreenTitle } from '@/components/screen';
+import { TabStrip, type StripTab } from '@/components/tab-strip';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Layout, Space } from '@/constants/theme';
 import { refreshSession, setRead, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { ago } from '@/lib/format';
@@ -22,128 +27,97 @@ import { t } from '@/lib/i18n';
 
 type Section = 'bookmarks' | 'reading' | 'history' | 'conversations';
 
-const PLACEHOLDERS: Record<Section, string> = {
-  bookmarks: 'Find a bookmark',
-  reading: 'Find in your reading list',
-  history: 'Search history',
-  conversations: 'Search conversations',
-};
-
-function Segment({ value, onChange }: { value: Section; onChange: (s: Section) => void }) {
-  const theme = useTheme();
-  const options: Array<[Section, string]> = [
-    ['bookmarks', t('Bookmarks')],
-    ['reading', t('Reading list')],
-    ['history', t('History')],
-    ['conversations', 'Assist'],
-  ];
-  return (
-    <ThemedView type="backgroundElement" style={styles.segment}>
-      {options.map(([key, label]) => (
-        <Pressable
-          key={key}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: value === key }}
-          onPress={() => onChange(key)}
-          style={[styles.segmentButton, value === key && { backgroundColor: theme.backgroundSelected }]}
-          testID={`library-${key}`}>
-          <ThemedText type="smallBold" themeColor={value === key ? 'text' : 'textSecondary'}>
-            {label}
-          </ThemedText>
-        </Pressable>
-      ))}
-    </ThemedView>
-  );
+function placeholder(section: Section): string {
+  if (section === 'bookmarks') return t('Find a bookmark');
+  if (section === 'reading') return t('Find in your reading list');
+  if (section === 'history') return t('Search history');
+  return t('Search conversations');
 }
 
-function PageRow({ url, title, sub, testID, onOpen, right }: { url: string; title: string; sub: string; testID: string; onOpen?: () => void; right?: ReactNode }) {
-  const theme = useTheme();
+const OPEN_HINT = (): string => t('Opens the page. Long press to open it in your browser app.');
+
+/** A folder's name; the two root folders by their ids, in the app's language. */
+function folderName(b: Bookmark): string {
+  if (b.id === BAR_FOLDER_ID) return t('Bookmarks bar');
+  if (b.id === OTHER_FOLDER_ID) return t('Other bookmarks');
+  return b.title || t('Folder');
+}
+
+/** A page in a list: its favicon, title and a line under it. Tap opens it; long press, in the browser app. */
+function PageRow({ url, title, sub, testID, onOpen, trailing, muted, titleLines = 1, subtitleLines = 1 }: { url: string; title: string; sub: string; testID: string; onOpen?: () => void; trailing?: React.ReactNode; muted?: boolean; titleLines?: number; subtitleLines?: number }) {
   return (
-    <View style={styles.rowWrap}>
-      <Pressable
-        accessibilityRole="link"
-        accessibilityHint={t('Opens the page. Long press to open it in your browser app.')}
-        onPress={() => (onOpen ? onOpen() : void openInApp(url))}
-        onLongPress={() => void openInBrowser(url)}
-        style={({ pressed }) => [styles.row, pressed && { backgroundColor: theme.backgroundSelected }]}
-        testID={testID}>
-        <Favicon url={url} />
-        <View style={styles.grow}>
-          <ThemedText type="small" numberOfLines={2}>
-            {title || url}
-          </ThemedText>
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-            {sub}
-          </ThemedText>
-        </View>
-      </Pressable>
-      {right}
-    </View>
+    <ListRow
+      leading={<Favicon url={url} />}
+      title={title || url}
+      subtitle={sub}
+      titleLines={titleLines}
+      subtitleLines={subtitleLines}
+      muted={muted}
+      accessibilityRole="link"
+      accessibilityHint={OPEN_HINT()}
+      onPress={() => (onOpen ? onOpen() : void openInApp(url))}
+      onLongPress={() => void openInBrowser(url)}
+      trailing={trailing}
+      testID={testID}
+    />
   );
 }
 
 function Bookmarks({ bookmarks, query }: { bookmarks: Bookmark[]; query: string }) {
+  const theme = useTheme();
   const [folder, setFolder] = useState<string | null>(null);
   const results = useMemo(() => searchBookmarks(bookmarks, query), [bookmarks, query]);
   const contents = useMemo(() => folderContents(bookmarks, folder), [bookmarks, folder]);
   const path = useMemo(() => folderPath(bookmarks, folder), [bookmarks, folder]);
 
   if (query.trim()) {
+    if (results.length === 0) return <EmptyState icon="search" description={t('No bookmark matches “{query}”.', { query: query.trim() })} compact />;
     return (
-      <ThemedView type="backgroundElement" style={styles.card}>
-        {results.length === 0 && (
-          <ThemedText type="small" themeColor="textSecondary">
-            No bookmark matches “{query.trim()}”.
-          </ThemedText>
-        )}
+      <ListGroup>
         {results.map((b) => (
           <PageRow key={b.id} url={b.url ?? ''} title={b.title} sub={tabHost(b.url ?? '')} testID={`bookmark-${b.url}`} />
         ))}
-      </ThemedView>
+      </ListGroup>
     );
   }
 
+  const crumb = (label: string, current: boolean, onPress: () => void, testID: string) => (
+    <Pressable key={testID} accessibilityRole="button" accessibilityState={{ selected: current }} onPress={onPress} hitSlop={8} style={styles.crumb} testID={testID}>
+      <ThemedText type="label" style={{ color: current ? theme.text : theme.accentText }} numberOfLines={1}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+
   return (
-    <ThemedView type="backgroundElement" style={styles.card}>
-      <View style={styles.crumbs}>
-        <Pressable onPress={() => setFolder(null)} testID="crumb-top">
-          <ThemedText type="smallBold" themeColor={folder === null ? 'text' : 'textSecondary'}>
-            {t('Bookmarks')}
-          </ThemedText>
-        </Pressable>
-        {path.map((f) => (
-          <Pressable key={f.id} onPress={() => setFolder(f.id)} testID={`crumb-${f.title}`}>
-            <ThemedText type="smallBold" themeColor={f.id === folder ? 'text' : 'textSecondary'}>
-              {' › '}
-              {f.title || t('Folder')}
-            </ThemedText>
-          </Pressable>
-        ))}
-      </View>
-      {contents.length === 0 && (
-        <ThemedText type="small" themeColor="textSecondary">
-          {t('This folder is empty.')}
-        </ThemedText>
-      )}
+    <ListGroup
+      header={
+        folder !== null && (
+        <View style={styles.crumbs}>
+          {crumb(t('Bookmarks'), folder === null, () => setFolder(null), 'crumb-top')}
+          {path.map((f) => (
+            <Fragment key={f.id}>
+              <Icon name="chevronRight" size={16} color={theme.textTertiary} />
+              {crumb(folderName(f), f.id === folder, () => setFolder(f.id), `crumb-${f.title}`)}
+            </Fragment>
+          ))}
+        </View>
+        )
+      }>
+      {contents.length === 0 ? <EmptyState icon="folder" description={t('This folder is empty.')} compact /> : null}
       {contents.map((b) =>
         b.kind === 'folder' ? (
-          <Pressable key={b.id} accessibilityRole="button" onPress={() => setFolder(b.id)} style={styles.row} testID={`folder-${b.title}`}>
-            <ThemedText type="small" style={styles.folderIcon}>
-              ▸
-            </ThemedText>
-            <ThemedText type="small" style={styles.grow}>
-              {b.title || t('Folder')}
-            </ThemedText>
-          </Pressable>
+          <ListRow key={b.id} leading={<IconTile name="folder" />} title={folderName(b)} chevron onPress={() => setFolder(b.id)} testID={`folder-${b.title}`} />
         ) : (
           <PageRow key={b.id} url={b.url ?? ''} title={b.title} sub={tabHost(b.url ?? '')} testID={`bookmark-${b.url}`} />
         ),
       )}
-    </ThemedView>
+    </ListGroup>
   );
 }
 
 function Reading({ items, query, refreshed }: { items: ReadingItem[]; query: string; refreshed: boolean }) {
+  const theme = useTheme();
   const shown = useMemo(() => searchReading(items, query), [items, query]);
   const [busy, setBusy] = useState<string | null>(null);
   const toggle = (item: ReadingItem, read: boolean): void => {
@@ -151,55 +125,69 @@ function Reading({ items, query, refreshed }: { items: ReadingItem[]; query: str
     void setRead(item, read).finally(() => setBusy(null));
   };
   const meta = (item: ReadingItem): string =>
-    [
-      item.siteName || tabHost(item.url),
-      item.readingMinutes > 0 ? t('{n} min read', { n: item.readingMinutes }) : null,
-      t('saved {when}', { when: ago(item.savedAt) }),
-      item.readAt !== undefined ? t('read') : null,
-    ]
+    [item.siteName || tabHost(item.url), item.readingMinutes > 0 ? t('{n} min read', { n: item.readingMinutes }) : null, t('saved {when}', { when: ago(item.savedAt) })]
       .filter(Boolean)
       .join(' · ');
 
+  if (shown.length === 0) {
+    if (!query.trim() && !refreshed) return <LoadingState testID="reading-empty" />;
+    return (
+      <EmptyState
+        icon={query.trim() ? 'search' : 'book'}
+        description={query.trim() ? t('Nothing in your reading list matches “{query}”.', { query: query.trim() }) : t('Your reading list is empty. Save articles in reader mode on your computer, or share a link to Corvus here.')}
+        compact
+        testID="reading-empty"
+      />
+    );
+  }
+
+  const unread = shown.filter((i) => i.readAt === undefined);
+  const done = shown.filter((i) => i.readAt !== undefined);
+  const rows = (list: ReadingItem[]) =>
+    list.map((item) => {
+      const read = item.readAt !== undefined;
+      return (
+        <PageRow
+          key={item.url}
+          url={item.url}
+          title={item.title}
+          sub={meta(item)}
+          titleLines={2}
+          subtitleLines={2}
+          muted={read}
+          testID={`reading-${item.url}`}
+          onOpen={() => {
+            void openInApp(item.url);
+            if (!read) toggle(item, true);
+          }}
+          trailing={
+            <IconButton
+              icon={read ? 'checkCircle' : 'circle'}
+              color={read ? theme.accentText : theme.textTertiary}
+              accessibilityLabel={read ? t('Mark unread') : t('Mark read')}
+              disabled={busy === item.url}
+              onPress={() => toggle(item, !read)}
+              testID={`reading-toggle-${item.url}`}
+            />
+          }
+        />
+      );
+    });
   return (
-    <ThemedView type="backgroundElement" style={styles.card}>
-      {shown.length === 0 && (
-        <ThemedText type="small" themeColor="textSecondary" testID="reading-empty">
-          {query.trim()
-            ? t('Nothing in your reading list matches “{query}”.', { query: query.trim() })
-            : refreshed
-              ? t('Your reading list is empty. Save articles in reader mode on your computer, or share a link to Corvus here.')
-              : t('Loading…')}
-        </ThemedText>
+    <>
+      {unread.length > 0 && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Unread')} trailing={<ThemedText type="caption" themeColor="textSecondary">{unread.length}</ThemedText>} />
+          <ListGroup>{rows(unread)}</ListGroup>
+        </View>
       )}
-      {shown.map((item) => {
-        const read = item.readAt !== undefined;
-        return (
-          <PageRow
-            key={item.url}
-            url={item.url}
-            title={item.title}
-            sub={meta(item)}
-            testID={`reading-${item.url}`}
-            onOpen={() => {
-              void openInApp(item.url);
-              if (!read) toggle(item, true);
-            }}
-            right={
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy === item.url}
-                onPress={() => toggle(item, !read)}
-                hitSlop={8}
-                testID={`reading-toggle-${item.url}`}>
-                <ThemedText type="smallBold" themeColor="textSecondary">
-                  {read ? t('Mark unread') : t('Mark read')}
-                </ThemedText>
-              </Pressable>
-            }
-          />
-        );
-      })}
-    </ThemedView>
+      {done.length > 0 && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Read')} trailing={<ThemedText type="caption" themeColor="textSecondary">{done.length}</ThemedText>} />
+          <ListGroup>{rows(done)}</ListGroup>
+        </View>
+      )}
+    </>
   );
 }
 
@@ -209,30 +197,30 @@ function History({ entries, query, refreshed }: { entries: SyncedHistoryEntry[];
   const days = useMemo(() => groupByDay(matches.slice(0, limit)), [matches, limit]);
 
   if (matches.length === 0) {
+    if (!query.trim() && !refreshed) return <LoadingState testID="history-empty" />;
     return (
-      <ThemedView type="backgroundElement" style={styles.card}>
-        <ThemedText type="small" themeColor="textSecondary" testID="history-empty">
-          {query.trim()
-            ? t('Nothing in your history matches “{query}”.', { query: query.trim() })
-            : refreshed
-              ? t('No history from your computers yet.')
-              : t('Loading…')}
-        </ThemedText>
-      </ThemedView>
+      <EmptyState
+        icon={query.trim() ? 'search' : 'history'}
+        description={query.trim() ? t('Nothing in your history matches “{query}”.', { query: query.trim() }) : t('No history from your computers yet.')}
+        compact
+        testID="history-empty"
+      />
     );
   }
   return (
     <>
       {days.map((day) => (
-        <ThemedView key={day.label} type="backgroundElement" style={styles.card} testID={`history-day-${day.label}`}>
-          <ThemedText type="smallBold">{day.label}</ThemedText>
-          {day.entries.map((e) => (
-            <PageRow key={e.url} url={e.url} title={e.title} sub={`${timeOfDay(e.visitedAt)} · ${tabHost(e.url)}`} testID={`history-${e.url}`} />
-          ))}
-        </ThemedView>
+        <View key={day.label} style={styles.section} testID={`history-day-${day.label}`}>
+          <SectionHeader title={day.label} />
+          <ListGroup>
+            {day.entries.map((e) => (
+              <PageRow key={e.url} url={e.url} title={e.title} sub={`${timeOfDay(e.visitedAt)} · ${tabHost(e.url)}`} testID={`history-${e.url}`} />
+            ))}
+          </ListGroup>
+        </View>
       ))}
       {matches.length > limit && (
-        <Button label={t('Show more ({n} left)', { n: matches.length - limit })} kind="secondary" onPress={() => setLimit((n) => n + HISTORY_PAGE)} testID="history-more" />
+        <Button label={t('Show more ({n} left)', { n: matches.length - limit })} kind="tonal" onPress={() => setLimit((n) => n + HISTORY_PAGE)} testID="history-more" />
       )}
     </>
   );
@@ -244,179 +232,143 @@ function Conversations({ list, query, refreshed }: { list: ConversationView[]; q
   const [open, setOpen] = useState<string | null>(null);
   const matches = useMemo(() => searchConversations(list, query), [list, query]);
   if (matches.length === 0) {
+    if (!query.trim() && !refreshed) return <LoadingState testID="conversations-empty" />;
     return (
-      <ThemedView type="backgroundElement" style={styles.card}>
-        <ThemedText type="small" themeColor="textSecondary" testID="conversations-empty">
-          {query.trim()
-            ? t('No conversation matches “{query}”.', { query: query.trim() })
-            : refreshed
-              ? t('Your conversations with Corvus Assist on your computers show up here.')
-              : t('Loading…')}
-        </ThemedText>
-      </ThemedView>
+      <EmptyState
+        icon={query.trim() ? 'search' : 'sparkle'}
+        description={query.trim() ? t('No conversation matches “{query}”.', { query: query.trim() }) : t('Your conversations with Corvus Assist on your computers show up here.')}
+        compact
+        testID="conversations-empty"
+      />
     );
   }
   return (
-    <>
+    <ListGroup>
       {matches.map((c) => {
         const title = c.title || (c.turns[0]?.kind === 'summarize' ? t('Summary of “{title}”', { title: c.pageTitle || tabHost(c.url) }) : c.pageTitle || tabHost(c.url));
         const expanded = open === c.id;
         return (
-          <ThemedView key={c.id} type="backgroundElement" style={styles.card} testID={`conversation-${c.id}`}>
-            <Pressable accessibilityRole="button" onPress={() => setOpen(expanded ? null : c.id)} style={({ pressed }) => pressed && { opacity: 0.7 }}>
-              <ThemedText type="smallBold" numberOfLines={expanded ? undefined : 2}>
-                {title}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                {`${c.pageTitle || tabHost(c.url)} · ${ago(c.updatedAt)}`}
-              </ThemedText>
-            </Pressable>
+          <View key={c.id} testID={`conversation-${c.id}`}>
+            <ListRow
+              leading={<IconTile name="sparkle" />}
+              title={
+                <ThemedText type="bodyStrong" numberOfLines={expanded ? undefined : 2}>
+                  {title}
+                </ThemedText>
+              }
+              subtitle={`${c.pageTitle || tabHost(c.url)} · ${ago(c.updatedAt)}`}
+              accessibilityState={{ selected: expanded }}
+              onPress={() => setOpen(expanded ? null : c.id)}
+              trailing={<View style={styles.expand}><Icon name={expanded ? 'chevronUp' : 'chevronDown'} size={20} color={theme.textTertiary} /></View>}
+            />
             {expanded && (
               <View style={styles.turns}>
-                {c.turns.map((turn) => (
+                {c.turns.map((turn, i) => (
                   <View key={turn.id} style={styles.turn}>
-                    {turn.prompt ? (
-                      <ThemedText type="smallBold" style={{ color: theme.text }}>
-                        {turn.prompt}
-                      </ThemedText>
+                    {turn.prompt && !(i === 0 && turn.prompt === title) ? (
+                      <View style={[styles.prompt, { backgroundColor: theme.accentSoft }]}>
+                        <ThemedText type="bodyStrong">{turn.prompt}</ThemedText>
+                      </View>
                     ) : null}
-                    <ThemedText type="small" themeColor="textSecondary" testID={`conversation-answer-${turn.id}`}>
-                      {turn.text || t('(no answer)')}
-                    </ThemedText>
+                    <AnswerText text={turn.text || t('(no answer)')} testID={`conversation-answer-${turn.id}`} />
                   </View>
                 ))}
-                <Button label={t('Open the page')} kind="secondary" onPress={() => void openInApp(c.url)} testID={`conversation-open-${c.id}`} />
+                <Button label={t('Open the page')} kind="tonal" icon="external" size="sm" style={styles.openPage} onPress={() => void openInApp(c.url)} testID={`conversation-open-${c.id}`} />
               </View>
             )}
-          </ThemedView>
+          </View>
         );
       })}
-    </>
+    </ListGroup>
   );
 }
 
 export default function LibraryScreen() {
-  const theme = useTheme();
   const session = useSession();
   const [section, setSection] = useState<Section>('bookmarks');
   const [query, setQuery] = useState('');
+  const [scrolled, setScrolled] = useState(false);
+  const paired = session.status !== 'unpaired';
+
+  const tabs: StripTab<Section>[] = [
+    { key: 'bookmarks', label: t('Bookmarks'), icon: 'star', testID: 'library-bookmarks' },
+    { key: 'reading', label: t('Reading'), accessibilityLabel: t('Reading list'), icon: 'book', testID: 'library-reading' },
+    { key: 'history', label: t('History'), icon: 'history', testID: 'library-history' },
+    { key: 'conversations', label: 'Assist', icon: 'sparkle', testID: 'library-conversations' },
+  ];
 
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            session.status === 'paired' ? <RefreshControl refreshing={session.refreshing} onRefresh={() => void refreshSession()} /> : undefined
-          }>
-          <ThemedText type="subtitle" testID="library-title">
-            {t('Library')}
-          </ThemedText>
+    <Screen
+      tab
+      refreshing={session.refreshing}
+      onRefresh={paired ? () => void refreshSession() : undefined}
+      onScrolled={setScrolled}
+      floating={paired ? <Fab label={t('Save or send a page')} icon="plus" collapsed={scrolled} onPress={() => router.push('/send')} testID="library-add" /> : undefined}>
+      <ScreenTitle title={t('Library')} testID="library-title" />
 
-          {session.status === 'unpaired' ? (
-            <EmptyState
-              icon={require('@/assets/images/tabIcons/library.png')}
-              title={t('Your library, on your phone')}
-              description={t('Pair this phone with your computer to see your bookmarks and reading list here.')}
-              action={<Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} />}
-            />
-          ) : (
-            <>
-              <Segment value={section} onChange={setSection} />
-              <TextInput
-                testID="library-search"
-                style={[styles.search, { color: theme.text, backgroundColor: theme.backgroundElement }]}
-                value={query}
-                onChangeText={setQuery}
-                placeholder={t(PLACEHOLDERS[section])}
-                placeholderTextColor={theme.textSecondary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                clearButtonMode="while-editing"
-              />
-              {section === 'bookmarks' && <Bookmarks bookmarks={session.bookmarks} query={query} />}
-              {section === 'reading' && <Reading items={session.reading} query={query} refreshed={session.refreshed} />}
-              {section === 'history' && <History entries={session.history} query={query} refreshed={session.refreshed} />}
-              {section === 'conversations' && <Conversations list={session.conversations} query={query} refreshed={session.refreshed} />}
-              <Button label={t('Save or send a page')} kind="secondary" onPress={() => router.push('/send')} testID="library-add" />
-            </>
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+      {!paired ? (
+        <EmptyState
+          icon="bookmark"
+          title={t('Your library, on your phone')}
+          description={t('Pair this phone with your computer to see your bookmarks and reading list here.')}
+          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} />}
+        />
+      ) : (
+        <>
+          <View style={styles.bleed}>
+            <TabStrip tabs={tabs} value={section} onChange={setSection} />
+          </View>
+          <SearchField testID="library-search" value={query} onChangeText={setQuery} placeholder={placeholder(section)} />
+          {section === 'bookmarks' && <Bookmarks bookmarks={session.bookmarks} query={query} />}
+          {section === 'reading' && <Reading items={session.reading} query={query} refreshed={session.refreshed} />}
+          {section === 'history' && <History entries={session.history} query={query} refreshed={session.refreshed} />}
+          {section === 'conversations' && <Conversations list={session.conversations} query={query} refreshed={session.refreshed} />}
+        </>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  turns: {
-    gap: Spacing.two,
-    marginTop: Spacing.two,
-  },
-  turn: {
-    gap: Spacing.one,
-  },
-  container: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-  },
-  content: {
-    padding: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.three,
-  },
-  segment: {
-    flexDirection: 'row',
-    padding: Spacing.one,
-    borderRadius: Spacing.three,
-    gap: Spacing.one,
-  },
-  segmentButton: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-  },
-  search: {
-    minHeight: 44,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.three,
-    fontSize: 16,
-  },
-  card: {
-    gap: Spacing.one,
-    padding: Spacing.three,
-    borderRadius: Spacing.four,
+  bleed: {
+    marginHorizontal: -Layout.gutter,
+    marginTop: -Space.sm,
   },
   crumbs: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingBottom: Spacing.two,
-  },
-  rowWrap: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: Space.xs,
   },
-  row: {
-    flex: 1,
-    flexDirection: 'row',
+  crumb: {
+    minHeight: 32,
+    justifyContent: 'center',
+  },
+  section: {
+    gap: Space.sm,
+  },
+  expand: {
+    width: Layout.touch,
     alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.one,
-    borderRadius: Spacing.two,
   },
-  grow: {
-    flex: 1,
+  turns: {
+    gap: Space.lg,
+    paddingLeft: Space.lg,
+    paddingRight: Space.lg,
+    paddingBottom: Space.lg,
   },
-  folderIcon: {
-    width: 20,
-    textAlign: 'center',
+  turn: {
+    gap: Space.sm,
+  },
+  prompt: {
+    alignSelf: 'flex-start',
+    maxWidth: '92%',
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    borderRadius: 14,
+    borderTopLeftRadius: 4,
+  },
+  openPage: {
+    alignSelf: 'flex-start',
   },
 });

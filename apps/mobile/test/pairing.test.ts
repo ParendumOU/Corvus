@@ -1,7 +1,7 @@
-import { decodePairing, encodePairing, reachableFromPhone } from "@corvus/shared";
+import { decodePairing, encodePairing, isLoopbackUrl, reachableFromPhone } from "@corvus/shared";
 import { deriveKeys, generateRecoveryPhrase } from "@corvus/sync-core";
 import { describe, expect, it } from "vitest";
-import { checkManualPairing, checkPairingCode, phoneDeviceName } from "../src/lib/pairing";
+import { checkManualPairing, checkPairingCode, pairingFailedMessage, phoneDeviceName } from "../src/lib/pairing";
 
 describe("pairing code", () => {
   it("carries the server and the phrase, and is not a URL another app would open", () => {
@@ -22,6 +22,15 @@ describe("pairing code", () => {
     expect(reachableFromPhone("http://localhost:8797")).toBe(false);
     expect(reachableFromPhone("http://127.0.0.1:8797")).toBe(false);
     expect(reachableFromPhone("http://sync-server:8787")).toBe(false);
+    expect(reachableFromPhone("http://0.0.0.0:8797")).toBe(false);
+  });
+
+  it("knows when a code's server is the computer's localhost", () => {
+    expect(isLoopbackUrl("http://localhost:8797")).toBe(true);
+    expect(isLoopbackUrl("http://127.0.0.1:8797")).toBe(true);
+    expect(isLoopbackUrl("http://[::1]:8797")).toBe(true);
+    expect(isLoopbackUrl("http://192.168.1.20:8797")).toBe(false);
+    expect(isLoopbackUrl("https://sync.example.com")).toBe(false);
   });
 });
 
@@ -40,6 +49,24 @@ describe("pairing on the phone", () => {
     expect(checkManualPairing("", encodePairing({ serverUrl: "https://a.example", phrase })).ok).toBe(true);
     expect(checkManualPairing("sync.example.com", phrase)).toEqual({ ok: false, error: expect.stringMatching(/starting with https:\/\//) });
     expect(checkManualPairing("https://sync.example.com", "raven ".repeat(24))).toEqual({ ok: false, error: expect.stringMatching(/not valid/) });
+  });
+
+  it("explains a code that points at localhost (older Corvus on the computer) instead of the raw connection error", () => {
+    const refused = new TypeError("fetch failed: java.net.ConnectException: Failed to connect to localhost/127.0.0.1:8797");
+    for (const url of ["http://localhost:8797", "http://127.0.0.1:8797", "http://[::1]:8797", "http://0.0.0.0:8797"]) {
+      expect(pairingFailedMessage(refused, url), url).toBe(
+        "This code points to the computer itself (localhost). Update Corvus on the computer, or enter its network address by hand.",
+      );
+    }
+    expect(pairingFailedMessage(new Error("Network request failed"), "http://localhost:8797")).toMatch(/points to the computer itself/);
+  });
+
+  it("shows other failures as they are", () => {
+    expect(pairingFailedMessage(new TypeError("fetch failed"), "http://192.168.1.20:8797")).toBe("Could not join the sync chain: fetch failed");
+    // A server answered (sync-core's SyncError has the HTTP status): its message is the useful one.
+    const answered = Object.assign(new Error("Device was removed"), { status: 403, code: "device_revoked" });
+    expect(pairingFailedMessage(answered, "http://localhost:8797")).toBe("Could not join the sync chain: Device was removed");
+    expect(pairingFailedMessage("boom", "https://sync.example.com")).toBe("Could not join the sync chain: boom");
   });
 
   it("names the phone after its model", () => {

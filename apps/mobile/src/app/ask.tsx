@@ -1,12 +1,18 @@
 import type { AskRecord } from '@corvus/shared';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { ACCENT, Button } from '@/components/button';
+import { Button, IconButton } from '@/components/button';
+import { Card, SectionHeader } from '@/components/card';
+import { EmptyState, LoadingState } from '@/components/empty-state';
+import { Favicon } from '@/components/favicon';
+import { Banner } from '@/components/feedback';
+import { ChoiceChips, TextField } from '@/components/fields';
+import { Icon } from '@/components/icon';
+import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { Radius, Space } from '@/constants/theme';
 import { askQuestion, forgetAsk, refreshSession, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
@@ -22,19 +28,29 @@ const ANSWER_REFRESH_MS = 2_000;
 function AskCard({ ask, deviceName, onFollowUp }: { ask: AskRecord; deviceName: (id: string) => string; onFollowUp: (q: string) => void }) {
   const theme = useTheme();
   const parts = answerParts(ask.answer, ask.sources.length);
+  const pending = ask.state === 'waiting' || ask.state === 'answering';
+  const statusColor = ask.state === 'error' ? theme.danger : pending ? theme.accentText : theme.textSecondary;
   return (
-    <ThemedView type="backgroundElement" style={styles.card} testID={`ask-${ask.question}`}>
-      <ThemedText type="smallBold">{ask.question}</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary" testID={`ask-status-${ask.question}`}>
-        {askStatus(ask, deviceName)} · {ago(ask.askedAt)}
-      </ThemedText>
+    <Card testID={`ask-${ask.question}`}>
+      <View style={styles.head}>
+        <ThemedText type="heading" style={styles.grow}>
+          {ask.question}
+        </ThemedText>
+        <IconButton icon="trash" size={20} accessibilityLabel={t('Remove')} onPress={() => void forgetAsk(ask.id)} testID={`ask-remove-${ask.question}`} />
+      </View>
+      <View style={styles.status}>
+        {pending ? <View style={[styles.pulse, { backgroundColor: theme.accent }]} /> : <Icon name={ask.state === 'error' ? 'warning' : 'checkCircle'} size={16} color={statusColor} />}
+        <ThemedText type="small" style={[styles.grow, { color: statusColor }]} testID={`ask-status-${ask.question}`}>
+          {askStatus(ask, deviceName)} · {ago(ask.askedAt)}
+        </ThemedText>
+      </View>
       {ask.answer !== '' && (
-        <ThemedText testID={`ask-answer-${ask.question}`}>
+        <ThemedText type="body" testID={`ask-answer-${ask.question}`}>
           {parts.map((p, i) =>
             'text' in p ? (
               p.text
             ) : (
-              <ThemedText key={i} type="small" style={styles.cite} onPress={() => void openInApp(ask.sources[p.cite - 1]!.url)}>
+              <ThemedText key={i} type="smallStrong" themeColor="accentText" onPress={() => void openInApp(ask.sources[p.cite - 1]!.url)}>
                 [{p.cite}]
               </ThemedText>
             ),
@@ -42,39 +58,45 @@ function AskCard({ ask, deviceName, onFollowUp }: { ask: AskRecord; deviceName: 
         </ThemedText>
       )}
       {ask.sources.length > 0 && ask.state !== 'waiting' && (
-        <View style={styles.sources}>
+        <View style={[styles.sources, { borderColor: theme.divider }]}>
           {ask.sources.map((s, i) => (
             <Pressable
               key={s.url}
               accessibilityRole="link"
               onPress={() => void openInApp(s.url)}
-              style={({ pressed }) => [styles.source, pressed && { backgroundColor: theme.backgroundSelected }]}
+              android_ripple={{ color: theme.ripple }}
+              style={styles.source}
               testID={`ask-source-${s.url}`}>
-              <ThemedText type="small" themeColor="textSecondary">
-                {i + 1}.
+              <ThemedText type="caption" themeColor="textSecondary" style={styles.sourceNumber}>
+                {i + 1}
               </ThemedText>
+              <Favicon url={s.url} size={20} />
               <ThemedText type="small" numberOfLines={1} style={styles.grow}>
                 {s.title || tabHost(s.url)}
               </ThemedText>
+              <Icon name="external" size={16} color={theme.textTertiary} />
             </Pressable>
           ))}
         </View>
       )}
       {ask.followUps.length > 0 && (
-        <View style={styles.chips}>
+        <View style={styles.followUps}>
           {ask.followUps.map((q) => (
-            <Pressable key={q} accessibilityRole="button" onPress={() => onFollowUp(q)} style={[styles.chip, { borderColor: theme.backgroundSelected }]}>
-              <ThemedText type="small">{q}</ThemedText>
+            <Pressable
+              key={q}
+              accessibilityRole="button"
+              onPress={() => onFollowUp(q)}
+              android_ripple={{ color: theme.ripple }}
+              style={[styles.followUp, { borderColor: theme.borderStrong }]}>
+              <Icon name="sparkle" size={16} color={theme.accentText} />
+              <ThemedText type="small" style={styles.shrink}>
+                {q}
+              </ThemedText>
             </Pressable>
           ))}
         </View>
       )}
-      <Pressable accessibilityRole="button" onPress={() => void forgetAsk(ask.id)} hitSlop={8} style={styles.remove} testID={`ask-remove-${ask.question}`}>
-        <ThemedText type="smallBold" themeColor="textSecondary">
-          {t('Remove')}
-        </ThemedText>
-      </Pressable>
-    </ThemedView>
+    </Card>
   );
 }
 
@@ -84,7 +106,6 @@ function AskCard({ ask, deviceName, onFollowUp }: { ask: AskRecord; deviceName: 
  * is written, with its sources.
  */
 export default function AskScreen() {
-  const theme = useTheme();
   const session = useSession();
   const [question, setQuestion] = useState('');
   const [to, setTo] = useState<string | null>(null);
@@ -119,139 +140,120 @@ export default function AskScreen() {
 
   if (session.status === 'unpaired') {
     return (
-      <ThemedView style={styles.container}>
-        <View style={styles.content}>
-          <ThemedText type="small" themeColor="textSecondary">
-            {t('Pair this phone with your computer first: your computer answers the questions.')}
-          </ThemedText>
-          <Button label={t('Pair with a computer')} onPress={() => router.replace('/pair')} testID="ask-pair" />
-        </View>
-      </ThemedView>
+      <Screen>
+        <EmptyState
+          icon="sparkle"
+          description={t('Pair this phone with your computer first: your computer answers the questions.')}
+          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => router.replace('/pair')} testID="ask-pair" />}
+        />
+      </Screen>
     );
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <ThemedView type="backgroundElement" style={styles.card}>
-          <TextInput
-            testID="ask-question"
-            style={[styles.input, { color: theme.text, backgroundColor: theme.background }]}
-            value={question}
-            onChangeText={setQuestion}
-            placeholder={t('Ask anything')}
-            placeholderTextColor={theme.textSecondary}
-            multiline
-            maxLength={1000}
-          />
-          <ThemedText type="small" themeColor="textSecondary">
-            {t("Your computer answers with Corvus's AI search, using its own AI provider, while Corvus is open there.")}
-          </ThemedText>
-          {targets.length === 0 && (
-            <ThemedText type="small" themeColor="textSecondary" testID="ask-no-computer">
-              {session.refreshed ? t('No computer on this sync chain yet.') : t('Loading…')}
-            </ThemedText>
-          )}
-          {targets.length > 1 && (
-            <View style={styles.chips}>
-              {targets.map((d) => {
-                const chosen = d.id === target?.id;
-                return (
-                  <Pressable
-                    key={d.id}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: chosen }}
-                    onPress={() => setTo(d.id)}
-                    style={[styles.chip, { borderColor: chosen ? ACCENT : theme.backgroundSelected, backgroundColor: chosen ? ACCENT : 'transparent' }]}
-                    testID={`ask-to-${d.name}`}>
-                    <ThemedText type="small" style={chosen ? styles.chosen : undefined}>
-                      {d.name}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-          <Button
-            label={target ? t('Ask {computer}', { computer: target.name }) : t('Ask')}
-            busy={busy}
-            disabled={!question.trim() || !target || busy}
-            onPress={() => void ask(question)}
-            testID="ask-submit"
-          />
-        </ThemedView>
-
-        {error && (
-          <ThemedText type="small" style={styles.error} testID="ask-error">
-            {error}
-          </ThemedText>
+    <Screen>
+      <Card>
+        <TextField
+          testID="ask-question"
+          label={t('Your question')}
+          value={question}
+          onChangeText={setQuestion}
+          placeholder={t('Ask anything')}
+          help={t("Your computer answers with Corvus's AI search, using its own AI provider, while Corvus is open there.")}
+          multiline
+          lines={3}
+          maxLength={1000}
+        />
+        {targets.length === 0 &&
+          (session.refreshed ? (
+            <Banner tone="warning" message={t('No computer on this sync chain yet.')} testID="ask-no-computer" />
+          ) : (
+            <LoadingState testID="ask-no-computer" />
+          ))}
+        {targets.length > 1 && (
+          <ChoiceChips choices={targets.map((d) => ({ key: d.id, label: d.name, icon: 'screen' as const, testID: `ask-to-${d.name}` }))} value={target?.id} onChange={setTo} />
         )}
+        <Button
+          label={target ? t('Ask {computer}', { computer: target.name }) : t('Ask')}
+          icon="send"
+          busy={busy}
+          disabled={!question.trim() || !target || busy}
+          onPress={() => void ask(question)}
+          testID="ask-submit"
+        />
+      </Card>
 
-        {session.asks.map((a) => (
-          <AskCard key={a.id} ask={a} deviceName={deviceName} onFollowUp={(q) => void ask(q)} />
-        ))}
-      </ScrollView>
-    </ThemedView>
+      {error && <Banner tone="error" message={error} testID="ask-error" />}
+
+      {session.asks.length > 0 && (
+        <View style={styles.list}>
+          <SectionHeader title={t('Your questions')} />
+          {session.asks.map((a) => (
+            <AskCard key={a.id} ask={a} deviceName={deviceName} onFollowUp={(q) => void ask(q)} />
+          ))}
+        </View>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: Spacing.four,
-    gap: Spacing.three,
-    maxWidth: MaxContentWidth,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  card: {
-    gap: Spacing.two,
-    padding: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-  input: {
-    minHeight: 80,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
-    fontSize: 16,
-    textAlignVertical: 'top',
-  },
-  cite: {
-    color: ACCENT,
-  },
-  sources: {
-    gap: Spacing.half,
-  },
-  source: {
+  head: {
     flexDirection: 'row',
-    gap: Spacing.two,
-    paddingVertical: Spacing.one,
-    borderRadius: Spacing.one,
+    alignItems: 'flex-start',
+    gap: Space.xs,
+    marginRight: -Space.sm,
+    marginTop: -Space.xs,
   },
   grow: {
     flex: 1,
   },
-  chips: {
+  shrink: {
+    flexShrink: 1,
+  },
+  status: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
+    alignItems: 'center',
+    gap: Space.sm,
+    marginTop: -Space.sm,
   },
-  chip: {
+  pulse: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  sources: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: Space.xs,
+  },
+  source: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.md,
+    minHeight: 44,
+    borderRadius: Radius.sm,
+  },
+  sourceNumber: {
+    width: 14,
+    textAlign: 'right',
+  },
+  followUps: {
+    gap: Space.sm,
+  },
+  followUp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: Space.sm,
+    minHeight: 40,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.one,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
   },
-  chosen: {
-    color: '#ffffff',
-  },
-  remove: {
-    alignSelf: 'flex-end',
-  },
-  error: {
-    color: '#D93025',
+  list: {
+    gap: Space.md,
   },
 });

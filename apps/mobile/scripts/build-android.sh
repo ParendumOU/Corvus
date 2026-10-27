@@ -21,9 +21,22 @@ cd android
 # used by expo-background-task, could not create its Room database: "Failed to create an instance
 # of class androidx.work.impl.WorkDatabase"), so release builds are not minified.
 GRADLE_FLAGS=(--no-daemon --console=plain -Pandroid.enableMinifyInReleaseBuilds=false)
-./gradlew "${GRADLE_FLAGS[@]}" assembleRelease
+# The QR scanner's decoder is tested first, on real QR images (modules/qr-scanner, QrDecoderTest;
+# library modules only have unit tests for the debug build type).
+./gradlew "${GRADLE_FLAGS[@]}" :qr-scanner:testDebugUnitTest assembleRelease
 
 APK=app/build/outputs/apk/release/app-release.apk
+BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+# Google ML Kit sends Google diagnostics, so it must stay out of the app (see "The QR scanner has no
+# Google code" in docs/MOBILE.md): no ML Kit classes in the APK and nothing of it in its manifest.
+MLKIT_CLASSES="$(unzip -p "$APK" 'classes*.dex' | grep -aoE 'L(com/google/mlkit|com/google/android/gms/internal/mlkit_[a-z_]+|com/google/android/gms/vision|androidx/camera/mlkit)/' | sort -u || true)"
+MLKIT_MANIFEST="$("$BUILD_TOOLS/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -iE 'mlkit|vision\.DEPENDENCIES' || true)"
+if [ -n "$MLKIT_CLASSES$MLKIT_MANIFEST" ]; then
+  echo "Google ML Kit is in the APK:" >&2
+  printf '%s\n' "$MLKIT_CLASSES" "$MLKIT_MANIFEST" >&2
+  exit 1
+fi
+echo "No Google ML Kit in the APK or its manifest."
 OUT_DIR=/workspace/out/mobile
 mkdir -p "$OUT_DIR"
 OUT="$OUT_DIR/corvus-mobile-$VERSION.apk"
@@ -32,7 +45,6 @@ if [ -f /secrets/corvus-mobile.keystore ] && [ -f /secrets/corvus-mobile-keystor
   # shellcheck disable=SC1091
   . /secrets/corvus-mobile-keystore.env
   set +a
-  BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
   "$BUILD_TOOLS/zipalign" -f -p 4 "$APK" /tmp/corvus-aligned.apk
   "$BUILD_TOOLS/apksigner" sign --ks /secrets/corvus-mobile.keystore --ks-pass env:KEYSTORE_PASSWORD \
     --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD --out "$OUT" /tmp/corvus-aligned.apk

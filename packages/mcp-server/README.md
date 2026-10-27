@@ -1,9 +1,6 @@
 # @corvus/mcp-server
 
-The MCP server that lets AI agents (Claude Code, Claude Desktop, MCP Inspector, any MCP client)
-drive the Corvus browser. It speaks **Streamable HTTP** on `127.0.0.1` and ships a **stdio bridge**
-for clients that only speak stdio. It talks to the browser exclusively through the
-`BrowserController` contract from `@corvus/shared`.
+The MCP server that lets AI agents (Claude Code, Claude Desktop, MCP Inspector, any MCP client) drive the Corvus browser. It speaks **Streamable HTTP** on `127.0.0.1` and ships a **stdio bridge** for clients that only speak stdio. It talks to the browser exclusively through the `BrowserController` contract from `@corvus/shared`.
 
 ## API
 
@@ -33,8 +30,7 @@ Other exports:
 - `createMcpServer(opts)` - the `McpServer` with all tools registered, no transport (tests, custom transports).
 - `startStdioBridge({ url, token, stdin?, stdout? })` - the bridge used by `corvus-mcp-stdio`.
 - `resetClientApprovals()` - forget remembered client approvals (e.g. "revoke all agents").
-- `@corvus/mcp-server/testing` - `MockBrowserController` (in-memory tabs, groups, navigation history,
-  bookmarks, history, records every call in `.calls`) and `MockSearchEngine`.
+- `@corvus/mcp-server/testing` - `MockBrowserController` (in-memory tabs, groups, navigation history, bookmarks, history, records every call in `.calls`) and `MockSearchEngine`.
 
 ## Tools
 
@@ -53,32 +49,23 @@ Other exports:
 | `web_search` | AI search (only when `search` is provided): answer + numbered results |
 | `evaluate` | Run JS in the page (only when `allowEvaluate` is set) |
 
-`tabId` is optional on page-level tools and defaults to the active tab. Outputs are compact
-(no pretty-printed JSON, empty/false fields dropped).
+`tabId` is optional on page-level tools and defaults to the active tab. Outputs are compact (no pretty-printed JSON, empty/false fields dropped).
 
 ## Security model
 
 - **Loopback only**: binds `127.0.0.1`; any other `host` option throws.
 - **Bearer token** on every request (`Authorization: Bearer <token>`), compared in constant time.
-- **DNS rebinding**: `Host` must be `127.0.0.1`/`localhost` on the bound port; `Origin`, when sent,
-  must be a loopback origin. Otherwise `403`.
+- **DNS rebinding**: `Host` must be `127.0.0.1`/`localhost` on the bound port; `Origin`, when sent, must be a loopback origin. Otherwise `403`.
 - **Body limit**: POST bodies over `maxBodyBytes` get `413`.
-- **Client approval**: the first `initialize` from a new client name calls `onClientConnect`; approvals
-  are remembered for the process lifetime, rejections are not (the user is asked again). Client names
-  are self-declared, so this is a consent prompt, not authentication - the token is the credential.
+- **Client approval**: the first `initialize` from a new client name calls `onClientConnect`; approvals are remembered for the process lifetime, rejections are not (the user is asked again). Client names are self-declared, so this is a consent prompt, not authentication - the token is the credential.
 - **Rate limit**: token bucket per session; excess calls return a tool error with a retry hint.
-- **URL policy**: `tab_open`, `navigate` and `bookmark_add` accept only `http:`/`https:` (blocks `file:`,
-  `javascript:`, `data:`, `chrome:`, `corvus:`, `devtools:`, ...).
-- **Untrusted content**: everything page-derived (titles, text, search results, history, evaluate output)
-  is wrapped in `<untrusted_page_content source="...">...</untrusted_page_content>` with a note that it is
-  data, not instructions. Delimiter look-alikes inside the content are escaped so a page cannot close the
-  block early.
+- **URL policy**: `tab_open`, `navigate` and `bookmark_add` accept only `http:`/`https:` (blocks `file:`, `javascript:`, `data:`, `chrome:`, `corvus:`, `devtools:`, ...).
+- **Untrusted content**: everything page-derived (titles, text, search results, history, evaluate output) is wrapped in `<untrusted_page_content source="...">...</untrusted_page_content>` with a note that it is data, not instructions. Delimiter look-alikes inside the content are escaped so a page cannot close the block early.
 - Controller errors become MCP tool errors (`isError: true`) with a short message.
 
 ## Registering with clients
 
-The desktop app shows the port and token in **Settings > AI Agents**. For local experiments, use the dev
-server below.
+The desktop app shows the port and token in **Settings > AI Agents**. For local experiments, use the dev server below.
 
 ### Claude Code (HTTP)
 
@@ -88,8 +75,7 @@ claude mcp add --transport http corvus http://127.0.0.1:<port>/mcp --header "Aut
 
 ### Claude Desktop (stdio bridge)
 
-Claude Desktop launches stdio servers, so point it at the bridge, which proxies to the running browser.
-In `claude_desktop_config.json`:
+Claude Desktop launches stdio servers, so point it at the bridge, which proxies to the running browser. In `claude_desktop_config.json`:
 
 ```json
 {
@@ -114,23 +100,18 @@ The bridge refuses non-loopback URLs so the token never leaves the machine.
 pnpm dlx @modelcontextprotocol/inspector
 ```
 
-Choose transport "Streamable HTTP", URL `http://127.0.0.1:<port>/mcp`, and add the header
-`Authorization: Bearer <token>`.
+Choose transport "Streamable HTTP", URL `http://127.0.0.1:<port>/mcp`, and add the header `Authorization: Bearer <token>`.
 
 ## Dev server (mock browser)
 
-`corvus-mcp-dev` starts the real server over `MockBrowserController` and `MockSearchEngine` and prints
-the URL, token and a ready-to-paste `claude mcp add` command.
+`corvus-mcp-dev` starts the real server over `MockBrowserController` and `MockSearchEngine` and prints the URL, token and a ready-to-paste `claude mcp add` command.
 
 ```sh
 pnpm --filter @corvus/mcp-server... build
 CORVUS_MCP_PORT=39217 CORVUS_MCP_TOKEN=<optional> node packages/mcp-server/dist/bin/dev.js
 ```
 
-Env: `CORVUS_MCP_PORT` (default random), `CORVUS_MCP_TOKEN` (default random),
-`CORVUS_MCP_ALLOW_EVALUATE=1` to expose `evaluate`. Inside the Docker dev container the server listens on
-the container's own loopback, so run clients in the same container (or run the built file with a host
-Node to use it from host clients).
+Env: `CORVUS_MCP_PORT` (default random), `CORVUS_MCP_TOKEN` (default random), `CORVUS_MCP_ALLOW_EVALUATE=1` to expose `evaluate`. Inside the Docker dev container the server listens on the container's own loopback, so run clients in the same container (or run the built file with a host Node to use it from host clients).
 
 ## Development
 
@@ -142,5 +123,4 @@ docker compose run --rm dev pnpm --filter @corvus/mcp-server test
 docker compose run --rm dev pnpm --filter "@corvus/mcp-server..." build
 ```
 
-`build` needs `@corvus/shared` built first (the `...` filter does that); `typecheck` and tests read the
-shared sources directly.
+`build` needs `@corvus/shared` built first (the `...` filter does that); `typecheck` and tests read the shared sources directly.

@@ -6,6 +6,8 @@
 import { parseDeviceTabs, type DeviceInfo, type DeviceTabs, type SyncCollection, type SyncItem, type SyncStateStorage } from '@corvus/shared';
 import type { CorvusSyncClient } from '@corvus/sync-core';
 
+import type { Progress } from './refresh';
+
 export type ReplicaClient = Pick<CorvusSyncClient, 'cursor' | 'pullPages' | 'pullCollection' | 'forgetCollection'>;
 
 /** What the phone shows, in the order it was added to the app. */
@@ -30,8 +32,12 @@ export class Replica {
     return records;
   }
 
-  /** Pulls the chain's changes into the replica; returns how many records changed. */
-  async sync(client: ReplicaClient): Promise<number> {
+  /**
+   * Pulls the chain's changes into the replica; returns how many records changed. `progress` hears
+   * each step (a download, saving a collection), so a refresh that stops moving can be told apart.
+   */
+  async sync(client: ReplicaClient, progress: Progress = () => undefined): Promise<number> {
+    progress({ kind: 'download' });
     const joined = new Set(parseList(await this.storage.get(`${this.prefix}data/joined`)));
     let count = 0;
     const apply = async (items: SyncItem[]): Promise<void> => {
@@ -44,7 +50,12 @@ export class Replica {
         changed.add(item.collection);
         count++;
       }
-      for (const collection of changed) await this.save(collection);
+      for (const collection of changed) {
+        progress({ kind: 'save', collection });
+        await this.save(collection);
+      }
+      // The client asks for the next page (or saves its cursor) next.
+      progress({ kind: 'download' });
     };
 
     // Before the first pull the main cursor starts at 0 and brings every collection.
@@ -56,6 +67,7 @@ export class Replica {
       }
     }
     await client.pullPages(apply);
+    progress({ kind: 'finish' });
     await this.storage.set(`${this.prefix}data/joined`, JSON.stringify([...this.collections]));
     return count;
   }

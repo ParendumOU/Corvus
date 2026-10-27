@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { notifyNew } from '@/lib/notifications';
 import { openInApp } from '@/lib/open-url';
 import type { ConversationView } from '@/lib/conversations';
+import { RefreshStalled, SingleFlight, watchdog } from '@/lib/refresh';
 import type { ComputerTabs } from '@/lib/replica';
 import type { WatchView } from '@/lib/watches';
 import {
@@ -17,6 +18,7 @@ import {
   pair,
   refreshView,
   removeAsk,
+  sameChain,
   saveForLater,
   watchPage,
   sendPage,
@@ -87,37 +89,42 @@ function paired(): Pairing {
   return state.pairing;
 }
 
-let inFlight: Promise<void> | null = null;
+const refreshes = new SingleFlight<void>();
 
-/** Lists the chain's devices and pulls what changed (pull to refresh). One refresh at a time. */
+/**
+ * Lists the chain's devices and pulls what changed (pull to refresh). One refresh at a time, and
+ * it always ends: a refresh that stops making progress fails with the step it was stuck on (see
+ * lib/refresh.ts), so the spinner never stays on and the next pull starts a new one.
+ */
 export function refreshSession(): Promise<void> {
   const pairing = state.pairing;
   if (!pairing) return Promise.resolve();
-  inFlight ??= (async () => {
+  return refreshes.run(async () => {
     set({ refreshing: true, error: null });
     try {
-      const view = await refreshView(pairing);
-      if (state.pairing === pairing) set({ ...view, refreshed: true, refreshing: false });
+      const view = await watchdog((progress) => refreshView(pairing, progress));
+      // Compared by chain: the pairing read back from storage is another object for the same chain.
+      if (sameChain(state.pairing, pairing)) set({ ...view, refreshed: true, refreshing: false });
+      else set({ refreshing: false });
       // What the app shows does not need a notification later.
       void notifyNew(view, false).catch(() => undefined);
     } catch (err) {
-      set({ refreshed: true, refreshing: false, error: t('Could not reach the sync server: {error}', { error: message(err) }) });
-    } finally {
-      inFlight = null;
+      console.warn(`[corvus] refresh failed: ${message(err)}`);
+      const error = err instanceof RefreshStalled ? err.message : t('Could not reach the sync server: {error}', { error: message(err) });
+      set({ refreshed: true, refreshing: false, error });
     }
-  })();
-  return inFlight;
+  });
 }
 
 /** Shows what the replica holds after a change this phone made (no network). */
 async function showLocal(pairing: Pairing): Promise<void> {
   const view = await cachedView(pairing, state.devices);
-  if (state.pairing === pairing) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks, conversations: view.conversations });
+  if (sameChain(state.pairing, pairing)) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks, conversations: view.conversations });
 }
 
 export async function pairPhone(info: PairingInfo, chainId: string, deviceName: string): Promise<void> {
   const pairing = await pair(info, chainId, deviceName);
-  set({ status: 'paired', pairing, ...EMPTY });
+  set({ status: 'paired', pairing, ...EMPTY, refreshing: refreshes.running });
   // The first pull can take a while on a big chain: the home screen shows it loading.
   void refreshSession();
 }
@@ -131,14 +138,14 @@ export async function unpairPhone(): Promise<void> {
 export async function sendToComputer(page: Pick<SentTab, 'url' | 'title' | 'to'>): Promise<void> {
   const pairing = paired();
   const sent = await sendPage(pairing, page);
-  if (state.pairing === pairing) set({ outbox: [...state.outbox, sent] });
+  if (sameChain(state.pairing, pairing)) set({ outbox: [...state.outbox, sent] });
 }
 
 /** Asks a computer of the chain; its answer shows as the computer writes it (see the Ask screen). */
 export async function askQuestion(question: string, to: string): Promise<void> {
   const pairing = paired();
   const asked = await askComputer(pairing, question, to);
-  if (state.pairing === pairing) set({ asks: [asked, ...state.asks.filter((a) => a.id !== asked.id)] });
+  if (sameChain(state.pairing, pairing)) set({ asks: [asked, ...state.asks.filter((a) => a.id !== asked.id)] });
 }
 
 /** Removes a question and its answer from the list. */
@@ -146,7 +153,7 @@ export async function forgetAsk(id: string): Promise<void> {
   const pairing = state.pairing;
   if (!pairing) return;
   await removeAsk(pairing, id);
-  if (state.pairing === pairing) set({ asks: state.asks.filter((a) => a.id !== id) });
+  if (sameChain(state.pairing, pairing)) set({ asks: state.asks.filter((a) => a.id !== id) });
 }
 
 /** Opens a page a computer sent to this phone; it then leaves the inbox on every device. */
@@ -157,7 +164,7 @@ export async function openReceived(id: string, url?: string): Promise<void> {
   const pairing = state.pairing;
   if (!pairing || !page) return;
   await cancelSent(pairing, id);
-  if (state.pairing === pairing) set({ inbox: state.inbox.filter((p) => p.id !== id) });
+  if (sameChain(state.pairing, pairing)) set({ inbox: state.inbox.filter((p) => p.id !== id) });
 }
 
 /** Takes back a page that is still waiting. */
@@ -165,7 +172,7 @@ export async function cancelSending(id: string): Promise<void> {
   const pairing = state.pairing;
   if (!pairing) return;
   await cancelSent(pairing, id);
-  if (state.pairing === pairing) set({ outbox: state.outbox.filter((p) => p.id !== id) });
+  if (sameChain(state.pairing, pairing)) set({ outbox: state.outbox.filter((p) => p.id !== id) });
 }
 
 /** Saves a link to the reading list (a computer fetches the article). */
@@ -201,10 +208,13 @@ async function load(): Promise<void> {
   loaded = true;
   await dropLegacyReplica().catch(() => undefined);
   const pairing = await loadPairing().catch(() => null);
+  // Paired (or unpaired) meanwhile, from the pairing screen: that is the current state, keep it.
+  if (state.status !== 'loading') return;
   set({ status: pairing ? 'paired' : 'unpaired', pairing });
   if (!pairing) return;
-  const cached = await cachedView(pairing).catch(() => null);
-  if (cached && !state.refreshed) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks, conversations: cached.conversations ?? [] });
+  // What the phone already has, shown before the first refresh; never allowed to hold up that refresh.
+  const cached = await watchdog((progress) => cachedView(pairing, [], progress)).catch(() => null);
+  if (cached && !state.refreshed && sameChain(state.pairing, pairing)) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks, conversations: cached.conversations ?? [] });
   await refreshSession();
 }
 

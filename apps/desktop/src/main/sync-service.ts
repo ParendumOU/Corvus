@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { MAX_WATCH_STATUS, askList, encodePairing, reachableFromPhone, sentTabs, type DeviceInfo, type SentTab, type SyncCollection, type SyncStateStorage } from "@corvus/shared";
+import { MAX_WATCH_STATUS, askList, encodePairing, sentTabs, type DeviceInfo, type SentTab, type SyncCollection, type SyncStateStorage } from "@corvus/shared";
 import { Notification } from "electron";
 import type { CorvusSyncClient, SyncAdapter, SyncEngine } from "@corvus/sync-core";
 import { extensionSuggestions, webstoreExtensions, type ExtensionSuggestion, type SyncedExtension } from "../shared/extension-suggestions";
-import { SYNC_INTERVALS_MINUTES, type SyncDeviceView, type SyncOptions, type SyncStatus } from "../shared/ipc";
+import { SYNC_INTERVALS_MINUTES, type PairingAddress, type PairingCodeView, type SyncDeviceView, type SyncOptions, type SyncStatus } from "../shared/ipc";
 import { OpenTabsPublisher, collectTabs, parseDeviceTabs, type RemoteDeviceTabs } from "../shared/open-tabs";
 import { toWatchStatus } from "../shared/page-watch";
 import { StampedRecord } from "../shared/stamped-record";
@@ -14,6 +14,7 @@ import { answerAsk } from "./ask-relay";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import { loadOptionalModule } from "./module-loader";
+import { phonePairingAddress } from "./pairing-address";
 import type { ProfileRuntime } from "./profiles";
 import type { SecretCipher } from "./settings-store";
 import { ReadingFiller } from "./reading-fill";
@@ -761,15 +762,23 @@ export class SyncService {
   }
 
   /**
-   * "Pair a phone": the pairing code (server address + recovery phrase) as text and as a QR code
-   * for the Corvus mobile app, and whether a phone can likely reach that server address.
+   * Where pairing codes point the phone (see phonePairingAddress). The smoke test replaces it to
+   * show "Pair a phone" with a fixed network layout.
    */
-  async pairingCode(profile: ProfileRuntime): Promise<{ code: string; qrSvg: string; serverUrl: string; reachableFromPhone: boolean }> {
+  pairingAddress: (desktopServerUrl: string, prefer?: string) => Promise<PairingAddress> = (url, prefer) => phonePairingAddress(url, { prefer });
+
+  /**
+   * "Pair a phone": the pairing code (server address + recovery phrase) as text and as a QR code
+   * for the Corvus mobile app. A sync server on this computer's loopback address goes in the code
+   * as this computer's network address (`address`: another of its addresses), checked to answer
+   * there; the profile's own server setting does not change.
+   */
+  async pairingCode(profile: ProfileRuntime, address?: string): Promise<PairingCodeView> {
     const phrase = this.revealPhrase(profile);
-    const serverUrl = this.state(profile).get().serverUrl;
-    const code = encodePairing({ serverUrl, phrase });
+    const target = await this.pairingAddress(this.state(profile).get().serverUrl, address);
+    const code = encodePairing({ serverUrl: target.serverUrl, phrase });
     const { encodeQR } = await import("qr");
-    return { code, qrSvg: encodeQR(code, "svg", { border: 2 }), serverUrl, reachableFromPhone: reachableFromPhone(serverUrl) };
+    return { ...target, code, qrSvg: encodeQR(code, "svg", { border: 2 }) };
   }
 
   revealPhrase(profile: ProfileRuntime): string {

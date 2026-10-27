@@ -1,18 +1,19 @@
 import { NativeTabs } from 'expo-router/native-tabs';
-import { useColorScheme } from 'react-native';
 
-import { Colors } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
 
+/** The bottom navigation bar (Material's navigation bar on Android); the web build has app-tabs.web.tsx. */
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
-
+  const theme = useTheme();
   return (
     <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
+      backgroundColor={theme.surface}
+      indicatorColor={theme.accentContainer}
+      rippleColor={theme.ripple}
+      iconColor={{ default: theme.textSecondary, selected: theme.onAccentContainer }}
+      labelStyle={{ default: { color: theme.textSecondary, fontSize: 12, fontWeight: '500' }, selected: { color: theme.text, fontSize: 12, fontWeight: '700' } }}
+      labelVisibilityMode="labeled">
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>{t('Home')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />

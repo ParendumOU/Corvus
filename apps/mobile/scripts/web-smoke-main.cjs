@@ -357,6 +357,15 @@ async function pairingSmoke(win, base, syncUrl) {
   await keep(later, "", "send-read-later");
   const saved = await pulledUntil((i) => i.collection === "reading" && i.id === later);
   check("share: a link saved for later reaches the computer as a link to fill in", saved?.payload?.markdown === "" && saved.payload.url === later, saved?.payload ?? null);
+  // The Open screen, paired: the same actions as Save or send, here saving to the reading list.
+  const openedLater = "https://example.org/link-opened-in-corvus";
+  await win.loadURL(`${base}/open?url=${encodeURIComponent(openedLater)}`);
+  const openActions = await until(win, `${present("open-submit")} && ${present("send-to-Smoke desktop")} && ${present("send-read-later")}`, 20000);
+  await shot(win, "open-link-paired");
+  await tap("send-read-later");
+  const openSaved = await pulledUntil((i) => i.collection === "reading" && i.id === openedLater);
+  check("open a link: paired, it can be sent or kept instead, as from Save or send", openActions && openSaved?.payload?.url === openedLater, openSaved?.payload ?? null);
+
   const marked2 = "https://example.org/bookmark-me";
   await keep(marked2, "Bookmarked on the phone", "send-bookmark");
   const bookmark = await pulledUntil((i) => i.collection === "bookmarks" && i.payload?.url === marked2);
@@ -403,8 +412,12 @@ async function pairingSmoke(win, base, syncUrl) {
   });
   await shot(win, "settings-paired");
   await until(win, "document.querySelector('[data-testid=settings-unpair]')");
-  await win.webContents.executeJavaScript("window.confirm = () => true; document.querySelector('[data-testid=settings-unpair]').click()");
-  const unpaired = await until(win, "document.querySelector('[data-testid=settings-pair]')", 15000);
+  await win.webContents.executeJavaScript("document.querySelector('[data-testid=settings-unpair]').click()");
+  // The app asks first, in its own dialog.
+  const confirmAsked = await until(win, "document.querySelector('[data-testid=dialog-confirm]')", 5000);
+  await shot(win, "settings-unpair-dialog");
+  await win.webContents.executeJavaScript("document.querySelector('[data-testid=dialog-confirm]')?.click()");
+  const unpaired = confirmAsked && (await until(win, "document.querySelector('[data-testid=settings-pair]')", 15000));
   const after = await computer.listDevices();
   check("pairing: unpairing takes the phone off the chain", unpaired && !after.some((d) => d.name === "Phone"), after.map((d) => d.name));
 }
@@ -426,6 +439,27 @@ app.whenReady().then(async () => {
     check("home screen shows Corvus and how to pair", home);
     const settings = await screen(win, base, "/settings", "settings", "/^\\d+\\.\\d+\\.\\d+/.test(document.querySelector('[data-testid=app-version]')?.textContent ?? '')");
     check("settings screen shows the app version", settings);
+    const browserCard = await win.webContents.executeJavaScript("Boolean(document.querySelector('[data-testid=default-browser-card]'))");
+    check("settings: no default browser card outside Android", !browserCard);
+
+    // A web link Corvus is asked to open as the phone's browser (Android) lands on the Open screen;
+    // here, unpaired, it offers Open (a new tab on the web) and a hint to pair.
+    const link = "https://example.org/opened-with-corvus?x=1#part";
+    let openedLink = null;
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      openedLink = url;
+      return { action: "deny" };
+    });
+    const openShown = await screen(
+      win,
+      base,
+      `/open?url=${encodeURIComponent(link)}`,
+      "open-link",
+      `document.querySelector('[data-testid=open-url]')?.textContent === ${JSON.stringify(link)} && document.querySelector('[data-testid=open-pair]')`,
+    );
+    await win.webContents.executeJavaScript("document.querySelector('[data-testid=open-submit]')?.click()");
+    for (const end = Date.now() + 5000; openedLink === null && Date.now() < end; ) await new Promise((r) => setTimeout(r, 100));
+    check("open a link: the Open screen shows the link and opens it with one tap (unpaired: with a hint to pair)", openShown && openedLink === link, openedLink);
     if (process.env.CORVUS_SYNC_URL) await pairingSmoke(win, base, process.env.CORVUS_SYNC_URL);
     else check("pairing (needs CORVUS_SYNC_URL and the sync-server service)", false, "CORVUS_SYNC_URL is not set");
     check("no errors in the console", errors.length === 0, errors.slice(0, 5));

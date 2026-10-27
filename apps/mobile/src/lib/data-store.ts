@@ -14,6 +14,9 @@ export interface DataStore extends SyncStateStorage {
 const root = (): Directory => new Directory(Paths.document, 'corvus-data');
 const fileName = (key: string): string => `${encodeURIComponent(key)}.json`;
 
+// Each write gets its own temporary file, so two writes of the same key never share one.
+let writes = 0;
+
 export const dataStore: DataStore = {
   async get(key) {
     const file = new File(root(), fileName(key));
@@ -22,11 +25,12 @@ export const dataStore: DataStore = {
   async set(key, value) {
     const dir = root();
     if (!dir.exists) dir.create({ intermediates: true });
-    const tmp = new File(dir, `${fileName(key)}.tmp`);
+    const tmp = new File(dir, `${fileName(key)}.${Date.now().toString(36)}-${(writes++).toString(36)}.tmp`);
     if (tmp.exists) tmp.delete();
     tmp.create();
     await tmp.write(value);
-    tmp.move(new File(dir, fileName(key)), { overwrite: true });
+    // move() returns a promise since expo-file-system 58: the value is only saved once it resolves.
+    await tmp.move(new File(dir, fileName(key)), { overwrite: true });
   },
   async clear() {
     const dir = root();

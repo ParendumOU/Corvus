@@ -1,32 +1,28 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Platform, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { Button } from '@/components/button';
-import { Card, CardHeader, SectionLabel } from '@/components/card';
+import { Card, CardHeader, SectionHeader } from '@/components/card';
+import { DefaultBrowserSettings } from '@/components/default-browser-card';
+import { LoadingState } from '@/components/empty-state';
+import { Banner, confirm } from '@/components/feedback';
+import { IconTile, ListGroup, ListRow } from '@/components/list';
+import { Screen, ScreenTitle } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Space } from '@/constants/theme';
 import { refreshSession, unpairPhone, useSession } from '@/hooks/use-session';
+import { useTheme } from '@/hooks/use-theme';
 import { enableNotifications } from '@/lib/background';
-import { ago } from '@/lib/format';
+import { ago, platformName } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { notificationsOn } from '@/lib/notifications';
 
-/** Asks before something that cannot be undone (a native alert, or the browser's on web). */
-function confirmAction(title: string, message: string, action: string): Promise<boolean> {
-  if (Platform.OS === 'web') return Promise.resolve(window.confirm(`${title}\n\n${message}`));
-  return new Promise((resolve) =>
-    Alert.alert(title, message, [
-      { text: t('Cancel'), style: 'cancel', onPress: () => resolve(false) },
-      { text: action, style: 'destructive', onPress: () => resolve(true) },
-    ]),
-  );
-}
+const PHONES = new Set(['android', 'ios', 'web']);
 
 export default function SettingsScreen() {
+  const theme = useTheme();
   const session = useSession();
   const [busy, setBusy] = useState(false);
   const version = Constants.expoConfig?.version ?? '';
@@ -41,131 +37,135 @@ export default function SettingsScreen() {
     setNotifyDenied(on && !enabled);
   };
   const unpair = async (): Promise<void> => {
-    const ok = await confirmAction(
-      t('Unpair this phone?'),
-      t('It leaves the sync chain and forgets the recovery phrase. Your computer keeps all its data.'),
-      t('Unpair'),
-    );
+    const ok = await confirm({
+      title: t('Unpair this phone?'),
+      message: t('It leaves the sync chain and forgets the recovery phrase. Your computer keeps all its data.'),
+      confirmLabel: t('Unpair'),
+      destructive: true,
+    });
     if (!ok) return;
     setBusy(true);
     await unpairPhone().finally(() => setBusy(false));
   };
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          refreshControl={
-            session.pairing ? <RefreshControl refreshing={session.refreshing} onRefresh={() => void refreshSession()} /> : undefined
-          }>
-          <ThemedText type="subtitle">{t('Settings')}</ThemedText>
+    <Screen tab refreshing={session.refreshing} onRefresh={session.pairing ? () => void refreshSession() : undefined}>
+      <ScreenTitle title={t('Settings')} />
 
-          <SectionLabel>{t('Sync')}</SectionLabel>
+      <View style={styles.section}>
+        <SectionHeader title={t('Sync')} />
+        {session.pairing ? (
           <Card testID="sync-card">
-            {session.pairing ? (
-              <>
-                <CardHeader
-                  title={t('Paired')}
-                  description={t('Paired as “{name}” with {server}.', { name: session.pairing.deviceName, server: session.pairing.serverUrl })}
-                />
-                <View style={styles.devices}>
-                  <ThemedText type="smallBold">{t('Devices on this sync chain')}</ThemedText>
-                  {session.devices.length === 0 && (
-                    <ThemedText type="body" themeColor="textSecondary">
-                      {session.refreshed ? t('Could not list them right now.') : t('Loading…')}
-                    </ThemedText>
-                  )}
-                  {session.devices.map((d) => (
-                    <View key={d.id} style={styles.device} testID={`device-${d.name}`}>
-                      <ThemedText type="body">
-                        {d.name}
-                        {d.id === session.self ? ` ${t('(this phone)')}` : ''}
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {d.platform} · {t('seen {when}', { when: ago(d.lastSeen) })}
-                      </ThemedText>
-                    </View>
-                  ))}
-                </View>
-                <Button label={t('Unpair this phone')} kind="danger" busy={busy} onPress={() => void unpair()} testID="settings-unpair" />
-              </>
-            ) : (
-              <>
-                <CardHeader
-                  title={t('Not paired')}
-                  description={t('What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.')}
-                />
-                <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} testID="settings-pair" />
-              </>
-            )}
-          </Card>
-
-          {session.pairing && Platform.OS !== 'web' && (
-            <>
-              <SectionLabel>{t('Notifications')}</SectionLabel>
-              <Card testID="notify-card">
-                <View style={styles.row}>
-                  <ThemedText type="heading" style={styles.grow}>
-                    {t('Notifications')}
-                  </ThemedText>
-                  <Switch value={notify} onValueChange={(v) => void toggleNotify(v)} accessibilityLabel={t('Notifications')} />
-                </View>
-                <ThemedText type="body" themeColor="textSecondary">
-                  {t('Pages your computer sends to this phone, and watched pages that change. The phone checks about every 15 minutes in the background, when the system allows it.')}
+            <View style={styles.status}>
+              <IconTile name="checkCircle" color={theme.success} background={theme.successSoft} />
+              <View style={styles.grow}>
+                <ThemedText type="heading">{t('Paired')}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {t('Paired as “{name}” with {server}.', { name: session.pairing.deviceName, server: session.pairing.serverUrl })}
                 </ThemedText>
-                {notifyDenied && (
-                  <ThemedText type="body" themeColor="textSecondary">
-                    {t('Notifications are blocked for Corvus: allow them in the system settings, then turn this on again.')}
-                  </ThemedText>
-                )}
-              </Card>
-            </>
-          )}
+              </View>
+            </View>
+            <Button label={t('Unpair this phone')} kind="danger" icon="unlink" busy={busy} onPress={() => void unpair()} testID="settings-unpair" />
+          </Card>
+        ) : (
+          <Card testID="sync-card">
+            <CardHeader
+              title={t('Not paired')}
+              description={t('What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.')}
+            />
+            <Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} testID="settings-pair" />
+          </Card>
+        )}
+      </View>
 
-          <SectionLabel>{t('About')}</SectionLabel>
-          <Card>
-            <View style={styles.row}>
-              <ThemedText type="body" style={styles.grow}>
-                {t('Version')}
-              </ThemedText>
-              <ThemedText type="body" themeColor="textSecondary" testID="app-version" accessibilityLabel={t('Corvus for mobile {version}', { version })}>
+      {session.pairing && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Devices on this sync chain')} />
+          {session.devices.length === 0 ? (
+            session.refreshed ? (
+              <Banner tone="warning" message={t('Could not list them right now.')} />
+            ) : (
+              <LoadingState />
+            )
+          ) : (
+            <ListGroup>
+              {session.devices.map((d) => (
+                <ListRow
+                  key={d.id}
+                  leading={<IconTile name={PHONES.has(d.platform) ? 'phone' : 'screen'} />}
+                  title={`${d.name}${d.id === session.self ? ` ${t('(this phone)')}` : ''}`}
+                  subtitle={`${platformName(d.platform)} · ${t('seen {when}', { when: ago(d.lastSeen) })}`}
+                  testID={`device-${d.name}`}
+                />
+              ))}
+            </ListGroup>
+          )}
+        </View>
+      )}
+
+      {session.pairing && Platform.OS !== 'web' && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Notifications')} />
+          <ListGroup testID="notify-card">
+            <ListRow
+              leading={<IconTile name="bell" />}
+              title={t('Notifications')}
+              subtitle={t('Pages your computer sends to this phone, and watched pages that change. The phone checks about every 15 minutes in the background, when the system allows it.')}
+              subtitleLines={6}
+              trailing={
+                <View style={styles.switch}>
+                  <Switch
+                    value={notify}
+                    onValueChange={(v) => void toggleNotify(v)}
+                    accessibilityLabel={t('Notifications')}
+                    trackColor={{ false: theme.borderStrong, true: theme.accent }}
+                    thumbColor={notify ? theme.onAccent : theme.textSecondary}
+                    ios_backgroundColor={theme.borderStrong}
+                  />
+                </View>
+              }
+            />
+          </ListGroup>
+          {notifyDenied && <Banner tone="warning" message={t('Notifications are blocked for Corvus: allow them in the system settings, then turn this on again.')} />}
+        </View>
+      )}
+
+      <DefaultBrowserSettings />
+
+      <View style={styles.section}>
+        <SectionHeader title={t('About')} />
+        <ListGroup>
+          <ListRow
+            leading={<IconTile name="info" />}
+            title={t('Version')}
+            trailing={
+              <ThemedText type="body" themeColor="textSecondary" style={styles.value} testID="app-version" accessibilityLabel={t('Corvus for mobile {version}', { version })}>
                 {version}
               </ThemedText>
-            </View>
-          </Card>
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+            }
+          />
+        </ListGroup>
+      </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  section: {
+    gap: Space.sm,
+  },
+  status: {
     flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-  },
-  content: {
-    padding: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.three,
-  },
-  devices: {
-    gap: Spacing.three,
-  },
-  device: {
-    gap: 2,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
+    alignItems: 'flex-start',
+    gap: Space.lg,
   },
   grow: {
     flex: 1,
+    gap: 2,
+  },
+  switch: {
+    paddingRight: Space.md,
+  },
+  value: {
+    paddingRight: Space.lg,
   },
 });

@@ -19,7 +19,6 @@ import {
   type SentTab,
   type SentTabRecord,
   type SyncCollection,
-  type SyncedHistoryEntry,
   type SyncStateStorage,
 } from '@corvus/shared';
 import { createSyncClient, type CorvusSyncClient } from '@corvus/sync-core';
@@ -27,17 +26,22 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-import { myAsks } from '@/lib/asks';
+import { chainView, pullChain, type ChainView } from '@/lib/chain-view';
 import { dataStore } from '@/lib/data-store';
-import { conversationList, type ConversationView } from '@/lib/conversations';
-import { historyList } from '@/lib/history';
-import { bookmarkList, nextPosition, readingList } from '@/lib/library';
-import { watchFor, watchList, type WatchView } from '@/lib/watches';
-import { Replica, computerTabs, type ComputerTabs } from '@/lib/replica';
-import { inbox, outbox } from '@/lib/send';
+import { bookmarkList, nextPosition } from '@/lib/library';
+import type { Progress } from '@/lib/refresh';
+import { Replica } from '@/lib/replica';
+import { watchFor } from '@/lib/watches';
 import { t } from './i18n';
 
+export type { ChainView } from '@/lib/chain-view';
+
 const PAIRING_KEY = 'corvus.pairing';
+/**
+ * A request (reading its answer included) that takes longer fails: the phone's fetch never gives up
+ * by itself, and a pull stuck on one would keep the home screen loading forever.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
 const SYNC_STATE_PREFIX = 'corvus-sync/';
 
 export interface Pairing extends PairingInfo {
@@ -77,6 +81,8 @@ export function clientFor(pairing: Pairing): CorvusSyncClient {
       deviceName: pairing.deviceName,
       platform: Platform.OS,
       storage: syncState,
+      requestTimeoutMs: REQUEST_TIMEOUT_MS,
+      onInvalidRecord: (record, err) => console.warn(`[corvus] skipped sync record ${record.collection}/${record.id}: ${err instanceof Error ? err.message : String(err)}`),
     });
     clients.set(pairing.chainId, client);
   }
@@ -117,43 +123,14 @@ export async function pair(info: PairingInfo, chainId: string, deviceName: strin
   return pairing;
 }
 
-export interface ChainView {
-  devices: DeviceInfo[];
-  /** This phone's device id on the chain. */
-  self: string;
-  tabs: ComputerTabs[];
-  /** Pages sent from this phone that are still waiting to be opened. */
-  outbox: SentTabRecord[];
-  /** Pages a computer sent to this phone, not opened yet. */
-  inbox: SentTabRecord[];
-  bookmarks: Bookmark[];
-  reading: ReadingItem[];
-  /** History of every device, most recent first. */
-  history: SyncedHistoryEntry[];
-  /** Watched pages, with what the computers last saw. */
-  watches: WatchView[];
-  /** Questions this phone asked, newest first, with what their computer answered so far. */
-  asks: AskRecord[];
-  /** Corvus Assist conversations from the computers, newest first. */
-  conversations: ConversationView[];
+/** True when both are the same chain (the stored pairing reads back as a new object). */
+export function sameChain(a: Pairing | null, b: Pairing | null): boolean {
+  return a !== null && b !== null && a.chainId === b.chainId;
 }
 
-async function view(pairing: Pairing, devices: DeviceInfo[]): Promise<ChainView> {
-  const replica = replicaFor(pairing);
-  const self = await clientFor(pairing).getDeviceId();
-  return {
-    devices,
-    self,
-    tabs: computerTabs(await replica.records('open_tabs'), devices, self),
-    outbox: outbox(await replica.records('sent_tabs'), self),
-    inbox: inbox(await replica.records('sent_tabs'), self),
-    bookmarks: bookmarkList(await replica.records('bookmarks')),
-    reading: readingList(await replica.records('reading')),
-    history: historyList(await replica.records('history')),
-    watches: watchList(await replica.records('watches'), await replica.records('watch_status'), devices),
-    asks: myAsks(await replica.records('asks'), self),
-    conversations: conversationList(await replica.records('assist_history')),
-  };
+async function view(pairing: Pairing, devices: DeviceInfo[], progress: Progress): Promise<ChainView> {
+  progress({ kind: 'view' });
+  return chainView(replicaFor(pairing), devices, await clientFor(pairing).getDeviceId());
 }
 
 /** Pushes one change of this phone and keeps it in the replica. */
@@ -202,16 +179,13 @@ export async function addBookmark(pairing: Pairing, url: string, title: string):
 }
 
 /** What the phone already has, without the network (shown before the first refresh). */
-export function cachedView(pairing: Pairing, devices: DeviceInfo[] = []): Promise<ChainView> {
-  return view(pairing, devices);
+export function cachedView(pairing: Pairing, devices: DeviceInfo[] = [], progress: Progress = () => undefined): Promise<ChainView> {
+  return view(pairing, devices, progress);
 }
 
-/** Lists the chain's devices and pulls what changed since the last refresh. */
-export async function refreshView(pairing: Pairing): Promise<ChainView> {
-  const client = clientFor(pairing);
-  const devices = await client.listDevices();
-  await replicaFor(pairing).sync(client);
-  return view(pairing, devices);
+/** Lists the chain's devices and pulls what changed since the last refresh; `progress` hears each step. */
+export function refreshView(pairing: Pairing, progress: Progress = () => undefined): Promise<ChainView> {
+  return pullChain(clientFor(pairing), replicaFor(pairing), progress);
 }
 
 const oldServer = (): string => t('Your sync server does not support sending pages yet: update it to the latest Corvus sync server.');

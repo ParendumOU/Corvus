@@ -632,7 +632,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "sync.removeDevice": (c, id) => ctx.sync.removeDevice(c.profile, str(id, "device", 64)),
     "sync.renameDevice": (c, name) => ctx.sync.renameDevice(c.profile, str(name, "name", 64)),
     "sync.revealPhrase": (c) => ctx.sync.revealPhrase(c.profile),
-    "sync.pairingCode": (c) => ctx.sync.pairingCode(c.profile),
+    "sync.pairingCode": (c, address) => ctx.sync.pairingCode(c.profile, address === undefined || address === null ? undefined : str(address, "address", 300)),
     "sync.wipe": (c, confirmation) => ctx.sync.wipe(c.profile, str(confirmation, "confirmation", 64)),
     "sync.remoteTabs": (c) => ctx.sync.remoteTabs(c.profile),
     "sync.extensionSuggestions": (c) => ctx.sync.extensionSuggestions(c.profile),

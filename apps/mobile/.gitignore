@@ -41,6 +41,7 @@ example
 # generated native folders
 /ios
 /android
+/modules/*/android/build/
 
 # Web build checked by scripts/web-smoke.mjs
 dist-web/

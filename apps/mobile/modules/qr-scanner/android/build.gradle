@@ -1,0 +1,37 @@
+// Corvus's own QR code scanner for Android (see modules/qr-scanner/index.ts): a CameraX preview whose
+// frames are decoded on the phone by ZXing. It replaces expo-camera's scanner, which on Android is
+// Google ML Kit and sends Google diagnostics.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.corvus.qrscanner'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.corvus.qrscanner"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+// CameraX needs the real listenablefuture 1.0, but the React Native Gradle plugin brings full Guava,
+// which forces the intentionally empty 9999.0 one (expo-camera does the same).
+configurations.configureEach {
+  resolutionStrategy.force "com.google.guava:listenablefuture:1.0"
+}
+
+dependencies {
+  // The CameraX version expo-camera 58 uses.
+  def camerax_version = "1.6.0"
+  implementation "androidx.camera:camera-core:${camerax_version}"
+  implementation "androidx.camera:camera-camera2:${camerax_version}"
+  implementation "androidx.camera:camera-lifecycle:${camerax_version}"
+  implementation "androidx.camera:camera-view:${camerax_version}"
+  // ZXing's decoder (Apache-2.0, plain Java, no network code and no dependencies).
+  implementation "com.google.zxing:core:3.5.4"
+
+  testImplementation "junit:junit:4.13.2"
+}

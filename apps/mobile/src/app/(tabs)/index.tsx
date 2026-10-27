@@ -1,15 +1,22 @@
 import type { GroupColor, SyncedTab } from '@corvus/shared';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { ACCENT, Button } from '@/components/button';
-import { CardHeader } from '@/components/card';
+import { Button } from '@/components/button';
+import { Card, CardHeader, SectionHeader } from '@/components/card';
+import { DefaultBrowserOffer } from '@/components/default-browser-card';
+import { EmptyState, LoadingState } from '@/components/empty-state';
 import { Favicon } from '@/components/favicon';
+import { Banner } from '@/components/feedback';
+import { SearchField } from '@/components/fields';
+import { CorvusMark, Icon, type IconName } from '@/components/icon';
+import { IconTile, ListGroup, ListHeader, ListRow } from '@/components/list';
+import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Layout, Radius, Space } from '@/constants/theme';
 import { cancelSending, openReceived, refreshSession, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
@@ -22,59 +29,130 @@ const OUTBOX_REFRESH_MS = 10_000;
 
 /** Tab group colors as the desktop draws them. */
 const GROUP_HEX: Record<GroupColor, string> = {
-  grey: '#5F6368',
-  blue: '#1A73E8',
-  red: '#D93025',
+  grey: '#80868B',
+  blue: '#4C8DF6',
+  red: '#E8574C',
   yellow: '#F9AB00',
-  green: '#188038',
-  pink: '#D01884',
-  purple: '#A142F4',
-  cyan: '#007B83',
+  green: '#2E9E55',
+  pink: '#E0408F',
+  purple: '#A35BF0',
+  cyan: '#00A3AD',
   orange: '#FA903E',
 };
 
-function TabRow({ tab }: { tab: SyncedTab }) {
+/**
+ * Home's header: the Corvus mark and name on a band of the app icon's indigo that fades into the
+ * page. Larger, with the tagline, before the phone is paired.
+ */
+function HeaderBand({ welcome }: { welcome: boolean }) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  // The gradient is drawn at the band's measured size (percent sizes do not resolve on Android).
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  return (
+    <View
+      style={[styles.band, { paddingTop: insets.top + (welcome ? Space.xxxl : Space.md) }, welcome && styles.bandWelcome]}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        setSize((s) => (s.width === width && s.height === height ? s : { width, height }));
+      }}>
+      {size.width > 0 && (
+        <Svg style={StyleSheet.absoluteFill} width={size.width} height={size.height} pointerEvents="none">
+          <Defs>
+            <LinearGradient id="home-band" x1="0" y1="0" x2="0" y2={size.height} gradientUnits="userSpaceOnUse">
+              <Stop offset="0" stopColor={theme.heroFrom} />
+              <Stop offset="1" stopColor={theme.heroTo} />
+            </LinearGradient>
+          </Defs>
+          <Rect x={0} y={0} width={size.width} height={size.height} fill="url(#home-band)" />
+        </Svg>
+      )}
+      <View style={[styles.brand, welcome && styles.brandWelcome]}>
+        <CorvusMark size={welcome ? 72 : 36} />
+        <View style={welcome ? styles.center : undefined}>
+          <ThemedText type={welcome ? 'display' : 'title'} style={styles.wordmark} testID="home-title" accessibilityRole="header">
+            Corvus
+          </ThemedText>
+          {welcome && (
+            <ThemedText type="body" themeColor="textSecondary" style={styles.centerText}>
+              {t("Your computer's Corvus, in your pocket.")}
+            </ThemedText>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** A big button on Home: an icon in a circle and what it does. */
+function ActionTile({ icon, label, onPress, primary, testID }: { icon: IconName; label: string; onPress: () => void; primary?: boolean; testID: string }) {
   const theme = useTheme();
   return (
     <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      android_ripple={{ color: primary ? theme.accentSoft : theme.ripple }}
+      style={({ pressed }) => [
+        styles.tile,
+        primary ? { backgroundColor: theme.accentContainer, borderColor: theme.accentContainer } : { backgroundColor: theme.surface, borderColor: theme.border },
+        pressed && Platform.OS !== 'android' && { opacity: 0.85 },
+      ]}
+      testID={testID}>
+      <View style={[styles.tileIcon, { backgroundColor: primary ? theme.accent : theme.accentSoft }]}>
+        <Icon name={icon} size={22} color={primary ? theme.onAccent : theme.accentText} />
+      </View>
+      <ThemedText type="smallStrong" style={{ color: primary ? theme.onAccentContainer : theme.text }} numberOfLines={2}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+function TabRow({ tab }: { tab: SyncedTab }) {
+  return (
+    <ListRow
+      leading={<Favicon url={tab.url} />}
+      title={tab.title || tab.url}
+      subtitle={
+        <View style={styles.meta}>
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} style={styles.shrink}>
+            {tab.pinned ? `${t('Pinned')} · ` : ''}
+            {tab.group ? (
+              <>
+                <ThemedText type="small" style={{ color: GROUP_HEX[tab.group.color] }}>
+                  {'● '}
+                </ThemedText>
+                {`${tab.group.title || t('Group')} · `}
+              </>
+            ) : null}
+            {tabHost(tab.url)}
+          </ThemedText>
+        </View>
+      }
       accessibilityRole="link"
       accessibilityHint={t('Opens the page. Long press to open it in your browser app.')}
       onPress={() => void openInApp(tab.url)}
       onLongPress={() => void openInBrowser(tab.url)}
-      style={({ pressed }) => [styles.tab, pressed && { backgroundColor: theme.backgroundSelected }]}
-      testID={`tab-${tab.url}`}>
-      <Favicon url={tab.url} />
-      <View style={styles.tabText}>
-        <ThemedText type="small" numberOfLines={1}>
-          {tab.title || tab.url}
-        </ThemedText>
-        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-          {tab.pinned ? `${t('Pinned')} · ` : ''}
-          {tab.group ? (
-            <ThemedText type="small" style={{ color: GROUP_HEX[tab.group.color] }}>
-              {tab.group.title || t('Group')} ·{' '}
-            </ThemedText>
-          ) : null}
-          {tabHost(tab.url)}
-        </ThemedText>
-      </View>
-    </Pressable>
+      testID={`tab-${tab.url}`}
+    />
   );
 }
 
 function ComputerCard({ computer }: { computer: ComputerTabs }) {
   return (
-    <ThemedView type="backgroundElement" style={styles.card} testID={`computer-${computer.device}`}>
-      <View>
-        <ThemedText type="smallBold">{computer.device}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {computer.tabs.length === 1 ? t('1 tab') : t('{n} tabs', { n: computer.tabs.length })} · {t('updated {when}', { when: ago(computer.updatedAt) })}
-        </ThemedText>
-      </View>
+    <ListGroup
+      testID={`computer-${computer.device}`}
+      header={
+        <ListHeader
+          leading={<IconTile name="screen" />}
+          title={computer.device}
+          subtitle={`${computer.tabs.length === 1 ? t('1 tab') : t('{n} tabs', { n: computer.tabs.length })} · ${t('updated {when}', { when: ago(computer.updatedAt) })}`}
+        />
+      }>
       {computer.tabs.map((tab, i) => (
         <TabRow key={`${i}-${tab.url}`} tab={tab} />
       ))}
-    </ThemedView>
+    </ListGroup>
   );
 }
 
@@ -85,6 +163,8 @@ export default function HomeScreen() {
   const shown = useMemo(() => filterTabs(session.tabs, query), [session.tabs, query]);
   const deviceName = (id: string): string => session.devices.find((d) => d.id === id)?.name ?? t('your computer');
   const waiting = session.outbox.length > 0;
+  const paired = session.status === 'paired';
+  const changed = changedRecently(session.watches);
 
   // While a sent page waits, look every few seconds for its computer to have opened it.
   useEffect(() => {
@@ -92,201 +172,198 @@ export default function HomeScreen() {
     const timer = setInterval(() => void refreshSession(), OUTBOX_REFRESH_MS);
     return () => clearInterval(timer);
   }, [waiting]);
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            session.status === 'paired' ? <RefreshControl refreshing={session.refreshing} onRefresh={() => void refreshSession()} /> : undefined
-          }>
-          <ThemedView style={[styles.hero, session.status === 'unpaired' && styles.heroWelcome]}>
-            {session.status === 'unpaired' && <Image source={require('@/assets/images/splash-icon.png')} style={styles.logo} />}
-            <ThemedText type="title" testID="home-title">
-              Corvus
-            </ThemedText>
-            <ThemedText type="body" themeColor="textSecondary" style={styles.center}>
-              {session.status === 'paired' ? t('Tabs from your computers') : t("Your computer's Corvus, in your pocket.")}
-            </ThemedText>
-          </ThemedView>
-
-          {session.status === 'unpaired' && (
-            <ThemedView type="backgroundElement" style={styles.welcome} testID="pairing-card">
-              <CardHeader title={t('Not paired with a computer yet')} description={t('Pair it once and your tabs, pages and library follow you here.')} />
-              <View style={styles.steps}>
-                {[t('On your computer, open Corvus Settings, then Sync.'), t('Choose “Pair a phone”: a code appears.'), t('Scan the code with this phone.')].map((step, i) => (
-                  <View key={step} style={styles.step}>
-                    <View style={styles.stepNumber}>
-                      <ThemedText type="smallBold" themeColor="accentText">
-                        {i + 1}
-                      </ThemedText>
-                    </View>
-                    <ThemedText type="body" style={styles.stepText}>
-                      {step}
-                    </ThemedText>
-                  </View>
-                ))}
-              </View>
-              <Button label={t('Pair with a computer')} onPress={() => router.push('/pair')} testID="home-pair" />
-            </ThemedView>
-          )}
-
-          {session.status === 'paired' && session.inbox.length > 0 && (
-            <ThemedView type="backgroundElement" style={styles.card} testID="inbox">
-              <ThemedText type="smallBold">{t('Sent to this phone')}</ThemedText>
-              {session.inbox.map((page) => (
-                <Pressable
-                  key={page.id}
-                  accessibilityRole="link"
-                  onPress={() => void openReceived(page.id)}
-                  style={({ pressed }) => [styles.tab, pressed && { backgroundColor: theme.backgroundSelected }]}
-                  testID={`inbox-${page.url}`}>
-                  <Favicon url={page.url} />
-                  <View style={styles.tabText}>
-                    <ThemedText type="small" numberOfLines={1}>
-                      {page.title || page.url}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                      {t('From {device}', { device: page.from || t('your computer') })} · {ago(page.sentAt)}
-                    </ThemedText>
-                  </View>
-                </Pressable>
-              ))}
-            </ThemedView>
-          )}
-
-          {session.status === 'paired' && (
-            <ThemedView type="backgroundElement" style={styles.card} testID="outbox">
-              <Button label={t('Ask Corvus')} onPress={() => router.push('/ask')} testID="home-ask" />
-              <Button label={t('Send a page to your computer')} kind="secondary" onPress={() => router.push('/send')} testID="home-send" />
-              {session.outbox.map((page) => (
-                <View key={page.id} style={styles.pending} testID={`outbox-${page.url}`}>
-                  <View style={styles.tabText}>
-                    <ThemedText type="small" numberOfLines={1}>
-                      {page.title || page.url}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                      {t('Waiting for {computer} to open it · sent {when}', { computer: deviceName(page.to), when: ago(page.sentAt) })}
-                    </ThemedText>
-                  </View>
-                  <Pressable accessibilityRole="button" onPress={() => void cancelSending(page.id)} hitSlop={8} testID={`outbox-cancel-${page.url}`}>
-                    <ThemedText type="smallBold" themeColor="textSecondary">
-                      {t('Cancel')}
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              ))}
-            </ThemedView>
-          )}
-
-          {session.status === 'paired' && (
-            <Pressable accessibilityRole="button" onPress={() => router.push('/watches')} testID="home-watches">
-              <ThemedView type="backgroundElement" style={[styles.card, styles.watchCard]}>
-                <View style={styles.tabText}>
-                  <ThemedText type="smallBold">{t('Watched pages')}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {session.watches.length === 0
-                      ? t('Watch a page for changes or for a price to drop.')
-                      : t('{n} watched · {changed} changed in the last day', { n: session.watches.length, changed: changedRecently(session.watches) })}
+    <Screen tab header={<HeaderBand welcome={session.status === 'unpaired'} />} refreshing={session.refreshing} onRefresh={paired ? () => void refreshSession() : undefined} contentStyle={styles.column}>
+      {session.status === 'unpaired' && (
+        <Card testID="pairing-card">
+          <CardHeader title={t('Not paired with a computer yet')} description={t('Pair it once and your tabs, pages and library follow you here.')} />
+          <View style={styles.steps}>
+            {[t('On your computer, open Corvus Settings, then Sync.'), t('Choose “Pair a phone”: a code appears.'), t('Scan the code with this phone.')].map((step, i) => (
+              <View key={step} style={styles.step}>
+                <View style={[styles.stepNumber, { backgroundColor: theme.accentContainer }]}>
+                  <ThemedText type="label" style={{ color: theme.onAccentContainer }}>
+                    {i + 1}
                   </ThemedText>
                 </View>
-                <ThemedText type="smallBold" themeColor="textSecondary">
-                  ›
+                <ThemedText type="body" style={styles.stepText}>
+                  {step}
                 </ThemedText>
-              </ThemedView>
-            </Pressable>
-          )}
+              </View>
+            ))}
+          </View>
+          <Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} testID="home-pair" />
+        </Card>
+      )}
 
-          {session.status === 'paired' && session.tabs.length > 0 && (
-            <TextInput
-              testID="tabs-filter"
-              style={[styles.filter, { color: theme.text, backgroundColor: theme.backgroundElement }]}
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t('Find a tab')}
-              placeholderTextColor={theme.textSecondary}
-              autoCapitalize="none"
-              autoCorrect={false}
-              clearButtonMode="while-editing"
+      {session.error && <Banner tone="error" message={session.error} testID="home-error" />}
+
+      {paired && session.inbox.length > 0 && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Sent to this phone')} />
+          <ListGroup testID="inbox">
+            {session.inbox.map((page) => (
+              <ListRow
+                key={page.id}
+                leading={<Favicon url={page.url} />}
+                title={page.title || page.url}
+                subtitle={`${t('From {device}', { device: page.from || t('your computer') })} · ${ago(page.sentAt)}`}
+                accessibilityRole="link"
+                onPress={() => void openReceived(page.id)}
+                trailing={<View style={[styles.dot, { backgroundColor: theme.accent }]} />}
+                testID={`inbox-${page.url}`}
+              />
+            ))}
+          </ListGroup>
+        </View>
+      )}
+
+      {paired && (
+        <View style={styles.actions}>
+          <ActionTile icon="sparkle" label={t('Ask Corvus')} primary onPress={() => router.push('/ask')} testID="home-ask" />
+          <ActionTile icon="send" label={t('Send a page to your computer')} onPress={() => router.push('/send')} testID="home-send" />
+        </View>
+      )}
+
+      {paired && session.outbox.length > 0 && (
+        <ListGroup testID="outbox">
+          {session.outbox.map((page) => (
+            <ListRow
+              key={page.id}
+              leading={<IconTile name="send" />}
+              title={page.title || page.url}
+              subtitle={t('Waiting for {computer} to open it · sent {when}', { computer: deviceName(page.to), when: ago(page.sentAt) })}
+              trailing={<Button label={t('Cancel')} kind="text" size="sm" onPress={() => void cancelSending(page.id)} testID={`outbox-cancel-${page.url}`} />}
+              testID={`outbox-${page.url}`}
             />
-          )}
+          ))}
+        </ListGroup>
+      )}
 
-          {session.status === 'paired' && shown.map((computer) => <ComputerCard key={computer.deviceId} computer={computer} />)}
+      {paired && (
+        <ListGroup>
+          <ListRow
+            leading={<IconTile name="eye" />}
+            title={t('Watched pages')}
+            subtitle={
+              session.watches.length === 0
+                ? t('Watch a page for changes or for a price to drop.')
+                : t('{n} watched · {changed} changed in the last day', { n: session.watches.length, changed })
+            }
+            subtitleLines={2}
+            chevron
+            onPress={() => router.push('/watches')}
+            badge={changed > 0 ? <View style={[styles.dot, styles.flush, { backgroundColor: theme.accent }]} /> : undefined}
+            testID="home-watches"
+          />
+        </ListGroup>
+      )}
 
-          {session.status === 'paired' && session.tabs.length > 0 && shown.length === 0 && (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
-              {t('No tab matches “{query}”.', { query: query.trim() })}
-            </ThemedText>
-          )}
+      <DefaultBrowserOffer paired={paired} />
 
-          {session.status === 'paired' && session.tabs.length === 0 && (
-            <ThemedView type="backgroundElement" style={styles.card} testID="tabs-empty">
-              <ThemedText type="small" themeColor="textSecondary">
-                {session.refreshed
-                  ? t('No open tabs from your computers yet. Corvus shares a computer’s open tabs while Sync is on there; pull down to refresh.')
-                  : t('Loading…')}
-              </ThemedText>
-            </ThemedView>
-          )}
+      {paired && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Tabs from your computers')} />
+          {session.tabs.length > 0 && <SearchField testID="tabs-filter" value={query} onChangeText={setQuery} placeholder={t('Find a tab')} />}
+        </View>
+      )}
 
-          {session.error && (
-            <ThemedText type="small" style={styles.error} testID="home-error">
-              {session.error}
-            </ThemedText>
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    </ThemedView>
+      {paired && shown.map((computer) => <ComputerCard key={computer.deviceId} computer={computer} />)}
+
+      {paired && session.tabs.length > 0 && shown.length === 0 && <EmptyState icon="search" description={t('No tab matches “{query}”.', { query: query.trim() })} compact />}
+
+      {paired &&
+        session.tabs.length === 0 &&
+        (session.refreshed ? (
+          <Card testID="tabs-empty">
+            <EmptyState icon="screen" description={t('No open tabs from your computers yet. Corvus shares a computer’s open tabs while Sync is on there; pull down to refresh.')} compact />
+          </Card>
+        ) : (
+          <LoadingState testID="tabs-empty" />
+        ))}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  band: {
+    paddingHorizontal: Layout.gutter + Space.xs,
+    paddingBottom: Space.md,
+  },
+  bandWelcome: {
+    paddingBottom: Space.xl,
+  },
+  brand: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.md,
+    minHeight: 48,
+  },
+  brandWelcome: {
+    flexDirection: 'column',
+    gap: Space.lg,
+  },
+  wordmark: {
+    letterSpacing: -0.3,
+  },
+  center: {
+    alignItems: 'center',
+    gap: Space.xs,
+  },
+  centerText: {
+    textAlign: 'center',
+  },
+  column: {
+    paddingTop: Space.sm,
+  },
+  section: {
+    gap: Space.sm,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: Space.md,
+  },
+  tile: {
+    flex: 1,
+    minHeight: 104,
+    padding: Space.lg,
+    gap: Space.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+    justifyContent: 'space-between',
+  },
+  tileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  safeArea: {
-    flex: 1,
-    maxWidth: MaxContentWidth,
-  },
-  content: {
-    padding: Spacing.four,
-    paddingBottom: BottomTabInset + Spacing.four,
-    gap: Spacing.three,
-  },
-  hero: {
+  meta: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: Spacing.four,
+    gap: Space.xs,
   },
-  heroWelcome: {
-    paddingTop: Spacing.five,
-    paddingBottom: Spacing.four,
+  shrink: {
+    flexShrink: 1,
   },
-  logo: {
-    width: 88,
-    height: 88,
-    marginBottom: Spacing.two,
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: Space.md,
   },
-  card: {
-    gap: Spacing.two,
-    padding: 20,
-    borderRadius: Spacing.four,
-  },
-  welcome: {
-    gap: 20,
-    padding: 20,
-    borderRadius: Spacing.four,
+  flush: {
+    marginRight: 0,
   },
   steps: {
-    gap: 14,
+    gap: Space.md,
   },
   step: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: Spacing.three,
+    gap: Space.md,
   },
   stepNumber: {
     width: 28,
@@ -294,44 +371,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: `${ACCENT}33`,
   },
   stepText: {
     flex: 1,
-    paddingTop: 3,
-  },
-  tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.one,
-    borderRadius: Spacing.two,
-  },
-  tabText: {
-    flex: 1,
-  },
-  watchCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  pending: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingTop: Spacing.two,
-  },
-  filter: {
-    minHeight: 44,
-    paddingHorizontal: Spacing.three,
-    borderRadius: Spacing.three,
-    fontSize: 16,
-  },
-  center: {
-    textAlign: 'center',
-  },
-  error: {
-    color: '#D93025',
+    paddingTop: 2,
   },
 });

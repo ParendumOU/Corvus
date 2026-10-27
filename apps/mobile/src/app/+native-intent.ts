@@ -1,5 +1,9 @@
-/** A link shared to Corvus from another app (Android share sheet) opens the Send screen. */
+import { systemPath } from '@/lib/links';
+
+/**
+ * A link shared to Corvus from another app (Android share sheet) opens the Send screen; a web link
+ * Corvus is asked to open as the phone's browser opens the Open screen.
+ */
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
-  if (/^[a-z][a-z0-9+.-]*:\/\/expo-sharing\b/i.test(path)) return '/send';
-  return path;
+  return systemPath(path);
 }

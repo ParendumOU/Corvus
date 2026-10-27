@@ -7,6 +7,7 @@ import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 
 import { notificationsOn, notifyNew, setNotificationsOn } from '@/lib/notifications';
+import { watchdog } from '@/lib/refresh';
 import { loadPairing, refreshView } from '@/lib/session';
 
 const REFRESH_TASK = 'corvus-refresh';
@@ -14,7 +15,7 @@ const REFRESH_TASK = 'corvus-refresh';
 TaskManager.defineTask(REFRESH_TASK, async () => {
   try {
     const pairing = await loadPairing();
-    if (pairing && (await notificationsOn())) await notifyNew(await refreshView(pairing), true);
+    if (pairing && (await notificationsOn())) await notifyNew(await watchdog((progress) => refreshView(pairing, progress)), true);
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch {
     return BackgroundTask.BackgroundTaskResult.Failed;

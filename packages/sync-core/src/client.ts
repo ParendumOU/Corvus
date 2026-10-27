@@ -14,6 +14,7 @@ import type {
 } from "@corvus/shared";
 import { randomBytes } from "@noble/hashes/utils.js";
 import { SYNC_COLLECTIONS, bytesToHex, toBase64, utf8ToBytes } from "./encoding.js";
+import { withDeadline } from "./deadline.js";
 import { deriveKeys, type SyncKeys } from "./keys.js";
 import { decryptRecord, encryptRecord, recordIdFor } from "./records.js";
 import { signRequest } from "./signing.js";
@@ -32,6 +33,13 @@ export class SyncError extends Error {
 export interface CorvusSyncClientOptions extends SyncClientOptions {
   /** Called for remote records that fail authentication/decryption; they are skipped. */
   onInvalidRecord?: (record: EncryptedRecord, error: unknown) => void;
+  /**
+   * Gives up on a request, reading its answer included, after this many milliseconds: it fails with
+   * a SyncError of code `timeout` and the request is aborted. Off by default. React Native's fetch
+   * never times out by itself, and Expo's cannot be cancelled once the answer has started arriving,
+   * so without it a stalled answer would keep its caller waiting forever.
+   */
+  requestTimeoutMs?: number;
 }
 
 export interface CorvusSyncClient extends SyncClient {
@@ -141,7 +149,17 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
       authorization: signRequest(keys, deviceId, { method, path, body }),
     };
     if (body) headers["content-type"] = "application/json";
-    const res = await fetchImpl(baseUrl + path, { method, headers, body });
+    const timeoutMs = opts.requestTimeoutMs;
+    if (!timeoutMs || timeoutMs <= 0) return send<T>(method, path, headers, body);
+    const controller = new AbortController();
+    return withDeadline(send<T>(method, path, headers, body, controller.signal), timeoutMs, () => {
+      controller.abort();
+      return new SyncError(`The sync server did not answer within ${Math.round(timeoutMs / 1000)} s`, 0, "timeout");
+    });
+  }
+
+  async function send<T>(method: string, path: string, headers: Record<string, string>, body: ReturnType<typeof utf8ToBytes> | undefined, signal?: AbortSignal): Promise<T> {
+    const res = await fetchImpl(baseUrl + path, { method, headers, body, ...(signal ? { signal } : {}) });
     if (!res.ok) {
       let err: Partial<SyncErrorResponse> = {};
       try {

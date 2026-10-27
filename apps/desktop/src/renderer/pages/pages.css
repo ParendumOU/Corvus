@@ -712,6 +712,24 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+}
+.pair-steps .notice {
+  margin: 4px 0 0;
+}
+/* The sync server runs on this computer: the code carries its network address (choice and note). */
+.pair-address {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pair-address .input {
+  max-width: 100%;
+}
+.pair-network ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
 }
 
 /* ---------------------------------------------------------------- page search box */

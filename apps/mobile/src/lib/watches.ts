@@ -12,6 +12,13 @@ export interface WatchView extends SyncedWatch {
 export const INTERVAL_CHOICES: readonly number[] = [15, 60, 360, 1440];
 export const CONDITION_CHARS = 300;
 
+/** The interval in as few characters as fit a segmented control: "15 min", "1 h", "1 day". */
+export function shortInterval(minutes: number): string {
+  if (minutes < 60) return t('{n} min', { n: minutes });
+  if (minutes < 1440) return t('{n} h', { n: Math.round(minutes / 60) });
+  return minutes === 1440 ? t('1 day') : t('{n} days', { n: Math.round(minutes / 1440) });
+}
+
 export function describeInterval(minutes: number): string {
   if (minutes < 60) return t('every {n} min', { n: minutes });
   if (minutes === 60) return t('every hour');
