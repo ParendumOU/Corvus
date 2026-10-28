@@ -524,6 +524,22 @@ export const ES_UI: Record<string, string> = {
   "Forget this hint": "Olvidar esta pista",
   "Forget this site": "Olvidar este sitio",
   "Forget this site when I close it": "Olvidar este sitio al cerrarlo",
+  "Cookie banner rejected ({cmp})": "Aviso de cookies rechazado ({cmp})",
+  "Cookie banner rejected": "Aviso de cookies rechazado",
+  "Cookie banner hidden ({cmp})": "Aviso de cookies ocultado ({cmp})",
+  "Cookie banner hidden": "Aviso de cookies ocultado",
+  "Corvus stops answering this site’s cookie banner, so you can choose yourself": "Corvus deja de responder al aviso de cookies de este sitio para que elijas tú",
+  "Allow cookie banner on this site": "Permitir el aviso de cookies en este sitio",
+  "cookie banners rejected this session": "avisos de cookies rechazados en esta sesión",
+  "Reject cookie banners automatically": "Rechazar los avisos de cookies automáticamente",
+  "Answers cookie consent banners for you with DuckDuckGo’s Autoconsent rules: rejects everything, or unticks every purpose and vendor and saves only what is needed. A banner it cannot answer is hidden. Sites you allow below, or from the shield, keep their banner.":
+    "Responde por ti a los avisos de consentimiento de cookies con las reglas Autoconsent de DuckDuckGo: lo rechaza todo, o desmarca cada finalidad y proveedor y guarda solo lo imprescindible. Un aviso que no sabe responder se oculta. Los sitios que permitas abajo, o desde el escudo, conservan su aviso.",
+  "Tell sites not to sell or share my data (Global Privacy Control)": "Pedir a los sitios que no vendan ni compartan mis datos (Global Privacy Control)",
+  "Sends the Sec-GPC signal with every request and sets navigator.globalPrivacyControl in pages. In some places, such as California, sites must honour it.":
+    "Envía la señal Sec-GPC con cada petición y activa navigator.globalPrivacyControl en las páginas. En algunos lugares, como California, los sitios están obligados a respetarla.",
+  "Sites with their cookie banner": "Sitios con su aviso de cookies",
+  "Corvus leaves the cookie banner of these sites for you to answer (chosen from the shield in the address bar).":
+    "Corvus deja que respondas tú al aviso de cookies de estos sitios (elegidos desde el escudo de la barra de direcciones).",
   "Forum": "Foro",
   "Forward (Alt+Right)": "Adelante (Alt+Derecha)",
   "Forward edited": "Reenviar editada",

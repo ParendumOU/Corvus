@@ -78,6 +78,22 @@ describe("replica", () => {
   });
 });
 
+describe("replica: changes saved later", () => {
+  it("keeps a browser visit in memory at once and saves it with flush or the next save", async () => {
+    const storage = memory();
+    const replica = new Replica(storage, "c/");
+    await replica.putSoon("history", "https://a.com/", { url: "https://a.com/", title: "A", visitedAt: 1, visitCount: 1 });
+    expect(Object.keys(await replica.records("history"))).toEqual(["https://a.com/"]);
+    expect(await storage.get("c/data/history")).toBeUndefined();
+    await replica.flush();
+    expect(JSON.parse((await storage.get("c/data/history"))!)).toHaveProperty(["https://a.com/"]);
+    await replica.putSoon("history", "https://b.com/", { url: "https://b.com/", title: "B", visitedAt: 2, visitCount: 1 });
+    await replica.put("history", "https://c.com/", { url: "https://c.com/", title: "C", visitedAt: 3, visitCount: 1 });
+    expect(Object.keys(JSON.parse((await storage.get("c/data/history"))!)).sort()).toEqual(["https://a.com/", "https://b.com/", "https://c.com/"]);
+    expect(Object.keys(await new Replica(storage, "c/").records("history"))).toHaveLength(3);
+  });
+});
+
 describe("tabs from your computers", () => {
   const device = (id: string): DeviceInfo => ({ id, name: id, platform: "win32", lastSeen: 0 });
 

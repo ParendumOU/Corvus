@@ -45,5 +45,6 @@ describe('app language', () => {
     expect(missing).toEqual([]);
     const mismatched = Object.entries(ES).filter(([en, es]) => placeholders(en).join() !== placeholders(es).join());
     expect(mismatched).toEqual([]);
-  });
+    // Reads every source file: on a busy Docker bind mount (validation runs the smoke test alongside) it can pass 5 s.
+  }, 30_000);
 });

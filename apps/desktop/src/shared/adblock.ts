@@ -15,6 +15,17 @@ export interface ScriptletsAnswer {
   watchYouTube: boolean;
 }
 
+/** Sync IPC a starting web frame uses to learn whether to answer cookie banners and send GPC. */
+export const CONSENT_INIT_CHANNEL = "corvus:consent-init";
+/** A frame's content script reports what it did with a cookie banner (see @corvus/shared ConsentEvent). */
+export const CONSENT_EVENT_CHANNEL = "corvus:consent-event";
+
+/** What a starting frame gets: whether to run Autoconsent, and whether to set navigator.globalPrivacyControl. */
+export interface ConsentInitAnswer {
+  consent: boolean;
+  gpc: boolean;
+}
+
 /** A YouTube page reports that its player is caught in YouTube's ad-blocker loop. */
 export const ADBLOCK_YOUTUBE_LOOP_CHANNEL = "corvus:adblock-youtube-loop";
 
@@ -159,6 +170,12 @@ export interface AdblockView {
   fingerprinting: boolean;
   /** Sites whose cookies and data are deleted when their last tab closes. */
   forgetSites: string[];
+  /** Reject cookie banners automatically (see AdblockOptions). */
+  cookieConsent: boolean;
+  /** Global Privacy Control (see AdblockOptions). */
+  gpc: boolean;
+  /** Sites whose cookie banners are left for you to answer. */
+  consentAllowedSites: string[];
 }
 
 export const MAX_USER_FILTERS = 2000;
@@ -184,9 +201,13 @@ export interface AdblockOptions {
   cleanUrls: boolean;
   /** Fingerprinting protection: canvas, WebGL, audio and device readbacks get per-site noise. */
   fingerprinting: boolean;
+  /** Cookie banners are rejected automatically (or hidden when they cannot be), with DuckDuckGo Autoconsent. */
+  cookieConsent: boolean;
+  /** Global Privacy Control: `Sec-GPC: 1` on requests and `navigator.globalPrivacyControl` in pages. */
+  gpc: boolean;
 }
 
-export const DEFAULT_ADBLOCK_OPTIONS: AdblockOptions = { annoyances: true, cleanUrls: true, fingerprinting: true };
+export const DEFAULT_ADBLOCK_OPTIONS: AdblockOptions = { annoyances: true, cleanUrls: true, fingerprinting: true, cookieConsent: true, gpc: true };
 
 /**
  * Query parameters that only identify a click, a campaign or a mailing for trackers, never what a
@@ -248,6 +269,14 @@ export interface AdblockBarState {
   skippingYouTubeAds?: boolean;
   /** This site's cookies and data are deleted when its last tab closes. */
   forgetOnClose?: boolean;
+  /** Cookie banners are answered automatically (the feature is on). */
+  cookieConsent: boolean;
+  /** This site's cookie banner is left for you to answer. */
+  consentAllowed: boolean;
+  /** The active page's cookie banner: its platform's name (may be empty) and what Corvus did. */
+  cookieBanner?: { cmp: string; outcome: "rejected" | "hidden" };
+  /** Cookie banners rejected or hidden across the profile this session. */
+  bannersHandled: number;
 }
 
 export const DEFAULT_ADBLOCK_SETTINGS: AdblockSettings = { enabled: true, allowed: [] };

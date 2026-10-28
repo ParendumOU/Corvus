@@ -14,7 +14,7 @@ import { useSession } from '@/hooks/use-session';
 import { leaveApp, useDefaultBrowser } from '@/lib/default-browser';
 import { t } from '@/lib/i18n';
 import { webLink } from '@/lib/links';
-import { openIncoming } from '@/lib/open-url';
+import { openInBrowser, openIncoming } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
 
 /** Leaves the Open screen, so that the app opens on Home next time. */
@@ -28,7 +28,9 @@ function close(): void {
  * picked in Settings (one tap), or first send it to a computer or keep it.
  */
 export default function OpenScreen() {
-  const params = useLocalSearchParams<{ url?: string }>();
+  const params = useLocalSearchParams<{ url?: string; from?: string }>();
+  // "Open in…" from Corvus's own browser: nothing to step back to afterwards.
+  const fromBrowser = params.from === 'browser';
   const url = webLink(typeof params.url === 'string' ? params.url : '');
   const session = useSession();
   const browser = useDefaultBrowser();
@@ -40,7 +42,10 @@ export default function OpenScreen() {
     setBusy(true);
     setError(null);
     try {
-      if (await openIncoming(url)) close();
+      if (fromBrowser) {
+        await openInBrowser(url);
+        close();
+      } else if (await openIncoming(url)) close();
     } catch (err) {
       setError(t('That did not work: {error}', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
@@ -53,7 +58,7 @@ export default function OpenScreen() {
   const done = (action: PageAction, computer: string): void => {
     if (Platform.OS === 'android') ToastAndroid.show(actionDoneMessage(action, computer), ToastAndroid.SHORT);
     close();
-    void leaveApp();
+    if (!fromBrowser) void leaveApp();
   };
 
   const name = browser.browser?.label;

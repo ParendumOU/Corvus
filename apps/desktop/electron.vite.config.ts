@@ -73,6 +73,7 @@ export default defineConfig({
           "extension-sw": resolve(import.meta.dirname, "src/preload/extension-sw.ts"),
           "extension-api": resolve(import.meta.dirname, "src/preload/extension-api.ts"),
           "adblock-scriptlets": resolve(import.meta.dirname, "src/preload/adblock-scriptlets.ts"),
+          "cookie-consent": resolve(import.meta.dirname, "src/preload/cookie-consent.ts"),
         },
         output: { format: "cjs", entryFileNames: "[name].cjs" },
       },

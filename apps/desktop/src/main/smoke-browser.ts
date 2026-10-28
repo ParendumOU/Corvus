@@ -343,7 +343,8 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
     ) as Promise<{ href: string; banner: string | null }>;
   win.loadUrl(adTab.id, `${site}consent?utm_source=news&keep=1&fbclid=abc`);
   await waitForLoad(adTab.view.webContents);
-  await sleep(800);
+  // Autoconsent looks for the notice first (it has no reject button here); the lists hide it after.
+  await untilJs(adTab.view.webContents, "getComputedStyle(document.getElementById('onetrust-banner-sdk')).display === 'none'", 12_000);
   const cleaned = await consentState();
   check("tracking parameters are removed from the address", cleaned.href === `${site}consent?keep=1`, cleaned);
   check("a cookie notice is hidden", cleaned.banner === "none", cleaned);

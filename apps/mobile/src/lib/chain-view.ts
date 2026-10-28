@@ -33,6 +33,8 @@ export interface ChainView {
   asks: AskRecord[];
   /** Corvus Assist conversations from the computers, newest first. */
   conversations: ConversationView[];
+  /** The computers' home page setting (synced `appearance.homePage`): the browser's default search engine when it is one the phone offers. */
+  homePage: unknown;
 }
 
 /** A refresh: lists the chain's devices, pulls what changed into the replica, and derives the view. */
@@ -46,6 +48,12 @@ export async function pullChain(
   await replica.sync(client, progress);
   progress({ kind: 'view' });
   return chainView(replica, devices, await client.getDeviceId());
+}
+
+/** A setting the computers sync (collection `settings`, one record per key holding {v}). */
+export function syncedSetting(records: Record<string, unknown>, key: string): unknown {
+  const record = records[key];
+  return typeof record === 'object' && record !== null && 'v' in record ? (record as { v: unknown }).v : undefined;
 }
 
 export async function chainView(replica: Pick<Replica, 'records'>, devices: DeviceInfo[], self: string): Promise<ChainView> {
@@ -62,5 +70,6 @@ export async function chainView(replica: Pick<Replica, 'records'>, devices: Devi
     watches: watchList(await replica.records('watches'), await replica.records('watch_status'), devices),
     asks: myAsks(await replica.records('asks'), self),
     conversations: conversationList(await replica.records('assist_history')),
+    homePage: syncedSetting(await replica.records('settings'), 'appearance.homePage'),
   };
 }

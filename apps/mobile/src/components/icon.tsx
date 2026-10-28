@@ -6,7 +6,7 @@
 import { Fragment } from 'react';
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
-type Shape = { d: string } | { circle: [number, number, number]; fill?: boolean } | { rect: [number, number, number, number, number] };
+type Shape = { d: string; fill?: boolean } | { circle: [number, number, number]; fill?: boolean } | { rect: [number, number, number, number, number] };
 
 const ICONS = {
   home: [{ d: 'M3 10.5 12 3l9 7.5' }, { d: 'M5 9v11h5v-6h4v6h5V9' }],
@@ -55,6 +55,18 @@ const ICONS = {
   unlink: [{ d: 'M9.5 6.5l1-1a4.5 4.5 0 0 1 6.4 6.4l-1 1M14.5 17.5l-1 1a4.5 4.5 0 0 1-6.4-6.4l1-1' }, { d: 'M4 4l16 16' }],
   more: [{ circle: [12, 5, 1], fill: true }, { circle: [12, 12, 1], fill: true }, { circle: [12, 19, 1], fill: true }],
   download: [{ d: 'M12 4v11M7 10l5 5 5-5M5 20h14' }],
+  // The browser's.
+  forward: [{ d: 'M5 12h14M12 5l7 7-7 7' }],
+  share: [{ circle: [18, 5, 3] }, { circle: [6, 12, 3] }, { circle: [18, 19, 3] }, { d: 'M8.6 13.5l6.8 4M15.4 6.5l-6.8 4' }],
+  tabs: [{ rect: [4, 4, 16, 16, 3] }],
+  starFilled: [{ d: 'm12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z', fill: true }],
+  shieldCheck: [{ d: 'M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z' }, { d: 'm9 12 2 2 4-4' }],
+  shieldOff: [{ d: 'M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z' }, { d: 'M4 4l16 16' }],
+  monitor: [{ rect: [2, 4, 20, 13, 2] }, { d: 'M8 21h8M12 17v4' }],
+  stop: [{ d: 'M18 6 6 18M6 6l12 12' }],
+  unlock: [{ rect: [5, 11, 14, 10, 2] }, { d: 'M8 11V7a4 4 0 0 1 7.5-2' }],
+  trashAll: [{ d: 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14' }, { d: 'M10 11v6M14 11v6' }],
+  cookie: [{ d: 'M12 3a9 9 0 1 0 9 9 3.5 3.5 0 0 1-4.5-4.5A3.5 3.5 0 0 1 12 3z' }, { circle: [8.5, 10, 1], fill: true }, { circle: [14.5, 15, 1], fill: true }, { circle: [9, 15.5, 1], fill: true }],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;
@@ -64,7 +76,7 @@ export function Icon({ name, size = 24, color, strokeWidth = 2 }: { name: IconNa
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" pointerEvents="none">
       {(ICONS[name] as Shape[]).map((shape, i) => (
         <Fragment key={i}>
-          {'d' in shape && <Path d={shape.d} />}
+          {'d' in shape && <Path d={shape.d} fill={shape.fill ? color : 'none'} />}
           {'circle' in shape && <Circle cx={shape.circle[0]} cy={shape.circle[1]} r={shape.circle[2]} fill={shape.fill ? color : 'none'} />}
           {'rect' in shape && <Rect x={shape.rect[0]} y={shape.rect[1]} width={shape.rect[2]} height={shape.rect[3]} rx={shape.rect[4]} />}
         </Fragment>

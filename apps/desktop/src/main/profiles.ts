@@ -28,7 +28,7 @@ import { SiteProfileStore } from "./site-profile-store";
 import type { SecretCipher } from "./settings-store";
 import { SiteSettingsStore } from "./site-settings";
 import { BookmarkStore, HistoryStore } from "./stores";
-import { chromeUserAgent, clientHintHeaders, electronUserAgent, type ClientHints, type UserAgents } from "./user-agent";
+import { chromeUserAgent, clientHintHeaders, electronUserAgent, outgoingHeaders, type ClientHints, type UserAgents } from "./user-agent";
 import { WorkspaceStore } from "./workspace-store";
 import { SiteSearchStore } from "./site-search-store";
 
@@ -54,10 +54,11 @@ export function installUserAgents(): UserAgents {
 
 /**
  * Adds the client hints Electron leaves out of navigations (see clientHintHeaders), with the exact
- * values its own subresource requests carry once one has been seen. Returns a switch, since the
- * listener costs extensions their request filtering (see ExtensionHost.filtersRequests).
+ * values its own subresource requests carry once one has been seen, and Global Privacy Control's
+ * `Sec-GPC: 1` while `gpc()` says so. Returns a switch, since the listener costs extensions their
+ * request filtering (see ExtensionHost.filtersRequests).
  */
-function clientHints(ses: Session): (on: boolean) => void {
+function clientHints(ses: Session, gpc: () => boolean): (on: boolean) => void {
   let hints: ClientHints = clientHintHeaders(Number(process.versions.chrome.split(".")[0]), process.platform);
   let installed = false;
   return (on) => {
@@ -67,18 +68,10 @@ function clientHints(ses: Session): (on: boolean) => void {
       ses.webRequest.onBeforeSendHeaders(null);
       return;
     }
-    ses.webRequest.onBeforeSendHeaders({ urls: ["https://*/*"] }, (details, callback) => {
-      const headers = details.requestHeaders;
-      const seen = headers["sec-ch-ua"];
-      if (seen) {
-        hints = { "sec-ch-ua": seen, "sec-ch-ua-mobile": headers["sec-ch-ua-mobile"] ?? hints["sec-ch-ua-mobile"], "sec-ch-ua-platform": headers["sec-ch-ua-platform"] ?? hints["sec-ch-ua-platform"] };
-        callback({ requestHeaders: headers });
-      } else if (details.resourceType === "mainFrame" || details.resourceType === "subFrame") {
-        // First, where Chromium puts them on its own navigations.
-        callback({ requestHeaders: { ...hints, ...headers } });
-      } else {
-        callback({ requestHeaders: headers });
-      }
+    ses.webRequest.onBeforeSendHeaders({ urls: ["https://*/*", "http://*/*"] }, (details, callback) => {
+      const { headers, seen } = outgoingHeaders(details, hints, gpc());
+      if (seen) hints = seen;
+      callback({ requestHeaders: headers });
     });
   };
 }
@@ -114,6 +107,8 @@ export class ProfileRuntime {
   readonly siteSettings: SiteSettingsStore;
   readonly permissions: PermissionManager;
   readonly adblock: AdblockController;
+  /** Global Privacy Control for the profile's sessions (read per request; the blocker's settings hold it). */
+  private readonly gpcOn = (): boolean => (this.adblock as AdblockController | undefined)?.options().gpc ?? true;
   /** Chrome UA for sites, Electron's for Google sign-in (see user-agent.ts). */
   readonly userAgents: UserAgents;
   /** Containers: tabs with their own cookies and site data, each in a session of its own. */
@@ -144,7 +139,7 @@ export class ProfileRuntime {
     this.applyConnections();
     this.connections.onChange(() => this.applyConnections());
     this.userAgents = installUserAgents();
-    const setClientHints = clientHints(this.session);
+    const setClientHints = clientHints(this.session, this.gpcOn);
     setClientHints(true);
     handleInternalProtocol(this.session);
     this.siteSettings = new SiteSettingsStore(dataDir);
@@ -212,7 +207,7 @@ export class ProfileRuntime {
     if (known) return known;
     const ses = electronSession.fromPartition(containerPartition(this.partition, containerId));
     this.connect(ses, containerChoice(this.connections.config(), containerId));
-    clientHints(ses)(true);
+    clientHints(ses, this.gpcOn)(true);
     handleInternalProtocol(ses);
     this.permissions.install(ses);
     this.containerSessions.set(containerId, ses);
@@ -287,7 +282,7 @@ export class ProfileRuntime {
     const ses = electronSession.fromPartition(`corvus-private-${this.profile.id}-${++this.privateRuns}-${Date.now()}`, { cache: false });
     this.privateSes = ses;
     this.connect(ses, this.connections.config().profile);
-    clientHints(ses)(true);
+    clientHints(ses, this.gpcOn)(true);
     handleInternalProtocol(ses);
     this.permissions.install(ses);
     for (const listener of this.containerSessionListeners) listener(ses);

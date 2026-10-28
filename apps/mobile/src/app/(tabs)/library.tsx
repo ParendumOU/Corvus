@@ -3,7 +3,6 @@ import { router } from 'expo-router';
 import { Fragment, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { AnswerText } from '@/components/answer-text';
 import { Button, Fab, IconButton } from '@/components/button';
 import { SectionHeader } from '@/components/card';
 import { EmptyState, LoadingState } from '@/components/empty-state';
@@ -18,20 +17,18 @@ import { Layout, Space } from '@/constants/theme';
 import { refreshSession, setRead, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { ago } from '@/lib/format';
-import { searchConversations, type ConversationView } from '@/lib/conversations';
 import { HISTORY_PAGE, groupByDay, searchHistory, timeOfDay } from '@/lib/history';
 import { folderContents, folderPath, searchBookmarks, searchReading } from '@/lib/library';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
 import { t } from '@/lib/i18n';
 
-type Section = 'bookmarks' | 'reading' | 'history' | 'conversations';
+type Section = 'bookmarks' | 'reading' | 'history';
 
 function placeholder(section: Section): string {
   if (section === 'bookmarks') return t('Find a bookmark');
   if (section === 'reading') return t('Find in your reading list');
-  if (section === 'history') return t('Search history');
-  return t('Search conversations');
+  return t('Search history');
 }
 
 const OPEN_HINT = (): string => t('Opens the page. Long press to open it in your browser app.');
@@ -226,63 +223,6 @@ function History({ entries, query, refreshed }: { entries: SyncedHistoryEntry[];
   );
 }
 
-/** Corvus Assist conversations from the computers: tap one to read it; its page opens from there. */
-function Conversations({ list, query, refreshed }: { list: ConversationView[]; query: string; refreshed: boolean }) {
-  const theme = useTheme();
-  const [open, setOpen] = useState<string | null>(null);
-  const matches = useMemo(() => searchConversations(list, query), [list, query]);
-  if (matches.length === 0) {
-    if (!query.trim() && !refreshed) return <LoadingState testID="conversations-empty" />;
-    return (
-      <EmptyState
-        icon={query.trim() ? 'search' : 'sparkle'}
-        description={query.trim() ? t('No conversation matches “{query}”.', { query: query.trim() }) : t('Your conversations with Corvus Assist on your computers show up here.')}
-        compact
-        testID="conversations-empty"
-      />
-    );
-  }
-  return (
-    <ListGroup>
-      {matches.map((c) => {
-        const title = c.title || (c.turns[0]?.kind === 'summarize' ? t('Summary of “{title}”', { title: c.pageTitle || tabHost(c.url) }) : c.pageTitle || tabHost(c.url));
-        const expanded = open === c.id;
-        return (
-          <View key={c.id} testID={`conversation-${c.id}`}>
-            <ListRow
-              leading={<IconTile name="sparkle" />}
-              title={
-                <ThemedText type="bodyStrong" numberOfLines={expanded ? undefined : 2}>
-                  {title}
-                </ThemedText>
-              }
-              subtitle={`${c.pageTitle || tabHost(c.url)} · ${ago(c.updatedAt)}`}
-              accessibilityState={{ selected: expanded }}
-              onPress={() => setOpen(expanded ? null : c.id)}
-              trailing={<View style={styles.expand}><Icon name={expanded ? 'chevronUp' : 'chevronDown'} size={20} color={theme.textTertiary} /></View>}
-            />
-            {expanded && (
-              <View style={styles.turns}>
-                {c.turns.map((turn, i) => (
-                  <View key={turn.id} style={styles.turn}>
-                    {turn.prompt && !(i === 0 && turn.prompt === title) ? (
-                      <View style={[styles.prompt, { backgroundColor: theme.accentSoft }]}>
-                        <ThemedText type="bodyStrong">{turn.prompt}</ThemedText>
-                      </View>
-                    ) : null}
-                    <AnswerText text={turn.text || t('(no answer)')} testID={`conversation-answer-${turn.id}`} />
-                  </View>
-                ))}
-                <Button label={t('Open the page')} kind="tonal" icon="external" size="sm" style={styles.openPage} onPress={() => void openInApp(c.url)} testID={`conversation-open-${c.id}`} />
-              </View>
-            )}
-          </View>
-        );
-      })}
-    </ListGroup>
-  );
-}
-
 export default function LibraryScreen() {
   const session = useSession();
   const [section, setSection] = useState<Section>('bookmarks');
@@ -294,7 +234,6 @@ export default function LibraryScreen() {
     { key: 'bookmarks', label: t('Bookmarks'), icon: 'star', testID: 'library-bookmarks' },
     { key: 'reading', label: t('Reading'), accessibilityLabel: t('Reading list'), icon: 'book', testID: 'library-reading' },
     { key: 'history', label: t('History'), icon: 'history', testID: 'library-history' },
-    { key: 'conversations', label: 'Assist', icon: 'sparkle', testID: 'library-conversations' },
   ];
 
   return (
@@ -322,7 +261,6 @@ export default function LibraryScreen() {
           {section === 'bookmarks' && <Bookmarks bookmarks={session.bookmarks} query={query} />}
           {section === 'reading' && <Reading items={session.reading} query={query} refreshed={session.refreshed} />}
           {section === 'history' && <History entries={session.history} query={query} refreshed={session.refreshed} />}
-          {section === 'conversations' && <Conversations list={session.conversations} query={query} refreshed={session.refreshed} />}
         </>
       )}
     </Screen>
@@ -346,29 +284,5 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: Space.sm,
-  },
-  expand: {
-    width: Layout.touch,
-    alignItems: 'center',
-  },
-  turns: {
-    gap: Space.lg,
-    paddingLeft: Space.lg,
-    paddingRight: Space.lg,
-    paddingBottom: Space.lg,
-  },
-  turn: {
-    gap: Space.sm,
-  },
-  prompt: {
-    alignSelf: 'flex-start',
-    maxWidth: '92%',
-    paddingHorizontal: Space.md,
-    paddingVertical: Space.sm,
-    borderRadius: 14,
-    borderTopLeftRadius: 4,
-  },
-  openPage: {
-    alignSelf: 'flex-start',
   },
 });

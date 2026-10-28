@@ -492,7 +492,7 @@ export class SyncService {
         if (this.answering.has(id)) continue;
         this.answering.add(id);
         void answerAsk(ask, {
-          stream: (question, signal) => this.ctx.search.stream(question, { depth: "quick", signal }),
+          stream: (question, signal, context) => this.ctx.search.stream(question, { depth: "quick", signal, ...(context.length ? { context } : {}) }),
           push: async (next) => {
             const { conflicts } = await rt.client.push([{ collection: "asks", id, payload: next, deleted: false }]);
             if (conflicts.some((c) => c.collection === "asks" && c.id === id && c.deleted)) {

@@ -1,12 +1,15 @@
 /**
- * Every web page the app opens goes through here. While Corvus is the phone's default browser
- * (Android), a page handed to the system would come straight back to Corvus, so it goes to the
- * browser app picked in Settings by its package instead. Elsewhere it opens as it always has.
+ * Every web page the app opens goes through here. Pages open in Corvus's own browser (Android and
+ * iOS), unless the person opens pages in another browser app (Settings → Open pages in). While Corvus
+ * is the phone's default browser (Android), a page handed to the system would come straight back to
+ * Corvus, so a page for another browser goes to the one picked in Settings by its package instead.
  */
 import * as WebBrowser from 'expo-web-browser';
 import { Alert, Linking, Platform } from 'react-native';
 
 import { DefaultBrowser } from '../../modules/default-browser';
+import { openInCorvus } from './browser-nav';
+import { browserState, loadBrowser } from './browser-store';
 import { openRoute, type OpenRoute } from './browser-choice';
 import { defaultBrowserState } from './default-browser';
 import { t } from './i18n';
@@ -24,8 +27,18 @@ function noBrowser(): void {
   Alert.alert(t('No browser app'), t('Corvus opens pages in another browser app. Install one, then pick it in Settings → Default browser.'));
 }
 
-/** Opens a page in the in-app browser (Custom Tabs on Android, Safari View Controller on iOS). */
+/**
+ * Opens a page in the app: Corvus's browser, or with "Open pages in" set to another browser app, that
+ * browser's in-app view (Custom Tabs on Android, Safari View Controller on iOS).
+ */
 export async function openInApp(url: string): Promise<void> {
+  if (Platform.OS !== 'web') {
+    await loadBrowser().catch(() => undefined);
+    if (browserState().prefs.openIn === 'corvus') {
+      openInCorvus(url);
+      return;
+    }
+  }
   const how = await route(false);
   if (how.via === 'window') {
     window.open(url, '_blank', 'noopener,noreferrer');

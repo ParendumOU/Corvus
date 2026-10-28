@@ -15,7 +15,7 @@ Windows (installer and portable) and Linux (AppImage and .deb). Installed copies
 - Tabs, tab groups, vertical tabs, workspaces, split view and session restore
 - Bookmarks with folders, history, profiles with separate sessions, downloads, site permissions
 - Chrome extensions: load unpacked or install from the Chrome Web Store
-- Built-in ad and tracker blocker (Ghostery engine), password manager with 2FA codes and read-only KeePass (.kdbx) support, PDF viewer
+- Built-in ad and tracker blocker (Ghostery engine) that also rejects cookie banners for you (DuckDuckGo Autoconsent) and sends Global Privacy Control, password manager with 2FA codes and read-only KeePass (.kdbx) support, PDF viewer
 - Reader mode, read aloud, highlights and notes on any page, "watch this page" change alerts
 - End-to-end encrypted sync to a server you can host yourself (24-word recovery phrase)
 

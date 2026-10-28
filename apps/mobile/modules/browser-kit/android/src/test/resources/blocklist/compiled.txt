@@ -1,0 +1,17 @@
+! corvus-blocklist 1
+b	ads.example-news.com
+b	adserver.co.uk
+b	caps-host.com
+b	doubleclick.net
+b	pixel.example.org
+b	tracker.io
+t	analytics.example.net
+t	cdn-widgets.com
+t	sentry.io
+a	safe.doubleclick.net
+p	example-shop.com	/ads/
+p	facebook.com	/tr^
+p	news.example.com	/banners/
+c	example-news.com	.sponsored
+c	example-news.com	div[data-ad]
+c	www.example.org	.ad-slot

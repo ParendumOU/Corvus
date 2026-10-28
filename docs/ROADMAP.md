@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what has shipped and where it goes next.
 
-Last updated: 2026-10-27 · current release: **v0.28.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.6.0** (Android preview)
+Last updated: 2026-10-28 · current release: **v0.29.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.7.0** (Android preview)
 
 ---
 
@@ -42,6 +42,7 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 - [x] Session restore, downloads manager, site-permission prompts, web context menus
 - [x] Chrome extensions: load unpacked + install from Chrome Web Store (bookmarks/history/tabGroups/sessions/side-panel extension APIs)
 - [x] Built-in ad/tracker blocker (Ghostery engine) + address-bar shield, per-site + global
+- [x] Cookie banners rejected automatically (DuckDuckGo Autoconsent, per-site exceptions in the shield) and Global Privacy Control (`Sec-GPC` + `navigator.globalPrivacyControl`); on the phone too since mobile 0.7.0 (Android: cookie banners and GPC; iOS: GPC), on the shared core in `packages/shared/src/cookie-consent.ts`
 - [x] Page monitoring — "Watch this page" with AI change alerts (`corvus://watches`)
 
 **AI**
@@ -102,8 +103,8 @@ Most of M2–M6 is merged (see the shipped block above). What's left:
 
 **Platform & reach (M6)**
 - [x] Release assets: Windows installer/portable, Linux AppImage and deb, and a signed + notarized universal macOS dmg ship with every release (macOS since v0.27.0)
-- [~] Mobile companion: Corvus for mobile 0.6.0, an Android preview (redesigned; pair with a computer by a QR code read on the phone, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, Assist conversations, watched pages, notifications, English and Spanish); Google Play internal testing under way; iOS needs a Mac or EAS Build (Apple account, App ID and API key ready; docs/MOBILE.md)
-- [ ] **Corvus for mobile 0.7.0: a real mobile browser** (Android): pages open in Corvus itself (system WebView) with tabs, an address bar with search, back/forward, history, bookmarks and reading list synced end-to-end with the computers, ad and tracker blocking with the desktop's filter lists, and Send to a computer / Watch / Ask Corvus on the open page; then passwords and the agent. Today, as the default browser, Corvus hands links on to another browser.
+- [~] Mobile companion: Corvus for mobile 0.7.0, an Android preview (its own browser with tabs, ad and cookie banner blocking; redesigned; pair with a computer by a QR code read on the phone, tabs from your computers, pages sent both ways, ask Corvus through a paired computer, bookmarks, reading list, history, Assist conversations, watched pages, notifications, English and Spanish); Google Play internal testing under way; iOS needs a Mac or EAS Build (Apple account, App ID and API key ready; docs/MOBILE.md)
+- [~] **Corvus for mobile 0.7.0: a real mobile browser** (Android): done: pages open in Corvus itself (system WebView) with tabs (shown on the computers), an address bar with search, back/forward, find in page, desktop site, history, bookmarks and reading list synced end-to-end with the computers, ad and tracker blocking with the desktop's filter lists (host level, with per-site element hiding), Send to a computer / Watch / Ask Corvus about the open page, and links from other apps opening in it as the default browser. Next: passwords and the agent, blocking on iOS (content rule lists), generic element hiding and scriptlets.
 - [x] Evaluate Chromium fork vs Electron for full extension-API coverage: stay on Electron and add the missing APIs in Corvus: a fork costs builds, a security cadence and a port out of scale
 - [~] Extension APIs Corvus adds itself: `bookmarks`, `history`, `tabGroups` + `tabs.group`, `sessions`, `sidePanel`, `commands` shortcuts, `downloads` done; DNR at scale only if needed
 

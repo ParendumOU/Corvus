@@ -581,6 +581,20 @@ export class BrowserWindowCtl {
     this.pushState();
   }
 
+  /**
+   * The shield's "Allow cookie banner on this site": Corvus stops answering the active tab's site's
+   * cookie banners (or answers them again), and the page reloads so that applies at once.
+   */
+  allowCookieBanner(allowed: boolean): void {
+    const tab = this.activeTab();
+    const url = tab?.url ?? "";
+    const host = hostFromUrl(url);
+    if (!tab || !host) return;
+    this.profile.adblock.setConsentAllowed(allowed ? this.ctx.adblock.siteOf(url) : host, allowed);
+    this.reload(tab.id);
+    this.pushState();
+  }
+
   private tabView(id: TabId): TabView | null {
     const tab = this.tabs.get(id);
     const entry = this.strip.tabs.find((t) => t.id === id);
@@ -764,7 +778,8 @@ export class BrowserWindowCtl {
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        nodeIntegrationInSubFrames: false,
+        // Session preloads (ad blocker, cookie banners, GPC) also run in iframes; each one guards itself.
+        nodeIntegrationInSubFrames: true,
         webSecurity: true,
         allowRunningInsecureContent: false,
         safeDialogs: true,
@@ -1035,7 +1050,7 @@ export class BrowserWindowCtl {
           overrideBrowserWindowOptions: {
             autoHideMenuBar: true,
             backgroundColor: pageBaseColor(url, nativeTheme.shouldUseDarkColors),
-            webPreferences: { session: wc.session, sandbox: true, contextIsolation: true, nodeIntegration: false, ...this.siteFeatures() },
+            webPreferences: { session: wc.session, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInSubFrames: true, ...this.siteFeatures() },
           },
         };
       }

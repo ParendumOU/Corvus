@@ -1,4 +1,5 @@
 import type { WebContents } from "electron";
+import { withGpcHeader } from "@corvus/shared";
 
 /** The two user agents a profile shows sites (see ProfileRuntime). */
 export interface UserAgents {
@@ -101,4 +102,29 @@ export function clientHintHeaders(major: number, platform: NodeJS.Platform): Cli
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": `"${name}"`,
   };
+}
+
+/**
+ * The headers a request goes out with: the client hints a navigation lacks (on https, where Chromium
+ * sends them), and `Sec-GPC: 1` when Global Privacy Control is on. Also returns the hints to remember
+ * when the request carried Chromium's own (they are the exact values to copy onto navigations).
+ */
+export function outgoingHeaders(
+  details: { url: string; resourceType: string; requestHeaders: Record<string, string> },
+  hints: ClientHints,
+  gpc: boolean,
+): { headers: Record<string, string>; seen: ClientHints | null } {
+  let headers = details.requestHeaders;
+  let seen: ClientHints | null = null;
+  if (details.url.startsWith("https:")) {
+    const ua = headers["sec-ch-ua"];
+    if (ua) {
+      seen = { "sec-ch-ua": ua, "sec-ch-ua-mobile": headers["sec-ch-ua-mobile"] ?? hints["sec-ch-ua-mobile"], "sec-ch-ua-platform": headers["sec-ch-ua-platform"] ?? hints["sec-ch-ua-platform"] };
+    } else if (details.resourceType === "mainFrame" || details.resourceType === "subFrame") {
+      // First, where Chromium puts them on its own navigations.
+      headers = { ...hints, ...headers };
+    }
+  }
+  if (gpc && (details.url.startsWith("https:") || details.url.startsWith("http:"))) headers = withGpcHeader(headers);
+  return { headers, seen };
 }

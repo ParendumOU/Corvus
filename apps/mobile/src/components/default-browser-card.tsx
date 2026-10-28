@@ -9,6 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { offerDefaultBrowser } from '@/lib/browser-choice';
+import { setBrowserPrefs, useBrowser } from '@/lib/browser-store';
 import {
   chooseBrowser,
   dismissDefaultBrowserOffer,
@@ -28,9 +29,11 @@ async function askToBeDefault(): Promise<boolean> {
 export function DefaultBrowserSettings() {
   const theme = useTheme();
   const state = useDefaultBrowser();
+  const browser = useBrowser();
   const [busy, setBusy] = useState(false);
   const [declined, setDeclined] = useState(false);
   if (!state.supported) return null;
+  const inCorvus = browser.prefs.openIn === 'corvus';
 
   const ask = async (): Promise<void> => {
     setBusy(true);
@@ -51,7 +54,7 @@ export function DefaultBrowserSettings() {
             <View style={styles.grow}>
               <ThemedText type="heading">{state.isDefault ? t('Corvus is your default browser') : t('Corvus is not your default browser')}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {t('As your default browser, Corvus opens each link in the browser below, and lets you send it to a computer or save it first.')}
+                {inCorvus ? t('As your default browser, Corvus opens the links of every app itself, with ads and trackers blocked.') : t('As your default browser, Corvus opens each link in the browser below, and lets you send it to a computer or save it first.')}
               </ThemedText>
             </View>
           </View>
@@ -67,26 +70,39 @@ export function DefaultBrowserSettings() {
 
       <View style={styles.section}>
         <SectionHeader title={t('Open pages in')} />
-        {state.loaded && state.browsers.length === 0 ? (
-          <Banner tone="warning" message={t('No other browser app found. Install one to open pages from Corvus.')} />
-        ) : (
-          <ListGroup inset={Space.lg}>
-            {state.browsers.map((b) => {
-              const chosen = b.packageName === state.browser?.packageName;
+        <ListGroup inset={Space.lg}>
+          <ListRow
+            title={t('Corvus')}
+            subtitle={t('Its own browser, with your tabs, history and bookmarks synced')}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: inCorvus }}
+            onPress={() => void setBrowserPrefs({ openIn: 'corvus' })}
+            trailing={<RadioMark checked={inCorvus} />}
+            testID="browser-corvus"
+          />
+          {state.browsers.map((b) => {
+            const chosen = !inCorvus && b.packageName === state.browser?.packageName;
               return (
                 <ListRow
                   key={b.packageName}
                   title={b.label}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: chosen }}
-                  onPress={() => void chooseBrowser(b.packageName)}
+                  onPress={() => {
+                    void chooseBrowser(b.packageName);
+                    void setBrowserPrefs({ openIn: 'other' });
+                  }}
                   trailing={<RadioMark checked={chosen} />}
                   testID={`browser-${b.packageName}`}
                 />
               );
             })}
-          </ListGroup>
-        )}
+        </ListGroup>
+        {inCorvus && state.browser ? (
+          <ThemedText type="small" themeColor="textSecondary" style={styles.note}>
+            {t('“Open in…” in the page menu hands a page to {browser}.', { browser: state.browser.label })}
+          </ThemedText>
+        ) : null}
       </View>
     </>
   );
@@ -111,7 +127,7 @@ export function DefaultBrowserOffer({ paired }: { paired: boolean }) {
         <View style={styles.grow}>
           <ThemedText type="heading">{t('Make Corvus your default browser')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            {t('Links you open on this phone come to Corvus first: open them in your browser with one tap, or send them to a computer or save them.')}
+            {t('Links you open on this phone open in Corvus, with ads and trackers blocked, and you can send them to a computer or save them.')}
           </ThemedText>
         </View>
         <View style={styles.dismiss}>
@@ -126,6 +142,9 @@ export function DefaultBrowserOffer({ paired }: { paired: boolean }) {
 const styles = StyleSheet.create({
   section: {
     gap: Space.sm,
+  },
+  note: {
+    paddingHorizontal: Space.lg,
   },
   status: {
     flexDirection: 'row',

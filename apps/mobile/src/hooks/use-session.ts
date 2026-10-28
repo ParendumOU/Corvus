@@ -1,4 +1,4 @@
-import type { AskRecord, Bookmark, DeviceInfo, PairingInfo, ReadingItem, SentTab, SentTabRecord, SyncedHistoryEntry } from '@corvus/shared';
+import type { AskFollowUp, AskRecord, Bookmark, DeviceInfo, DeviceTabs, PairingInfo, ReadingItem, SentTab, SentTabRecord, SyncedHistoryEntry } from '@corvus/shared';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { notifyNew } from '@/lib/notifications';
@@ -9,6 +9,7 @@ import type { ComputerTabs } from '@/lib/replica';
 import type { WatchView } from '@/lib/watches';
 import {
   addBookmark,
+  addVisit,
   askComputer,
   cachedView,
   cancelSent,
@@ -16,8 +17,12 @@ import {
   loadPairing,
   markRead,
   pair,
+  publishOpenTabs,
+  pushVisits,
   refreshView,
-  removeAsk,
+  removeBookmarksOf,
+  retitleVisit,
+  removeAsks,
   sameChain,
   saveForLater,
   watchPage,
@@ -50,6 +55,8 @@ export interface SessionState {
   asks: AskRecord[];
   /** Corvus Assist conversations from the computers, newest first. */
   conversations: ConversationView[];
+  /** The computers' home page setting (the browser's default search engine when the phone offers it). */
+  homePage: unknown;
   /** False until the first refresh since the app started has finished (or failed). */
   refreshed: boolean;
   refreshing: boolean;
@@ -68,6 +75,7 @@ const EMPTY: Omit<SessionState, 'status' | 'pairing'> = {
   watches: [],
   asks: [],
   conversations: [],
+  homePage: undefined,
   refreshed: false,
   refreshing: false,
   error: null,
@@ -119,7 +127,7 @@ export function refreshSession(): Promise<void> {
 /** Shows what the replica holds after a change this phone made (no network). */
 async function showLocal(pairing: Pairing): Promise<void> {
   const view = await cachedView(pairing, state.devices);
-  if (sameChain(state.pairing, pairing)) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks, conversations: view.conversations });
+  if (sameChain(state.pairing, pairing)) set({ tabs: view.tabs, outbox: view.outbox, inbox: view.inbox, bookmarks: view.bookmarks, reading: view.reading, history: view.history, watches: view.watches, asks: view.asks, conversations: view.conversations, homePage: view.homePage });
 }
 
 export async function pairPhone(info: PairingInfo, chainId: string, deviceName: string): Promise<void> {
@@ -141,19 +149,40 @@ export async function sendToComputer(page: Pick<SentTab, 'url' | 'title' | 'to'>
   if (sameChain(state.pairing, pairing)) set({ outbox: [...state.outbox, sent] });
 }
 
-/** Asks a computer of the chain; its answer shows as the computer writes it (see the Ask screen). */
-export async function askQuestion(question: string, to: string): Promise<void> {
+/**
+ * Asks a computer of the chain; its answer shows as the computer writes it (see the chat screen).
+ * `follow` makes it a follow-up in a conversation. Returns the question as sent.
+ */
+export async function askQuestion(question: string, to: string, follow: AskFollowUp = {}): Promise<AskRecord> {
   const pairing = paired();
-  const asked = await askComputer(pairing, question, to);
+  const asked = await askComputer(pairing, question, to, follow);
   if (sameChain(state.pairing, pairing)) set({ asks: [asked, ...state.asks.filter((a) => a.id !== asked.id)] });
+  return asked;
 }
 
 /** Removes a question and its answer from the list. */
 export async function forgetAsk(id: string): Promise<void> {
+  await forgetAsks([id]);
+}
+
+/** Removes several questions at once (a whole conversation); a computer still answering one stops. */
+export async function forgetAsks(ids: readonly string[]): Promise<void> {
   const pairing = state.pairing;
   if (!pairing) return;
-  await removeAsk(pairing, id);
-  if (sameChain(state.pairing, pairing)) set({ asks: state.asks.filter((a) => a.id !== id) });
+  await removeAsks(pairing, ids);
+  if (sameChain(state.pairing, pairing)) set({ asks: state.asks.filter((a) => !ids.includes(a.id)) });
+}
+
+/** Deletes a whole conversation of this phone (every question with this thread id). */
+export async function forgetThread(thread: string): Promise<void> {
+  await forgetAsks(state.asks.filter((a) => (a.thread ?? a.id) === thread).map((a) => a.id));
+}
+
+/** Asks a question that failed again, in the same place of its conversation, instead of it. */
+export async function retryAsk(ask: AskRecord, to: string = ask.to): Promise<AskRecord> {
+  const asked = await askQuestion(ask.question, to, { thread: ask.thread ?? ask.id, context: ask.context, origin: ask.origin });
+  await forgetAsks([ask.id]).catch(() => undefined);
+  return asked;
 }
 
 /** Opens a page a computer sent to this phone; it then leaves the inbox on every device. */
@@ -202,6 +231,61 @@ export async function watch(url: string, title: string, intervalMinutes: number,
   await showLocal(pairing);
 }
 
+/** Removes the page's bookmarks (the browser's star). */
+export async function unbookmarkPage(url: string): Promise<void> {
+  const pairing = paired();
+  await removeBookmarksOf(pairing, url);
+  await showLocal(pairing);
+}
+
+const VISIT_PUSH_MS = 4_000;
+let visitTimer: ReturnType<typeof setTimeout> | null = null;
+let shownTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Pushes the browser's visits a few seconds after the last one, and shows them in the Library. */
+function scheduleVisits(pairing: Pairing): void {
+  if (!visitTimer) {
+    visitTimer = setTimeout(() => {
+      visitTimer = null;
+      void pushVisits(pairing).catch((err) => console.warn(`[corvus] history push failed: ${message(err)}`));
+    }, VISIT_PUSH_MS);
+  }
+  if (!shownTimer) {
+    shownTimer = setTimeout(() => {
+      shownTimer = null;
+      void showLocal(pairing).catch(() => undefined);
+    }, 1_500);
+  }
+}
+
+/**
+ * A page the phone's browser loaded, into the chain's history (with the computers' entries for the
+ * same address). False when the phone is not paired: the browser keeps it on the phone instead.
+ */
+export async function recordVisit(url: string, title: string): Promise<boolean> {
+  const pairing = state.pairing;
+  if (!pairing) return false;
+  await addVisit(pairing, { url, title }, Date.now());
+  scheduleVisits(pairing);
+  return true;
+}
+
+/** The title a page showed once loaded, on its history entry. */
+export async function retitleVisitOf(url: string, title: string): Promise<void> {
+  const pairing = state.pairing;
+  if (!pairing) return;
+  await retitleVisit(pairing, url, title);
+  scheduleVisits(pairing);
+}
+
+/** Shows the phone's open tabs on the computers (nothing while it is not paired). */
+export async function publishTabs(record: DeviceTabs): Promise<boolean> {
+  const pairing = state.pairing;
+  if (!pairing) return false;
+  await publishOpenTabs(pairing, record);
+  return true;
+}
+
 let loaded = false;
 async function load(): Promise<void> {
   if (loaded) return;
@@ -214,7 +298,7 @@ async function load(): Promise<void> {
   if (!pairing) return;
   // What the phone already has, shown before the first refresh; never allowed to hold up that refresh.
   const cached = await watchdog((progress) => cachedView(pairing, [], progress)).catch(() => null);
-  if (cached && !state.refreshed && sameChain(state.pairing, pairing)) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks, conversations: cached.conversations ?? [] });
+  if (cached && !state.refreshed && sameChain(state.pairing, pairing)) set({ self: cached.self, tabs: cached.tabs, outbox: cached.outbox, inbox: cached.inbox, bookmarks: cached.bookmarks, reading: cached.reading, history: cached.history, watches: cached.watches, asks: cached.asks, conversations: cached.conversations ?? [], homePage: cached.homePage });
   await refreshSession();
 }
 

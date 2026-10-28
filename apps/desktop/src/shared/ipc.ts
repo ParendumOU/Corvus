@@ -182,6 +182,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "adblock.youtubeBlockAgain"(): void;
   /** The shield's "Forget this site when I close it", for the active tab's site. */
   "adblock.forgetOnClose"(forget: boolean): void;
+  /** The shield's "Allow cookie banner on this site": leave the active tab's site's banner to you. */
+  "adblock.allowCookieBanner"(allowed: boolean): void;
   /** "Hide an element" from the shield: the picker runs in the active tab's page. */
   "adblock.pickElement"(): void;
   /** The address bar's translate button: translate the page, or show its original again. */
@@ -502,6 +504,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "adblock.setEnabled"(enabled: boolean): AdblockView;
   "adblock.removeAllowed"(host: string): AdblockView;
   "adblock.removeForgetSite"(site: string): AdblockView;
+  /** Answers this site's cookie banners automatically again. */
+  "adblock.removeConsentAllowed"(site: string): AdblockView;
   /** "Send to your phone" through the person's own Telegram bot. */
   "phone.status"(): TelegramStatus;
   /** Saves a new bot token (when given) and links the private chat that sent /start to the bot. */

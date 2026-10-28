@@ -1,0 +1,45 @@
+[Adblock Plus 2.0]
+! A sample of the rule shapes in EasyList, EasyPrivacy, Peter Lowe's list and uBlock Origin's lists.
+! Blocked for everyone, with their subdomains.
+||doubleclick.net^
+||ads.example-news.com^
+||tracker.io^$important
+||pixel.example.org^$all
+||adserver.co.uk^|
+||Caps-Host.COM^
+! Third-party only.
+||sentry.io^$third-party
+||analytics.example.net^$3p
+||cdn-widgets.com^$~first-party
+! Paths on a host.
+||facebook.com/tr^
+||example-shop.com/ads/*
+||news.example.com/banners/
+! Exceptions.
+@@||safe.doubleclick.net^
+@@||unbreak.example.com^$script
+! Not kept: options that narrow the request type or the site, patterns without a host, regexes.
+||scripts.example.com^$script
+||images.example.com^$image,third-party
+||popups.example.com^$popup
+||sites.example.com^$domain=a.com|b.com
+||firstparty.example.com^$first-party
+||redirect.example.com^$redirect=noopjs
+||wild*.example.com^
+||mid.example.com/a*b/
+/banner/ads/*
+-ad-300x250.
+/^https?:\/\/[a-z]+\.example\.com\//
+|https://exact.example.com/
+@@||exception-with-path.example.com/path
+||third.example.com/path$third-party
+! Cosmetic: per site kept, generic and procedural left out.
+example-news.com##.sponsored
+example-news.com,~sub.example-news.com##div[data-ad]
+www.example.org##.ad-slot
+##.adsbygoogle
+example-news.com##.promo:has-text(Sponsored)
+example-news.com#@#.sponsored-ok
+example-news.com#?#.x:-abp-has(.y)
+example-news.com##+js(set-constant, x, true)
+example.net#$#abort-on-property-read x

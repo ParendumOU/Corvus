@@ -4,7 +4,7 @@ The Corvus companion app for Android and iOS: your computer's Corvus in your poc
 
 Built with Expo and Expo Router. It reuses `@corvus/shared` and `@corvus/sync-core` from this monorepo.
 
-Tabs from your computers, Ask Corvus (a paired computer answers with its AI search), bookmarks, reading list and history, watched pages, pages sent both ways, notifications, and on Android it can be the phone's default browser (each link opens in your usual browser with one tap, or goes to a computer or the library first). In English and Spanish. What each screen does, how it fits with the desktop app, and what iOS still needs: [docs/MOBILE.md](../../docs/MOBILE.md).
+Tabs from your computers, Assist (a chat a paired computer answers with its AI search, follow-ups included, next to the Corvus Assist conversations from your computers), bookmarks, reading list and history, watched pages, pages sent both ways, notifications, and on Android it can be the phone's default browser (each link opens in your usual browser with one tap, or goes to a computer or the library first). In English and Spanish. What each screen does, how it fits with the desktop app, and how the iOS build works: [docs/MOBILE.md](../../docs/MOBILE.md).
 
 ## Develop
 
@@ -24,4 +24,4 @@ docker compose run --rm dev sh -c "cd apps/mobile && pnpm export:web && pnpm smo
 
 ## iOS
 
-The code is iOS-ready. Building for iOS needs an Apple developer account and macOS or EAS Build.
+Built on a Mac with Xcode and uploaded to App Store Connect for TestFlight (not on the App Store yet): see "iOS builds (TestFlight)" in [docs/MOBILE.md](../../docs/MOBILE.md).

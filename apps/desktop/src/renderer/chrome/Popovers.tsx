@@ -662,6 +662,27 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
           onChange={(e) => void api.call("adblock.forgetOnClose", e.target.checked)}
         />
       </label>
+      {state.cookieBanner && (
+        <div className="shield-stats small" data-cookie-banner={state.cookieBanner.outcome}>
+          {state.cookieBanner.outcome === "rejected"
+            ? state.cookieBanner.cmp
+              ? t("Cookie banner rejected ({cmp})", { cmp: state.cookieBanner.cmp })
+              : t("Cookie banner rejected")
+            : state.cookieBanner.cmp
+              ? t("Cookie banner hidden ({cmp})", { cmp: state.cookieBanner.cmp })
+              : t("Cookie banner hidden")}
+        </div>
+      )}
+      <label className="shield-row" title={t("Corvus stops answering this site’s cookie banner, so you can choose yourself")}>
+        <span className="grow">{t("Allow cookie banner on this site")}</span>
+        <input
+          type="checkbox"
+          data-allow-cookie-banner
+          checked={state.consentAllowed}
+          disabled={!state.cookieConsent || state.host === ""}
+          onChange={(e) => void api.call("adblock.allowCookieBanner", e.target.checked)}
+        />
+      </label>
       <label className="shield-row">
         <span className="grow">{t("Block ads and trackers (all sites)")}</span>
         <input type="checkbox" checked={state.enabled} onChange={(e) => void api.call("adblock.setEnabled", e.target.checked)} />
@@ -671,6 +692,7 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
         </div>
       )}
       <div className="shield-stats muted small">{state.total}{" "}{t("requests blocked this session")}</div>
+      {state.cookieConsent && <div className="shield-stats muted small" data-banners-handled>{state.bannersHandled}{" "}{t("cookie banners rejected this session")}</div>}
       <div className="popover-actions">
         <button
           className="btn small"

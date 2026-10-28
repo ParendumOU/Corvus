@@ -93,10 +93,12 @@ ${ROLE_NAME_FNS}
 
   const main = doc.querySelector("main, [role=main], article");
   const chromeLike = "nav, header, footer, aside, script, style, noscript, template, [aria-hidden=true]";
+  // innerText of an element that is not rendered (display: none, e.g. a banner hidden by a cosmetic
+  // filter) is its textContent, hidden text included: skip those.
   let raw = !WITH_TEXT ? "" : main
     ? main.innerText
     : Array.from(doc.body ? doc.body.children : [])
-        .filter((c) => !c.matches(chromeLike))
+        .filter((c) => !c.matches(chromeLike) && getComputedStyle(c).display !== "none")
         .map((c) => c.innerText || "")
         .join("\\n");
   if (WITH_TEXT && !(raw || "").trim() && doc.body) raw = doc.body.innerText;

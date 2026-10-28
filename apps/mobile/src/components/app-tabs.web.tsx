@@ -23,6 +23,9 @@ export default function AppTabs() {
           <TabTrigger name="index" href="/" asChild>
             <TabButton icon="home">{t('Home')}</TabButton>
           </TabTrigger>
+          <TabTrigger name="assist" href="/assist" asChild testID="tabs-assist">
+            <TabButton icon="sparkle">{t('Assist')}</TabButton>
+          </TabTrigger>
           <TabTrigger name="library" href="/library" asChild>
             <TabButton icon="bookmark">{t('Library')}</TabButton>
           </TabTrigger>

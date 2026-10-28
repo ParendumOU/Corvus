@@ -1,0 +1,108 @@
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java
+index 1b5c4c9..854ac3d 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebChromeClient.java
+@@ -141,6 +141,10 @@ public class RNCWebChromeClient extends WebChromeClient implements LifecycleEven
+ 
+     @Override
+     public void onPermissionRequest(final PermissionRequest request) {
++        final RNCWebViewHooks.PermissionHandler hook = RNCWebViewHooks.permissionHandler;
++        if (hook != null && hook.handle(mWebView, request)) {
++            return;
++        }
+ 
+         grantedPermissions = new ArrayList<>();
+ 
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+index 209b855..077d289 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
+@@ -134,10 +134,26 @@ public class RNCWebViewClient extends WebViewClient {
+ 
+     @Override
+     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
++        final RNCWebViewHooks.NavigationHandler hook = RNCWebViewHooks.navigationHandler;
++        if (hook != null && hook.override(view, request)) {
++            return true;
++        }
+         final String url = request.getUrl().toString();
+         return this.shouldOverrideUrlLoading(view, url);
+     }
+ 
++    @Override
++    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
++        final RNCWebViewHooks.RequestInterceptor hook = RNCWebViewHooks.requestInterceptor;
++        if (hook != null) {
++            final WebResourceResponse response = hook.intercept(view, request);
++            if (response != null) {
++                return response;
++            }
++        }
++        return super.shouldInterceptRequest(view, request);
++    }
++
+     @Override
+     public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
+         if (basicAuthCredential != null) {
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewHooks.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewHooks.java
+new file mode 100644
+index 0000000..4733c32
+--- /dev/null
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewHooks.java
+@@ -0,0 +1,44 @@
++package com.reactnativecommunity.webview;
++
++import android.webkit.PermissionRequest;
++import android.webkit.WebResourceRequest;
++import android.webkit.WebResourceResponse;
++import android.webkit.WebView;
++
++import androidx.annotation.Nullable;
++
++/**
++ * Corvus: hooks an app module sets once, so it can set up each new WebView, block subresource
++ * requests (ad and tracker blocking), handle navigations to other apps' schemes itself and answer
++ * the pages' camera and microphone requests, without its own copy of the WebView component. Unset
++ * hooks change nothing.
++ */
++public final class RNCWebViewHooks {
++    private RNCWebViewHooks() {}
++
++    public interface RequestInterceptor {
++        /** A response to use instead of the network (an empty one blocks), or null to load it. Runs off the main thread. */
++        @Nullable
++        WebResourceResponse intercept(WebView view, WebResourceRequest request);
++    }
++
++    public interface NavigationHandler {
++        /** True when the app took the navigation over: the WebView does not load it. */
++        boolean override(WebView view, WebResourceRequest request);
++    }
++
++    public interface PermissionHandler {
++        /** True when the app answered (granted or denied) the page's request itself. */
++        boolean handle(WebView view, PermissionRequest request);
++    }
++
++    public interface ViewConfigurer {
++        /** Called once for each new WebView, before it loads anything. */
++        void configure(WebView view);
++    }
++
++    public static volatile @Nullable ViewConfigurer viewConfigurer;
++    public static volatile @Nullable RequestInterceptor requestInterceptor;
++    public static volatile @Nullable NavigationHandler navigationHandler;
++    public static volatile @Nullable PermissionHandler permissionHandler;
++}
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+index f83033b..11f14da 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewManagerImpl.kt
+@@ -72,6 +72,7 @@ class RNCWebViewManagerImpl(private val newArch: Boolean = false) {
+         setupWebChromeClient(webView)
+         context.addLifecycleEventListener(webView)
+         mWebViewConfig.configWebView(webView)
++        RNCWebViewHooks.viewConfigurer?.configure(webView)
+         val settings = webView.settings
+         settings.builtInZoomControls = true
+         settings.displayZoomControls = false

@@ -19,6 +19,11 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} renderingMode="template" />
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="assist">
+        <NativeTabs.Trigger.Label>{t('Assist')}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/assist.png')} renderingMode="template" />
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="library">
         <NativeTabs.Trigger.Label>{t('Library')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/library.png')} renderingMode="template" />

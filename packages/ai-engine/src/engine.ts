@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AiEngineConfig,
   SearchCategory,
@@ -11,7 +12,7 @@ import { type CachedAnswer, cacheKey, SearchCache } from "./cache.js";
 import { fetchPageExtracts } from "./deep.js";
 import { type FetchLike, isAbortError } from "./http.js";
 import { resolveLanguage } from "./language.js";
-import { buildPrompt, type PageExtract, parseCitations } from "./prompt.js";
+import { buildPrompt, type PageExtract, parseCitations, retrievalQuery } from "./prompt.js";
 import { createAnthropicProvider } from "./providers/anthropic.js";
 import { createClaudeCliProvider } from "./providers/claude-cli.js";
 import { createLocalProvider } from "./providers/local.js";
@@ -127,7 +128,12 @@ export function createSearchEngine(config: AiEngineConfig, deps: SearchEngineDep
     }
     const depth = opts.depth ?? "quick";
     const maxResults = Math.min(20, Math.max(1, Math.floor(opts.maxResults ?? DEFAULT_MAX_RESULTS)));
-    const key = cacheKey({ query: trimmed, lang, depth, retriever: config.retriever, maxResults });
+    // A follow-up: answered in the context of the earlier turns, searched for with the previous
+    // question when it is short, and cached apart from the same words asked on their own.
+    const context = opts.context?.filter((t) => t.question.trim()) ?? [];
+    const searched = retrievalQuery(trimmed, context);
+    const contextKey = context.length ? `\u0001${createHash("sha256").update(JSON.stringify(context)).digest("hex").slice(0, 16)}` : "";
+    const key = cacheKey({ query: trimmed + contextKey, lang, depth, retriever: config.retriever, maxResults });
 
     const hit = await cache.get(key);
     // A results-only entry is not good enough once a provider is available.
@@ -139,7 +145,7 @@ export function createSearchEngine(config: AiEngineConfig, deps: SearchEngineDep
     let results: SearchResult[];
     let retriever: CachedAnswer["retriever"];
     try {
-      ({ results, retriever } = await retrieveWithFallback(chain, trimmed, { lang, maxResults, signal }));
+      ({ results, retriever } = await retrieveWithFallback(chain, searched, { lang, maxResults, signal }));
     } catch (err) {
       if (signal?.aborted || isAbortError(err)) return;
       yield { type: "error", message: errorMessage(err), recoverable: false };
@@ -159,7 +165,7 @@ export function createSearchEngine(config: AiEngineConfig, deps: SearchEngineDep
     try {
       const pages = depth === "deep" ? await deepFetch(results, signal) : [];
       if (signal?.aborted) return;
-      const prompt = buildPrompt(trimmed, lang, results, pages);
+      const prompt = buildPrompt(trimmed, lang, results, pages, context);
       const parser = new StructuredAnswerParser(results.length);
       let usage: Extract<SearchEvent, { type: "usage" }> | undefined;
       for await (const ev of provider.answer({ prompt, maxOutputTokens, signal })) {

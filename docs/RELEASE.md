@@ -4,9 +4,9 @@ Everything to cut an auto-updating release. Releases live on [github.com/Parendu
 
 The website (https://corvus.parendum.com) links to `https://github.com/ParendumOU/Corvus/releases/download/v<version>/<file>` with exactly these names: `Corvus-Setup-<v>.exe`, `Corvus-Portable-<v>.exe`, `Corvus-<v>-x86_64.AppImage`, `corvus_<v>_amd64.deb` (`test/update-feed.test.ts` pins the patterns in `electron-builder.yml`).
 
-Current: `v0.28.0` (Windows + Linux unsigned, macOS signed and notarized), published 2026-10-27. Corvus for mobile: `mobile-v0.6.0` (Android preview, pre-release), published 2026-10-27.
+Current: `v0.29.0` (Windows + Linux unsigned, macOS signed and notarized), draft. Corvus for mobile: `mobile-v0.7.0` (Android preview, pre-release), draft.
 
-Previous tags: `v0.27.0`, `v0.26.1`, `v0.26.0`, `v0.25.1`, `v0.25.0`, `v0.24.0`, `v0.23.0`, `v0.22.0`, `v0.21.1`, `v0.21.0`, `v0.20.2`, `v0.20.1`, `v0.20.0`, `v0.19.0`, `v0.18.0`, `v0.17.0`, `v0.16.0`, `v0.15.0`, `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
+Previous tags: `v0.28.0`, `v0.27.0`, `v0.26.1`, `v0.26.0`, `v0.25.1`, `v0.25.0`, `v0.24.0`, `v0.23.0`, `v0.22.0`, `v0.21.1`, `v0.21.0`, `v0.20.2`, `v0.20.1`, `v0.20.0`, `v0.19.0`, `v0.18.0`, `v0.17.0`, `v0.16.0`, `v0.15.0`, `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
 
 ---
 
@@ -97,16 +97,15 @@ Run from the repo root on a host with Docker and gh.
 
 The Android app (`apps/mobile`) is released from the same repo as a **pre-release** tagged `mobile-v<version>`, never marked latest: stable desktop apps read the latest release, and from v0.11.0 on the beta channel skips non-desktop tags (`newestDesktopTag` in `src/shared/update-feed.ts`). Beta installs of v0.10.0 and earlier take the newest entry of the releases feed whatever it is, so they report an update error while a mobile release is newer than every desktop release: when both ship together, make the desktop release the newer one (its target commit comes after the mobile release's).
 
-1. Bump `apps/mobile/package.json` and `apps/mobile/app.json` (`expo.version`, and `android.versionCode` + 1).
+1. Bump `apps/mobile/package.json` and `apps/mobile/app.json` (`expo.version`, and `android.versionCode` + 1 with `ios.buildNumber` the same).
 2. Checks in Docker: `typecheck`, `test`, `export:web` and `smoke:web` of `@corvus/mobile` (the smoke needs the `sync-server` service and `CORVUS_SYNC_URL`).
 3. Signed APK: `docker compose --profile android run --rm android`, with the release key mounted from `../secrets` (`corvus-mobile.keystore` and `corvus-mobile-keystore.env`, never in a repository). It prints the APK's SHA-256. Losing the key means later versions cannot install over earlier ones: keep a backup of it off this machine. The same run builds the App Bundle for Google Play. Install the APK on a phone and open it before shipping (`adb install -r`): 0.3.0 and 0.4.0 closed at start-up and nothing caught it.
 4. The target is a public commit with this version's `apps/mobile` sources.
-5. `gh release create mobile-v<v> -R ParendumOU/Corvus --prerelease --latest=false --target
-   <public SHA> --title "Corvus for mobile <v>" --notes-file <notes>` with
-   `corvus-mobile-<v>.apk` and `SHA256SUMS.txt`.
+5. `gh release create mobile-v<v> -R ParendumOU/Corvus --prerelease --latest=false --target <public SHA> --title "Corvus for mobile <v>" --notes-file <notes>` with `corvus-mobile-<v>.apk` and `SHA256SUMS.txt`.
 6. Google Play internal testing: `docker compose --profile android run --rm --no-deps --entrypoint node android apps/mobile/scripts/play-upload.mjs --notes "<text>"` uploads the bundle and releases it to testers through the Google Play Developer API, with the service account in `../secrets/google-play-service-account.json` (project `corvus-512818`, invited in Play Console with "Release apps to testing tracks"). A version code already on Play is skipped.
+7. iOS for TestFlight: `ios-release.sh <v> <commit> <repo>` (next to the release script) builds the app on the Mac build host, signs it for the App Store with the Apple Distribution certificate, uploads it to App Store Connect and waits until it is processed; see "iOS builds (TestFlight)" in `MOBILE.md`. `ios.buildNumber` in `app.json` must equal `android.versionCode` and be new for App Store Connect.
 
-The release script (`publish-release.ps1 <v> -MobileVersion <m>`) runs steps 3, 5 and 6.
+The release script (`publish-release.ps1 <v> -MobileVersion <m>`) runs steps 3, 5, 6 and 7 (`-NoIos` skips 7, which it waits for at the very end).
 
 ## Release checklist
 - [ ] All tests + smoke green on the commit being released

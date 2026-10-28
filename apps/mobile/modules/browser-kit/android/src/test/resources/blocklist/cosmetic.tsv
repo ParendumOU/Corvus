@@ -1,0 +1,8 @@
+# page url	selectors hidden there, separated by " | "
+https://example-news.com/story	.sponsored | div[data-ad]
+https://www.example-news.com/	.sponsored | div[data-ad]
+https://sub.example-news.com/	.sponsored | div[data-ad]
+https://www.example.org/	.ad-slot
+https://example.org/	
+https://example.com/	
+about:blank	

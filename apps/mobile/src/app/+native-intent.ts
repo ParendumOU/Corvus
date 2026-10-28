@@ -1,9 +1,12 @@
-import { systemPath } from '@/lib/links';
+import { openInPref } from '@/lib/browser-store';
+import { systemPath, webLink } from '@/lib/links';
 
 /**
  * A link shared to Corvus from another app (Android share sheet) opens the Send screen; a web link
- * Corvus is asked to open as the phone's browser opens the Open screen.
+ * Corvus is asked to open as the phone's browser opens in Corvus's browser, or on the Open screen
+ * when pages open in another browser app (Settings → Open pages in).
  */
-export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
-  return systemPath(path);
+export async function redirectSystemPath({ path }: { path: string; initial: boolean }): Promise<string> {
+  if (!webLink(path)) return systemPath(path);
+  return systemPath(path, await openInPref().catch(() => 'corvus' as const));
 }

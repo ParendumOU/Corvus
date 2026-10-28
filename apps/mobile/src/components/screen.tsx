@@ -66,6 +66,7 @@ export function Screen({
       <ScrollView
         ref={scroll}
         style={styles.fill}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scroll,
           { paddingTop: tab && !header ? insets.top : 0, paddingBottom: (tab ? Layout.tabBottom : insets.bottom + Space.xxl) + (floating ? 72 : 0) },

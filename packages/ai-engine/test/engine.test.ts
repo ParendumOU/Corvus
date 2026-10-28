@@ -275,3 +275,40 @@ describe("createSearchEngine", () => {
     ]);
   });
 });
+
+describe("follow-up questions", () => {
+  const context = [{ question: "Which viewpoints in Lisbon are best at sunset?", answer: "Senhora do Monte [1] and Santa Catarina [2]." }];
+
+  function recording(queries: string[]): Retriever {
+    return {
+      kind: "searxng",
+      async search(q, opts) {
+        queries.push(q);
+        return RESULTS.slice(0, opts.maxResults);
+      },
+    };
+  }
+
+  it("answers in the context of the earlier turns, and searches a short follow-up with the previous question", async () => {
+    const seen: AnswerRequest[] = [];
+    const queries: string[] = [];
+    const engine = createSearchEngine(config, { retrievers: [recording(queries)], provider: provider(["Take tram 28 [1]."], seen) });
+    await collect(engine.search("how do I get there?", { context }));
+    expect(queries[0]).toBe("Which viewpoints in Lisbon are best at sunset? how do I get there?");
+    expect(seen[0]!.prompt.user).toContain("<conversation>\nQ: Which viewpoints in Lisbon are best at sunset?\nA: Senhora do Monte and Santa Catarina.\n</conversation>");
+    expect(seen[0]!.prompt.user).toContain("query: how do I get there?");
+
+    await collect(engine.search("what are the opening hours of the São Jorge castle in Lisbon", { context }));
+    expect(queries[1]).toBe("what are the opening hours of the São Jorge castle in Lisbon");
+  });
+
+  it("does not answer a follow-up from the answer cached for the same words asked alone", async () => {
+    const seen: AnswerRequest[] = [];
+    const engine = createSearchEngine(config, { retrievers: [retriever()], provider: provider(["ok"], seen), cache: new SearchCache() });
+    await collect(engine.search("and in winter?"));
+    await collect(engine.search("and in winter?", { context }));
+    await collect(engine.search("and in winter?", { context }));
+    expect(seen).toHaveLength(2);
+    expect(seen[0]!.prompt.user).not.toContain("<conversation>");
+  });
+});

@@ -1,0 +1,39 @@
+# expected	request url	page url	main frame	sites with blocking off (comma separated)
+block	https://doubleclick.net/pixel	https://news.example.com/	false	
+block	https://stats.g.doubleclick.net/collect?v=1	https://news.example.com/	false	
+allow	https://safe.doubleclick.net/ok.js	https://news.example.com/	false	
+allow	https://doubleclick.net/	https://doubleclick.net/	true	
+block	http://ads.example-news.com/x.js	https://example-news.com/story	false	
+allow	https://example-news.com/app.js	https://example-news.com/story	false	
+block	https://tracker.io/t.gif	https://a.com/	false	
+block	https://pixel.example.org/p	https://a.com/	false	
+block	https://adserver.co.uk/	https://a.com/	false	
+block	https://caps-host.com/x	https://a.com/	false	
+block	https://sentry.io/api/1/store	https://shop.example.com/	false	
+allow	https://sentry.io/api/1/store	https://sentry.io/issues	false	
+allow	https://o1.ingest.sentry.io/api	https://www.sentry.io/	false	
+block	https://o1.ingest.sentry.io/api	https://shop.example.com/	false	
+allow	https://sentry.io/api	unknown	false	
+block	https://analytics.example.net/a.js	https://www.example.com/	false	
+allow	https://analytics.example.net/a.js	https://example.net/	false	
+block	https://cdn-widgets.com/w.js	https://blog.example.com/	false	
+block	https://www.facebook.com/tr?id=1	https://shop.example.com/	false	
+allow	https://www.facebook.com/profile	https://shop.example.com/	false	
+allow	https://www.facebook.com/trending	https://shop.example.com/	false	
+block	https://www.facebook.com/tr/	https://shop.example.com/	false	
+block	https://example-shop.com/ads/banner.png	https://example-shop.com/	false	
+allow	https://example-shop.com/products/1	https://example-shop.com/	false	
+block	https://news.example.com/banners/top.gif	https://news.example.com/	false	
+allow	https://scripts.example.com/s.js	https://a.com/	false	
+allow	https://images.example.com/i.png	https://a.com/	false	
+allow	https://unbreak.example.com/x	https://a.com/	false	
+allow	https://doubleclick.net/pixel	https://www.news.example.com/	false	news.example.com
+allow	https://doubleclick.net/pixel	https://m.news.example.com/	false	news.example.com
+block	https://doubleclick.net/pixel	https://othernews.example.com/	false	news.example.com
+allow	http://localhost:8080/doubleclick.net	https://a.com/	false	
+allow	https://127.0.0.1/	https://a.com/	false	
+allow	data:text/plain,doubleclick.net	https://a.com/	false	
+allow	https://notdoubleclick.net/	https://a.com/	false	
+block	https://user:pass@doubleclick.net:8443/x	https://a.com/	false	
+block	https://doubleclick.net./x	https://a.com/	false	
+block	https://bbc-tracker.sentry.io/x	https://www.bbc.co.uk/news	false	

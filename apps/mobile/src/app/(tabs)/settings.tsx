@@ -5,6 +5,7 @@ import { Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { Button } from '@/components/button';
 import { Card, CardHeader, SectionHeader } from '@/components/card';
+import { BrowserSettings } from '@/components/browser-settings';
 import { DefaultBrowserSettings } from '@/components/default-browser-card';
 import { LoadingState } from '@/components/empty-state';
 import { Banner, confirm } from '@/components/feedback';
@@ -128,6 +129,8 @@ export default function SettingsScreen() {
           {notifyDenied && <Banner tone="warning" message={t('Notifications are blocked for Corvus: allow them in the system settings, then turn this on again.')} />}
         </View>
       )}
+
+      <BrowserSettings />
 
       <DefaultBrowserSettings />
 

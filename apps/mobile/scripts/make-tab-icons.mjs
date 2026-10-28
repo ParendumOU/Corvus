@@ -1,4 +1,4 @@
-// Draws the tab bar's icons (Home, Library, Settings) as template PNGs at 1x/2x/3x (24/48/72 px):
+// Draws the tab bar's icons (Home, Assist, Library, Settings) as template PNGs at 1x/2x/3x (24/48/72 px):
 // black strokes on transparent, from the same 24-unit stroke paths as src/components/icon.tsx (the
 // desktop app's icons). Runs Electron's canvas on a virtual display, like the web smoke test.
 // Run in Docker: node apps/mobile/scripts/make-tab-icons.mjs

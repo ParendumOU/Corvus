@@ -10,6 +10,7 @@ export const paths = {
   extensionWorkerPreload: path.join(here, "../preload/extension-sw.cjs"),
   extensionApiPreload: path.join(here, "../preload/extension-api.cjs"),
   adblockScriptletsPreload: path.join(here, "../preload/adblock-scriptlets.cjs"),
+  cookieConsentPreload: path.join(here, "../preload/cookie-consent.cjs"),
   /** Entry of the filter list parser utility process (built next to index.js). */
   adblockParser: path.join(here, "adblock-parser.js"),
   /** Entry of the archive extractor utility process (7-Zip for downloaded packages). */

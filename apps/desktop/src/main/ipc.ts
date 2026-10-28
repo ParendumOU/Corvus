@@ -191,6 +191,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "adblock.pauseSite": (w, paused) => w.pauseAdblockSite(paused === true),
     "adblock.youtubeBlockAgain": (w) => w.endYouTubeFallback(),
     "adblock.forgetOnClose": (w, forget) => w.forgetSiteOnClose(forget === true),
+    "adblock.allowCookieBanner": (w, allowed) => w.allowCookieBanner(allowed === true),
     "adblock.pickElement": (w) => {
       const tab = w.activeTab();
       if (tab) void ctx.adblock.pickElement(w, tab);
@@ -340,6 +341,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "adblock.setEnabled": ["settings", "welcome"],
   "adblock.removeAllowed": ["settings"],
   "adblock.removeForgetSite": ["settings"],
+  "adblock.removeConsentAllowed": ["settings"],
   "phone.status": ["settings"],
   "phone.connect": ["settings"],
   "phone.disconnect": ["settings"],
@@ -755,6 +757,10 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       c.profile.adblock.setForgetOnClose(str(site, "site", 256), false);
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },
+    "adblock.removeConsentAllowed": (c, site) => {
+      c.profile.adblock.setConsentAllowed(str(site, "site", 256), false);
+      return c.profile.adblock.view(ctx.adblock.listsInfo());
+    },
     "adblock.update": async (c) => c.profile.adblock.view(await ctx.adblock.updateNow()),
     "adblock.setUserFilters": (c, text) => {
       c.profile.adblock.setUserFilters(str(text ?? "", "filters", 1_000_000));
@@ -766,6 +772,8 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
         ...(typeof p.annoyances === "boolean" ? { annoyances: p.annoyances } : {}),
         ...(typeof p.cleanUrls === "boolean" ? { cleanUrls: p.cleanUrls } : {}),
         ...(typeof p.fingerprinting === "boolean" ? { fingerprinting: p.fingerprinting } : {}),
+        ...(typeof p.cookieConsent === "boolean" ? { cookieConsent: p.cookieConsent } : {}),
+        ...(typeof p.gpc === "boolean" ? { gpc: p.gpc } : {}),
       });
       return c.profile.adblock.view(ctx.adblock.listsInfo());
     },

@@ -1,0 +1,49 @@
+// The browser's Android side (see modules/browser-kit/index.ts): ad and tracker blocking, cookie
+// banners and Global Privacy Control, links to other apps, the pages' permission requests, find in
+// page and reading a page, on top of react-native-webview's WebView (through the hooks
+// patches/react-native-webview@14.0.1.patch adds).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.corvus.browserkit'
+version = '1.0.0'
+
+// The cookie banner script (DuckDuckGo Autoconsent, bundled), the GPC script and the packed rules,
+// built from the npm packages by scripts/consent-assets.mjs, plus the cases ConsentRulesTest checks.
+def mobileDir = file('../../..')
+def consentOut = layout.buildDirectory.dir('generated/corvus-consent')
+def consentAssets = tasks.register('corvusConsentAssets', Exec) {
+  workingDir mobileDir
+  inputs.file(new File(mobileDir, 'scripts/consent-assets.mjs'))
+  inputs.dir(new File(mobileDir, 'modules/browser-kit/consent'))
+  inputs.file(new File(mobileDir, '../../packages/shared/src/cookie-consent.ts'))
+  inputs.file(new File(mobileDir, 'package.json'))
+  outputs.dir(consentOut)
+  commandLine 'node', 'scripts/consent-assets.mjs', consentOut.get().asFile.absolutePath
+}
+tasks.named('preBuild') { dependsOn consentAssets }
+
+android {
+  namespace "expo.modules.corvus.browserkit"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+  sourceSets {
+    main.assets.srcDirs += consentOut.get().dir('assets').asFile
+    test.resources.srcDirs += [consentOut.get().dir('assets').asFile, consentOut.get().dir('test').asFile]
+  }
+}
+
+dependencies {
+  implementation project(':react-native-webview')
+  implementation 'com.facebook.react:react-android'
+  // The version react-native-webview builds with.
+  implementation "androidx.webkit:webkit:1.14.0"
+
+  testImplementation "junit:junit:4.13.2"
+  // org.json for the JVM (android.jar only has stubs of it in unit tests).
+  testImplementation "org.json:json:20240303"
+}

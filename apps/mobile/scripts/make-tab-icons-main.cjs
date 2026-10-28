@@ -3,9 +3,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { app, BrowserWindow } = require("electron");
 
-/** The icons' shapes, as in src/components/icon.tsx (home, bookmark, settings). */
+/** The icons' shapes, as in src/components/icon.tsx (home, sparkle, bookmark, settings). */
 const ICONS = {
   home: { paths: ["M3 10.5 12 3l9 7.5", "M5 9v11h5v-6h4v6h5V9"] },
+  assist: { paths: ["M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z", "M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"] },
   library: { paths: ["M19 21l-7-4.5L5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"] },
   settings: {
     circles: [[12, 12, 3]],

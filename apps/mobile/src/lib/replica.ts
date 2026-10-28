@@ -11,10 +11,11 @@ import type { Progress } from './refresh';
 export type ReplicaClient = Pick<CorvusSyncClient, 'cursor' | 'pullPages' | 'pullCollection' | 'forgetCollection'>;
 
 /** What the phone shows, in the order it was added to the app. */
-export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history'];
+export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings'];
 
 export class Replica {
   private readonly cache = new Map<SyncCollection, Record<string, unknown>>();
+  private readonly unsaved = new Set<SyncCollection>();
 
   /** `prefix` scopes the data to one chain, e.g. `corvus-sync/<chain id>/` (cleared on unpair). */
   constructor(
@@ -80,7 +81,24 @@ export class Replica {
     await this.save(collection);
   }
 
+  /**
+   * Records a change in memory only, saved with the collection's next save or `flush()`: the
+   * browser's visits, which would otherwise write the whole history on every page.
+   */
+  async putSoon(collection: SyncCollection, id: string, payload: unknown): Promise<void> {
+    const records = await this.records(collection);
+    if (payload === null) delete records[id];
+    else records[id] = payload;
+    this.unsaved.add(collection);
+  }
+
+  /** Saves what `putSoon` changed. */
+  async flush(): Promise<void> {
+    for (const collection of [...this.unsaved]) await this.save(collection);
+  }
+
   private async save(collection: SyncCollection): Promise<void> {
+    this.unsaved.delete(collection);
     await this.storage.set(`${this.prefix}data/${collection}`, JSON.stringify(await this.records(collection)));
   }
 }
@@ -113,7 +131,7 @@ export function filterTabs(computers: readonly ComputerTabs[], query: string): C
     .filter((c) => c.tabs.length > 0);
 }
 
-/** The host a tab's favicon and initial come from ("example.com" for https://www.example.com/a). */
+/** The host shown under a page's title ("example.com" for https://www.example.com/a); its tile's letter is the site's (lib/favicon.ts). */
 export function tabHost(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');

@@ -1,15 +1,14 @@
-import { newAsk, parseAsk, type AskRecord } from '@corvus/shared';
+import { newAsk, parseAsk } from '@corvus/shared';
 import { describe, expect, it } from 'vitest';
 
-import { answerParts, answering, askStatus, myAsks } from '../src/lib/asks';
+import { myAsks } from '../src/lib/asks';
 
 const PHONE = 'phone-0000-0001';
 const DESK = 'desk-0000-0001';
 const OTHER = 'phone-0000-0002';
-const record = (id: string, extra: Partial<AskRecord> = {}): AskRecord => ({ id, ...newAsk('How long do ravens live?', DESK, PHONE, 'Pixel', 1000), ...extra });
 
 describe('questions to a computer', () => {
-  it('reads valid records only, and only this phone\'s, newest first', () => {
+  it("reads valid records only, and only this phone's, newest first", () => {
     const records = {
       'ask-0001': newAsk('First?', DESK, PHONE, 'Pixel', 1000),
       'ask-0002': { ...newAsk('Second?', DESK, PHONE, 'Pixel', 2000), state: 'answering', answer: 'Partly [1]', sources: [{ title: 'R', url: 'https://r.example/' }, { title: 'bad', url: 'javascript:x' }] },
@@ -24,25 +23,9 @@ describe('questions to a computer', () => {
     expect(parseAsk({ ...newAsk('x', DESK, PHONE, 'p', 1), state: 'nonsense' })?.state).toBe('waiting');
   });
 
-  it('says where each question stands', () => {
-    const name = (id: string): string => (id === DESK ? 'Desk' : 'your computer');
-    expect(askStatus(record('a'), name)).toBe('Waiting for Desk (Corvus must be open there)…');
-    expect(askStatus(record('a', { state: 'answering', answeredBy: 'Laptop' }), name)).toBe('Laptop is answering…');
-    expect(askStatus(record('a', { state: 'done' }), name)).toBe('Answered by Desk');
-    expect(askStatus(record('a', { state: 'error', error: 'No AI provider is set up.' }), name)).toBe('Desk could not answer: No AI provider is set up.');
-    expect(answering([record('a', { state: 'done' }), record('b', { state: 'answering' })])).toBe(true);
-    expect(answering([record('a', { state: 'done' }), record('b', { state: 'error' })])).toBe(false);
-  });
-
-  it('splits an answer into text and citations of its sources', () => {
-    expect(answerParts('Ravens live 10-15 years [1] in the wild [2][7].', 2)).toEqual([
-      { text: 'Ravens live 10-15 years ' },
-      { cite: 1 },
-      { text: ' in the wild ' },
-      { cite: 2 },
-      { text: '[7].' },
-    ]);
-    expect(answerParts('', 3)).toEqual([]);
-    expect(answerParts('[1]', 1)).toEqual([{ cite: 1 }]);
+  it('keeps a follow-up in its conversation, with the earlier turns', () => {
+    const follow = newAsk('And in captivity?', DESK, PHONE, 'Pixel', 2000, { thread: 'ask-0001', context: [{ question: 'How long do ravens live?', answer: '10-15 years.' }] });
+    const [ask] = myAsks({ 'ask-0002': follow }, PHONE);
+    expect(ask).toMatchObject({ thread: 'ask-0001', context: [{ question: 'How long do ravens live?', answer: '10-15 years.' }] });
   });
 });

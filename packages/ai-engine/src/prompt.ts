@@ -1,4 +1,4 @@
-import type { SearchResult } from "@corvus/shared";
+import type { SearchResult, SearchTurn } from "@corvus/shared";
 import { collapseWhitespace, truncate } from "./text.js";
 
 /**
@@ -40,11 +40,52 @@ function sanitize(text: string): string {
   return collapseWhitespace(text.replace(/<\/?sources>/gi, "")).replace(/^\[(\d+)\]/, "($1)");
 }
 
+/** Room for the earlier turns of a follow-up, in total and per answer. */
+export const CONTEXT_MAX_CHARS = 2400;
+export const CONTEXT_ANSWER_MAX_CHARS = 600;
+
+/** Drops [n] marks, which cited the earlier answer's own sources, not these. */
+const uncited = (text: string): string => text.replace(/\s*\[\d+(?:\s*[-–,]\s*\d+)*\]/g, "");
+
+/**
+ * The earlier turns of a conversation as a block for the user message (newest kept when they do not
+ * all fit), or "" without any. Only in the user message: the system prompt stays static.
+ */
+export function conversationBlock(context: readonly SearchTurn[] = []): string {
+  const lines: string[] = [];
+  let used = 0;
+  for (const turn of [...context].reverse()) {
+    const q = truncate(sanitize(turn.question.replace(/<\/?conversation>/gi, "")), 300);
+    const a = truncate(sanitize(uncited(turn.answer).replace(/<\/?conversation>/gi, "")), CONTEXT_ANSWER_MAX_CHARS);
+    const entry = a ? `Q: ${q}\nA: ${a}` : `Q: ${q}`;
+    if (!q || used + entry.length > CONTEXT_MAX_CHARS) break;
+    lines.unshift(entry);
+    used += entry.length;
+  }
+  if (!lines.length) return "";
+  return `<conversation>\n${lines.join("\n")}\n</conversation>\nThe query follows up on this conversation: answer it in that context, still citing only the sources below.\n`;
+}
+
+/**
+ * What to search for: the query, or for a short follow-up ("and in winter?") the previous question
+ * and the query together, so the retriever knows what it is about.
+ */
+export function retrievalQuery(query: string, context: readonly SearchTurn[] = []): string {
+  const q = collapseWhitespace(query);
+  const previous = context.length ? collapseWhitespace(context[context.length - 1]!.question) : "";
+  if (!previous || q.split(" ").length > FOLLOW_UP_MAX_WORDS) return q;
+  return `${truncate(previous, 200)} ${q}`;
+}
+
+/** Follow-ups up to this many words are searched for with the previous question. */
+export const FOLLOW_UP_MAX_WORDS = 6;
+
 export function buildPrompt(
   query: string,
   lang: string,
   results: SearchResult[],
   pages: PageExtract[] = [],
+  context: readonly SearchTurn[] = [],
 ): BuiltPrompt {
   const byIndex = new Map(pages.map((p) => [p.index, p.text]));
   const blocks = results.map((r, i) => {
@@ -57,7 +98,7 @@ export function buildPrompt(
     if (page) lines.push(`Page: ${truncate(sanitize(page), EXCERPT_MAX_CHARS)}`);
     return lines.join("\n");
   });
-  const user = `lang: ${lang}\nquery: ${collapseWhitespace(query)}\n<sources>\n${blocks.join("\n")}\n</sources>`;
+  const user = `lang: ${lang}\n${conversationBlock(context)}query: ${collapseWhitespace(query)}\n<sources>\n${blocks.join("\n")}\n</sources>`;
   return { system: SYSTEM_PROMPT, user };
 }
 

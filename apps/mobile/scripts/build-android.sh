@@ -22,8 +22,9 @@ cd android
 # of class androidx.work.impl.WorkDatabase"), so release builds are not minified.
 GRADLE_FLAGS=(--no-daemon --console=plain -Pandroid.enableMinifyInReleaseBuilds=false)
 # The QR scanner's decoder is tested first, on real QR images (modules/qr-scanner, QrDecoderTest;
-# library modules only have unit tests for the debug build type).
-./gradlew "${GRADLE_FLAGS[@]}" :qr-scanner:testDebugUnitTest assembleRelease
+# library modules only have unit tests for the debug build type), and the browser's ad and tracker
+# matcher on the cases the app's own matcher passes (modules/browser-kit, ContentBlockerTest).
+./gradlew "${GRADLE_FLAGS[@]}" :qr-scanner:testDebugUnitTest :browser-kit:testDebugUnitTest assembleRelease
 
 APK=app/build/outputs/apk/release/app-release.apk
 BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"

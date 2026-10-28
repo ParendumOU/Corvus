@@ -7,3 +7,26 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+/*
+ * Scrollbars (web build): none on the pages and lists, as on the phone, where they scroll by touch.
+ * A text box that holds more than it shows (the chat's message box) keeps a thin, see-through one
+ * in the color of the theme's borders.
+ */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(197, 200, 209, 0.7) transparent;
+}
+@media (prefers-color-scheme: dark) {
+  textarea {
+    scrollbar-color: rgba(67, 67, 92, 0.8) transparent;
+  }
+}

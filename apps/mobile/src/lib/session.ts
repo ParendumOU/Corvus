@@ -10,16 +10,20 @@ import {
   isSyncedWatch,
   linkOnlyReadingItem,
   newAsk,
+  parseSyncedHistory,
   withReadState,
+  type AskFollowUp,
   type AskRecord,
   type Bookmark,
   type DeviceInfo,
+  type DeviceTabs,
   type PairingInfo,
   type ReadingItem,
   type SentTab,
   type SentTabRecord,
   type SyncCollection,
   type SyncStateStorage,
+  type SyncedHistoryEntry,
 } from '@corvus/shared';
 import { createSyncClient, type CorvusSyncClient } from '@corvus/sync-core';
 import * as Crypto from 'expo-crypto';
@@ -31,6 +35,7 @@ import { dataStore } from '@/lib/data-store';
 import { bookmarkList, nextPosition } from '@/lib/library';
 import type { Progress } from '@/lib/refresh';
 import { Replica } from '@/lib/replica';
+import { mergeVisit, retitled } from '@/lib/visits';
 import { watchFor } from '@/lib/watches';
 import { t } from './i18n';
 
@@ -178,6 +183,89 @@ export async function addBookmark(pairing: Pairing, url: string, title: string):
   await change(pairing, 'bookmarks', bookmark.id, bookmark);
 }
 
+/**
+ * Adds a visit of the phone's browser to the chain's history (one record per address, merged with
+ * what the computers recorded): kept in the replica at once, pushed with the next `pushVisits`.
+ * Returns the entry as it now stands.
+ */
+export async function addVisit(pairing: Pairing, visit: { url: string; title: string }, now: number): Promise<SyncedHistoryEntry> {
+  const replica = replicaFor(pairing);
+  const entry = mergeVisit((await replica.records('history'))[visit.url], visit, now);
+  await replica.putSoon('history', visit.url, entry);
+  pendingVisits(pairing).add(visit.url);
+  return entry;
+}
+
+/** The title a page showed once it loaded, on its history entry (pushed with the next `pushVisits`). */
+export async function retitleVisit(pairing: Pairing, url: string, title: string): Promise<void> {
+  const replica = replicaFor(pairing);
+  const entry = retitled((await replica.records('history'))[url], title);
+  if (!entry) return;
+  await replica.putSoon('history', url, entry);
+  pendingVisits(pairing).add(url);
+}
+
+const visitQueues = new Map<string, Set<string>>();
+const pendingVisits = (pairing: Pairing): Set<string> => {
+  let queue = visitQueues.get(pairing.chainId);
+  if (!queue) visitQueues.set(pairing.chainId, (queue = new Set()));
+  return queue;
+};
+
+/**
+ * Pushes the visits recorded since the last push. A computer that changed the same entry meanwhile
+ * wins the record, and the phone's visit is counted on top of it; what fails waits for the next push.
+ */
+export async function pushVisits(pairing: Pairing): Promise<void> {
+  const queue = pendingVisits(pairing);
+  if (queue.size === 0) return;
+  const urls = [...queue];
+  queue.clear();
+  const replica = replicaFor(pairing);
+  await replica.flush();
+  try {
+    const records = await replica.records('history');
+    const items = urls.filter((url) => records[url]).map((url) => ({ collection: 'history' as const, id: url, payload: records[url], deleted: false }));
+    const { conflicts } = await clientFor(pairing).push(items);
+    const retry = [];
+    for (const remote of conflicts) {
+      if (remote.collection !== 'history' || remote.deleted) continue;
+      const mine = parseSyncedHistory(records[remote.id]);
+      const theirs = parseSyncedHistory(remote.payload);
+      if (!mine || !theirs) continue;
+      const merged: SyncedHistoryEntry = { ...theirs, title: mine.title || theirs.title, visitedAt: Math.max(mine.visitedAt, theirs.visitedAt), visitCount: theirs.visitCount + 1 };
+      await replica.put('history', remote.id, merged);
+      retry.push({ collection: 'history' as const, id: remote.id, payload: merged, deleted: false });
+    }
+    if (retry.length > 0) await clientFor(pairing).push(retry);
+  } catch (err) {
+    for (const url of urls) queue.add(url);
+    throw err;
+  }
+}
+
+/**
+ * Shows the phone's open tabs on the computers: this phone's `open_tabs` record (keyed by its device
+ * id, as every device publishes its own), or none once no tab is open.
+ */
+export async function publishOpenTabs(pairing: Pairing, record: DeviceTabs): Promise<void> {
+  const client = clientFor(pairing);
+  const id = await client.getDeviceId();
+  const empty = record.tabs.length === 0;
+  await client.push([{ collection: 'open_tabs', id, payload: empty ? null : record, deleted: empty }]);
+}
+
+/** Removes every bookmark of a page (the browser's star), on every device. */
+export async function removeBookmarksOf(pairing: Pairing, url: string): Promise<void> {
+  const records = await replicaFor(pairing).records('bookmarks');
+  const ids = bookmarkList(records)
+    .filter((b) => b.kind === 'bookmark' && b.url === url)
+    .map((b) => b.id);
+  if (ids.length === 0) return;
+  await clientFor(pairing).push(ids.map((id) => ({ collection: 'bookmarks' as const, id, payload: null, deleted: true })));
+  for (const id of ids) await replicaFor(pairing).put('bookmarks', id, null);
+}
+
 /** What the phone already has, without the network (shown before the first refresh). */
 export function cachedView(pairing: Pairing, devices: DeviceInfo[] = [], progress: Progress = () => undefined): Promise<ChainView> {
   return view(pairing, devices, progress);
@@ -204,10 +292,10 @@ export async function sendPage(pairing: Pairing, page: Pick<SentTab, 'url' | 'ti
 const oldServerAsks = (): string => t('Your sync server does not support questions yet: update it to the latest Corvus sync server.');
 
 /** Asks one of the chain's computers a question; it answers with its AI search while Corvus runs there. */
-export async function askComputer(pairing: Pairing, question: string, to: string): Promise<AskRecord> {
+export async function askComputer(pairing: Pairing, question: string, to: string, follow: AskFollowUp = {}): Promise<AskRecord> {
   const client = clientFor(pairing);
   const id = Crypto.randomUUID();
-  const payload = newAsk(question, to, await client.getDeviceId(), pairing.deviceName, Date.now());
+  const payload = newAsk(question, to, await client.getDeviceId(), pairing.deviceName, Date.now(), follow);
   await client.push([{ collection: 'asks', id, payload, deleted: false }]);
   if (client.unsupported().has('asks')) throw new Error(oldServerAsks());
   await replicaFor(pairing).put('asks', id, payload);
@@ -216,8 +304,14 @@ export async function askComputer(pairing: Pairing, question: string, to: string
 
 /** Takes a question off the list (and stops its answer if a computer is still writing it). */
 export async function removeAsk(pairing: Pairing, id: string): Promise<void> {
-  await clientFor(pairing).push([{ collection: 'asks', id, payload: null, deleted: true }]);
-  await replicaFor(pairing).put('asks', id, null);
+  await removeAsks(pairing, [id]);
+}
+
+/** Takes several questions off the list at once (a whole conversation). */
+export async function removeAsks(pairing: Pairing, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await clientFor(pairing).push(ids.map((id) => ({ collection: 'asks' as const, id, payload: null, deleted: true })));
+  for (const id of ids) await replicaFor(pairing).put('asks', id, null);
 }
 
 /** Takes back a page its computer has not opened yet, or drops one sent here once it is opened. */

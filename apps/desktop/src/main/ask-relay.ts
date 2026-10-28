@@ -1,8 +1,11 @@
-import { MAX_ANSWER, MAX_ASK_SOURCES, type Ask, type SearchEvent } from "@corvus/shared";
+import { MAX_ANSWER, MAX_ASK_SOURCES, type Ask, type SearchEvent, type SearchTurn } from "@corvus/shared";
 
 export interface AskRelayDeps {
-  /** The computer's AI search (quick depth), as corvus://search runs it. */
-  stream(question: string, signal: AbortSignal): AsyncIterable<SearchEvent>;
+  /**
+   * The computer's AI search (quick depth), as corvus://search runs it; `context` holds the earlier
+   * turns of the conversation when the question is a follow-up (empty otherwise).
+   */
+  stream(question: string, signal: AbortSignal, context: SearchTurn[]): AsyncIterable<SearchEvent>;
   /** Writes the record on the chain; false when the phone took the question back meanwhile. */
   push(ask: Ask): Promise<boolean>;
   /** This computer's name, shown on the phone. */
@@ -25,7 +28,19 @@ export async function answerAsk(ask: Ask, deps: AskRelayDeps): Promise<Ask> {
   const controller = new AbortController();
   const stop = (): void => controller.abort();
   deps.signal?.addEventListener("abort", stop, { once: true });
-  let current: Ask = { ...ask, state: "answering", answer: "", sources: [], followUps: [], error: "", answeredBy: deps.deviceName, updatedAt: deps.now() };
+  const context = ask.context ?? [];
+  // A follow-up says it was answered in its conversation's context (a phone tells older computers apart).
+  let current: Ask = {
+    ...ask,
+    state: "answering",
+    answer: "",
+    sources: [],
+    followUps: [],
+    error: "",
+    answeredBy: deps.deviceName,
+    updatedAt: deps.now(),
+    ...(context.length ? { withContext: true } : {}),
+  };
   let lastPush = 0;
   let pushing: Promise<boolean> | null = null;
   const write = async (next: Ask): Promise<boolean> => {
@@ -43,7 +58,7 @@ export async function answerAsk(ask: Ask, deps: AskRelayDeps): Promise<Ask> {
     let answer = "";
     let sources: Ask["sources"] = [];
     const followUps: string[] = [];
-    for await (const event of deps.stream(ask.question, controller.signal)) {
+    for await (const event of deps.stream(ask.question, controller.signal, context)) {
       if (controller.signal.aborted) break;
       if (event.type === "results") {
         sources = event.results.slice(0, MAX_ASK_SOURCES).map((r) => ({ title: r.title.slice(0, 300), url: r.url }));

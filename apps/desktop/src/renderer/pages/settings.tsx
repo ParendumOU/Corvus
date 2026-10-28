@@ -1098,6 +1098,26 @@ function AdblockSection() {
           onChange={(v) => run(api.call("adblock.setOptions", { annoyances: v }))}
         />
       </Row>
+      <Row
+        label={t("Reject cookie banners automatically")}
+        hint={t("Answers cookie consent banners for you with DuckDuckGo’s Autoconsent rules: rejects everything, or unticks every purpose and vendor and saves only what is needed. A banner it cannot answer is hidden. Sites you allow below, or from the shield, keep their banner.")}
+      >
+        <Toggle
+          label={t("Reject cookie banners automatically")}
+          checked={view?.cookieConsent ?? true}
+          onChange={(v) => run(api.call("adblock.setOptions", { cookieConsent: v }))}
+        />
+      </Row>
+      <Row
+        label={t("Tell sites not to sell or share my data (Global Privacy Control)")}
+        hint={t("Sends the Sec-GPC signal with every request and sets navigator.globalPrivacyControl in pages. In some places, such as California, sites must honour it.")}
+      >
+        <Toggle
+          label={t("Tell sites not to sell or share my data (Global Privacy Control)")}
+          checked={view?.gpc ?? true}
+          onChange={(v) => run(api.call("adblock.setOptions", { gpc: v }))}
+        />
+      </Row>
       <Row label={t("Remove tracking from links")} hint={t("Opens addresses without their tracking parameters (utm_*, fbclid, gclid, msclkid and similar), which only tell trackers where you came from.")}>
         <Toggle
           label={t("Remove tracking from links")}
@@ -1145,6 +1165,22 @@ function AdblockSection() {
             <div key={host} className="list-row">
               <span className="grow">{host}</span>
               <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("adblock.removeAllowed", host))}>
+                <IconTrash size={13} />
+                {t("Remove")}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <Row label={t("Sites with their cookie banner")} hint={t("Corvus leaves the cookie banner of these sites for you to answer (chosen from the shield in the address bar).")}>
+        {view && view.consentAllowedSites.length === 0 && <span className="muted">{t("None")}</span>}
+      </Row>
+      {view && view.consentAllowedSites.length > 0 && (
+        <div className="list" style={{ borderTop: "1px solid var(--border-soft)" }}>
+          {view.consentAllowedSites.map((site) => (
+            <div key={site} className="list-row">
+              <span className="grow">{site}</span>
+              <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("adblock.removeConsentAllowed", site))}>
                 <IconTrash size={13} />
                 {t("Remove")}
               </button>

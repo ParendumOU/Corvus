@@ -1,6 +1,6 @@
 {
   "name": "@corvus/mobile",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "license": "MPL-2.0",
   "description": "Corvus companion app for Android and iOS: your computer's Corvus in your pocket, over end-to-end encrypted sync.",
@@ -47,11 +47,14 @@
     "react-native-screens": "~4.30.0",
     "react-native-svg": "15.16.0",
     "react-native-web": "~0.21.4",
+    "react-native-webview": "14.0.1",
     "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
+    "@duckduckgo/autoconsent": "16.58.0",
     "@types/react": "~19.3.0",
     "electron": "44.9.0",
+    "rolldown": "1.2.14",
     "typescript": "~6.0.3",
     "vitest": "5.0.5"
   },

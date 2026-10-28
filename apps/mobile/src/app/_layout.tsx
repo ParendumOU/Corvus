@@ -58,7 +58,11 @@ export default function RootLayout() {
         <Stack.Screen name="send" options={{ presentation: 'modal', title: t('Save or send a page') }} />
         <Stack.Screen name="open" options={{ presentation: 'modal', title: t('Open link') }} />
         <Stack.Screen name="watches" options={{ title: t('Watched pages') }} />
-        <Stack.Screen name="ask" options={{ title: t('Ask Corvus') }} />
+        <Stack.Screen name="ask" options={{ title: t('Assist') }} />
+        <Stack.Screen name="chat/[id]" options={{ title: t('Assist') }} />
+        {/* One browser screen at most: links that come in while it is open go to it. */}
+        <Stack.Screen name="browser" options={{ headerShown: false, animation: 'fade_from_bottom' }} dangerouslySingular />
+        <Stack.Screen name="browser-settings" options={{ title: t('Browser settings') }} />
       </Stack>
       <FeedbackHost />
     </ThemeProvider>

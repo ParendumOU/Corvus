@@ -1,6 +1,7 @@
 export * from "./browser.js";
 export * from "./agent.js";
 export * from "./challenge.js";
+export * from "./cookie-consent.js";
 export * from "./search.js";
 export * from "./sync.js";
 export * from "./services.js";
@@ -13,3 +14,4 @@ export * from "./history.js";
 export * from "./watches.js";
 export * from "./asks.js";
 export * from "./newtab-guide.js";
+export * from "./tlds.js";

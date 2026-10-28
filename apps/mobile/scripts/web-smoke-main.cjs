@@ -316,13 +316,6 @@ async function pairingSmoke(win, base, syncUrl) {
   check("history: pages visited on the computer, grouped by day, found by title", historyShown && historyFound);
   await typeInto(win, "library-search", "");
 
-  // Assist conversations from the computer: listed, and read by tapping one.
-  await tap("library-conversations");
-  const conversationListed = await until(win, present("conversation-smoke-conversation"));
-  await win.webContents.executeJavaScript(`document.querySelector('[data-testid="conversation-smoke-conversation"] [role="button"]')?.click()`);
-  const answered = await until(win, `(document.querySelector('[data-testid="conversation-answer-smoke-turn"]')?.innerText ?? '').includes('Vueling')`);
-  await shot(win, "library-conversations");
-  check("assist conversations from the computer show on the phone and open to read", conversationListed && answered);
 
   // Watched pages: what the computer saw, and a watch added on the phone.
   await win.loadURL(`${base}/`);
@@ -375,34 +368,84 @@ async function pairingSmoke(win, base, syncUrl) {
     bookmark?.payload ?? null,
   );
 
-  // Ask Corvus: the question reaches the computer, whose answer shows on the phone as it is written.
+  // Assist: a chat with the computer. The question reaches it, its answer shows as it is written,
+  // a suggested follow-up asks again in the same conversation with the earlier turn, and deleting
+  // the conversation takes every question off the chain.
   const question = "How long do ravens live?";
   await win.loadURL(`${base}/`);
   await until(win, present("home-ask"), 20000);
   await tap("home-ask");
-  await until(win, "document.querySelector('[data-testid=ask-submit]')?.innerText.includes('Ask Smoke desktop')", 20000);
+  await until(win, `${present("chat-new")} && (document.querySelector('[data-testid=chat-computer]')?.innerText ?? '').includes('Smoke desktop')`, 20000);
+  await shot(win, "assist-new");
   await typeInto(win, "ask-question", question);
   await until(win, "document.querySelector('[data-testid=ask-submit]')?.getAttribute('aria-disabled') !== 'true'");
   await tap("ask-submit");
   const asked = await pulledUntil((i) => i.collection === "asks" && i.payload?.question === question);
-  const status = `document.querySelector('[data-testid="ask-status-${question}"]')?.innerText ?? ''`;
+  const status = (q) => `document.querySelector('[data-testid="ask-status-${q}"]')?.innerText ?? ''`;
   const answerText = `document.querySelector('[data-testid="ask-answer-${question}"]')?.innerText ?? ''`;
-  const waitingShown = await until(win, `(${status}).includes("Waiting for Smoke desktop")`, 10000);
-  check("ask: a question asked on the phone reaches the computer, addressed to it", asked?.payload?.to === deskId && asked.payload.state === "waiting" && waitingShown, asked?.payload ?? null);
+  const waitingShown = await until(win, `(${status(question)}).includes("Waiting for Smoke desktop")`, 10000);
+  check("ask: a question asked on the phone reaches the computer, addressed to it", asked?.payload?.to === deskId && asked.payload.state === "waiting" && !asked.payload.thread && waitingShown, asked?.payload ?? null);
   if (asked) {
-    const answer = { ...asked.payload, state: "answering", answeredBy: "Smoke desktop", answer: "Ravens live 10 to 15 years", sources: [{ title: "Ravens", url: "https://birds.example/raven" }], updatedAt: Date.now() };
+    const answer = { ...asked.payload, state: "answering", answeredBy: "Smoke desktop", answer: "Ravens live **10 to 15 years**", sources: [{ title: "Ravens", url: "https://birds.example/raven" }], updatedAt: Date.now() };
     await computer.push([{ collection: "asks", id: asked.id, payload: answer, deleted: false }]);
-    const partial = await until(win, `(${status}).includes("Smoke desktop is answering") && (${answerText}).includes("10 to 15 years")`, 15000);
+    const partial = await until(win, `(${status(question)}).includes("Smoke desktop is writing") && (${answerText}).includes("10 to 15 years")`, 15000);
     await computer.push([
-      { collection: "asks", id: asked.id, payload: { ...answer, state: "done", answer: "Ravens live 10 to 15 years in the wild [1].", followUps: ["Do ravens mate for life?"], updatedAt: Date.now() }, deleted: false },
+      { collection: "asks", id: asked.id, payload: { ...answer, state: "done", answer: "Ravens live **10 to 15 years** in the wild [1].", followUps: ["Do ravens mate for life?"], updatedAt: Date.now() }, deleted: false },
     ]);
-    const done = await until(win, `(${status}).includes("Answered by Smoke desktop") && (${answerText}).includes("in the wild [1].") && ${present("ask-source-https://birds.example/raven")}`, 15000);
+    const done = await until(win, `(${status(question)}).includes("Answered by Smoke desktop") && (${answerText}).includes("in the wild") && ${present("ask-source-https://birds.example/raven")}`, 15000);
     await shot(win, "ask");
     check("ask: the phone shows the answer as the computer writes it, then with its sources", partial && done, await win.webContents.executeJavaScript(answerText));
-    await tap(`ask-remove-${question}`);
-    const removed = await pulledUntil((i) => i.collection === "asks" && i.id === asked.id && i.deleted);
-    check("ask: removing a question takes it off the chain", Boolean(removed) && (await until(win, `!${present(`ask-${question}`)}`, 5000)));
+
+    const followUp = "Do ravens mate for life?";
+    await until(win, present(`follow-up-${followUp}`), 5000);
+    await tap(`follow-up-${followUp}`);
+    const next = await pulledUntil((i) => i.collection === "asks" && i.payload?.question === followUp);
+    const turn = next?.payload?.context?.[0];
+    check(
+      "ask: a suggested follow-up asks again in the same conversation, with the earlier question and answer",
+      next?.payload?.thread === asked.id && turn?.question === question && turn.answer === "Ravens live 10 to 15 years in the wild." && (await until(win, `(${status(followUp)}).includes("Waiting for Smoke desktop")`, 10000)),
+      next?.payload ?? null,
+    );
+
+    await win.loadURL(`${base}/assist`);
+    const listed = await until(win, `(document.querySelector('[data-testid="chat-${question}"]')?.innerText ?? '').includes('Smoke desktop') && ${present("chat-assist-smoke-conversation")}`, 20000);
+    await shot(win, "assist");
+    check("assist: the phone's conversation and the computer's Assist conversation are listed together", listed);
+
+    await tap(`chat-${question}`);
+    await until(win, present("chat-delete"), 10000);
+    await tap("chat-delete");
+    await until(win, present("dialog-confirm"), 5000);
+    await tap("dialog-confirm");
+    const deleted = new Set();
+    for (const end = Date.now() + 15000; deleted.size < 2 && Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
+      for (const i of await computer.pull()) if (i.collection === "asks" && i.deleted) deleted.add(i.id);
+    }
+    check("ask: deleting a conversation takes all its questions off the chain", deleted.has(asked.id) && (!next || deleted.has(next.id)), [...deleted]);
   }
+
+  // A computer's Assist conversation: read in the same chat view; writing below continues it as a
+  // new conversation of the phone that quotes it and carries its turns.
+  await win.loadURL(`${base}/assist`);
+  await until(win, present("chat-assist-smoke-conversation"), 20000);
+  await tap("chat-assist-smoke-conversation");
+  const answered = await until(win, `(document.querySelector('[data-testid="conversation-answer-smoke-turn"]')?.innerText ?? '').includes('Vueling') && ${present("chat-continue-note")}`, 10000);
+  await shot(win, "assist-conversation");
+  check("assist conversations from the computer show on the phone and open to read", answered);
+  const continued = "And the cheapest hotel there?";
+  await typeInto(win, "ask-question", continued);
+  await until(win, "document.querySelector('[data-testid=ask-submit]')?.getAttribute('aria-disabled') !== 'true'");
+  await tap("ask-submit");
+  const quoted = await pulledUntil((i) => i.collection === "asks" && i.payload?.question === continued);
+  check(
+    "assist: replying to a computer's conversation starts a phone conversation that quotes it and carries its turns",
+    quoted?.payload?.origin?.conversation === "smoke-conversation" &&
+      quoted.payload.context?.[0]?.question === "cheapest flight to Lisbon" &&
+      quoted.payload.context[0].answer === "Vueling, 111 euros, direct" &&
+      (await until(win, present("chat-origin"), 10000)),
+    quoted?.payload ?? null,
+  );
+  if (quoted) await computer.push([{ collection: "asks", id: quoted.id, payload: null, deleted: true }]);
 
   await win.loadURL(`${base}/settings`);
   const listed = await until(win, "document.querySelector('[data-testid=\"device-Smoke desktop\"]') && document.querySelector('[data-testid=\"device-Phone\"]')?.textContent.includes('(this phone)')", 20000);
@@ -460,6 +503,26 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript("document.querySelector('[data-testid=open-submit]')?.click()");
     for (const end = Date.now() + 5000; openedLink === null && Date.now() < end; ) await new Promise((r) => setTimeout(r, 100));
     check("open a link: the Open screen shows the link and opens it with one tap (unpaired: with a hint to pair)", openShown && openedLink === link, openedLink);
+
+    // Corvus's browser (on the web build its page is a stand-in card): a link opens in a tab with its
+    // site in the address bar, the page menu has Corvus's actions, and the address bar searches.
+    const page = "https://example.com/browsed?x=1";
+    const browserShown = await screen(
+      win,
+      base,
+      `/browser?open=${encodeURIComponent(page)}`,
+      "browser",
+      `document.querySelector('[data-testid=browser-page-url]')?.textContent === ${JSON.stringify(page)} && (document.querySelector('[data-testid=browser-address]')?.innerText ?? '').includes('example.com')`,
+    );
+    await win.webContents.executeJavaScript("document.querySelector('[data-testid=browser-menu]')?.click()");
+    const menuShown = await until(win, "Boolean(document.querySelector('[data-testid=menu-ask]')) && Boolean(document.querySelector('[data-testid=menu-bookmark]')) && Boolean(document.querySelector('[data-testid=menu-desktop]'))", 5000);
+    await shot(win, "browser-menu");
+    check("browser: a link opens in a tab with its site in the address bar, and the page menu has Corvus's actions", browserShown && menuShown);
+    await screen(win, base, "/browser?edit=1", "browser-new-tab", "Boolean(document.querySelector('[data-testid=browser-address-input]'))");
+    await typeInto(win, "browser-address-input", "what do crows eat");
+    const searchOffered = await until(win, "(document.querySelector('[data-testid=browser-suggest-go]')?.innerText ?? '').includes('DuckDuckGo')", 5000);
+    await shot(win, "browser-search");
+    check("browser: the address bar offers to search with DuckDuckGo", searchOffered);
     if (process.env.CORVUS_SYNC_URL) await pairingSmoke(win, base, process.env.CORVUS_SYNC_URL);
     else check("pairing (needs CORVUS_SYNC_URL and the sync-server service)", false, "CORVUS_SYNC_URL is not set");
     check("no errors in the console", errors.length === 0, errors.slice(0, 5));

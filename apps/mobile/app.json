@@ -2,18 +2,25 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.parendum.corvus.mobile",
-      "icon": "./assets/images/icon.png"
+      "buildNumber": "9",
+      "icon": "./assets/images/icon.png",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocalNetworkUsageDescription": "Corvus connects to the sync server on your computer or home network to pair and sync.",
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": false, "NSAllowsLocalNetworking": true }
+      }
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 8,
+      "versionCode": 9,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -73,7 +80,8 @@
         }
       ],
       ["expo-notifications", { "color": "#5B5BD6", "icon": "./assets/images/notification-icon.png" }],
-      "expo-background-task"
+      "expo-background-task",
+      "./plugins/with-web-pages"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -9,6 +9,7 @@ import { ADBLOCK_SCRIPTLETS_CHANNEL, ADBLOCK_YOUTUBE_LOOP_CHANNEL, PlaybackLoopD
 // Type-checked with the Node project (no DOM lib); declare the globals it reads.
 declare const location: { href: string; protocol: string; pathname: string; search: string; reload(): void };
 declare const document: { querySelector(selector: string): { src: string; currentTime: number } | null; visibilityState: string };
+declare const window: { top: unknown };
 
 function watchYouTubePlayer(): void {
   const detector = new PlaybackLoopDetector();
@@ -26,7 +27,8 @@ function watchYouTubePlayer(): void {
   }, 1000);
 }
 
-if (location.protocol === "http:" || location.protocol === "https:") {
+// Top frames only, as before iframes ran session preloads (they do for the cookie banner preload).
+if ((location.protocol === "http:" || location.protocol === "https:") && window.top === window) {
   let answer: Partial<ScriptletsAnswer> | null = null;
   try {
     answer = ipcRenderer.sendSync(ADBLOCK_SCRIPTLETS_CHANNEL, location.href) as Partial<ScriptletsAnswer> | null;

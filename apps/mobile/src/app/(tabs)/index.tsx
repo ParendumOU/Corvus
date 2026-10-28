@@ -12,7 +12,7 @@ import { EmptyState, LoadingState } from '@/components/empty-state';
 import { Favicon } from '@/components/favicon';
 import { Banner } from '@/components/feedback';
 import { SearchField } from '@/components/fields';
-import { CorvusMark, Icon, type IconName } from '@/components/icon';
+import { CorvusMark, Icon } from '@/components/icon';
 import { IconTile, ListGroup, ListHeader, ListRow } from '@/components/list';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
@@ -21,6 +21,8 @@ import { cancelSending, openReceived, refreshSession, useSession } from '@/hooks
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
 import { ago } from '@/lib/format';
+import { showBrowser, startBrowsing } from '@/lib/browser-nav';
+import { useBrowser } from '@/lib/browser-store';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { filterTabs, tabHost, type ComputerTabs } from '@/lib/replica';
 import { changedRecently } from '@/lib/watches';
@@ -84,26 +86,43 @@ function HeaderBand({ welcome }: { welcome: boolean }) {
   );
 }
 
-/** A big button on Home: an icon in a circle and what it does. */
-function ActionTile({ icon, label, onPress, primary, testID }: { icon: IconName; label: string; onPress: () => void; primary?: boolean; testID: string }) {
+/** Home's address bar: opens the browser with a new tab, ready to type an address or a search. */
+function BrowseEntry() {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="search"
+      accessibilityLabel={t('Search or type a web address')}
+      onPress={startBrowsing}
+      android_ripple={{ color: theme.ripple }}
+      style={({ pressed }) => [styles.askEntry, { backgroundColor: theme.surface, borderColor: theme.borderStrong }, pressed && Platform.OS !== 'android' && { opacity: 0.85 }]}
+      testID="home-browse">
+      <Icon name="search" size={22} color={theme.textSecondary} />
+      <ThemedText type="body" themeColor="textTertiary" numberOfLines={1} style={styles.shrink}>
+        {t('Search or type a web address')}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+/** Home's way into a new Assist conversation: looks like the chat's message box, opens it. */
+function AskEntry() {
   const theme = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={onPress}
-      android_ripple={{ color: primary ? theme.accentSoft : theme.ripple }}
-      style={({ pressed }) => [
-        styles.tile,
-        primary ? { backgroundColor: theme.accentContainer, borderColor: theme.accentContainer } : { backgroundColor: theme.surface, borderColor: theme.border },
-        pressed && Platform.OS !== 'android' && { opacity: 0.85 },
-      ]}
-      testID={testID}>
-      <View style={[styles.tileIcon, { backgroundColor: primary ? theme.accent : theme.accentSoft }]}>
-        <Icon name={icon} size={22} color={primary ? theme.onAccent : theme.accentText} />
-      </View>
-      <ThemedText type="smallStrong" style={{ color: primary ? theme.onAccentContainer : theme.text }} numberOfLines={2}>
-        {label}
+      accessibilityLabel={t('Ask Corvus')}
+      onPress={() => router.push({ pathname: '/chat/[id]', params: { id: 'new' } })}
+      android_ripple={{ color: theme.accentSoft }}
+      style={({ pressed }) => [styles.askEntry, { backgroundColor: theme.surface, borderColor: theme.borderStrong }, pressed && Platform.OS !== 'android' && { opacity: 0.85 }]}
+      testID="home-ask">
+      <Icon name="sparkle" size={22} color={theme.accentText} />
+      <ThemedText type="body" themeColor="textTertiary" numberOfLines={1} style={styles.shrink}>
+        {t('Ask Corvus')}
       </ThemedText>
+      <View style={[styles.askSend, { backgroundColor: theme.accentSoft }]}>
+        <Icon name="send" size={18} color={theme.accentText} />
+      </View>
     </Pressable>
   );
 }
@@ -165,6 +184,8 @@ export default function HomeScreen() {
   const waiting = session.outbox.length > 0;
   const paired = session.status === 'paired';
   const changed = changedRecently(session.watches);
+  const browser = useBrowser();
+  const phoneTabs = browser.tabs.tabs.filter((x) => x.url !== '');
 
   // While a sent page waits, look every few seconds for its computer to have opened it.
   useEffect(() => {
@@ -175,6 +196,21 @@ export default function HomeScreen() {
 
   return (
     <Screen tab header={<HeaderBand welcome={session.status === 'unpaired'} />} refreshing={session.refreshing} onRefresh={paired ? () => void refreshSession() : undefined} contentStyle={styles.column}>
+      <BrowseEntry />
+
+      {phoneTabs.length > 0 && (
+        <ListGroup testID="phone-tabs">
+          <ListRow
+            leading={<IconTile name="tabs" />}
+            title={phoneTabs.length === 1 ? t('1 tab open on this phone') : t('{n} tabs open on this phone', { n: phoneTabs.length })}
+            subtitle={phoneTabs[phoneTabs.length - 1]?.title || tabHost(phoneTabs[phoneTabs.length - 1]?.url ?? '')}
+            chevron
+            onPress={showBrowser}
+            testID="home-phone-tabs"
+          />
+        </ListGroup>
+      )}
+
       {session.status === 'unpaired' && (
         <Card testID="pairing-card">
           <CardHeader title={t('Not paired with a computer yet')} description={t('Pair it once and your tabs, pages and library follow you here.')} />
@@ -218,12 +254,7 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {paired && (
-        <View style={styles.actions}>
-          <ActionTile icon="sparkle" label={t('Ask Corvus')} primary onPress={() => router.push('/ask')} testID="home-ask" />
-          <ActionTile icon="send" label={t('Send a page to your computer')} onPress={() => router.push('/send')} testID="home-send" />
-        </View>
-      )}
+      {paired && <AskEntry />}
 
       {paired && session.outbox.length > 0 && (
         <ListGroup testID="outbox">
@@ -242,6 +273,14 @@ export default function HomeScreen() {
 
       {paired && (
         <ListGroup>
+          <ListRow
+            leading={<IconTile name="send" />}
+            title={t('Send a page to your computer')}
+            subtitle={t('It opens there on its next sync.')}
+            chevron
+            onPress={() => router.push('/send')}
+            testID="home-send"
+          />
           <ListRow
             leading={<IconTile name="eye" />}
             title={t('Watched pages')}
@@ -319,21 +358,19 @@ const styles = StyleSheet.create({
   section: {
     gap: Space.sm,
   },
-  actions: {
+  askEntry: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: Space.md,
-  },
-  tile: {
-    flex: 1,
-    minHeight: 104,
-    padding: Space.lg,
-    gap: Space.md,
-    borderRadius: Radius.lg,
+    minHeight: 56,
+    paddingLeft: Space.lg,
+    paddingRight: Space.sm,
+    borderRadius: Radius.pill,
     borderWidth: 1,
     overflow: 'hidden',
-    justifyContent: 'space-between',
   },
-  tileIcon: {
+  askSend: {
+    marginLeft: 'auto',
     width: 40,
     height: 40,
     borderRadius: 20,

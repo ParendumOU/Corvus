@@ -19,7 +19,19 @@ export interface SearchOptions {
   maxResults?: number; // default 8 (news/videos 12, images 30)
   /** Vertical. Anything but "general" is results-only: no LLM call, zero tokens. Default "general". */
   category?: SearchCategory;
+  /**
+   * Earlier questions and answers of the conversation, oldest first, when the query is a follow-up
+   * ("and in winter?"). The answer takes them into account, and a short follow-up is searched for
+   * together with the previous question. Engines that predate it answer the query alone.
+   */
+  context?: SearchTurn[];
   signal?: AbortSignal;
+}
+
+/** One earlier exchange of a conversation (see SearchOptions.context). */
+export interface SearchTurn {
+  question: string;
+  answer: string;
 }
 
 export type SearchCategory = "general" | "news" | "images" | "videos";
