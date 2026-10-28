@@ -15,6 +15,7 @@ import { pairPhone } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
 import { checkManualPairing, checkPairingCode, pairingFailedMessage, phoneDeviceName, type PairingCheck } from '@/lib/pairing';
+import { nav } from '@/lib/nav';
 
 export default function PairScreen() {
   const theme = useTheme();
@@ -36,7 +37,7 @@ export default function PairScreen() {
     try {
       await pairPhone(check.info, check.chainId, phoneDeviceName(Device.modelName, Platform.OS));
       if (router.canGoBack()) router.back();
-      else router.replace('/');
+      else nav.replace('/');
     } catch (err) {
       setError(pairingFailedMessage(err, check.info.serverUrl));
     } finally {
@@ -58,7 +59,7 @@ export default function PairScreen() {
     <Screen>
       <Banner
         icon="shield"
-        message={t('On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Anyone with that code can read your synced data, so pair only your own phone.')}
+        message={t('On your computer, open Corvus Settings, then Sync, and choose “Pair a device”. Anyone with that code can read your synced data, so pair only your own phone.')}
       />
 
       {canScan && (

@@ -14,6 +14,7 @@
     "baseUrl": ".",
     "paths": {
       "@corvus/shared": ["../../packages/shared/src/index.ts"],
+      "@corvus/sync-server/embedded": ["../../services/sync-server/src/embedded.ts"],
       "@corvus/mcp-server/access": ["../../packages/mcp-server/src/access.ts"],
       "@corvus/webscope": ["../../packages/webscope/src/index.ts"]
     }

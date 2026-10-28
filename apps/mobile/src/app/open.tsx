@@ -16,11 +16,12 @@ import { t } from '@/lib/i18n';
 import { webLink } from '@/lib/links';
 import { openInBrowser, openIncoming } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
+import { nav } from '@/lib/nav';
 
 /** Leaves the Open screen, so that the app opens on Home next time. */
 function close(): void {
   if (router.canGoBack()) router.back();
-  else router.replace('/');
+  else nav.replace('/');
 }
 
 /**
@@ -95,7 +96,7 @@ export default function OpenScreen() {
         <Banner
           message={t('Pair this phone with your computer to also send links to it, or save them to your reading list and bookmarks.')}
           testID="open-unpaired"
-          action={<Button label={t('Pair with a computer')} kind="text" size="sm" icon="scan" onPress={() => router.replace('/pair')} testID="open-pair" />}
+          action={<Button label={t('Pair with a computer')} kind="text" size="sm" icon="scan" onPress={() => nav.replace('/pair')} testID="open-pair" />}
         />
       )}
 

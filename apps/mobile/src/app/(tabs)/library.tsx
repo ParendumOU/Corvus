@@ -1,5 +1,4 @@
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID, type Bookmark, type ReadingItem, type SyncedHistoryEntry } from '@corvus/shared';
-import { router } from 'expo-router';
 import { Fragment, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -22,6 +21,7 @@ import { folderContents, folderPath, searchBookmarks, searchReading } from '@/li
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
 import { t } from '@/lib/i18n';
+import { nav } from '@/lib/nav';
 
 type Section = 'bookmarks' | 'reading' | 'history';
 
@@ -242,7 +242,7 @@ export default function LibraryScreen() {
       refreshing={session.refreshing}
       onRefresh={paired ? () => void refreshSession() : undefined}
       onScrolled={setScrolled}
-      floating={paired ? <Fab label={t('Save or send a page')} icon="plus" collapsed={scrolled} onPress={() => router.push('/send')} testID="library-add" /> : undefined}>
+      floating={paired ? <Fab label={t('Save or send a page')} icon="plus" collapsed={scrolled} onPress={() => nav.push('/send')} testID="library-add" /> : undefined}>
       <ScreenTitle title={t('Library')} testID="library-title" />
 
       {!paired ? (
@@ -250,7 +250,7 @@ export default function LibraryScreen() {
           icon="bookmark"
           title={t('Your library, on your phone')}
           description={t('Pair this phone with your computer to see your bookmarks and reading list here.')}
-          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} />}
+          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => nav.push('/pair')} />}
         />
       ) : (
         <>

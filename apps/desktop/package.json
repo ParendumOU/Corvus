@@ -1,6 +1,6 @@
 {
   "name": "@corvus/desktop",
-  "version": "0.29.0",
+  "version": "0.30.0",
   "license": "MPL-2.0",
   "private": true,
   "description": "Corvus desktop browser shell (Electron).",
@@ -33,6 +33,7 @@
     "@corvus/mcp-server": "workspace:*",
     "@corvus/shared": "workspace:*",
     "@corvus/sync-core": "workspace:*",
+    "@corvus/sync-server": "workspace:*",
     "@corvus/webscope": "workspace:*",
     "@duckduckgo/autoconsent": "16.58.0",
     "@resvg/resvg-js": "2.6.2",

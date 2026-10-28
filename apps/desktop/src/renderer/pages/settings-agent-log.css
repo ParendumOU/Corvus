@@ -9,8 +9,16 @@
 }
 .agent-log-filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+.agent-log-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  cursor: pointer;
 }
 .agent-log-filters .grow {
   flex: 1;

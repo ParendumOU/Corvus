@@ -3,6 +3,8 @@
  * (sync collection `asks`, one record per question, keyed by a random id). The phone writes the
  * question; the computer it went to writes the answer into the same record as it streams in, then
  * once more when it is done. The phone deletes a question to take it off its list.
+ * Stopping an answer replaces the question with a "done" copy marked `stopped` (see stoppedAsk) and
+ * deletes it, which stops the computer at its next write.
  *
  * Conversations: a follow-up carries `thread` (the id of the conversation's first question) and
  * `context` (the earlier questions and answers, oldest first), so the computer answers it in that
@@ -56,6 +58,12 @@ export interface Ask {
   origin?: AskOrigin;
   /** Set by the computer when it answered with `context` (computers that predate it never set it). */
   withContext?: boolean;
+  /**
+   * The person stopped the answer on the phone: this record took the question's place (a new id, the
+   * same conversation and `askedAt`) with the answer so far, marked "done", and the question was
+   * deleted, which stops the computer. Computers only answer "waiting" questions, so they leave it be.
+   */
+  stopped?: boolean;
 }
 
 export interface AskRecord extends Ask {
@@ -129,6 +137,7 @@ export function parseAsk(raw: unknown): Ask | null {
     ...(context.length ? { context } : {}),
     ...(from ? { origin: from } : {}),
     ...(raw.withContext === true ? { withContext: true } : {}),
+    ...(raw.stopped === true ? { stopped: true } : {}),
   };
 }
 
@@ -175,4 +184,14 @@ export function newAsk(question: string, to: string, fromId: string, from: strin
     ...(context.length ? { context } : {}),
     ...(follow.origin ? { origin: follow.origin } : {}),
   };
+}
+
+/**
+ * What takes the place of a question whose answer the person stopped (see `stopped`): the answer
+ * so far and its sources, "done" without follow-ups, in the same conversation (a first question's
+ * replacement names it as its thread) and at the same `askedAt`, so it keeps its place.
+ */
+export function stoppedAsk(ask: AskRecord, now: number): Ask {
+  const { id, ...rest } = ask;
+  return { ...rest, thread: ask.thread ?? id, state: "done", followUps: [], error: "", updatedAt: now, stopped: true };
 }

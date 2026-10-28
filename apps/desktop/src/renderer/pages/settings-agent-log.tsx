@@ -3,14 +3,15 @@ import type { McpActivityEntry, McpActivityView } from "../../shared/ipc";
 import type { McpRateLimit, SettingsPatch, SettingsView } from "../../shared/settings";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
-import { Toggle, formatTime } from "../common/ui";
+import { Pager, Toggle, formatTime } from "../common/ui";
 import "./settings-agent-log.css";
 import { Row } from "./shell";
 
 type Props = { view: SettingsView; update: (p: SettingsPatch) => void };
 
 const REFRESH_MS = 3000;
-const SHOWN_CALLS = 50;
+/** Recent calls shown at a time; the pager goes through the rest of the log. */
+const CALLS_PAGE = 5;
 
 function rateLimitOptions(): Array<{ value: McpRateLimit; label: string }> {
   return [
@@ -28,7 +29,7 @@ function OutcomePill({ entry }: { entry: McpActivityEntry }) {
 
 /**
  * Settings > AI agents: the per-session rate limit and the local log of agents' tool calls (per tool
- * over the last day, then the latest calls), with CSV export.
+ * over the last day, then the latest calls a page at a time), with CSV export.
  */
 export function AgentActivityLog({ view, update }: Props) {
   const api = internalApi();
@@ -36,11 +37,12 @@ export function AgentActivityLog({ view, update }: Props) {
   const [log, setLog] = useState<McpActivityView | null>(null);
   const [client, setClient] = useState("");
   const [problemsOnly, setProblemsOnly] = useState(false);
+  const [page, setPage] = useState(0);
   const [notice, setNotice] = useState("");
 
   const refresh = useCallback(
-    () => api.call("mcp.activity", { limit: SHOWN_CALLS, ...(client ? { client } : {}), ...(problemsOnly ? { problemsOnly } : {}) }),
-    [api, client, problemsOnly],
+    () => api.call("mcp.activity", { limit: CALLS_PAGE, offset: page * CALLS_PAGE, ...(client ? { client } : {}), ...(problemsOnly ? { problemsOnly } : {}) }),
+    [api, client, problemsOnly, page],
   );
 
   useEffect(() => {
@@ -53,6 +55,11 @@ export function AgentActivityLog({ view, update }: Props) {
       clearInterval(timer);
     };
   }, [refresh, view]);
+
+  // A log that shrank (Clear, old calls dropped) keeps showing a page that exists.
+  useEffect(() => {
+    if (log && page > 0 && page * CALLS_PAGE >= log.total) setPage(Math.max(0, Math.ceil(log.total / CALLS_PAGE) - 1));
+  }, [log, page]);
 
   const overLimit = log?.summary.reduce((n, s) => n + s.rateLimited, 0) ?? 0;
 
@@ -125,7 +132,10 @@ export function AgentActivityLog({ view, update }: Props) {
         <div className="agent-log">
           <div className="agent-log-title agent-log-filters">
             <span className="grow">{t("Recent calls")}</span>
-            <select className="input" aria-label={t("Agent")} value={client} onChange={(e) => setClient(e.target.value)}>
+            <select className="input" aria-label={t("Agent")} value={client} onChange={(e) => {
+                setClient(e.target.value);
+                setPage(0);
+              }}>
               <option value="">{t("All agents")}</option>
               {log.clients.map((c) => (
                 <option key={c} value={c}>
@@ -133,12 +143,22 @@ export function AgentActivityLog({ view, update }: Props) {
                 </option>
               ))}
             </select>
-            <Toggle label={t("Only problems")} checked={problemsOnly} onChange={setProblemsOnly} />
+            <label className="agent-log-switch">
+              <span>{t("Only problems")}</span>
+              <Toggle
+                label={t("Only problems")}
+                checked={problemsOnly}
+                onChange={(v) => {
+                  setProblemsOnly(v);
+                  setPage(0);
+                }}
+              />
+            </label>
           </div>
           {log.entries.length === 0 ? (
             <div className="muted agent-log-empty">{log.enabled ? t("No calls recorded yet.") : t("The activity log is off.")}</div>
           ) : (
-            <div className="list">
+            <div className="list agent-calls">
               {log.entries.map((e, i) => (
                 <div key={`${e.at}-${i}`} className="list-row agent-log-row">
                   <span className="mono muted">{formatTime(e.at)}</span>
@@ -153,6 +173,7 @@ export function AgentActivityLog({ view, update }: Props) {
               ))}
             </div>
           )}
+          <Pager page={page} size={CALLS_PAGE} total={log.total} onPage={setPage} />
         </div>
       )}
     </>

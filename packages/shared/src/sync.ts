@@ -25,7 +25,8 @@ export type SyncCollection =
   | "watch_status"
   | "asks"
   | "command_history"
-  | "assist_history";
+  | "assist_history"
+  | "chain_server";
 
 export interface EncryptedRecord {
   id: string; // random, opaque
@@ -51,8 +52,8 @@ export interface DeviceInfo { id: string; name: string; platform: string; lastSe
 export interface SyncRegisterChainRequest { chainId: string; publicKey: string }
 /** POST /v1/chains/:chainId/devices body. id must equal the `device` field of the auth header. */
 export interface SyncRegisterDeviceRequest { id: string; name: string; platform: string }
-/** GET /v1/chains/:chainId/devices response (removed devices are not listed). */
-export interface SyncDeviceListResponse { devices: DeviceInfo[] }
+/** GET /v1/chains/:chainId/devices response (removed devices are not listed). `serverTime`: the server's clock when it answered (newer servers), so clients put `lastSeen` on their own clock. */
+export interface SyncDeviceListResponse { devices: DeviceInfo[]; serverTime?: number }
 /** Body of every non-2xx response. `error` is a stable machine-readable code. */
 export interface SyncErrorResponse { error: string; message: string }
 

@@ -1,6 +1,9 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "apple"],
   "android": {
     "modules": ["expo.modules.corvus.browserkit.BrowserKitModule"]
+  },
+  "apple": {
+    "modules": ["ConsentKitModule"]
   }
 }

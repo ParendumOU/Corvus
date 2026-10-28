@@ -310,7 +310,7 @@ export class McpService {
   activityView(query: McpActivityQuery = {}): McpActivityView {
     return {
       enabled: this.ctx.settings.get().mcp.activityLog,
-      entries: this.audit.list(query),
+      ...this.audit.page(query),
       clients: this.audit.clients(),
       summary: this.audit.summary(Date.now() - DAY_MS),
     };

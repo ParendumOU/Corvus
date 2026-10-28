@@ -2,7 +2,7 @@ import '@/polyfills';
 // Defines the background check before anything else, as the system requires.
 import '@/lib/background';
 
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, router } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -13,6 +13,7 @@ import { openReceived } from '@/hooks/use-session';
 import { useScheme, useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
 import { onNotificationTap } from '@/lib/notifications';
+import { nav } from '@/lib/nav';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -31,7 +32,7 @@ export default function RootLayout() {
     () =>
       onNotificationTap((tap) => {
         if (tap.kind === 'sent' && tap.recordId) void openReceived(tap.recordId, tap.url);
-        else router.push('/watches');
+        else nav.push('/watches');
       }),
     [],
   );
@@ -60,9 +61,11 @@ export default function RootLayout() {
         <Stack.Screen name="watches" options={{ title: t('Watched pages') }} />
         <Stack.Screen name="ask" options={{ title: t('Assist') }} />
         <Stack.Screen name="chat/[id]" options={{ title: t('Assist') }} />
-        {/* One browser screen at most: links that come in while it is open go to it. */}
-        <Stack.Screen name="browser" options={{ headerShown: false, animation: 'fade_from_bottom' }} dangerouslySingular />
+        {/* One browser screen at most: links that come in while it is open go to it. Its title is what
+            iOS's back button reads in Browser settings. */}
+        <Stack.Screen name="browser" options={{ headerShown: false, title: t('Browser'), animation: 'fade_from_bottom' }} dangerouslySingular />
         <Stack.Screen name="browser-settings" options={{ title: t('Browser settings') }} />
+        <Stack.Screen name="licenses" options={{ title: t('Third-party licences') }} />
       </Stack>
       <FeedbackHost />
     </ThemeProvider>

@@ -15,6 +15,8 @@ export const paths = {
   adblockParser: path.join(here, "adblock-parser.js"),
   /** Entry of the archive extractor utility process (7-Zip for downloaded packages). */
   archiveWorker: path.join(here, "archive-worker.js"),
+  /** Entry of the sync server built into Corvus ("This computer"), one utility process per profile using it. */
+  syncServerWorker: path.join(here, "sync-server-worker.js"),
   rendererDir: path.join(here, "../renderer"),
   icon: path.join(here, "../../build/icon.png"),
 };

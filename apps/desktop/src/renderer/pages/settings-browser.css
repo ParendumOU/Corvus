@@ -75,16 +75,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Keyword, name, then the address with Add beside it (they wrap together). */
 .site-search-new {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  width: 100%;
+}
+.site-search-new .input {
+  flex: 1 1 140px;
+  width: auto;
 }
 .site-search-new .input.keyword {
-  width: 90px;
+  flex: 0 1 120px;
 }
-.site-search-new .input.grow {
-  flex: 1;
-  min-width: 220px;
+.site-search-new .field-row.grow {
+  flex: 2 1 260px;
+  min-width: 0;
 }

@@ -15,3 +15,4 @@ export * from "./watches.js";
 export * from "./asks.js";
 export * from "./newtab-guide.js";
 export * from "./tlds.js";
+export * from "./chain-server.js";

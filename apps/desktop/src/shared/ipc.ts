@@ -278,6 +278,8 @@ export interface McpToolSummary {
 
 export interface McpActivityQuery {
   limit?: number;
+  /** Skips this many of the newest matching calls (the pages after the first). */
+  offset?: number;
   client?: string;
   /** Only calls that failed or hit the rate limit. */
   problemsOnly?: boolean;
@@ -287,6 +289,8 @@ export interface McpActivityView {
   /** False when Settings > AI agents > Activity log is off (nothing new is recorded). */
   enabled: boolean;
   entries: McpActivityEntry[];
+  /** How many calls match the query in all (entries is one page of them). */
+  total: number;
   clients: string[];
   /** Per tool over the last 24 hours. */
   summary: McpToolSummary[];
@@ -317,9 +321,35 @@ export interface UpdateStatus {
   portable?: boolean;
 }
 
+/** Where a profile's sync chain lives: the server built into Corvus on this computer, or one the person runs. */
+export type SyncMode = "local" | "custom";
+
+/** The sync server built into Corvus, as Settings > Sync shows it ("This computer"). */
+export interface LocalServerView {
+  running: boolean;
+  port: number | null;
+  /** Why it is not running, if it failed. */
+  error: string | null;
+  /** The addresses other devices reach it at (this computer's network and Tailscale addresses). */
+  addresses: PhoneServerAddress[];
+  /** The last other device that reached it since Corvus started (its network address). */
+  lastClient: { address: string; at: number } | null;
+  /** After the chain moved away: it keeps answering until then, for devices to follow. */
+  retiringUntil: number | null;
+}
+
 export interface SyncStatus {
   available: boolean;
   enabled: boolean;
+  mode: SyncMode;
+  /** The last own server address entered (prefills "Your own server"). */
+  customServerUrl: string;
+  /** The built-in server, while it runs or is meant to (null otherwise). */
+  localServer: LocalServerView | null;
+  /** process.platform, for platform-specific help (the Windows network prompt). */
+  platform: string;
+  /** A note about the last move of the chain (e.g. devices that must be paired again). */
+  notice: string | null;
   serverUrl: string;
   deviceName: string;
   chainId: string | null;
@@ -375,6 +405,35 @@ export interface PairingAddress {
 export interface PairingCodeView extends PairingAddress {
   code: string;
   qrSvg: string;
+}
+
+/** Where to sync: this computer, or a sync server the person runs (its address). */
+export type SyncTarget = { mode: "local" } | { mode: "custom"; serverUrl: string };
+
+export interface SyncEnableOptions {
+  /** Default: "custom" when serverUrl is given (older callers), else "local". A pairing code as the phrase joins its server. */
+  mode?: SyncMode;
+  serverUrl?: string;
+  /** A 24-word recovery phrase, or a pairing code from another computer. */
+  phrase: string;
+  deviceName: string;
+}
+
+/** "Check" next to an own server's address. */
+export interface ServerCheck {
+  ok: boolean;
+  /** The address as it will be used. */
+  serverUrl: string | null;
+  message: string;
+}
+
+/** What may keep other devices from reaching this computer, as far as Corvus can tell without admin rights. */
+export interface NetworkHelp {
+  platform: string;
+  /** Windows: the active network is set as Public (Windows then blocks devices on it); null when unknown. */
+  publicNetwork: boolean | null;
+  /** Windows: a firewall rule blocks Corvus from incoming connections; null when unknown. */
+  firewallBlocks: boolean | null;
 }
 
 export interface SyncOptions {
@@ -466,7 +525,11 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "profiles.openWindow"(id: string): void;
   "sync.status"(): SyncStatus;
   "sync.generatePhrase"(): string;
-  "sync.enable"(opts: { serverUrl: string; phrase: string; deviceName: string }): SyncStatus;
+  "sync.enable"(opts: SyncEnableOptions): SyncStatus;
+  "sync.checkServer"(serverUrl: string): ServerCheck;
+  "sync.moveChain"(target: SyncTarget): SyncStatus;
+  "sync.networkHelp"(): NetworkHelp;
+  "sync.openNetworkSettings"(which: "network" | "firewall"): void;
   "sync.disable"(): SyncStatus;
   "sync.now"(): SyncStatus;
   "sync.setOptions"(opts: SyncOptions): SyncStatus;

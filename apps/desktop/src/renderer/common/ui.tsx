@@ -103,3 +103,20 @@ export function dayLabel(ms: number): string {
   if (d.toDateString() === yesterday.toDateString()) return t("Yesterday");
   return d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
+
+/** Previous, "1-5 of 12", Next under a list shown `size` items at a time (`page` counts from 0); nothing when one page holds them all. */
+export function Pager({ page, size, total, onPage }: { page: number; size: number; total: number; onPage: (page: number) => void }) {
+  if (total <= size) return null;
+  const last = Math.ceil(total / size) - 1;
+  return (
+    <div className="pager">
+      <button className="btn small ghost" disabled={page <= 0} onClick={() => onPage(page - 1)}>
+        {t("Previous")}
+      </button>
+      <span className="muted small">{t("{from}-{to} of {total}", { from: page * size + 1, to: Math.min(total, (page + 1) * size), total })}</span>
+      <button className="btn small ghost" disabled={page >= last} onClick={() => onPage(page + 1)}>
+        {t("Next")}
+      </button>
+    </div>
+  );
+}

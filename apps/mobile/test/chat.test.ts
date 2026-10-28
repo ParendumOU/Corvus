@@ -1,7 +1,7 @@
-import { newAsk, type AskRecord, type DeviceInfo } from '@corvus/shared';
+import { newAsk, stoppedAsk, type AskRecord, type DeviceInfo } from '@corvus/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { answeredAlone, askPhase, assistContext, assistOrigin, chatList, followUpContext, isOnline, phoneThreads, plainText, searchChats, threadAsks } from '../src/lib/chat';
+import { NO_ANSWER_YET, answeredAlone, askPhase, assistContext, assistOrigin, chatList, followUpContext, isOnline, phoneThreads, plainText, replaceAsk, searchChats, threadAsks } from '../src/lib/chat';
 import { conversationList } from '../src/lib/conversations';
 import { setUiLanguage } from '../src/lib/i18n';
 
@@ -62,6 +62,43 @@ describe('follow-ups', () => {
     expect(answeredAlone(withContext)).toBe(true);
     expect(answeredAlone({ ...withContext, withContext: true })).toBe(false);
     expect(answeredAlone(first)).toBe(false);
+    // A question stopped before its computer took it up was not answered alone.
+    expect(answeredAlone({ ...withContext, stopped: true })).toBe(false);
+  });
+});
+
+describe('stopping an answer', () => {
+  afterEach(() => setUiLanguage('en'));
+
+  it('keeps the stopped answer in its place in the conversation, with what had come of it', () => {
+    const stopped = { id: 'ask-0009', ...stoppedAsk({ ...second, answer: 'Up to **40** years [1]' }, 4000) };
+    const thread = replaceAsk([first, second], second.id, stopped);
+    expect(thread.map((a) => a.id)).toEqual(['ask-0001', 'ask-0009']);
+    expect(askPhase(stopped, undefined, 5000)).toBe('stopped');
+    // A message sent while it was coming is answered with it, as the next turn.
+    expect(followUpContext(thread)).toEqual([
+      { question: 'How long do ravens live?', answer: 'About 10-15 years in the wild.' },
+      { question: 'And in captivity?', answer: 'Up to 40 years' },
+    ]);
+    // Replacing again (the list already had the copy) keeps one of it.
+    expect(replaceAsk(thread, second.id, stopped).map((a) => a.id)).toEqual(['ask-0001', 'ask-0009']);
+  });
+
+  it('says so when it was stopped before any answer came', () => {
+    const waiting = ask('ask-0005', 'What is the weather', 5000);
+    const stopped = { id: 'ask-0006', ...stoppedAsk(waiting, 6000) };
+    expect(stopped).toMatchObject({ thread: 'ask-0005', askedAt: 5000, state: 'done', answer: '', stopped: true });
+    expect(followUpContext(replaceAsk([waiting], waiting.id, stopped))).toEqual([{ question: 'What is the weather', answer: NO_ANSWER_YET }]);
+    // A conversation stopped this way lists as stopped, under its first question.
+    const [chat] = chatList([stopped], [], name);
+    expect(chat).toMatchObject({ id: 'ask-0005', title: 'What is the weather', snippet: 'Stopped', pending: false });
+    setUiLanguage('es');
+    expect(chatList([stopped], [], name)[0]!.snippet).toBe('Detenida');
+  });
+
+  it('a done answer that was not stopped is not taken for one, and an empty one adds nothing', () => {
+    expect(askPhase(first, undefined, 1e9)).toBe('done');
+    expect(followUpContext([{ ...first, answer: ' ' }])).toEqual([]);
   });
 });
 
@@ -76,6 +113,8 @@ describe('where a question stands', () => {
     expect(askPhase({ ...waiting, state: 'answering', updatedAt: 100_000 }, desk(0), 150_000)).toBe('answering');
     expect(askPhase({ ...waiting, state: 'answering', updatedAt: 100_000 }, desk(0), 300_000)).toBe('stalled');
     expect(askPhase({ ...waiting, state: 'done' }, undefined, 1e9)).toBe('done');
+    // The computer's clock is 5 min behind: what counts is when the phone saw the answer move.
+    expect(askPhase({ ...waiting, state: 'answering', updatedAt: 0 }, desk(0), 400_000, 395_000)).toBe('answering');
     expect(isOnline(desk(100_000), 150_000)).toBe(true);
     expect(isOnline(undefined, 0)).toBe(false);
   });

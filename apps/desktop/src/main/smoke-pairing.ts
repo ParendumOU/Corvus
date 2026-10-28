@@ -1,7 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
-import type { WebContents } from "electron";
+import type { BaseWindow, WebContents } from "electron";
 import { decodePairing, isLoopbackUrl, phoneServerAddresses, type NetworkInterfaceMap } from "@corvus/shared";
 import type { AppContext } from "./context";
 import { phonePairingAddress } from "./pairing-address";
@@ -84,7 +84,7 @@ const FIXED_NETWORK: NetworkInterfaceMap = {
  */
 export async function runPairPhoneUiSmoke(
   ctx: AppContext,
-  h: { profile: ProfileRuntime; settings: WebContents; phrase: string; check: Check; capture: (name: string, wc: WebContents) => Promise<void> },
+  h: { profile: ProfileRuntime; settings: WebContents; window: BaseWindow; phrase: string; check: Check; capture: (name: string, wc: WebContents) => Promise<void> },
 ): Promise<void> {
   const { settings: wc, check, capture } = h;
   const real = ctx.sync.pairingAddress;
@@ -100,7 +100,7 @@ export async function runPairPhoneUiSmoke(
 
     await wc.executeJavaScript(`(() => {
       window.confirm = () => true;
-      const button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Pair a phone…");
+      const button = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Pair a device…");
       button?.scrollIntoView({ block: "center" });
       button?.click();
       return Boolean(button);
@@ -127,6 +127,13 @@ export async function runPairPhoneUiSmoke(
     await wc.executeJavaScript(`document.querySelector(".pair-phone")?.scrollIntoView({ block: "center" })`);
     await sleep(300);
     await capture("settings-pair-phone-lan", wc);
+    await narrowWindow(h.window, async () => {
+      await wc.executeJavaScript(`document.querySelector(".pair-phone")?.scrollIntoView({ block: "start" })`);
+      await sleep(300);
+      const layout = await narrowLayout(wc);
+      check("pair a phone UI: fits a narrow window (code above the steps, nothing cut off)", layout.fits && layout.stepsBelowCode, layout);
+      await capture("settings-pair-phone-narrow", wc);
+    });
 
     await wc.executeJavaScript(`(() => {
       const select = document.querySelector(".pair-address select");
@@ -150,4 +157,47 @@ export async function runPairPhoneUiSmoke(
   } finally {
     ctx.sync.pairingAddress = real;
   }
+}
+
+/** The smallest window Corvus allows (window.ts). */
+const NARROW_WIDTH = 520;
+
+/** Runs `work` with the window `narrow` px wide (default: its narrowest), then puts its size back. */
+export async function narrowWindow(window: BaseWindow, work: () => Promise<void>, narrow = NARROW_WIDTH): Promise<void> {
+  const [width, height] = window.getSize();
+  window.setSize(narrow, height!);
+  await sleep(600);
+  try {
+    await work();
+  } finally {
+    window.setSize(width!, height!);
+    await sleep(300);
+  }
+}
+
+/**
+ * How the sync settings lay out: whether the page fits its width (no sideways scroll), the pairing
+ * code's steps sit under the code (which fits their width), and each radio of "Where your data syncs" has its title right
+ * of the radio with its description under the title.
+ */
+export async function narrowLayout(wc: WebContents): Promise<{ width: number; fits: boolean; stepsBelowCode: boolean; radiosOk: boolean; radios: number }> {
+  return (await wc.executeJavaScript(`(() => {
+    const box = (el) => el?.getBoundingClientRect();
+    const qr = box(document.querySelector(".pair-qr"));
+    const steps = box(document.querySelector(".pair-steps"));
+    const radios = [...document.querySelectorAll(".radio-option")].map((o) => {
+      const radio = box(o.querySelector("input"));
+      const title = box(o.querySelector(".radio-text > strong"));
+      const desc = box(o.querySelector(".radio-text > span"));
+      return radio && title && desc && radio.right <= title.left && desc.top >= title.bottom - 1 && desc.left >= radio.right;
+    });
+    const doc = document.scrollingElement;
+    return {
+      width: window.innerWidth,
+      fits: doc.scrollWidth <= window.innerWidth + 1,
+      stepsBelowCode: Boolean(qr && steps && steps.top >= qr.bottom - 1 && qr.right <= steps.right + 1),
+      radiosOk: radios.length > 0 && radios.every(Boolean),
+      radios: radios.length,
+    };
+  })()`)) as { width: number; fits: boolean; stepsBelowCode: boolean; radiosOk: boolean; radios: number };
 }

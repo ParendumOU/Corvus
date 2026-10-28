@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Directory, File, Paths } from 'expo-file-system';
 import { useSyncExternalStore } from 'react';
 
-import { BrowserKit } from '../../modules/browser-kit';
+import { BrowserKit, ConsentKit } from '../../modules/browser-kit';
 import { COMPILED_VERSION, FALLBACK_FILTERS, FILTER_LISTS, LIST_REFRESH_MS, addFilterLines, addFilterList, emptyRules, parseFilters, ruleCount, serializeRules } from './blocklist';
 
 export interface BlockingStatus {
@@ -51,11 +51,12 @@ export function configureBlocking(enabled: boolean, allowedSites: readonly strin
 }
 
 /**
- * Cookie banners rejected (DuckDuckGo Autoconsent's rules, Android) and Global Privacy Control sent,
- * each on or off, and the sites that keep their banner. Pages loaded from then on follow them.
+ * Cookie banners rejected (DuckDuckGo Autoconsent's rules) and Global Privacy Control sent (Android;
+ * iOS sends it from the page itself), each on or off, and the sites that keep their banner. Pages
+ * loaded from then on follow them.
  */
 export function configurePrivacy(consent: boolean, gpc: boolean, consentAllowedSites: readonly string[]): void {
-  BrowserKit?.configurePrivacy(consent, gpc, [...consentAllowedSites]);
+  ConsentKit?.configurePrivacy(consent, gpc, [...consentAllowedSites]);
 }
 
 let started = false;

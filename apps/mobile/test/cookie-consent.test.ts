@@ -2,12 +2,12 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GPC_PAGE_SCRIPT, parseConsentEvent } from '@corvus/shared';
-import { filterCompactRules, type IndexedCMPRuleset } from '@duckduckgo/autoconsent';
+import { GPC_PAGE_SCRIPT, isConsentSnippetId, parseConsentEvent } from '@corvus/shared';
+import { evalSnippets, filterCompactRules, type IndexedCMPRuleset } from '@duckduckgo/autoconsent';
 import compact from '@duckduckgo/autoconsent/rules/compact-rules.json';
 import { describe, expect, it } from 'vitest';
 
-import { PORT_PLACEHOLDER, RULES_HEADER, buildConsentAssets, canonicalRuleset, packRules, ruleStringIds } from '../scripts/consent-assets.mjs';
+import { PORT_PLACEHOLDER, RULES_HEADER, buildConsentAssets, canonicalRuleset, packRules, ruleStringIds, snippetSources } from '../scripts/consent-assets.mjs';
 
 const rules = compact as unknown as IndexedCMPRuleset;
 
@@ -97,4 +97,33 @@ describe('the Android assets', () => {
       rmSync(out, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+describe('the iOS assets', () => {
+  it('builds the isolated-world script, the snippets by id, the packed rules and the Swift cases', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'corvus-consent-ios-'));
+    try {
+      await buildConsentAssets(out, { ios: true });
+      const read = (name: string): string => readFileSync(join(out, name), 'utf8');
+      const page = read('assets/corvus-consent/page.js');
+      expect(page).toContain('DuckDuckGo Autoconsent');
+      expect(page).toContain('corvusConsent');
+      expect(page).not.toContain(PORT_PLACEHOLDER);
+      const snippets = JSON.parse(read('assets/corvus-consent/snippets.json')) as Record<string, string>;
+      expect(Object.keys(snippets).length).toBeGreaterThan(20);
+      for (const [id, source] of Object.entries(snippets)) {
+        expect(isConsentSnippetId(id)).toBe(true);
+        expect(source).toBe(String((evalSnippets as Record<string, unknown>)[id]));
+      }
+      expect(read('assets/corvus-consent/rules.txt')).toBe(packRules(rules));
+      expect(read('test/corvus-consent/cases.tsv').trim().split('\n').length).toBeGreaterThan(500);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('keeps only snippet functions, and refuses an odd id', () => {
+    expect(snippetSources({ EVAL_A_1: () => true, EVAL_B: 'text' })).toEqual({ EVAL_A_1: '() => true' });
+    expect(() => snippetSources({ 'alert(1)': () => true })).toThrow();
+  });
 });

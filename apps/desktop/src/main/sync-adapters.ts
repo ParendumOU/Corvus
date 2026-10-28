@@ -4,12 +4,15 @@
  */
 import {
   ASK_ID_RE,
+  CHAIN_SERVER_ID,
   SENT_TAB_ID_RE,
   isSyncedBookmark,
   parseAsk,
   parseDeviceWatchStatus,
+  parseChainServer,
   parseSentTab,
   type Bookmark,
+  type ChainServer,
   type DeviceWatchStatus,
   type SyncCollection,
 } from "@corvus/shared";
@@ -401,11 +404,14 @@ export function sentTabsAdapter(records: DeviceRecords): SyncAdapter<unknown> {
 
 /**
  * Questions asked from the phone (one record per question). Kept verbatim like sent pages; the
- * computer a question went to answers it in place (SyncService), and the phone deletes it.
+ * computer a question went to answers it in place (SyncService pushes each write itself), and the
+ * phone deletes it. Only brought in: the engine never pushes these records again, since a copy it
+ * pushed late could bring back a question the phone has just deleted.
  */
 export function asksAdapter(records: DeviceRecords): SyncAdapter<unknown> {
   return {
-    list: () => Object.entries(records.all()).map(([id, payload]) => ({ id, payload })),
+    list: () => [],
+    retain: () => true,
     apply: (items) => {
       for (const item of items) {
         if (!ASK_ID_RE.test(item.id)) continue;
@@ -416,7 +422,36 @@ export function asksAdapter(records: DeviceRecords): SyncAdapter<unknown> {
   };
 }
 
+/**
+ * Where the chain's sync server is (one record, see chain-server.ts in @corvus/shared). `own` is the
+ * record this device writes (in "This computer" mode: its current addresses), or null to keep the
+ * record as it came (SyncService follows the chain when it moved elsewhere).
+ */
+export function chainServerAdapter(opts: { records: DeviceRecords; own: () => Promise<ChainServer | null> }): SyncAdapter<unknown> {
+  return {
+    list: async () => {
+      const own = await opts.own();
+      if (own) opts.records.set(CHAIN_SERVER_ID, own);
+      const stored = opts.records.all()[CHAIN_SERVER_ID];
+      return stored === undefined ? [] : [{ id: CHAIN_SERVER_ID, payload: stored }];
+    },
+    apply: (items) => {
+      for (const item of items) {
+        if (item.id !== CHAIN_SERVER_ID) continue;
+        if (item.deleted) {
+          opts.records.delete(item.id);
+          continue;
+        }
+        const record = parseChainServer(item.payload);
+        if (!record) continue;
+        opts.records.set(item.id, record);
+      }
+    },
+  };
+}
+
 interface RemoteFile {
+  chain_server: Record<string, unknown>;
   open_tabs: Record<string, unknown>;
   extensions: Record<string, unknown>;
   watch_status: Record<string, unknown>;
@@ -425,10 +460,10 @@ interface RemoteFile {
   dismissedExtensions: string[];
 }
 
-type RemoteCollection = "open_tabs" | "extensions" | "watch_status" | "sent_tabs" | "asks";
+type RemoteCollection = "chain_server" | "open_tabs" | "extensions" | "watch_status" | "sent_tabs" | "asks";
 
 function emptyRemote(): RemoteFile {
-  return { open_tabs: {}, extensions: {}, watch_status: {}, sent_tabs: {}, asks: {}, dismissedExtensions: [] };
+  return { chain_server: {}, open_tabs: {}, extensions: {}, watch_status: {}, sent_tabs: {}, asks: {}, dismissedExtensions: [] };
 }
 
 function reviveRemote(raw: unknown): RemoteFile {
@@ -436,6 +471,7 @@ function reviveRemote(raw: unknown): RemoteFile {
   const records = (v: unknown, key: RegExp): Record<string, unknown> =>
     isObject(v) ? Object.fromEntries(Object.entries(v).filter(([id]) => key.test(id))) : {};
   return {
+    chain_server: records(raw.chain_server, /^current$/),
     open_tabs: records(raw.open_tabs, DEVICE_KEY_RE),
     extensions: records(raw.extensions, DEVICE_KEY_RE),
     watch_status: records(raw.watch_status, DEVICE_KEY_RE),
@@ -517,6 +553,8 @@ export interface SyncSources {
   extensions: () => DeviceExtensions;
   /** What this device's monitor last saw of each watched page (for the phone). */
   watchStatus: () => DeviceWatchStatus;
+  /** The chain_server record this device writes, or null to keep the one that came (default: none). */
+  chainServer?: () => Promise<ChainServer | null>;
 }
 
 export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollection, SyncAdapter<any>>> {
@@ -554,5 +592,6 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
     }),
     sent_tabs: sentTabsAdapter(src.remote.records("sent_tabs")),
     asks: asksAdapter(src.remote.records("asks")),
+    chain_server: chainServerAdapter({ records: src.remote.records("chain_server"), own: src.chainServer ?? (async () => null) }),
   };
 }

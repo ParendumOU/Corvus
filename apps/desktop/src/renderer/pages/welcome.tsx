@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AdblockView } from "../../shared/adblock";
 import type { BookmarkImportResult, ConnectionTestResult, SyncStatus } from "../../shared/ipc";
 import type { SettingsPatch, SettingsView, ThemeSource } from "../../shared/settings";
+import { isLoopbackUrl } from "@corvus/shared";
 import { errorMessage, internalApi } from "../common/api";
 import { CorvusMark } from "../common/icons";
 import "./welcome.css";
@@ -164,6 +165,7 @@ function PhraseGrid({ phrase }: { phrase: string }) {
 
 function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (s: SyncStatus) => void }) {
   const api = internalApi();
+  const [ownServer, setOwnServer] = useState(false);
   const [serverUrl, setServerUrl] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [generated, setGenerated] = useState<string | null>(null);
@@ -174,7 +176,7 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
 
   useEffect(() => {
     if (status) {
-      setServerUrl((v) => v || status.serverUrl);
+      setServerUrl((v) => v || (isLoopbackUrl(status.customServerUrl) ? "" : status.customServerUrl));
       setDeviceName((v) => v || status.deviceName);
     }
   }, [status]);
@@ -200,7 +202,7 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
     setBusy(true);
     setError(null);
     api
-      .call("sync.enable", { serverUrl, phrase, deviceName })
+      .call("sync.enable", ownServer ? { mode: "custom", serverUrl, phrase, deviceName } : { mode: "local", phrase, deviceName })
       .then(onStatus)
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false));
@@ -208,11 +210,20 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
 
   return (
     <div className="wz-step">
-      <p className="wz-lead">{t("Sync is end-to-end encrypted — the server only stores ciphertext. A 24-word recovery phrase is the key. Skip this and set it up later if you prefer.")}</p>
-      <label className="wz-field">
-        <span>{t("Sync server")}</span>
-        <input className="input" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder={t("http://localhost:8797")} />
-      </label>
+      <p className="wz-lead">
+        {t("Sync your bookmarks, history, tabs and more with your phone and other computers. Nothing to set up: this computer keeps the synced data, end-to-end encrypted, and your devices sync with it on the same Wi-Fi. A 24-word recovery phrase is the key. Skip this and set it up later if you prefer.")}
+      </p>
+      {ownServer ? (
+        <label className="wz-field">
+          <span>{t("Your own sync server")}</span>
+          <input className="input" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="https://sync.example.org" />
+        </label>
+      ) : (
+        status.platform === "win32" && <div className="wz-notice">{t("Windows will ask to let Corvus reach your network: allow Private networks so your phone can sync.")}</div>
+      )}
+      <button className="btn small ghost" onClick={() => setOwnServer((v) => !v)}>
+        {ownServer ? t("Use this computer instead (recommended)") : t("I run my own sync server")}
+      </button>
       <label className="wz-field">
         <span>{t("Device name")}</span>
         <input className="input" value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
@@ -247,13 +258,13 @@ function SyncStep({ status, onStatus }: { status: SyncStatus | null; onStatus: (
 
         <div className="wz-card">
           <h3>{t("Join an existing chain")}</h3>
-          <p className="wz-hint">{t("Enter the recovery phrase from another device. This profile takes the synced data.")}</p>
+          <p className="wz-hint">{t("Paste the pairing code from your other computer (Settings, Sync, Pair a device), or type the recovery phrase. This profile takes the synced data.")}</p>
           <textarea
             className="input"
             rows={3}
             value={joinPhrase}
             onChange={(e) => setJoinPhrase(e.target.value)}
-            placeholder={t("24 words separated by spaces")}
+            placeholder={t("Pairing code, or 24 words separated by spaces")}
             spellCheck={false}
           />
           <button className="btn small primary" disabled={!joinPhrase.trim() || busy} onClick={() => enable(joinPhrase)}>

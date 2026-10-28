@@ -207,12 +207,15 @@ export function FollowUpChips({ questions, onAsk, disabled }: { questions: reado
 
 /**
  * The message box pinned at the bottom: grows with the text up to six lines, sends with its button
- * (and with Enter on a hardware keyboard on the web build).
+ * and with the keyboard's Send (Enter) key, which never adds a new line. With `onStop` (an answer is
+ * being written) the button stops it while the box is empty, as a square, and sends again once
+ * something is typed.
  */
 export function Composer({
   value,
   onChange,
   onSend,
+  onStop,
   placeholder,
   disabled,
   busy,
@@ -223,6 +226,7 @@ export function Composer({
   value: string;
   onChange: (text: string) => void;
   onSend: () => void;
+  onStop?: () => void;
   placeholder: string;
   disabled?: boolean;
   busy?: boolean;
@@ -237,7 +241,16 @@ export function Composer({
   const [height, setHeight] = useState(0);
   const [focused, setFocused] = useState(false);
   const canSend = !disabled && !busy && value.trim() !== '';
+  const stops = !!onStop && value.trim() === '';
+  const canPress = stops ? !busy : canSend;
   const lineHeight = Type.body.lineHeight;
+  // Android can report one Enter on a multiline field as two submits: the second one would ask again.
+  const lastSend = useRef(0);
+  const send = (): void => {
+    if (!canSend || Date.now() - lastSend.current < 800) return;
+    lastSend.current = Date.now();
+    onSend();
+  };
   return (
     <View style={[styles.composerWrap, { backgroundColor: theme.background, borderTopColor: theme.divider, paddingBottom: (keyboardUp ? Space.sm : Math.max(insets.bottom, Space.sm)) + Space.xs }]}>
       {note ? <View style={styles.composerNote}>{note}</View> : null}
@@ -253,6 +266,11 @@ export function Composer({
           cursorColor={theme.accent}
           multiline
           numberOfLines={Platform.OS === 'web' ? 1 : undefined}
+          // The keyboard's key is Send: it sends, and never starts a new line (long text still wraps).
+          returnKeyType="send"
+          enterKeyHint="send"
+          submitBehavior="submit"
+          onSubmitEditing={send}
           maxLength={1000}
           autoFocus={autoFocus}
           editable={!disabled}
@@ -263,23 +281,23 @@ export function Composer({
             const key = e.nativeEvent as unknown as { key: string; shiftKey?: boolean };
             if (Platform.OS === 'web' && key.key === 'Enter' && !key.shiftKey) {
               (e as unknown as { preventDefault?: () => void }).preventDefault?.();
-              if (canSend) onSend();
+              send();
             }
           }}
           style={[Type.body, styles.composerInput, { color: theme.text, height: Math.min(Math.max(height, lineHeight + COMPOSER_PAD * 2), lineHeight * 6 + COMPOSER_PAD * 2) }, NO_OUTLINE]}
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={t('Send')}
-          accessibilityState={{ disabled: !canSend, busy: !!busy }}
-          aria-disabled={!canSend}
-          disabled={!canSend}
-          onPress={onSend}
+          accessibilityLabel={stops ? t('Stop') : t('Send')}
+          accessibilityState={{ disabled: !canPress, busy: !!busy }}
+          aria-disabled={!canPress}
+          disabled={!canPress}
+          onPress={stops ? onStop : send}
           hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           android_ripple={{ color: 'rgba(255,255,255,0.22)' }}
-          style={[styles.send, { backgroundColor: canSend ? theme.accent : theme.disabledFill }]}
-          testID="ask-submit">
-          <Icon name="send" size={20} color={canSend ? theme.onAccent : theme.textDisabled} />
+          style={[styles.send, { backgroundColor: canPress ? (stops ? theme.text : theme.accent) : theme.disabledFill }]}
+          testID={stops ? 'ask-stop' : 'ask-submit'}>
+          <Icon name={stops ? 'stopSquare' : 'send'} size={stops ? 18 : 20} color={canPress ? (stops ? theme.background : theme.onAccent) : theme.textDisabled} />
         </Pressable>
       </View>
     </View>

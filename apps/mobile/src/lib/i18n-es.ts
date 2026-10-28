@@ -77,8 +77,8 @@ export const ES: Record<string, string> = {
   'Could not join the sync chain: {error}': 'No se pudo unir a la cadena de sincronización: {error}',
   'This code points to the computer itself (localhost). Update Corvus on the computer, or enter its network address by hand.':
     'Este código apunta al propio ordenador (localhost). Actualiza Corvus en el ordenador o escribe a mano su dirección de red.',
-  'On your computer, open Corvus Settings, then Sync, and choose “Pair a phone”. Anyone with that code can read your synced data, so pair only your own phone.':
-    'En tu ordenador, abre los Ajustes de Corvus, luego Sincronización, y elige «Emparejar un móvil». Quien tenga ese código puede leer tus datos sincronizados: empareja solo tu propio móvil.',
+  'On your computer, open Corvus Settings, then Sync, and choose “Pair a device”. Anyone with that code can read your synced data, so pair only your own phone.':
+    'En tu ordenador, abre los Ajustes de Corvus, luego Sincronización, y elige «Emparejar un dispositivo». Quien tenga ese código puede leer tus datos sincronizados: empareja solo tu propio móvil.',
   'Scan the code': 'Escanea el código',
   'Use the camera': 'Usar la cámara',
   'Or enter it by hand': 'O escríbelo a mano',
@@ -86,8 +86,8 @@ export const ES: Record<string, string> = {
   'Sync server address': 'Dirección del servidor de sincronización',
   'Recovery phrase (24 words), or the pairing code': 'Frase de recuperación (24 palabras) o el código de emparejamiento',
   Pair: 'Emparejar',
-  'That is not a Corvus pairing code. On your computer, open Settings, then Sync, and choose “Pair a phone”.':
-    'Eso no es un código de emparejamiento de Corvus. En tu ordenador, abre Ajustes, luego Sincronización, y elige «Emparejar un móvil».',
+  'That is not a Corvus pairing code. On your computer, open Settings, then Sync, and choose “Pair a device”.':
+    'Eso no es un código de emparejamiento de Corvus. En tu ordenador, abre Ajustes, luego Sincronización, y elige «Emparejar un dispositivo».',
   'The recovery phrase is not valid: check the 24 words.': 'La frase de recuperación no es válida: revisa las 24 palabras.',
   'Enter the sync server address, starting with https:// or http://.': 'Escribe la dirección del servidor de sincronización, empezando por https:// o http://.',
   'Android phone': 'Móvil Android',
@@ -184,7 +184,7 @@ export const ES: Record<string, string> = {
 
   // Session
   'This phone is not paired with a computer.': 'Este móvil no está emparejado con un ordenador.',
-  'Could not reach the sync server: {error}': 'No se pudo conectar con el servidor de sincronización: {error}',
+  'Sync did not work: {error}': 'La sincronización no ha funcionado: {error}',
   'Your sync server does not support sending pages yet: update it to the latest Corvus sync server.':
     'Tu servidor de sincronización aún no permite enviar páginas: actualízalo a la última versión del servidor de Corvus.',
   'Your sync server does not support questions yet: update it to the latest Corvus sync server.':
@@ -193,7 +193,7 @@ export const ES: Record<string, string> = {
   // Times
   'Pair it once and your tabs, pages and library follow you here.': 'Empareja una vez y tus pestañas, páginas y biblioteca te seguirán aquí.',
   'On your computer, open Corvus Settings, then Sync.': 'En tu ordenador, abre los Ajustes de Corvus y luego Sincronización.',
-  'Choose “Pair a phone”: a code appears.': 'Elige «Emparejar un móvil»: aparecerá un código.',
+  'Choose “Pair a device”: a code appears.': 'Elige «Emparejar un dispositivo»: aparecerá un código.',
   'Scan the code with this phone.': 'Escanea el código con este móvil.',
   'Your library, on your phone': 'Tu biblioteca, en el móvil',
   'Paired': 'Emparejado',
@@ -262,6 +262,7 @@ export const ES: Record<string, string> = {
   Assist: 'Assist',
   'Answering…': 'Respondiendo…',
   'Could not answer': 'No pudo responder',
+  Stopped: 'Detenida',
   'Assist on your computer · {page}': 'Assist en tu ordenador · {page}',
   'New chat': 'Nuevo chat',
   'Ask your computer anything': 'Pregunta lo que quieras a tu ordenador',
@@ -427,4 +428,28 @@ export const ES: Record<string, string> = {
   'Send Global Privacy Control': 'Enviar Global Privacy Control',
   'Tells sites not to sell or share your data. In some places, such as California, sites must honour it.':
     'Pide a los sitios que no vendan ni compartan tus datos. En algunos lugares, como California, los sitios deben respetarlo.',
+
+  // Third-party licences
+  'Third-party licences': 'Licencias de terceros',
+  'The open-source software in Corvus': 'El software libre que usa Corvus',
+  'JavaScript packages': 'Paquetes de JavaScript',
+  'Android libraries': 'Bibliotecas de Android',
+  'Hides the licence': 'Oculta la licencia',
+  'Shows the licence': 'Muestra la licencia',
+  'No licence declared': 'Sin licencia declarada',
+  'Licence text: {url}': 'Texto de la licencia: {url}',
+  'The package has no licence file; it is distributed under the licence named above.': 'El paquete no incluye un archivo de licencia; se distribuye con la licencia indicada arriba.',
+  'Corvus is free software under the Mozilla Public License 2.0; its source code is at {url}.':
+    'Corvus es software libre con la Mozilla Public License 2.0; su código fuente está en {url}.',
+  'Corvus for mobile {version} includes the {n} third-party packages listed here. Each keeps its own licence, reproduced in full: tap a package to read it.':
+    'Corvus para móvil {version} incluye los {n} paquetes de terceros de esta lista. Cada uno mantiene su propia licencia, reproducida entera: toca un paquete para leerla.',
+  'Search packages and licences': 'Buscar paquetes y licencias',
+  'No package matches “{query}”.': 'Ningún paquete coincide con «{query}».',
+  'The list of third-party licences ships with the Android app.': 'La lista de licencias de terceros viene con la app de Android.',
+  "Your computer is not reachable. Changes are kept and sync when you are on the same Wi-Fi as it.": "Tu ordenador no está disponible. Los cambios se guardan y se sincronizan cuando estés en su misma Wi-Fi.",
+  "Your sync server is not reachable. Changes are kept and sync when it is back.": "Tu servidor de sincronización no está disponible. Los cambios se guardan y se sincronizan cuando vuelva.",
+  "Your computer is not reachable right now. Try again when you are on the same Wi-Fi as it, with Corvus open on it.": "Tu ordenador no está disponible ahora mismo. Vuelve a intentarlo cuando estés en su misma Wi-Fi y con Corvus abierto en él.",
+  "Your sync server is not reachable right now. Try again later.": "Tu servidor de sincronización no está disponible ahora mismo. Vuelve a intentarlo más tarde.",
+  "Could not reach your computer. Check that the phone is on the same Wi-Fi as the computer (not a guest Wi-Fi), that the computer is on with Corvus open, and that its firewall lets Corvus through: on the computer, Settings, Sync, Pair a device, “Phone cannot connect?”.": "No se pudo conectar con tu ordenador. Comprueba que el móvil está en la misma Wi-Fi que el ordenador (no en una Wi-Fi de invitados), que el ordenador está encendido con Corvus abierto y que su cortafuegos deja pasar a Corvus: en el ordenador, Ajustes, Sincronización, Emparejar un dispositivo, «¿El móvil no conecta?».",
+  "Could not reach the sync server at {url}. Check the address and that the server is running.": "No se pudo conectar con el servidor de sincronización en {url}. Comprueba la dirección y que el servidor esté en marcha.",
 };

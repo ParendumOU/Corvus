@@ -69,11 +69,29 @@ export interface CorvusSyncClient extends SyncClient {
    */
   pullCollection(collection: SyncCollection, onPage: (items: SyncItem[]) => Promise<void> | void): Promise<number>;
   /**
+   * Like pullCollection, from `since` (a cursor this call returned before, or the main cursor):
+   * a cheap way to follow one collection closely between full pulls. Known versions move as in
+   * every pull, so the next main pull skips what this one delivered. Resolves to the new cursor.
+   */
+  pullCollectionSince(collection: SyncCollection, since: number, onPage: (items: SyncItem[]) => Promise<void> | void): Promise<{ delivered: number; cursor: number }>;
+  /**
    * Whether the chain has records of `collection` newer than this device's cursor that it has not
    * seen. Moves nothing: a cheap check before a full sync (e.g. for pages sent to this device).
    * False when the server does not know the collection.
    */
   hasNew(collection: SyncCollection): Promise<boolean>;
+  /**
+   * Like push, with deletions written `opts.deleteAhead` versions past the newest one this device
+   * knows instead of one. Such a delete wins over a device that is still writing the record: that
+   * device's next write is one version past what it knows, so it gets the tombstone back as a
+   * conflict instead of overwriting it (or of winning a tie on its device id).
+   */
+  push(items: SyncItem[], opts?: PushOptions): Promise<{ conflicts: SyncItem[] }>;
+}
+
+export interface PushOptions {
+  /** How many versions past the newest known one deletions are written at (default 1, as any write). */
+  deleteAhead?: number;
 }
 
 /** [version, deviceId] of the newest revision this device knows for a record. */
@@ -95,6 +113,17 @@ function rejectedCollection(err: unknown, batch: readonly EncryptedRecord[]): Sy
 /** A pull filtered by a collection the server does not know (`collection: Invalid enum ...`). */
 function rejectedCollectionFilter(err: unknown): boolean {
   return err instanceof SyncError && err.status === 400 && err.code === "invalid_request" && /^collection\b/.test(err.message);
+}
+
+/**
+ * The devices with `lastSeen` on this device's clock: the server stamps it with its own clock, which
+ * can be off from this one by minutes (a phone and the computer running the server), so a server
+ * that sends its time has every `lastSeen` moved by the difference. Older servers send none.
+ */
+export function deviceTimesHere(res: SyncDeviceListResponse, now: number): DeviceInfo[] {
+  if (typeof res.serverTime !== "number" || !Number.isFinite(res.serverTime)) return res.devices;
+  const shift = now - res.serverTime;
+  return res.devices.map((d) => ({ ...d, lastSeen: d.lastSeen + shift }));
 }
 
 /** LWW order: higher version wins; equal versions fall back to the higher deviceId. */
@@ -190,8 +219,9 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     await request("POST", `${chainPath}/devices`, device);
   }
 
-  async function push(items: SyncItem[]): Promise<{ conflicts: SyncItem[] }> {
+  async function push(items: SyncItem[], pushOpts: PushOptions = {}): Promise<{ conflicts: SyncItem[] }> {
     const deviceId = await getDeviceId();
+    const deleteAhead = Math.max(1, Math.floor(pushOpts.deleteAhead ?? 1));
     const pending = new Map<string, EncryptedRecord>();
     for (const item of items) {
       if (unsupported.has(item.collection)) continue;
@@ -202,7 +232,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
         encryptRecord(keys, {
           collection: item.collection,
           naturalId: item.id,
-          version: (known?.[0] ?? 0) + 1,
+          version: (known?.[0] ?? 0) + (item.deleted ? deleteAhead : 1),
           deviceId,
           deleted: item.deleted,
           payload: item.payload,
@@ -265,9 +295,17 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
   }
 
   async function pullCollection(collection: SyncCollection, onPage: (items: SyncItem[]) => Promise<void> | void): Promise<number> {
-    if (unsupported.has(collection)) return 0;
-    let since = 0;
+    return (await pullCollectionSince(collection, 0, onPage)).delivered;
+  }
+
+  async function pullCollectionSince(
+    collection: SyncCollection,
+    from: number,
+    onPage: (items: SyncItem[]) => Promise<void> | void,
+  ): Promise<{ delivered: number; cursor: number }> {
+    let since = from;
     let delivered = 0;
+    if (unsupported.has(collection)) return { delivered, cursor: since };
     for (;;) {
       let res: SyncPullResponse;
       try {
@@ -275,7 +313,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
       } catch (err) {
         if (!rejectedCollectionFilter(err)) throw err;
         unsupported.add(collection);
-        return delivered;
+        return { delivered, cursor: since };
       }
       const map = await versions(collection);
       const fresh: { record: EncryptedRecord; item: SyncItem }[] = [];
@@ -289,7 +327,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
       if (fresh.length > 0) await saveVersions([collection]);
       delivered += fresh.length;
       since = res.cursor;
-      if (!res.hasMore) return delivered;
+      if (!res.hasMore) return { delivered, cursor: since };
     }
   }
 
@@ -335,6 +373,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
     pull,
     pullPages,
     pullCollection,
+    pullCollectionSince,
     hasNew,
     forgetCollection,
     resetLocalState,
@@ -348,7 +387,8 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
       await request("POST", `${chainPath}/devices`, device);
     },
     async listDevices(): Promise<DeviceInfo[]> {
-      return (await request<SyncDeviceListResponse>("GET", `${chainPath}/devices`)).devices;
+      const res = await request<SyncDeviceListResponse>("GET", `${chainPath}/devices`);
+      return deviceTimesHere(res, Date.now());
     },
     async removeDevice(deviceId: string): Promise<void> {
       await request("DELETE", `${chainPath}/devices/${encodeURIComponent(deviceId)}`);

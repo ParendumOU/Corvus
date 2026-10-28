@@ -13,6 +13,7 @@ import {
   type UpdateFeed,
 } from "../shared/update-feed";
 import type { AppContext } from "./context";
+import { tr } from "./menu-i18n";
 import { PortableUpdater, portableExecutable } from "./portable-updater";
 
 const { autoUpdater } = electronUpdater;
@@ -223,7 +224,7 @@ export class UpdateService {
     const supported = this.supported();
     return {
       supported,
-      reason: supported ? null : "Updates apply to installed builds only (this one runs from source).",
+      reason: supported ? null : tr("Updates apply to installed builds only (this one runs from source)."),
       phase: supported ? this.phase : "idle",
       currentVersion: app.getVersion(),
       channel: this.channel(),

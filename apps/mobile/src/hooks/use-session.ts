@@ -1,9 +1,12 @@
 import type { AskFollowUp, AskRecord, Bookmark, DeviceInfo, DeviceTabs, PairingInfo, ReadingItem, SentTab, SentTabRecord, SyncedHistoryEntry } from '@corvus/shared';
 import { useEffect, useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 
+import { DEVICES_EVERY_MS, movedAt } from '@/lib/answer-follow';
 import { notifyNew } from '@/lib/notifications';
 import { openInApp } from '@/lib/open-url';
 import type { ConversationView } from '@/lib/conversations';
+import { isUnreachable, unreachableNote } from '@/lib/reach';
 import { RefreshStalled, SingleFlight, watchdog } from '@/lib/refresh';
 import type { ComputerTabs } from '@/lib/replica';
 import type { WatchView } from '@/lib/watches';
@@ -12,18 +15,24 @@ import {
   addVisit,
   askComputer,
   cachedView,
+  clientFor,
   cancelSent,
   dropLegacyReplica,
+  followAsks,
+  followChain,
   loadPairing,
+  otherAddress,
   markRead,
   pair,
   publishOpenTabs,
   pushVisits,
   refreshView,
+  rejoin,
   removeBookmarksOf,
   retitleVisit,
   removeAsks,
   sameChain,
+  stopAsk,
   saveForLater,
   watchPage,
   sendPage,
@@ -53,6 +62,8 @@ export interface SessionState {
   watches: WatchView[];
   /** Questions this phone asked, newest first. */
   asks: AskRecord[];
+  /** When the phone last saw each question change, on its own clock (lib/answer-follow.ts). */
+  askMoved: Record<string, number>;
   /** Corvus Assist conversations from the computers, newest first. */
   conversations: ConversationView[];
   /** The computers' home page setting (the browser's default search engine when the phone offers it). */
@@ -61,6 +72,11 @@ export interface SessionState {
   refreshed: boolean;
   refreshing: boolean;
   error: string | null;
+  /**
+   * The sync server did not answer (the computer is off, or the phone is not on its network): a calm
+   * note instead of an error. What the phone changes meanwhile waits and syncs once it answers.
+   */
+  unreachable: string | null;
 }
 
 const EMPTY: Omit<SessionState, 'status' | 'pairing'> = {
@@ -74,16 +90,19 @@ const EMPTY: Omit<SessionState, 'status' | 'pairing'> = {
   history: [],
   watches: [],
   asks: [],
+  askMoved: {},
   conversations: [],
   homePage: undefined,
   refreshed: false,
   refreshing: false,
   error: null,
+  unreachable: null,
 };
 let state: SessionState = { status: 'loading', pairing: null, ...EMPTY };
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<SessionState>): void {
+  if (patch.asks && patch.asks !== state.asks) patch = { ...patch, askMoved: movedAt(state.askMoved, state.asks, patch.asks, Date.now()) };
   state = { ...state, ...patch };
   for (const listener of listeners) listener();
 }
@@ -99,6 +118,39 @@ function paired(): Pairing {
 
 const refreshes = new SingleFlight<void>();
 
+/** How often the phone tries again while its server does not answer (and the app is open). */
+const RETRY_MS = 30_000;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function retryLater(): void {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (state.unreachable && AppState.currentState === 'active') void refreshSession();
+  }, RETRY_MS);
+}
+
+/** One refresh, following the chain when it moved, and joining again when the server lost this phone. */
+async function refreshOnce(pairing: Pairing): Promise<{ pairing: Pairing; view: Awaited<ReturnType<typeof refreshView>> }> {
+  let view;
+  try {
+    view = await watchdog((progress) => refreshView(pairing, progress));
+  } catch (err) {
+    if ((err as { code?: unknown }).code === 'device_not_registered') {
+      await rejoin(pairing);
+      return { pairing, view: await watchdog((progress) => refreshView(pairing, progress)) };
+    }
+    if (!isUnreachable(err)) throw err;
+    // Another address of the same server (another network, Tailscale) may answer.
+    const other = await otherAddress(pairing).catch(() => null);
+    if (!other) throw err;
+    return { pairing: other, view: await watchdog((progress) => refreshView(other, progress)) };
+  }
+  const moved = await followChain(pairing).catch(() => null);
+  if (!moved) return { pairing, view };
+  return { pairing: moved, view: await watchdog((progress) => refreshView(moved, progress)) };
+}
+
 /**
  * Lists the chain's devices and pulls what changed (pull to refresh). One refresh at a time, and
  * it always ends: a refresh that stops making progress fails with the step it was stuck on (see
@@ -109,19 +161,59 @@ export function refreshSession(): Promise<void> {
   if (!pairing) return Promise.resolve();
   return refreshes.run(async () => {
     set({ refreshing: true, error: null });
+    const edits = asksEdits;
     try {
-      const view = await watchdog((progress) => refreshView(pairing, progress));
+      const { pairing: current, view: pulled } = await refreshOnce(pairing);
+      // A question asked or stopped meanwhile stays as the phone has it until the next look.
+      const view = edits === asksEdits ? pulled : { ...pulled, asks: state.asks };
+      // The next quick look at the questions starts where this pull ended.
+      asksCursor = null;
+      devicesAt = Date.now();
       // Compared by chain: the pairing read back from storage is another object for the same chain.
-      if (sameChain(state.pairing, pairing)) set({ ...view, refreshed: true, refreshing: false });
+      if (sameChain(state.pairing, pairing)) set({ ...view, pairing: current, refreshed: true, refreshing: false, unreachable: null });
       else set({ refreshing: false });
       // What the app shows does not need a notification later.
-      void notifyNew(view, false).catch(() => undefined);
+      void notifyNew(pulled, false).catch(() => undefined);
     } catch (err) {
       console.warn(`[corvus] refresh failed: ${message(err)}`);
-      const error = err instanceof RefreshStalled ? err.message : t('Could not reach the sync server: {error}', { error: message(err) });
-      set({ refreshed: true, refreshing: false, error });
+      if (isUnreachable(err)) {
+        set({ refreshed: true, refreshing: false, unreachable: unreachableNote(pairing.serverUrl) });
+        retryLater();
+        return;
+      }
+      const error = err instanceof RefreshStalled ? err.message : t('Sync did not work: {error}', { error: message(err) });
+      set({ refreshed: true, refreshing: false, error, unreachable: null });
     }
   });
+}
+
+let asksCursor: { chain: string; cursor: number } | null = null;
+let devicesAt = 0;
+const answerLooks = new SingleFlight<void>();
+/** Counts the phone's own changes to its questions: a look that began before one leaves the list be. */
+let asksEdits = 0;
+
+/**
+ * A quick look for more of the answers being written: pulls the questions alone (and the device
+ * list every few seconds, for who runs Corvus), never alongside a full refresh. The chat calls it
+ * often while a question is open (lib/answer-follow.ts); a failed look is simply tried again.
+ */
+export function followAnswers(): Promise<void> {
+  const pairing = state.pairing;
+  if (!pairing || refreshes.running) return Promise.resolve();
+  return answerLooks
+    .run(async () => {
+      const edits = asksEdits;
+      const since = asksCursor?.chain === pairing.chainId ? asksCursor.cursor : null;
+      const { cursor, asks } = await followAsks(pairing, since);
+      asksCursor = { chain: pairing.chainId, cursor };
+      const devices = Date.now() - devicesAt >= DEVICES_EVERY_MS ? await clientFor(pairing).listDevices() : null;
+      if (devices) devicesAt = Date.now();
+      if (!sameChain(state.pairing, pairing)) return;
+      const changed = edits === asksEdits && JSON.stringify(asks) !== JSON.stringify(state.asks);
+      if (changed || devices) set({ ...(changed ? { asks } : {}), ...(devices ? { devices } : {}) });
+    })
+    .catch((err: unknown) => console.warn(`[corvus] answer check failed: ${message(err)}`));
 }
 
 /** Shows what the replica holds after a change this phone made (no network). */
@@ -156,8 +248,25 @@ export async function sendToComputer(page: Pick<SentTab, 'url' | 'title' | 'to'>
 export async function askQuestion(question: string, to: string, follow: AskFollowUp = {}): Promise<AskRecord> {
   const pairing = paired();
   const asked = await askComputer(pairing, question, to, follow);
+  asksEdits++;
   if (sameChain(state.pairing, pairing)) set({ asks: [asked, ...state.asks.filter((a) => a.id !== asked.id)] });
   return asked;
+}
+
+/**
+ * Stops the answer a computer is writing to `ask`, keeping what came of it (stopAsk in lib/session):
+ * looks for its latest piece first. Returns what took its place, or the question as it is when its
+ * answer was done meanwhile.
+ */
+export async function stopAnswer(ask: AskRecord): Promise<AskRecord> {
+  const pairing = paired();
+  await followAnswers();
+  const latest = state.asks.find((a) => a.id === ask.id);
+  if (!latest || (latest.state !== 'waiting' && latest.state !== 'answering')) return latest ?? ask;
+  const stopped = await stopAsk(pairing, latest);
+  asksEdits++;
+  if (sameChain(state.pairing, pairing)) set({ asks: [stopped, ...state.asks.filter((a) => a.id !== latest.id)] });
+  return stopped;
 }
 
 /** Removes a question and its answer from the list. */
@@ -170,6 +279,7 @@ export async function forgetAsks(ids: readonly string[]): Promise<void> {
   const pairing = state.pairing;
   if (!pairing) return;
   await removeAsks(pairing, ids);
+  asksEdits++;
   if (sameChain(state.pairing, pairing)) set({ asks: state.asks.filter((a) => !ids.includes(a.id)) });
 }
 
@@ -290,6 +400,10 @@ let loaded = false;
 async function load(): Promise<void> {
   if (loaded) return;
   loaded = true;
+  // Back in the app while the server did not answer: try again at once.
+  AppState.addEventListener('change', (next) => {
+    if (next === 'active' && state.unreachable) void refreshSession();
+  });
   await dropLegacyReplica().catch(() => undefined);
   const pairing = await loadPairing().catch(() => null);
   // Paired (or unpaired) meanwhile, from the pairing screen: that is the current state, keep it.

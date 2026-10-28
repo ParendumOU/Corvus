@@ -7,4 +7,5 @@ export function ruleStringIds(rule: IndexedCMPRuleset['r'][number]): number[];
 export function packRules(rules: IndexedCMPRuleset): string;
 export function canonicalRuleset(set: CompactCMPRuleset): string;
 export function consentCases(rules: IndexedCMPRuleset, filterCompactRules: (rules: IndexedCMPRuleset, context: { url: string; mainFrame: boolean }) => CompactCMPRuleset): string;
-export function buildConsentAssets(outDir: string): Promise<void>;
+export function snippetSources(evalSnippets: Record<string, unknown>): Record<string, string>;
+export function buildConsentAssets(outDir: string, options?: { ios?: boolean }): Promise<void>;

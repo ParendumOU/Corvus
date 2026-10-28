@@ -61,8 +61,8 @@ describe("pairing on the phone", () => {
     expect(pairingFailedMessage(new Error("Network request failed"), "http://localhost:8797")).toMatch(/points to the computer itself/);
   });
 
-  it("shows other failures as they are", () => {
-    expect(pairingFailedMessage(new TypeError("fetch failed"), "http://192.168.1.20:8797")).toBe("Could not join the sync chain: fetch failed");
+  it("says what to check when the computer does not answer, and shows other failures as they are", () => {
+    expect(pairingFailedMessage(new TypeError("fetch failed"), "http://192.168.1.20:8797")).toMatch(/^Could not reach your computer. Check that the phone is on the same Wi-Fi/);
     // A server answered (sync-core's SyncError has the HTTP status): its message is the useful one.
     const answered = Object.assign(new Error("Device was removed"), { status: 403, code: "device_revoked" });
     expect(pairingFailedMessage(answered, "http://localhost:8797")).toBe("Could not join the sync chain: Device was removed");

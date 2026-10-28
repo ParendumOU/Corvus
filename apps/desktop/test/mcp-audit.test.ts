@@ -40,6 +40,16 @@ describe("McpAuditLog", () => {
     expect(again.clients()).toEqual(["cursor", "claude-code"]);
   });
 
+  it("pages through the matching calls, newest first, with how many match in all", () => {
+    const log = new McpAuditLog(dir, () => true, () => NOW);
+    for (let i = 0; i < 12; i++) log.record(entry({ at: NOW - (12 - i) * 1000, tool: `t${i}`, outcome: i % 5 === 4 ? "error" : "ok" }));
+    expect(log.page({ limit: 5 })).toEqual({ entries: log.list({ limit: 5 }), total: 12 });
+    expect(log.page({ limit: 5, offset: 5 }).entries.map((e) => e.tool)).toEqual(["t6", "t5", "t4", "t3", "t2"]);
+    expect(log.page({ limit: 5, offset: 10 }).entries.map((e) => e.tool)).toEqual(["t1", "t0"]);
+    expect(log.page({ limit: 5, offset: 20 })).toEqual({ entries: [], total: 12 });
+    expect(log.page({ limit: 5, problemsOnly: true })).toEqual({ entries: [expect.objectContaining({ tool: "t9" }), expect.objectContaining({ tool: "t4" })], total: 2 });
+  });
+
   it("records nothing while the log is off", () => {
     let on = false;
     const log = new McpAuditLog(dir, () => on, () => NOW);

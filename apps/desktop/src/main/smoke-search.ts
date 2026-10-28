@@ -159,14 +159,15 @@ function fakeRetriever() {
   };
 }
 
-function fakeProvider() {
+function fakeProvider(chunkMs = 6, onChunk?: () => void) {
   return {
     kind: "anthropic-api" as const,
     model: "claude-haiku-5-5",
     async *answer(req: { prompt: { system: string; user: string }; signal?: AbortSignal }) {
       for (let i = 0; i < STRUCTURED_REPLY.length; i += 14) {
         if (req.signal?.aborted) return;
-        await new Promise((r) => setTimeout(r, 6));
+        await new Promise((r) => setTimeout(r, chunkMs));
+        onChunk?.();
         yield { type: "delta" as const, text: STRUCTURED_REPLY.slice(i, i + 14) };
       }
       const input = Math.ceil((req.prompt.system.length + req.prompt.user.length) / 3);
@@ -175,9 +176,12 @@ function fakeProvider() {
   };
 }
 
-/** The fake retriever and provider, for other smoke checks that need an AI search answer. */
-export function fakeSearchDeps(): { engine: unknown } {
-  return { engine: { retrievers: [fakeRetriever()], provider: fakeProvider() } };
+/**
+ * The fake retriever and provider, for other smoke checks that need an AI search answer (`chunkMs`
+ * between pieces of it; `onChunk` hears each piece the provider writes).
+ */
+export function fakeSearchDeps(chunkMs?: number, onChunk?: () => void): { engine: unknown } {
+  return { engine: { retrievers: [fakeRetriever()], provider: fakeProvider(chunkMs, onChunk) } };
 }
 
 async function waitFor(wc: WebContents, expression: string, timeoutMs = 10_000): Promise<boolean> {

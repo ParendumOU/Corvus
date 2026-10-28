@@ -26,6 +26,12 @@ docker compose run --rm --cap-add SYS_ADMIN dev pnpm --filter @corvus/desktop te
 docker compose run --rm --cap-add SYS_ADMIN -e CORVUS_SMOKE_CWS=1 dev pnpm --filter @corvus/desktop test:smoke
 ```
 
+For work on Settings, `CORVUS_SMOKE_ONLY=settings` runs only its layout checks (every field has the shared style, no button sits under its field, nothing is cut off, in English and Spanish, wide and at 800 px, plus the sync addresses, the recent agent calls pager and the memory field), and `CORVUS_SMOKE_SETTINGS_SHOTS=1` also saves every section to `out/smoke/settings-shots/`:
+
+```sh
+docker compose run --rm -e CORVUS_SMOKE_ONLY=settings -e CORVUS_SMOKE_SETTINGS_SHOTS=1 dev pnpm --filter @corvus/desktop test:smoke
+```
+
 See [docs/EXTENSIONS.md](../../docs/EXTENSIONS.md) for the compatibility matrix.
 
 ### Marketing screenshots
@@ -88,7 +94,9 @@ End-to-end encrypted through `@corvus/sync-core`'s `SyncEngine` (fingerprint dif
 
 Never synced: API keys, the MCP token and every `mcp.*` setting, the Claude CLI path, the downloads folder, the sync server URL, per-site permissions and zoom. `test/sync-settings.test.ts` fails if a new setting is not classified or a secret-looking key is allowlisted.
 
-**Pair a phone** (`SyncService.pairingCode`): the QR code holds the sync server URL and the recovery phrase. A loopback server URL (`localhost`, `127.x`, `::1`, `0.0.0.0`) is replaced in the code, never in the profile's setting, by the computer's LAN IPv4 address (`phoneServerAddresses` in `@corvus/shared`: private ranges on real adapters, skipping virtual ones such as WSL, Hyper-V, Docker or VPNs; Wi-Fi/Ethernet first; Tailscale `100.64.0.0/10` offered as an alternative), and `main/pairing-address.ts` checks `<url>/healthz` from the computer (2.5 s, no credentials) so the page can warn when the server only listens on `127.0.0.1`.
+**Where it syncs**: This computer (the sync server built into Corvus, see docs/ARCHITECTURE.md section 6) or the person's own server; Settings → Sync shows the built-in server's addresses, the last device that reached it, and moves the chain both ways. **Phone cannot connect?** (`main/network-help.ts`, no admin rights needed) reads `Get-NetConnectionProfile` (a Public network) and the inbound firewall rules (`netsh advfirewall firewall show rule`, a Block rule for corvus.exe written when someone chose Cancel at Windows' prompt) and opens the Windows page to fix it; other platforms get the steps.
+
+**Pair a device** (`SyncService.pairingCode`): the QR code holds the sync server URL and the recovery phrase. A loopback server URL (`localhost`, `127.x`, `::1`, `0.0.0.0`) is replaced in the code, never in the profile's setting, by the computer's LAN IPv4 address (`phoneServerAddresses` in `@corvus/shared`: private ranges on real adapters, skipping virtual ones such as WSL, Hyper-V, Docker or VPNs; Wi-Fi/Ethernet first; Tailscale `100.64.0.0/10` offered as an alternative), and `main/pairing-address.ts` checks `<url>/healthz` from the computer (2.5 s, no credentials) so the page can warn when the server only listens on `127.0.0.1`.
 
 **One chain = one profile.** A chain is joined from a local profile; that profile adopts the chain's name and avatar, and its bookmarks/history merge with the chain. Local profile ids never leave the device. Two local profiles on one device cannot join the same chain (refused); to sync several profiles, create one chain per profile. Settings are global to the install, so a device with two synced profiles publishes the same settings to both chains (last change wins). Turning sync off leaves the chain (this device's tabs/extension records are deleted and the device is removed); removing another device in Settings revokes it and deletes its records.
 
@@ -112,4 +120,4 @@ Extensions are trusted by the user who installs them, as in Chrome, but they nev
 
 ## Configuration
 
-Settings live in `corvus://settings`. Environment overrides for development: `ANTHROPIC_API_KEY`, `CORVUS_AI_PROVIDER`, `CORVUS_AI_MODEL`, `CORVUS_RETRIEVER`, `CORVUS_SEARXNG_URL` (default `http://localhost:8898`), `BRAVE_SEARCH_API_KEY`, `CORVUS_SYNC_URL` (default `http://localhost:8797`), `CORVUS_USER_DATA`.
+Settings live in `corvus://settings`. Environment overrides for development: `ANTHROPIC_API_KEY`, `CORVUS_AI_PROVIDER`, `CORVUS_AI_MODEL`, `CORVUS_RETRIEVER`, `CORVUS_SEARXNG_URL` (default `http://localhost:8898`), `BRAVE_SEARCH_API_KEY`, `CORVUS_SYNC_URL` (prefills "Your own server"; default `http://localhost:8797`), `CORVUS_USER_DATA`.

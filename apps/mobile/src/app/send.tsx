@@ -12,6 +12,7 @@ import { Screen } from '@/components/screen';
 import { useSession } from '@/hooks/use-session';
 import { useSharedText } from '@/hooks/use-shared-text';
 import { t } from '@/lib/i18n';
+import { nav } from '@/lib/nav';
 
 /**
  * A page typed here, or shared to Corvus from another app (Android share sheet): send it to a
@@ -33,9 +34,9 @@ export default function SendScreen() {
   const done = (action: PageAction, computer: string): void => {
     clearShared();
     showToast(actionDoneMessage(action, computer));
-    if (action === 'watch') router.replace('/watches');
+    if (action === 'watch') nav.replace('/watches');
     else if (router.canGoBack()) router.back();
-    else router.replace(action === 'send' ? '/' : '/library');
+    else nav.replace(action === 'send' ? '/' : '/library');
   };
 
   if (session.status === 'unpaired') {
@@ -44,7 +45,7 @@ export default function SendScreen() {
         <EmptyState
           icon="send"
           description={t('Pair this phone with your computer first, then share the page again.')}
-          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => router.replace('/pair')} testID="send-pair" />}
+          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => nav.replace('/pair')} testID="send-pair" />}
         />
       </Screen>
     );

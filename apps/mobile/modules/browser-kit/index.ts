@@ -2,8 +2,9 @@
  * The browser's Android side (android/…/BrowserKitModule.kt), on top of react-native-webview's
  * WebView: ad and tracker blocking, cookie banners and Global Privacy Control, links to other apps,
  * the pages' camera and microphone requests, find in page and reading a page's text. On iOS and in
- * the web build the native module does not exist and `BrowserKit` is null: pages load without
- * blocking, and those features are left out.
+ * the web build that module does not exist and `BrowserKit` is null: pages load without blocking,
+ * and those features are left out. Cookie banners are answered on iOS too, by the iOS side
+ * (ios/ConsentKitModule.swift): `ConsentKit` is whichever module does it (null in the web build).
  */
 import { requireOptionalNativeModule, type EventSubscription } from 'expo';
 
@@ -81,3 +82,11 @@ interface BrowserKitNative {
 }
 
 export const BrowserKit = requireOptionalNativeModule<BrowserKitNative>('CorvusBrowserKit');
+
+/** Cookie banners: configurePrivacy and onConsent, the same on Android and iOS. */
+export interface ConsentKitNative {
+  configurePrivacy(consent: boolean, gpc: boolean, consentAllowedSites: string[]): void;
+  addListener(event: 'onConsent', listener: BrowserKitEvents['onConsent']): EventSubscription;
+}
+
+export const ConsentKit: ConsentKitNative | null = BrowserKit ?? requireOptionalNativeModule<ConsentKitNative>('CorvusConsentKit');

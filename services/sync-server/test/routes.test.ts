@@ -148,6 +148,7 @@ describe("chain and device registration", () => {
     const list = await signed(app, KEYS_A, DEV_1, "GET", `/v1/chains/${A}/devices`);
     expect(list.json().devices.map((d: { id: string }) => d.id)).toEqual([DEV_1, DEV_2]);
     expect(list.json().devices[0]).toMatchObject({ name: `Device ${DEV_1}`, platform: "linux" });
+    expect(typeof list.json().serverTime).toBe("number");
 
     const mismatch = await signed(app, KEYS_A, DEV_1, "POST", `/v1/chains/${A}/devices`, {
       body: { id: DEV_2, name: "x", platform: "y" },

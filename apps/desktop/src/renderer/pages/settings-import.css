@@ -111,9 +111,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.import-extensions li a.btn {
-  text-decoration: none;
-}
 .import-extensions li .notice {
   flex-basis: 100%;
   margin-top: 0;

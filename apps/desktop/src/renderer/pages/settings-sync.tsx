@@ -1,12 +1,12 @@
-import type { PhoneServerAddress } from "@corvus/shared";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ExtensionSuggestion } from "../../shared/extension-suggestions";
-import { SYNC_INTERVALS_MINUTES, type PairingCodeView, type SyncDeviceView, type SyncStatus } from "../../shared/ipc";
+import { SYNC_INTERVALS_MINUTES, type PairingCodeView, type SyncDeviceView, type SyncMode, type SyncStatus } from "../../shared/ipc";
 import type { ConflictCollection, SyncConflictView } from "../../shared/sync-conflicts";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconCopy } from "../common/icons";
 import { Toggle } from "../common/ui";
+import { NetworkHelpPanel, ServerChoice, WhereItSyncs, addressLabel } from "./settings-sync-server";
 import { Row, Section } from "./shell";
 
 const WIPE_WORD = "DELETE";
@@ -53,7 +53,8 @@ function SetupForm({ status, onStatus }: { status: SyncStatus; onStatus: (s: Syn
   const [phrase, setPhrase] = useState("");
   const [generated, setGenerated] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [serverUrl, setServerUrl] = useState(status.serverUrl);
+  const [mode, setMode] = useState<SyncMode>(status.mode);
+  const [serverUrl, setServerUrl] = useState(status.customServerUrl);
   const [deviceName, setDeviceName] = useState(status.deviceName);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +63,7 @@ function SetupForm({ status, onStatus }: { status: SyncStatus; onStatus: (s: Syn
     setBusy(true);
     setError(null);
     api
-      .call("sync.enable", { serverUrl, phrase: p, deviceName })
+      .call("sync.enable", mode === "local" ? { mode, phrase: p, deviceName } : { mode, serverUrl, phrase: p, deviceName })
       .then(onStatus)
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false));
@@ -70,9 +71,7 @@ function SetupForm({ status, onStatus }: { status: SyncStatus; onStatus: (s: Syn
 
   return (
     <>
-      <Row label={t("Sync server")} hint={t("Self-host it with `docker compose up -d sync-server`.")}>
-        <input className="input" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="http://localhost:8797" />
-      </Row>
+      <ServerChoice status={status} mode={mode} onMode={setMode} serverUrl={serverUrl} onServerUrl={setServerUrl} />
       <Row label={t("Device name")} hint={t("Shown to your other devices.")}>
         <input className="input" value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
       </Row>
@@ -109,11 +108,12 @@ function SetupForm({ status, onStatus }: { status: SyncStatus; onStatus: (s: Syn
           </div>
         </>
       )}
-      <Row label={t("Join an existing chain")} hint={t("Enter the recovery phrase from another device. This profile takes the name and data of the synced profile.")}>
-        <span />
-      </Row>
+      <Row
+        label={t("Join an existing chain")}
+        hint={t("Paste the pairing code from your other computer (Settings, Sync, Pair a device), which also brings its server, or type the 24-word recovery phrase. This profile takes the name and data of the synced profile.")}
+      />
       <div className="stack">
-        <textarea className="input" rows={3} value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={t("24 words separated by spaces")} spellCheck={false} />
+        <textarea className="input" rows={3} value={phrase} onChange={(e) => setPhrase(e.target.value)} placeholder={t("Pairing code, or 24 words separated by spaces")} spellCheck={false} />
         <div className="inline">
           <button className="btn small primary" disabled={!phrase.trim() || busy} onClick={() => enable(phrase)}>
             {busy ? t("Joining…") : t("Join and sync")}
@@ -201,9 +201,7 @@ function ExtensionSuggestions({ status }: { status: SyncStatus }) {
   };
   return (
     <>
-      <Row label={t("Extensions from your other devices")} hint={t("Installed elsewhere but not here. Nothing is installed without your click.")}>
-        <span />
-      </Row>
+      <Row label={t("Extensions from your other devices")} hint={t("Installed elsewhere but not here. Nothing is installed without your click.")} />
       <div className="list">
         {list.map((ext) => (
           <div key={ext.id} className="list-row">
@@ -349,15 +347,12 @@ function portOf(url: string): string {
   }
 }
 
-function addressLabel(a: PhoneServerAddress): string {
-  return a.kind === "tailscale" ? t("{address} (Tailscale)", { address: a.address }) : `${a.address} (${a.adapter})`;
-}
-
 /**
  * Under the QR code when it carries this computer's own address because the sync server runs on
  * it (its setting is localhost): what the phone needs to reach it, and whether it answered there.
  */
-function PairingNetworkNote({ pairing, busy, onPick }: { pairing: PairingCodeView; busy: boolean; onPick: (url: string) => void }) {
+function PairingNetworkNote({ status, pairing, busy, shownAt, onPick }: { status: SyncStatus; pairing: PairingCodeView; busy: boolean; shownAt: number; onPick: (url: string) => void }) {
+  const builtIn = status.mode === "local";
   const tailscale = pairing.address?.kind === "tailscale";
   const options = pairing.address ? [pairing.address, ...pairing.alternatives] : [];
   return (
@@ -380,12 +375,13 @@ function PairingNetworkNote({ pairing, busy, onPick }: { pairing: PairingCodeVie
           : t("The sync server runs on this computer, so the code uses this computer's address on your network.")}
         <ul>
           <li>{tailscale ? t("Your phone needs Tailscale on, in the same tailnet as this computer.") : t("Your phone must be on the same Wi-Fi as this computer.")}</li>
-          <li>{t("If the phone cannot connect, allow port {port} in this computer's firewall.", { port: portOf(pairing.serverUrl) })}</li>
+          {!builtIn && <li>{t("If the phone cannot connect, allow port {port} in this computer's firewall.", { port: portOf(pairing.serverUrl) })}</li>}
           <li>{t("If this computer's address changes, pair the phone again.")}</li>
-          {!tailscale && <li>{t("To sync away from home, use a sync server reachable from the internet, or Tailscale.")}</li>}
+          {!tailscale && <li>{t("To sync away from home, move the chain to your own server reachable from the internet, or use Tailscale.")}</li>}
         </ul>
       </div>
-      {!pairing.reachable && (
+      {builtIn && <NetworkHelpPanel status={status} port={portOf(pairing.serverUrl)} shownAt={shownAt} />}
+      {!builtIn && !pairing.reachable && (
         <div className="notice warn">
           {t("The sync server does not answer at {url}. It may only listen on this computer (127.0.0.1): make it listen on all network addresses, then show the code again.", {
             url: pairing.serverUrl,
@@ -397,9 +393,10 @@ function PairingNetworkNote({ pairing, busy, onPick }: { pairing: PairingCodeVie
 }
 
 /** "Pair a phone": a QR code the Corvus mobile app scans to join this sync chain. */
-function PairPhone() {
+function PairPhone({ status }: { status: SyncStatus }) {
   const api = internalApi();
   const [pairing, setPairing] = useState<PairingCodeView | null>(null);
+  const [shownAt, setShownAt] = useState(0);
   // Making the code can take a moment: a sync server on this computer is checked on its network address.
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -414,13 +411,16 @@ function PairPhone() {
     setError(null);
     api
       .call("sync.pairingCode", address)
-      .then((next) => setPairing((shown) => (address === undefined || shown ? next : shown)))
+      .then((next) => {
+        if (address === undefined) setShownAt(Date.now());
+        setPairing((shown) => (address === undefined || shown ? next : shown));
+      })
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false));
   };
   return (
     <>
-      <Row label={t("Pair a phone")} hint={t("Shows a QR code for the Corvus app on your phone, which then syncs with this profile.")}>
+      <Row label={t("Pair a device")} hint={t("Shows a QR code for the Corvus app on your phone, and a code to paste on another computer. They then sync with this profile.")}>
         {pairing ? (
           <button className="btn small ghost" onClick={() => setPairing(null)}>
             {t("Hide")}
@@ -434,7 +434,7 @@ function PairPhone() {
               show();
             }}
           >
-            {t("Pair a phone…")}
+            {t("Pair a device…")}
           </button>
         )}
       </Row>
@@ -445,7 +445,10 @@ function PairPhone() {
             <strong>{t("In the Corvus app on your phone, open Settings and choose “Pair with a computer”, then scan this code.")}</strong>
             <span className="muted small">{t("Anyone who scans it can read your synced data. It hides itself after two minutes.")}</span>
             <span className="muted small">{t("Sync server: {url}", { url: pairing.serverUrl })}</span>
-            {pairing.lanOnly && <PairingNetworkNote pairing={pairing} busy={busy} onPick={show} />}
+            <span className="inline small">
+              {t("Another computer: in Corvus there, Settings, Sync, Join an existing chain, paste this code.")} <CopyButton text={pairing.code} label={t("Copy code")} />
+            </span>
+            {pairing.lanOnly && <PairingNetworkNote status={status} pairing={pairing} busy={busy} shownAt={shownAt} onPick={show} />}
             {!pairing.lanOnly && !pairing.reachable && (
               <div className="notice warn">
                 {t("Your phone probably cannot reach this sync server address. Use one it can reach (on your network or on the internet) in the sync server setting, then show the code again.")}
@@ -480,7 +483,7 @@ function DangerZone({ onStatus }: { onStatus: (s: SyncStatus) => void }) {
           <label className="small">
             {t("Type")} <strong>{WIPE_WORD}</strong> {t("to confirm.")}
           </label>
-          <div className="inline">
+          <div className="field-row">
             <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={WIPE_WORD} spellCheck={false} />
             <button
               className="btn small danger"
@@ -529,7 +532,11 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
           className="btn small ghost danger"
           disabled={busy}
           onClick={() => {
-            if (confirm(t("Turn off sync on this device? This device leaves the chain. Synced data stays on the server and your other devices."))) {
+            const question =
+              status.mode === "local"
+                ? t("Turn off sync on this device? Your other devices sync through this computer: they stop syncing until it is on again here, or you move the chain to your own server.")
+                : t("Turn off sync on this device? This device leaves the chain. Synced data stays on the server and your other devices.");
+            if (confirm(question)) {
               act(api.call("sync.disable"));
             }
           }}
@@ -539,6 +546,7 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       </Row>
       {status.error && <div className="notice error">{status.error}</div>}
       {error && <div className="notice error">{error}</div>}
+      <WhereItSyncs status={status} onStatus={onStatus} />
       <SyncConflicts status={status} />
       <Row label={t("Auto-sync")} hint={t("Also syncs about 10 seconds after a change on this device.")}>
         <select
@@ -556,9 +564,7 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       <Row
         label={t("What syncs")}
         hint={t("Bookmarks, history, open tabs, the list of Web Store extensions, your reading list, watched pages, saved workspaces and annotations, this profile's name and color, appearance and AI search preferences, plus the categories below. Never API keys, the MCP token or MCP settings.")}
-      >
-        <span />
-      </Row>
+      />
       <Row
         label={t("Workflows")}
         hint={t("Saved workflows, recorded or saved from agent runs, with their run counts. Secrets are never part of a workflow. Off: this device keeps its workflows but stops syncing them.")}
@@ -594,12 +600,9 @@ function SyncOn({ status, onStatus }: { status: SyncStatus; onStatus: (s: SyncSt
       </Row>
       <ExtensionSuggestions status={status} />
       <RecoveryPhrase />
-      <PairPhone />
+      <PairPhone status={status} />
       <Row label={t("Sync chain")}>
         <code className="mono">{status.chainId}</code>
-      </Row>
-      <Row label={t("Server")}>
-        <code className="mono">{status.serverUrl}</code>
       </Row>
       <DangerZone onStatus={onStatus} />
     </>

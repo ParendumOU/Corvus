@@ -379,22 +379,62 @@ async function pairingSmoke(win, base, syncUrl) {
   await shot(win, "assist-new");
   await typeInto(win, "ask-question", question);
   await until(win, "document.querySelector('[data-testid=ask-submit]')?.getAttribute('aria-disabled') !== 'true'");
-  await tap("ask-submit");
+  // Enter sends (the keyboard's Send key), without a new line.
+  await win.webContents.executeJavaScript("document.querySelector('[data-testid=ask-question]').focus()");
+  win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+  win.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+  win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
   const asked = await pulledUntil((i) => i.collection === "asks" && i.payload?.question === question);
+  check("ask: Enter in the message box sends the question", asked?.payload?.question === question, asked?.payload?.question ?? null);
   const status = (q) => `document.querySelector('[data-testid="ask-status-${q}"]')?.innerText ?? ''`;
   const answerText = `document.querySelector('[data-testid="ask-answer-${question}"]')?.innerText ?? ''`;
   const waitingShown = await until(win, `(${status(question)}).includes("Waiting for Smoke desktop")`, 10000);
   check("ask: a question asked on the phone reaches the computer, addressed to it", asked?.payload?.to === deskId && asked.payload.state === "waiting" && !asked.payload.thread && waitingShown, asked?.payload ?? null);
   if (asked) {
-    const answer = { ...asked.payload, state: "answering", answeredBy: "Smoke desktop", answer: "Ravens live **10 to 15 years**", sources: [{ title: "Ravens", url: "https://birds.example/raven" }], updatedAt: Date.now() };
-    await computer.push([{ collection: "asks", id: asked.id, payload: answer, deleted: false }]);
-    const partial = await until(win, `(${status(question)}).includes("Smoke desktop is writing") && (${answerText}).includes("10 to 15 years")`, 15000);
-    await computer.push([
-      { collection: "asks", id: asked.id, payload: { ...answer, state: "done", answer: "Ravens live **10 to 15 years** in the wild [1].", followUps: ["Do ravens mate for life?"], updatedAt: Date.now() }, deleted: false },
-    ]);
-    const done = await until(win, `(${status(question)}).includes("Answered by Smoke desktop") && (${answerText}).includes("in the wild") && ${present("ask-source-https://birds.example/raven")}`, 15000);
+    // The computer writes the answer as Corvus does: its first words at once, then a longer piece
+    // every 500 ms, then the whole answer marked done. The phone shows text soon after the first
+    // piece and writes it out smoothly (sampled every 100 ms: it never shrinks nor jumps).
+    const full =
+      "Ravens live **10 to 15 years** in the wild [1]. In captivity some reach 40 years, as the oldest known raven at the Tower of London did. Their long lives come with long pair bonds: most mate for life and defend a territory together for years.";
+    const sources = [{ title: "Ravens", url: "https://birds.example/raven" }];
+    const answer = { ...asked.payload, state: "answering", answeredBy: "Smoke desktop", answer: "", sources, updatedAt: Date.now() };
+    const samples = [];
+    let sampling = true;
+    const sampler = (async () => {
+      while (sampling) {
+        // Without the caret that ends the text while it is written.
+        samples.push({ at: Date.now(), length: String(await win.webContents.executeJavaScript(answerText).catch(() => "")).replace(/▍/g, "").trim().length });
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    })();
+    const pieces = [18, 60, 110, 160, full.length];
+    const firstAt = Date.now();
+    for (const [i, end] of pieces.entries()) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 500));
+      await computer.push([{ collection: "asks", id: asked.id, payload: { ...answer, answer: full.slice(0, end), updatedAt: Date.now() }, deleted: false }]);
+    }
+    const partial = await until(win, `(${status(question)}).includes("Smoke desktop is writing")`, 5000);
+    await computer.push([{ collection: "asks", id: asked.id, payload: { ...answer, state: "done", answer: full, followUps: ["Do ravens mate for life?"], updatedAt: Date.now() }, deleted: false }]);
+    const done = await until(win, `(${status(question)}).includes("Answered by Smoke desktop") && (${answerText}).includes("defend a territory together") && ${present("ask-source-https://birds.example/raven")}`, 15000);
+    sampling = false;
+    await sampler;
+    const firstText = samples.find((x) => x.length > 0);
+    const shown = samples.filter((x) => x.length > 0).map((x) => x.length);
+    const steps = shown.slice(1).map((n, i) => n - shown[i]);
+    console.log(`[mobile-smoke] time to first visible text: ${firstText ? firstText.at - firstAt : -1} ms after the computer wrote it; ${shown.length} samples, largest step ${Math.max(0, ...steps)} characters`);
+    check(
+      "ask: the answer appears soon after the computer's first words and is written out smoothly, never shrinking or jumping",
+      partial && !!firstText && firstText.at - firstAt < 2500 && steps.every((d) => d >= 0 && d <= 40) && shown.length >= 8,
+      { firstTextMs: firstText ? firstText.at - firstAt : null, steps },
+    );
+    const cite = await win.webContents.executeJavaScript(`(() => {
+      const pill = document.querySelector('[data-testid="ask-answer-${question}"] [data-testid=cite-1]');
+      const r = pill?.getBoundingClientRect();
+      return r ? { height: Math.round(r.height), width: Math.round(r.width) } : null;
+    })()`);
     await shot(win, "ask");
     check("ask: the phone shows the answer as the computer writes it, then with its sources", partial && done, await win.webContents.executeJavaScript(answerText));
+    check("ask: citations are small pills in the line, at text height", !!cite && cite.height <= 18 && cite.width <= 24, cite);
 
     const followUp = "Do ravens mate for life?";
     await until(win, present(`follow-up-${followUp}`), 5000);
@@ -403,14 +443,87 @@ async function pairingSmoke(win, base, syncUrl) {
     const turn = next?.payload?.context?.[0];
     check(
       "ask: a suggested follow-up asks again in the same conversation, with the earlier question and answer",
-      next?.payload?.thread === asked.id && turn?.question === question && turn.answer === "Ravens live 10 to 15 years in the wild." && (await until(win, `(${status(followUp)}).includes("Waiting for Smoke desktop")`, 10000)),
+      next?.payload?.thread === asked.id && turn?.question === question && turn.answer.startsWith("Ravens live 10 to 15 years in the wild. In captivity") && (await until(win, `(${status(followUp)}).includes("Waiting for Smoke desktop")`, 10000)),
       next?.payload ?? null,
     );
+
+    // Stop, as in other AI chats: while an answer is coming the send button stops it when the box is
+    // empty. A message sent meanwhile stops it where it is and is answered with it, as the next turn
+    // of the same conversation. The computer is a fake here, so it writes what Corvus would.
+    const chain = new Map();
+    const onChain = async (pred) => {
+      for (const end = Date.now() + 15000; Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
+        for (const i of await computer.pull()) if (i.collection === "asks") chain.set(i.id, i);
+        const found = [...chain.values()].find(pred);
+        if (found) return found;
+      }
+      return null;
+    };
+    const stopButton = "document.querySelector('[data-testid=ask-stop]')";
+    const sendEnabled = "document.querySelector('[data-testid=ask-submit]')?.getAttribute('aria-disabled') !== 'true'";
+    const extra = "And do they mourn their partner?";
+    let threadIds = [asked.id];
+    if (next) {
+      const partial = "Most ravens pair for life and";
+      const writing = { ...next.payload, state: "answering", answeredBy: "Smoke desktop", answer: partial, sources, updatedAt: Date.now() };
+      await computer.push([{ collection: "asks", id: next.id, payload: writing, deleted: false }]);
+      const stopShown = await until(win, `(${status(followUp)}).includes("Smoke desktop is writing") && ${stopButton}?.getAttribute('aria-label') === 'Stop'`, 10000);
+      await shot(win, "ask-stop-button");
+      await typeInto(win, "ask-question", extra);
+      const sendsWhenTyped = await until(win, `!${stopButton} && ${sendEnabled}`, 5000);
+      check("ask: while an answer is coming, the send button is a Stop button until something is typed", stopShown && sendsWhenTyped);
+
+      await tap("ask-submit");
+      const oneChat = await until(
+        win,
+        `(${status(followUp)}).includes("Stopped") && (document.querySelector('[data-testid="ask-answer-${followUp}"]')?.innerText ?? '').includes("pair for life") && (${status(extra)}).includes("Waiting for Smoke desktop")`,
+        10000,
+      );
+      await shot(win, "ask-interrupted");
+      // The computer, still writing the stopped answer without having seen the deletion (it has not
+      // pulled since its last write), gets the deletion back instead of bringing the question back.
+      const late = await computer.push([{ collection: "asks", id: next.id, payload: { ...writing, answer: `${partial} defend a territory`, updatedAt: Date.now() }, deleted: false }]);
+      const copy = await onChain((i) => !i.deleted && i.payload?.stopped === true && i.payload.question === followUp);
+      const added = await onChain((i) => !i.deleted && i.payload?.question === extra);
+      // That conflict is the deletion: the computer now knows it, so no pull brings it again.
+      const gone = late.conflicts.some((c) => c.id === next.id && c.deleted);
+      const last = added?.payload?.context?.at(-1);
+      check(
+        "ask: a message sent while an answer is coming stops it where it is and is answered with it, in the same conversation",
+        !!copy &&
+          gone &&
+          copy.payload.state === "done" &&
+          copy.payload.answer === partial &&
+          copy.payload.thread === asked.id &&
+          copy.payload.askedAt === next.payload.askedAt &&
+          added?.payload?.thread === asked.id &&
+          last?.question === followUp &&
+          last.answer === partial &&
+          oneChat,
+        { copy: copy?.payload ?? null, context: added?.payload?.context ?? null, gone, oneChat },
+      );
+
+      // The Stop button itself: the answer to the new message stops where it is, marked as stopped.
+      if (added) {
+        const writing2 = { ...added.payload, state: "answering", answeredBy: "Smoke desktop", answer: "Ravens have been seen", updatedAt: Date.now() };
+        await computer.push([{ collection: "asks", id: added.id, payload: writing2, deleted: false }]);
+        await until(win, `(${status(extra)}).includes("Smoke desktop is writing") && ${stopButton}`, 10000);
+        await tap("ask-stop");
+        const copy2 = await onChain((i) => !i.deleted && i.payload?.stopped === true && i.payload.question === extra);
+        const gone2 = await onChain((i) => i.id === added.id && i.deleted);
+        const stopped = await until(win, `(${status(extra)}).includes("Stopped") && !${stopButton} && !(${sendEnabled})`, 10000);
+        await shot(win, "ask-stopped");
+        check("ask: Stop stops the answer being written; what came of it stays, marked Stopped", !!copy2 && !!gone2 && copy2.payload.answer === "Ravens have been seen" && copy2.payload.thread === asked.id && stopped, copy2?.payload ?? null);
+        threadIds = [asked.id, copy?.id, copy2?.id].filter(Boolean);
+      }
+    }
 
     await win.loadURL(`${base}/assist`);
     const listed = await until(win, `(document.querySelector('[data-testid="chat-${question}"]')?.innerText ?? '').includes('Smoke desktop') && ${present("chat-assist-smoke-conversation")}`, 20000);
     await shot(win, "assist");
     check("assist: the phone's conversation and the computer's Assist conversation are listed together", listed);
+    const split = await win.webContents.executeJavaScript(`${present(`chat-${followUp}`)} || ${present(`chat-${extra}`)}`);
+    check("assist: a stopped answer and the message that interrupted it stay in their one conversation", listed && !split);
 
     await tap(`chat-${question}`);
     await until(win, present("chat-delete"), 10000);
@@ -418,10 +531,10 @@ async function pairingSmoke(win, base, syncUrl) {
     await until(win, present("dialog-confirm"), 5000);
     await tap("dialog-confirm");
     const deleted = new Set();
-    for (const end = Date.now() + 15000; deleted.size < 2 && Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
+    for (const end = Date.now() + 15000; threadIds.some((id) => !deleted.has(id)) && Date.now() < end; await new Promise((r) => setTimeout(r, 300))) {
       for (const i of await computer.pull()) if (i.collection === "asks" && i.deleted) deleted.add(i.id);
     }
-    check("ask: deleting a conversation takes all its questions off the chain", deleted.has(asked.id) && (!next || deleted.has(next.id)), [...deleted]);
+    check("ask: deleting a conversation takes all its questions off the chain", threadIds.every((id) => deleted.has(id)), { expected: threadIds, deleted: [...deleted] });
   }
 
   // A computer's Assist conversation: read in the same chat view; writing below continues it as a

@@ -76,14 +76,15 @@ export function Section({ id, title, description, children }: { id?: string; tit
   );
 }
 
-export function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children: ReactNode }) {
+/** A setting: its label and hint, and its control on the right (or under them when it does not fit). No control: a heading for what follows it. */
+export function Row({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children?: ReactNode }) {
   return (
     <div className="row">
       <div className="row-label">
         <div>{label}</div>
         {hint && <div className="muted small">{hint}</div>}
       </div>
-      <div className="row-control">{children}</div>
+      {children !== undefined && <div className="row-control">{children}</div>}
     </div>
   );
 }

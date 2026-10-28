@@ -27,6 +27,7 @@ import {
 import { ConnectionsSection } from "./settings-connections";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
+import "./settings.css";
 
 const languages = () => [
   ["", t("Automatic (query language, then UI language)")],
@@ -118,7 +119,6 @@ function LazyTextarea({ value, onSave, placeholder, rows = 4 }: { value: string;
       value={draft}
       placeholder={placeholder}
       spellCheck={false}
-      style={{ width: 320, height: "auto", padding: "8px 10px", resize: "vertical" }}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => draft !== value && onSave(draft)}
     />
@@ -441,12 +441,12 @@ function TestConnectionButton({ deps }: { deps: unknown[] }) {
       .catch((err: unknown) => setState({ busy: false, result: { ok: false, detail: errorMessage(err) } }));
   };
   return (
-    <div className="stack">
+    <>
       <button className="btn small" disabled={state.busy} onClick={run}>
         {state.busy ? t("Testing…") : t("Test connection")}
       </button>
-      {state.result && <span className={`pill ${state.result.ok ? "ok" : "bad"}`}>{state.result.detail}</span>}
-    </div>
+      {state.result && <span className={`small ${state.result.ok ? "ok-text" : "error-text"}`}>{state.result.detail}</span>}
+    </>
   );
 }
 
@@ -849,9 +849,8 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       <Row
         label={t("What the agent remembers about you")}
         hint={t("Short facts the agent keeps so it need not ask every time (home city, usual airport, travel class, sizes). It can save one when you tell it to; add or remove them here. Kept on this device; never secrets, cards or codes.")}
-      >
-        <UserMemoryEditor />
-      </Row>
+      />
+      <UserMemoryEditor />
     </Section>
   );
 }
@@ -874,20 +873,24 @@ function UserMemoryEditor() {
     });
   };
   return (
-    <div className="mem-editor" data-user-memory>
-      <ul className="mem-list">
-        {notes.map((n) => (
-          <li key={n.id}>
-            <span>{n.text}</span>
-            <button className="icon-btn small" title={t("Forget this")} onClick={() => void api.call("userMemory.remove", n.id).then(setNotes)}>
-              <IconClose size={13} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="mem-add">
+    <div className="stack" data-user-memory>
+      {notes.length > 0 && (
+        <ul className="mem-list">
+          {notes.map((n) => (
+            <li key={n.id}>
+              <span>{n.text}</span>
+              <button className="icon-btn" title={t("Forget this")} aria-label={t("Forget this")} onClick={() => void api.call("userMemory.remove", n.id).then(setNotes)}>
+                <IconClose size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="field-row">
         <input
+          className="input"
           type="text"
+          aria-label={t("What the agent remembers about you")}
           maxLength={200}
           placeholder={t("e.g. I live in Bilbao")}
           value={draft}
@@ -897,11 +900,17 @@ function UserMemoryEditor() {
           }}
           onKeyDown={(e) => e.key === "Enter" && add()}
         />
-        <button className="btn small" onClick={add} disabled={!draft.trim()}>{t("Add")}</button>
+        <button className="btn small" onClick={add} disabled={!draft.trim()}>
+          {t("Add")}
+        </button>
       </div>
-      {error && <p className="mem-error">{error}</p>}
+      {error && <div className="error-text small">{error}</div>}
       {notes.length > 0 && (
-        <button className="link-btn mem-clear" onClick={() => void api.call("userMemory.clear").then(setNotes)}>{t("Forget everything")}</button>
+        <div className="inline">
+          <button className="btn small ghost danger" onClick={() => void api.call("userMemory.clear").then(setNotes)}>
+            {t("Forget everything")}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1377,12 +1386,11 @@ function UpdatesSection({ view, update }: { view: SettingsView; update: (p: Sett
       title={t("Updates")}
       description={t("Corvus updates itself from its GitHub Releases, or from a self-hosted feed you set below. Updates apply to this install and are never synced.")}
     >
-      <Row label={t("Current version")}>
+      <Row
+        label={t("Current version")}
+        hint={status && !status.supported ? status.reason : status?.portable ? t("Portable copy: an update replaces this file and starts the new version.") : undefined}
+      >
         <span className="pill off">Corvus {status?.currentVersion ?? "…"}</span>
-        {status && !status.supported && <span className="muted small">{status.reason}</span>}
-        {status?.supported && status.portable && (
-          <span className="muted small">{t("Portable copy: an update replaces this file and starts the new version.")}</span>
-        )}
       </Row>
       <Row
         label={t("Third-party software")}

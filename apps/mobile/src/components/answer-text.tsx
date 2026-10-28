@@ -1,5 +1,5 @@
-import { Fragment, type ReactNode } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Space, Type } from '@/constants/theme';
@@ -7,6 +7,42 @@ import { useTheme } from '@/hooks/use-theme';
 import { openInApp } from '@/lib/open-url';
 import { t } from '@/lib/i18n';
 import { markdownBlocks, markdownInline, type Inline } from '@/lib/markdown';
+import { keptLength, partialMarkdown, revealStep } from '@/lib/reveal';
+
+/** How often the text being written out moves on. */
+const REVEAL_FRAME_MS = 33;
+
+/**
+ * How much of `text` to show: all of it when it was there from the start, else written out at a
+ * steady pace toward the latest text (lib/reveal.ts) as the computer's pieces arrive.
+ */
+function useReveal(text: string, streaming: boolean): number {
+  const [shown, setShown] = useState(() => (streaming ? 0 : text.length));
+  const previous = useRef(text);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  if (previous.current !== text) {
+    const kept = keptLength(previous.current, shownRef.current, text);
+    previous.current = text;
+    if (kept < shownRef.current) {
+      shownRef.current = kept;
+      setShown(kept);
+    }
+  }
+  const behind = shown < text.length;
+  useEffect(() => {
+    if (!behind) return;
+    let last = Date.now();
+    const timer = setInterval(() => {
+      const at = Date.now();
+      const dt = at - last;
+      last = at;
+      setShown((n) => revealStep(n, previous.current.length, dt, !streaming));
+    }, REVEAL_FRAME_MS);
+    return () => clearInterval(timer);
+  }, [behind, streaming]);
+  return Math.min(shown, text.length);
+}
 
 /**
  * An answer written in Markdown, drawn with the app's type: paragraphs, headings, bulleted and
@@ -26,8 +62,10 @@ export function AnswerText({
   testID?: string;
 }) {
   const theme = useTheme();
-  const blocks = markdownBlocks(text);
-  const caret = streaming ? (
+  const shown = useReveal(text, !!streaming);
+  const writing = !!streaming || shown < text.length;
+  const blocks = markdownBlocks(writing ? partialMarkdown(text, shown) : text);
+  const caret = writing ? (
     <ThemedText type="body" style={{ color: theme.accent }}>
       {' ▍'}
     </ThemedText>
@@ -117,16 +155,21 @@ function span(part: Inline, theme: ReturnType<typeof useTheme>, sources: readonl
         </ThemedText>
       );
     case 'cite': {
+      // A small pill inside the line: a view, since a nested text's background on Android covers its
+      // whole line height (tall boxes over the lines around it).
       const source = sources[part.n - 1];
       return (
-        <ThemedText
-          type="caption"
+        <Pressable
           accessibilityRole="link"
           accessibilityLabel={t('Source {n}: {title}', { n: part.n, title: source?.title || source?.url || '' })}
           onPress={source ? () => void openInApp(source.url) : undefined}
-          style={[styles.cite, { color: theme.onAccentContainer, backgroundColor: theme.accentContainer }]}>
-          {` ${part.n} `}
-        </ThemedText>
+          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+          style={[styles.cite, { backgroundColor: theme.accentContainer }]}
+          testID={`cite-${part.n}`}>
+          <Text allowFontScaling={false} style={[styles.citeText, { color: theme.onAccentContainer }]}>
+            {part.n}
+          </Text>
+        </Pressable>
       );
     }
     default:
@@ -175,9 +218,20 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   cite: {
-    fontSize: 11,
-    lineHeight: 16,
-    borderRadius: Radius.xs,
-    overflow: 'hidden',
+    minWidth: 16,
+    marginHorizontal: 1,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Inline views sit on the baseline: lowered a little, the pill centres on the small letters.
+    transform: [{ translateY: Platform.OS === 'web' ? 1 : 3 }],
+  },
+  citeText: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+    includeFontPadding: false,
   },
 });

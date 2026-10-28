@@ -106,3 +106,45 @@ index f83033b..11f14da 100644
          val settings = webView.settings
          settings.builtInZoomControls = true
          settings.displayZoomControls = false
+diff --git a/apple/RNCWebViewImpl.h b/apple/RNCWebViewImpl.h
+index 1f637c1..b31a9d2 100644
+--- a/apple/RNCWebViewImpl.h
++++ b/apple/RNCWebViewImpl.h
+@@ -150,6 +150,8 @@ shouldStartLoadForRequest:(NSMutableDictionary<NSString *, id> *)request
+ - (void)stopLoading;
+ - (void)requestFocus;
+ - (void)clearCache:(BOOL)includeDiskFiles;
++/** Corvus: sets the user scripts up again (posting RNCWebViewScriptsReset). */
++- (void)corvusResetScripts;
+ #ifdef RCT_NEW_ARCH_ENABLED
+ - (void)destroyWebView;
+ #endif
+diff --git a/apple/RNCWebViewImpl.m b/apple/RNCWebViewImpl.m
+index 3890426..09a7ea5 100644
+--- a/apple/RNCWebViewImpl.m
++++ b/apple/RNCWebViewImpl.m
+@@ -1842,9 +1842,24 @@ didFinishNavigation:(WKNavigation *)navigation
+   [self writeCookiesToWebView:cookies completion:completion];
+ }
+ 
++// Corvus: sets the user scripts up again (and so posts RNCWebViewScriptsReset), when the app's
++// settings for them changed; the WebView's next pages follow.
++- (void)corvusResetScripts
++{
++  if (_webView != nil) {
++    [self resetupScripts:_webView.configuration];
++  }
++}
++
+ - (void)resetupScripts:(WKWebViewConfiguration *)wkWebViewConfig {
+   [wkWebViewConfig.userContentController removeAllUserScripts];
+   [wkWebViewConfig.userContentController removeScriptMessageHandlerForName:MessageHandlerName];
++  // Corvus: every user script was just removed; an app module adds its own again (with any
++  // message handler of its own content world) when it hears this. Sent on the main thread, before
++  // the WebView loads anything with these scripts.
++  [[NSNotificationCenter defaultCenter] postNotificationName:@"RNCWebViewScriptsReset"
++                                                      object:wkWebViewConfig.userContentController
++                                                    userInfo:@{@"owner": self}];
+   if(self.enableApplePay){
+     if (self.postMessageScript){
+       [wkWebViewConfig.userContentController addScriptMessageHandler:[[RNCWeakScriptMessageDelegate alloc] initWithDelegate:self]

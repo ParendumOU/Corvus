@@ -11,7 +11,7 @@ import type { Progress } from './refresh';
 export type ReplicaClient = Pick<CorvusSyncClient, 'cursor' | 'pullPages' | 'pullCollection' | 'forgetCollection'>;
 
 /** What the phone shows, in the order it was added to the app. */
-export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings'];
+export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings', 'chain_server'];
 
 export class Replica {
   private readonly cache = new Map<SyncCollection, Record<string, unknown>>();

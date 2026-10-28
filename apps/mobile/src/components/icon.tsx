@@ -64,6 +64,7 @@ const ICONS = {
   shieldOff: [{ d: 'M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z' }, { d: 'M4 4l16 16' }],
   monitor: [{ rect: [2, 4, 20, 13, 2] }, { d: 'M8 21h8M12 17v4' }],
   stop: [{ d: 'M18 6 6 18M6 6l12 12' }],
+  stopSquare: [{ d: 'M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z', fill: true }],
   unlock: [{ rect: [5, 11, 14, 10, 2] }, { d: 'M8 11V7a4 4 0 0 1 7.5-2' }],
   trashAll: [{ d: 'M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14' }, { d: 'M10 11v6M14 11v6' }],
   cookie: [{ d: 'M12 3a9 9 0 1 0 9 9 3.5 3.5 0 0 1-4.5-4.5A3.5 3.5 0 0 1 12 3z' }, { circle: [8.5, 10, 1], fill: true }, { circle: [14.5, 15, 1], fill: true }, { circle: [9, 15.5, 1], fill: true }],

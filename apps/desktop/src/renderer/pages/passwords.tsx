@@ -8,7 +8,7 @@ import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { errorMessage, internalApi } from "../common/api";
 import { Modal } from "../common/modal";
 import { IconAgent, IconClock, IconCopy, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
-import { Favicon, hostOf } from "../common/ui";
+import { Favicon, Pager, hostOf } from "../common/ui";
 import { PageShell, mount } from "./shell";
 import "./passwords.css";
 
@@ -866,7 +866,6 @@ function KeePassBrowser({
     );
   }, [entries, search, group]);
   useEffect(() => setPage(0), [search, group, entries.length]);
-  const pages = Math.max(1, Math.ceil(shown.length / KP_PAGE));
   const slice = shown.slice(page * KP_PAGE, page * KP_PAGE + KP_PAGE);
 
   if (entries.length === 0 && unlocked.length === 0) return null;
@@ -951,19 +950,7 @@ function KeePassBrowser({
               </div>
             );
           })}
-          {shown.length > KP_PAGE && (
-            <div className="kp-pager">
-              <button className="btn small ghost" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-                {t("Previous")}
-              </button>
-              <span className="muted small">
-                {t("{from}–{to} of {total}", { from: page * KP_PAGE + 1, to: Math.min(shown.length, (page + 1) * KP_PAGE), total: shown.length })}
-              </span>
-              <button className="btn small ghost" disabled={page >= pages - 1} onClick={() => setPage((p) => p + 1)}>
-                {t("Next")}
-              </button>
-            </div>
-          )}
+          <Pager page={page} size={KP_PAGE} total={shown.length} onPage={setPage} />
         </div>
       </div>
       {form && (

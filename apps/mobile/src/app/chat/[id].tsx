@@ -11,10 +11,11 @@ import { Banner, confirm } from '@/components/feedback';
 import { CorvusMark, Icon } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Space } from '@/constants/theme';
-import { askQuestion, forgetAsks, forgetThread, refreshSession, retryAsk, useSession } from '@/hooks/use-session';
+import { askQuestion, followAnswers, forgetAsks, forgetThread, retryAsk, stopAnswer, useSession } from '@/hooks/use-session';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 import { useTheme } from '@/hooks/use-theme';
-import { answeredAlone, askPhase, assistContext, assistOrigin, assistTitle, followUpContext, isOnline, threadAsks } from '@/lib/chat';
+import { answeredAlone, askPhase, assistContext, assistOrigin, assistTitle, followUpContext, isOnline, replaceAsk, threadAsks } from '@/lib/chat';
+import { lastMove, pollDelay } from '@/lib/answer-follow';
 import { ago } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { openInApp } from '@/lib/open-url';
@@ -22,9 +23,7 @@ import { contextPage, pageContext } from '@/lib/page-ask';
 import { clearHandedPage, handedPage } from '@/lib/page-handoff';
 import { tabHost } from '@/lib/replica';
 import { sendTargets } from '@/lib/send';
-
-/** How often the screen looks for more of the answer while a computer is writing it. */
-const ANSWER_REFRESH_MS = 2_000;
+import { nav } from '@/lib/nav';
 
 /** Questions to start with, on a new chat. */
 const SUGGESTIONS = (): string[] => [t('What happened in the news today?'), t('Explain how vaccines work in simple terms'), t('Plan a weekend in Lisbon')];
@@ -32,6 +31,7 @@ const SUGGESTIONS = (): string[] => [t('What happened in the news today?'), t('E
 /** One question and the computer's side of it. */
 function Turn({
   ask,
+  movedAt,
   computer,
   others,
   now,
@@ -40,6 +40,8 @@ function Turn({
   onAsk,
 }: {
   ask: AskRecord;
+  /** When the phone last saw it change (its own clock). */
+  movedAt: number | undefined;
   computer: DeviceInfo | undefined;
   /** The computers other than the one asked that run Corvus right now (to ask instead). */
   others: DeviceInfo[];
@@ -49,7 +51,7 @@ function Turn({
   onAsk: (q: string) => void;
 }) {
   const name = ask.answeredBy || computer?.name || t('your computer');
-  const phase = askPhase(ask, computer, now);
+  const phase = askPhase(ask, computer, now, movedAt);
   const retry = <Button key="retry" label={t('Try again')} icon="refresh" kind="tonal" size="sm" onPress={() => void retryAsk(ask)} testID={`ask-retry-${ask.question}`} />;
   const cancel = <Button key="cancel" label={t('Cancel')} kind="text" size="sm" onPress={() => void forgetAsks([ask.id])} testID={`ask-remove-${ask.question}`} />;
   const elsewhere = others[0] ? (
@@ -88,6 +90,10 @@ function Turn({
       status = t('{computer} could not answer: {error}', { computer: name, error: ask.error || t('something went wrong') });
       tone = 'error';
       actions = [retry, cancel];
+      break;
+    case 'stopped':
+      status = t('Stopped');
+      tone = 'muted';
       break;
     default:
       status = t('Answered by {computer} · {when}', { computer: name, when: ago(ask.updatedAt, now) });
@@ -153,11 +159,41 @@ export default function ChatScreen() {
     const timer = setInterval(() => setNow(Date.now()), 5_000);
     return () => clearInterval(timer);
   }, []);
+  const latest = useRef(session);
+  latest.current = session;
   useEffect(() => {
     if (!pending) return;
-    const timer = setInterval(() => void refreshSession(), ANSWER_REFRESH_MS);
-    return () => clearInterval(timer);
+    // Looks again soon after each look while the answer moves, less often while nothing does.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const look = async (): Promise<void> => {
+      await followAnswers();
+      if (stopped) return;
+      const at = Date.now();
+      timer = setTimeout(() => void look(), pollDelay(at, lastMove(latest.current.asks, latest.current.askMoved, at)));
+    };
+    void look();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [pending]);
+
+  const failed = (err: unknown): void => setError(t('That did not work: {error}', { error: err instanceof Error ? err.message : String(err) }));
+
+  // Stops the answer being written; what came of it stays, marked as stopped.
+  const stop = async (): Promise<void> => {
+    if (!last || !pending || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await stopAnswer(last);
+    } catch (err) {
+      failed(err);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const send = async (text: string): Promise<void> => {
     const question = text.trim();
@@ -167,18 +203,21 @@ export default function ChatScreen() {
     try {
       if (conversation) {
         const asked = await askQuestion(question, computer.id, { context: assistContext(conversation), origin: assistOrigin(conversation) });
-        router.replace(`/chat/${asked.id}`);
+        nav.replace(`/chat/${asked.id}`);
       } else if (id === 'new' || asks.length === 0) {
         const asked = await askQuestion(question, computer.id, handed ? { context: pageContext(handed, handed.text) } : {});
         if (handed) clearHandedPage();
-        router.replace(`/chat/${asked.id}`);
+        nav.replace(`/chat/${asked.id}`);
       } else {
-        await askQuestion(question, computer.id, { thread: id, context: followUpContext(asks) });
+        // Sent while an answer is still coming: that answer stops where it is, and the computer
+        // answers this message with it, as the next turn of the same conversation.
+        const thread = pending && last ? replaceAsk(asks, last.id, await stopAnswer(last)) : asks;
+        await askQuestion(question, computer.id, { thread: id, context: followUpContext(thread) });
       }
       setDraft('');
       atBottom.current = true;
     } catch (err) {
-      setError(t('That did not work: {error}', { error: err instanceof Error ? err.message : String(err) }));
+      failed(err);
     } finally {
       setBusy(false);
     }
@@ -194,7 +233,7 @@ export default function ChatScreen() {
     if (!ok) return;
     await forgetThread(id);
     if (router.canGoBack()) router.back();
-    else router.replace('/assist');
+    else nav.replace('/assist');
   };
 
   const header = (
@@ -220,7 +259,7 @@ export default function ChatScreen() {
         <EmptyState
           icon="sparkle"
           description={t('Pair this phone with your computer first: your computer answers the questions.')}
-          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => router.replace('/pair')} testID="ask-pair" />}
+          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => nav.replace('/pair')} testID="ask-pair" />}
         />
       </View>
     );
@@ -308,7 +347,7 @@ export default function ChatScreen() {
           {asks[0]?.origin ? (
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: asks[0]!.origin!.conversation, assist: '1' } })}
+              onPress={() => nav.push({ pathname: '/chat/[id]', params: { id: asks[0]!.origin!.conversation, assist: '1' } })}
               style={[styles.quote, { borderLeftColor: theme.accent, backgroundColor: theme.accentSoft }]}
               testID="chat-origin">
               <Icon name="history" size={18} color={theme.accentText} />
@@ -366,7 +405,8 @@ export default function ChatScreen() {
           ) : null}
 
           {asks.map((ask, i) => (
-            <Turn key={ask.id} ask={ask} computer={session.devices.find((d) => d.id === ask.to)} others={online.filter((d) => d.id !== ask.to)} now={now} last={i === asks.length - 1} busy={busy || !computer} onAsk={(q) => void send(q)} />
+            // Keyed by its place: a stopped answer's copy takes over the question's turn, which goes on writing out what had come.
+            <Turn key={`${ask.askedAt}:${ask.question}`} ask={ask} movedAt={session.askMoved[ask.id]} computer={session.devices.find((d) => d.id === ask.to)} others={online.filter((d) => d.id !== ask.to)} now={now} last={i === asks.length - 1} busy={busy || !computer} onAsk={(q) => void send(q)} />
           ))}
 
           {error ? <Banner tone="error" message={error} testID="ask-error" /> : null}
@@ -377,6 +417,7 @@ export default function ChatScreen() {
           value={draft}
           onChange={setDraft}
           onSend={() => void send(draft)}
+          onStop={pending ? () => void stop() : undefined}
           placeholder={conversation ? t('Continue this conversation') : asks.length > 0 ? t('Ask a follow-up') : handed ? t('Ask about this page') : t('Ask anything')}
           disabled={!computer}
           busy={busy}

@@ -84,16 +84,19 @@ export function SiteSearchSection() {
           ))}
         </div>
       )}
-      <Row label={t("New shortcut")}>
+      <Row label={t("New shortcut")} />
+      <div className="stack">
         <div className="site-search-new">
           <input className="input keyword" placeholder={t("Keyword")} aria-label={t("Keyword")} maxLength={32} {...field("keyword")} />
           <input className="input" placeholder={t("Name")} aria-label={t("Name")} maxLength={100} {...field("name")} />
-          <input className="input grow" placeholder={t("Address, with %s where the search goes")} aria-label={t("Address")} maxLength={2048} {...field("url")} />
-          <button className="btn small" disabled={!ready} onClick={add}>
-            {t("Add")}
-          </button>
+          <div className="field-row grow">
+            <input className="input" placeholder={t("Address, with %s where the search goes")} aria-label={t("Address")} maxLength={2048} {...field("url")} />
+            <button className="btn small" disabled={!ready} onClick={add}>
+              {t("Add")}
+            </button>
+          </div>
         </div>
-      </Row>
+      </div>
       {error && <div className="notice error">{error}</div>}
     </Section>
   );
@@ -225,7 +228,7 @@ export function MemorySection({ view, update }: Props) {
             .sort((a, b) => a - b)
             .map((minutes) => (
               <option key={minutes} value={minutes}>
-                {minutes < 60 ? t("{n} minutes", { n: minutes }) : t("{n} hours", { n: minutes / 60 })}
+                {minutes < 60 ? t("{n} minutes", { n: minutes }) : minutes === 60 ? t("1 hour") : t("{n} hours", { n: minutes / 60 })}
               </option>
             ))}
         </select>
@@ -242,7 +245,7 @@ export function DownloadsSection({ view, update, setView }: Props & { setView: (
   useEffect(() => setPasswords(saved), [saved]);
   return (
     <Section id="downloads" title={t("Downloads")} description={t("Programs requested by AI-agent tabs are always held back until you keep them.")}>
-      <Row label={t("Location")} hint={d.directory ? undefined : "Your system Downloads folder."}>
+      <Row label={t("Location")} hint={d.directory ? undefined : t("Your system Downloads folder.")}>
         <code className="mono">{d.directory || t("Downloads")}</code>
         <button
           className="btn small"
@@ -284,7 +287,6 @@ export function DownloadsSection({ view, update, setView }: Props & { setView: (
           value={passwords}
           spellCheck={false}
           data-archive-passwords
-          style={{ width: 320, height: "auto", padding: "8px 10px", resize: "vertical" }}
           onChange={(e) => setPasswords(e.target.value)}
           onBlur={() => passwords !== d.archivePasswords.join("\n") && update({ downloads: { archivePasswords: passwords.split("\n") } })}
         />

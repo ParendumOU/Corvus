@@ -25,6 +25,7 @@ import { toRecordView } from "./agent-run-store";
 import { ANNOTATIONS_INTERNAL_PERMISSIONS, annotationsInternalHandlers, registerAnnotationCapture } from "./ipc-annotations";
 import { openBookmarkFolder, siteIcons } from "./bookmark-actions";
 import { checkConnection, testProxy, type ProxyInput } from "./connections";
+import { networkHelp, openNetworkSettings } from "./network-help";
 import type { AppContext } from "./context";
 import { showExtensionMenu } from "./extension-windows";
 import { BundleError, MIN_BUNDLE_PASSWORD } from "./profile-bundle";
@@ -316,6 +317,10 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "sync.renameDevice": ["settings", "devices"],
   "sync.revealPhrase": ["settings"],
   "sync.pairingCode": ["settings"],
+  "sync.checkServer": ["settings", "welcome"],
+  "sync.moveChain": ["settings"],
+  "sync.networkHelp": ["settings"],
+  "sync.openNetworkSettings": ["settings"],
   "sync.wipe": ["settings"],
   "sync.remoteTabs": ["history"],
   "sync.extensionSuggestions": ["settings"],
@@ -513,6 +518,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const q = (query ?? {}) as Record<string, unknown>;
       return ctx.mcp.activityView({
         ...(typeof q.limit === "number" ? { limit: q.limit } : {}),
+        ...(typeof q.offset === "number" ? { offset: q.offset } : {}),
         ...(typeof q.client === "string" && q.client ? { client: q.client.slice(0, 100) } : {}),
         ...(q.problemsOnly === true ? { problemsOnly: true } : {}),
       });
@@ -610,13 +616,23 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "sync.status": (c) => ctx.sync.status(c.profile),
     "sync.generatePhrase": () => ctx.sync.generatePhrase(),
     "sync.enable": (c, opts) => {
-      const o = (opts ?? {}) as Record<string, unknown>;
+      const o = (opts ?? {}) as unknown as Record<string, unknown>;
       return ctx.sync.enable(c.profile, {
-        serverUrl: str(o.serverUrl, "server URL", 2048),
+        ...(o.mode === "local" || o.mode === "custom" ? { mode: o.mode } : {}),
+        ...(o.serverUrl === undefined || o.serverUrl === null || o.serverUrl === "" ? {} : { serverUrl: str(o.serverUrl, "server URL", 2048) }),
         phrase: str(o.phrase, "phrase", 1024),
         deviceName: str(o.deviceName ?? "", "device name", 200),
       });
     },
+    "sync.checkServer": (_c, url) => ctx.sync.checkServer(str(url, "server URL", 2048)),
+    "sync.moveChain": (c, target) => {
+      const t = (target ?? {}) as Record<string, unknown>;
+      if (t.mode === "local") return ctx.sync.moveChain(c.profile, { mode: "local" });
+      if (t.mode === "custom") return ctx.sync.moveChain(c.profile, { mode: "custom", serverUrl: str(t.serverUrl, "server URL", 2048) });
+      throw new Error("Unknown sync target");
+    },
+    "sync.networkHelp": () => networkHelp(),
+    "sync.openNetworkSettings": (_c, which) => openNetworkSettings(which === "firewall" ? "firewall" : "network"),
     "sync.disable": (c) => ctx.sync.disable(c.profile),
     "sync.now": (c) => ctx.sync.syncNow(c.profile),
     "sync.setOptions": (c, opts) => {

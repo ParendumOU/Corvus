@@ -30,6 +30,7 @@ function bundledPackages(target: string): Plugin {
 }
 
 const shared = {
+  "@corvus/sync-server/embedded": resolve(import.meta.dirname, "../../services/sync-server/src/embedded.ts"),
   "@corvus/shared": resolve(import.meta.dirname, "../../packages/shared/src/index.ts"),
   "@corvus/webscope": resolve(import.meta.dirname, "../../packages/webscope/src/index.ts"),
 };
@@ -49,6 +50,8 @@ export default defineConfig({
           "adblock-parser": resolve(import.meta.dirname, "src/main/adblock-parser.ts"),
           // So does the archive extractor (7-Zip).
           "archive-worker": resolve(import.meta.dirname, "src/main/archive-worker.ts"),
+          // And the sync server built into Corvus (the same code as services/sync-server).
+          "sync-server-worker": resolve(import.meta.dirname, "src/main/sync-server-worker.ts"),
         },
         // Keep the Ghostery adblocker external: it resolves its content-script preload from disk at
         // runtime (require.resolve), which bundling would break. 7-Zip loads its .wasm next to itself.

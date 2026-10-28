@@ -3,7 +3,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, webContents } from "electron";
-import { decodePairing, linkOnlyReadingItem, newAsk, parseAsk, parseDeviceWatchStatus, type Ask, type SearchEvent } from "@corvus/shared";
+import { decodePairing, linkOnlyReadingItem, newAsk, parseAsk, parseDeviceWatchStatus, stoppedAsk, type Ask, type SearchEvent } from "@corvus/shared";
 import { createSyncClient } from "@corvus/sync-core";
 import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
@@ -28,10 +28,11 @@ import { runFlowsSmoke } from "./smoke-flows";
 import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
 import { runSyncLearnedSmoke } from "./smoke-sync-learned";
+import { runBuiltinSyncSmoke } from "./smoke-builtin-sync";
 import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
-import { runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
+import { narrowLayout, narrowWindow, runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
 import { runPhoneSmoke } from "./smoke-phone";
 import { runConnectionsSmoke } from "./smoke-connections";
 import { runPrivateSmoke } from "./smoke-private";
@@ -46,6 +47,7 @@ import { runReaderSmoke } from "./smoke-reader";
 import { runExtensionSmoke } from "./smoke-extensions";
 import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
 import { fakeSearchDeps, runSearchSmoke } from "./smoke-search";
+import { runSettingsLayoutSmoke } from "./smoke-settings";
 import { runWebscopeSmoke } from "./smoke-webscope";
 
 const PAGE = `<!doctype html><html><head><title>Smoke</title></head><body>
@@ -184,10 +186,16 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     const outDir = process.env.CORVUS_SMOKE_OUT;
     const capture = async (name: string, wc: Electron.WebContents): Promise<void> => {
       if (!outDir) return;
-      fs.mkdirSync(outDir, { recursive: true });
+      const file = path.join(outDir, `${name}.png`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
       const image = await wc.capturePage();
-      fs.writeFileSync(path.join(outDir, `${name}.png`), image.toPNG());
+      fs.writeFileSync(file, image.toPNG());
     };
+    // CORVUS_SMOKE_ONLY=settings: only the Settings layout checks, for work on Settings (with CORVUS_SMOKE_SETTINGS_SHOTS=1, every section).
+    if (process.env.CORVUS_SMOKE_ONLY === "settings") {
+      await runSettingsLayoutSmoke(ctx, { win, check, capture });
+      return;
+    }
     await capture("chrome", win.chrome.webContents);
     await runFaviconSmoke(ctx, { url, win, check, capture });
     const pages: Array<[string, string]> = [
@@ -221,7 +229,9 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     const remoteTabs = await historyTab.view.webContents.executeJavaScript("window.corvusInternal.call('sync.remoteTabs')");
     check("history sync.remoteTabs IPC", Array.isArray(remoteTabs), remoteTabs);
     await runPairingAddressSmoke(check);
+    await runBuiltinSyncSmoke(ctx, url, check, capture);
     if (process.env.CORVUS_SMOKE_SYNC_URL) await smokeSync(ctx, process.env.CORVUS_SMOKE_SYNC_URL, url, check, capture);
+    await runSettingsLayoutSmoke(ctx, { win, check, capture });
 
     const webTab = ctx.windows.findTab(tab.id)?.tab;
     const leaked = await webTab?.view.webContents.executeJavaScript("typeof window.corvusInternal + '/' + typeof window.corvus");
@@ -393,23 +403,36 @@ async function smokeSync(
   );
   if (onPhone) await phone.push([{ collection: "sent_tabs", id: onPhone.id, payload: null, deleted: true }]);
 
-  // A question asked on the phone is answered here with the AI search, streaming onto the chain.
-  ctx.search.setTestDeps(fakeSearchDeps());
+  // A question asked on the phone is answered here with the AI search, streaming onto the chain:
+  // the phone (looking as often as the app does while it waits) sees the answer grow before it is
+  // done. Nothing pokes the sync: this computer finds the question by itself, as with a real phone.
+  ctx.search.setTestDeps(fakeSearchDeps(70));
   const askId = "smoke-ask-1";
   let asked: Ask | null = null;
   try {
-    await phone.push([{ collection: "asks", id: askId, payload: newAsk("How long do ravens live?", deskId, phoneId, "Smoke phone", Date.now()), deleted: false }]);
-    await ctx.sync.syncNow(profile);
+    const askedAt = Date.now();
+    await phone.push([{ collection: "asks", id: askId, payload: newAsk("How long do ravens live?", deskId, phoneId, "Smoke phone", askedAt), deleted: false }]);
     const states = new Set<string>();
-    const until = Date.now() + 20_000;
+    const partials: string[] = [];
+    let firstText = 0;
+    const until = Date.now() + 30_000;
     while (Date.now() < until && asked?.state !== "done" && asked?.state !== "error") {
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 150));
       for (const item of await phone.pull()) {
         if (item.collection !== "asks" || item.id !== askId || item.deleted) continue;
         asked = parseAsk(item.payload);
-        if (asked) states.add(asked.state);
+        if (!asked) continue;
+        states.add(asked.state);
+        if (asked.state === "answering" && asked.answer && partials.at(-1) !== asked.answer) partials.push(asked.answer);
+        if (asked.answer && !firstText) firstText = Date.now() - askedAt;
       }
     }
+    console.log(`[smoke] ask from the phone: first text after ${firstText} ms, ${partials.length} partial answers, done after ${Date.now() - askedAt} ms`);
+    check(
+      "ask from the phone: partial answers arrive, each one longer, before the final one",
+      partials.length >= 3 && partials.every((p, i) => i === 0 || p.length > partials[i - 1]!.length) && asked?.state === "done" && asked.answer.startsWith(partials[0]!.trimEnd().slice(0, 8)),
+      { partials: partials.length, lengths: partials.map((p) => p.length), firstText },
+    );
     check(
       "ask from the phone: this computer answers with its AI search, with sources, while the phone watches",
       asked?.state === "done" && asked.answer.length > 20 && asked.sources.length > 0 && asked.answeredBy.length > 0 && states.has("answering"),
@@ -418,6 +441,51 @@ async function smokeSync(
   } finally {
     ctx.search.setTestDeps(null);
     await phone.push([{ collection: "asks", id: askId, payload: null, deleted: true }]);
+  }
+
+  // The person stops that answer on the phone while it is written (or sends another message): the
+  // phone writes a copy with the answer so far, marked stopped, and deletes the question ahead of
+  // this computer's writes, in one request. This computer stops its search, never brings the
+  // question back (not even through a full sync), and leaves the copy alone.
+  let pieces = 0;
+  ctx.search.setTestDeps(fakeSearchDeps(150, () => pieces++));
+  const stopId = "smoke-ask-stop";
+  const copyId = "smoke-ask-stop-copy";
+  try {
+    await phone.push([{ collection: "asks", id: stopId, payload: newAsk("Why are ravens so clever?", deskId, phoneId, "Smoke phone", Date.now()), deleted: false }]);
+    let partial: Ask | null = null;
+    for (const until = Date.now() + 20_000; !partial && Date.now() < until; ) {
+      await new Promise((r) => setTimeout(r, 150));
+      for (const item of await phone.pull()) {
+        const seen = item.collection === "asks" && item.id === stopId && !item.deleted ? parseAsk(item.payload) : null;
+        if (seen?.state === "answering" && seen.answer) partial = seen;
+      }
+    }
+    const copy = partial ? stoppedAsk({ id: stopId, ...partial }, Date.now()) : null;
+    const { conflicts } = copy
+      ? await phone.push(
+          [
+            { collection: "asks", id: copyId, payload: copy, deleted: false },
+            { collection: "asks", id: stopId, payload: null, deleted: true },
+          ],
+          { deleteAhead: 1000 },
+        )
+      : { conflicts: [] };
+    const atStop = pieces;
+    // Several more pieces of the answer would have been due by now.
+    await new Promise((r) => setTimeout(r, 2500));
+    await ctx.sync.syncNow(profile);
+    const settled = pieces;
+    await new Promise((r) => setTimeout(r, 1500));
+    const after = (await phone.pull()).filter((i) => i.collection === "asks" && (i.id === stopId || i.id === copyId));
+    check(
+      "stop an answer from the phone: this computer stops its search and never brings the question back; the stopped copy stays as written",
+      !!copy && conflicts.length === 0 && pieces === settled && after.length === 0,
+      { partial: partial?.answer.length ?? null, conflicts: conflicts.length, piecesAtStop: atStop, piecesAfter: pieces, changedOnChain: after.map((i) => `${i.id}:${i.deleted ? "deleted" : (i.payload as Ask).state}`) },
+    );
+  } finally {
+    ctx.search.setTestDeps(null);
+    await phone.push([{ collection: "asks", id: stopId, payload: null, deleted: true }, { collection: "asks", id: copyId, payload: null, deleted: true }], { deleteAhead: 1000 });
   }
 
   // A link saved for later on the phone joins the reading list here; read state syncs both ways.
@@ -458,7 +526,7 @@ async function smokeSync(
   const settings = win.createTab("corvus://settings#sync");
   const devicesShown = await waitForText(settings.view.webContents, ".sync-devices", "Smoke phone");
   check("settings lists devices", devicesShown.includes("Smoke phone") && devicesShown.includes("This device"), devicesShown);
-  await runPairPhoneUiSmoke(ctx, { profile, settings: settings.view.webContents, phrase, check, capture });
+  await runPairPhoneUiSmoke(ctx, { profile, settings: settings.view.webContents, window: win.win, phrase, check, capture });
 
   const devices = await ctx.sync.removeDevice(profile, phoneId);
   check("sync remove device", devices.length === 1 && devices[0]?.current === true, devices);
@@ -467,6 +535,21 @@ async function smokeSync(
 
   const wiped = await ctx.sync.wipe(profile, "DELETE");
   check("sync wipe chain", !wiped.enabled && wiped.chainId === null, { enabled: wiped.enabled, error: wiped.error });
+
+  // Sync off: "Where your data syncs" is a list of radios, each with its title and description, wide and narrow.
+  settings.view.webContents.reload();
+  await waitForText(settings.view.webContents, ".sync-choice", "This computer (recommended)");
+  await settings.view.webContents.executeJavaScript(`document.querySelector(".sync-choice")?.scrollIntoView({ block: "center" })`);
+  const wide = await narrowLayout(settings.view.webContents);
+  await capture("settings-sync-setup", settings.view.webContents);
+  let narrow = wide;
+  await narrowWindow(win.win, async () => {
+    await settings.view.webContents.executeJavaScript(`document.querySelector(".sync-choice")?.scrollIntoView({ block: "center" })`);
+    narrow = await narrowLayout(settings.view.webContents);
+    await capture("settings-sync-setup-narrow", settings.view.webContents);
+  });
+  check("sync setup: each place to sync is a radio with its title and description beside it, wide and narrow", wide.radiosOk && wide.radios === 2 && narrow.radiosOk && narrow.fits, { wide, narrow });
+  win.closeTab(settings.id);
 }
 
 /** Poll a page until `selector` contains `text` (or 10 s pass); returns the element's text. */

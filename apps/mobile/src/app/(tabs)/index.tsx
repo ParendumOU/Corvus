@@ -1,5 +1,4 @@
 import type { GroupColor, SyncedTab } from '@corvus/shared';
-import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +25,7 @@ import { useBrowser } from '@/lib/browser-store';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { filterTabs, tabHost, type ComputerTabs } from '@/lib/replica';
 import { changedRecently } from '@/lib/watches';
+import { nav } from '@/lib/nav';
 
 const OUTBOX_REFRESH_MS = 10_000;
 
@@ -112,7 +112,7 @@ function AskEntry() {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={t('Ask Corvus')}
-      onPress={() => router.push({ pathname: '/chat/[id]', params: { id: 'new' } })}
+      onPress={() => nav.push({ pathname: '/chat/[id]', params: { id: 'new' } })}
       android_ripple={{ color: theme.accentSoft }}
       style={({ pressed }) => [styles.askEntry, { backgroundColor: theme.surface, borderColor: theme.borderStrong }, pressed && Platform.OS !== 'android' && { opacity: 0.85 }]}
       testID="home-ask">
@@ -215,7 +215,7 @@ export default function HomeScreen() {
         <Card testID="pairing-card">
           <CardHeader title={t('Not paired with a computer yet')} description={t('Pair it once and your tabs, pages and library follow you here.')} />
           <View style={styles.steps}>
-            {[t('On your computer, open Corvus Settings, then Sync.'), t('Choose “Pair a phone”: a code appears.'), t('Scan the code with this phone.')].map((step, i) => (
+            {[t('On your computer, open Corvus Settings, then Sync.'), t('Choose “Pair a device”: a code appears.'), t('Scan the code with this phone.')].map((step, i) => (
               <View key={step} style={styles.step}>
                 <View style={[styles.stepNumber, { backgroundColor: theme.accentContainer }]}>
                   <ThemedText type="label" style={{ color: theme.onAccentContainer }}>
@@ -228,11 +228,12 @@ export default function HomeScreen() {
               </View>
             ))}
           </View>
-          <Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} testID="home-pair" />
+          <Button label={t('Pair with a computer')} icon="scan" onPress={() => nav.push('/pair')} testID="home-pair" />
         </Card>
       )}
 
       {session.error && <Banner tone="error" message={session.error} testID="home-error" />}
+      {session.unreachable && <Banner tone="info" icon="laptop" message={session.unreachable} testID="home-unreachable" />}
 
       {paired && session.inbox.length > 0 && (
         <View style={styles.section}>
@@ -278,7 +279,7 @@ export default function HomeScreen() {
             title={t('Send a page to your computer')}
             subtitle={t('It opens there on its next sync.')}
             chevron
-            onPress={() => router.push('/send')}
+            onPress={() => nav.push('/send')}
             testID="home-send"
           />
           <ListRow
@@ -291,7 +292,7 @@ export default function HomeScreen() {
             }
             subtitleLines={2}
             chevron
-            onPress={() => router.push('/watches')}
+            onPress={() => nav.push('/watches')}
             badge={changed > 0 ? <View style={[styles.dot, styles.flush, { backgroundColor: theme.accent }]} /> : undefined}
             testID="home-watches"
           />

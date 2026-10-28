@@ -40,6 +40,12 @@ export interface ServerOptions {
   chainRequestsPerMinute?: number;
   trustProxy?: boolean;
   logger?: FastifyServerOptions["logger"];
+  /**
+   * Answers only clients whose socket address passes this check (others get 403 before anything
+   * else runs). Default: everyone. The sync server built into the desktop app allows only this
+   * computer and private networks (see isPrivateAddress).
+   */
+  allowClient?: (address: string | undefined) => boolean;
   now?: () => number;
 }
 
@@ -149,6 +155,13 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     throw new HttpError(429, "rate_limited", "Too many requests");
   };
 
+  const allowClient = opts.allowClient;
+  if (allowClient) {
+    app.addHook("onRequest", async (req) => {
+      if (!allowClient(req.socket.remoteAddress)) throw new HttpError(403, "forbidden", "This sync server only answers devices on its local network");
+    });
+  }
+
   app.get("/healthz", async () => ({ ok: true }));
 
   app.register(
@@ -220,7 +233,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       });
 
       v1.get("/chains/:chainId/devices", async (req): Promise<SyncDeviceListResponse> => {
-        return { devices: store.listDevices(req.auth!.chainId) };
+        return { devices: store.listDevices(req.auth!.chainId), serverTime: now() };
       });
 
       v1.delete("/chains/:chainId/devices/:deviceId", async (req, reply) => {

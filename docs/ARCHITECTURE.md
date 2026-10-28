@@ -20,7 +20,7 @@ packages/ai-engine    Retrievers (SearXNG/Brave/DDG) + AI providers (Anthropic A
 packages/mcp-server   MCP server (Streamable HTTP on 127.0.0.1 + stdio bridge) over BrowserController
 packages/sync-core    E2E crypto (BIP39, HKDF, XChaCha20-Poly1305, Ed25519) + sync client
 packages/webscope     Security workbench engine: scope, capture, repeater, fuzzer, rules, HAR (see docs/WEBSCOPE.md)
-services/sync-server  Self-hostable sync server (Fastify + SQLite), stores only ciphertext
+services/sync-server  Sync server (Fastify + node:sqlite), stores only ciphertext: Docker, and built into the desktop app
 docker/               Dev toolchain image, SearXNG config, Windows builder
 ```
 
@@ -69,7 +69,24 @@ Providers:
 
 ## 6. Sync (Brave-Sync-like)
 
-See `packages/shared/src/sync.ts`. Zero-knowledge: the server stores opaque ciphertext. Restore = enter the 24-word phrase on a new device. Server is self-hosted via Docker. One chain per profile; collections bookmarks, history, settings (allowlist), profiles, open_tabs and extensions (suggestions only). Details in `apps/desktop/README.md#sync`.
+See `packages/shared/src/sync.ts`. Zero-knowledge: the server stores opaque ciphertext. Restore = enter the 24-word phrase on a new device. One chain per profile; collections bookmarks, history, settings (allowlist), profiles, open_tabs and extensions (suggestions only), and more. Details in `apps/desktop/README.md#sync`.
+
+Where a chain lives (per profile, `mode` in the profile's `sync.json`):
+
+- **This computer** (`local`, the default for new setups): the desktop app runs `services/sync-server` itself, in an Electron utility process per profile (`main/local-sync-server.ts`, entry `main/sync-server-worker.ts`, `startEmbeddedServer` in `services/sync-server/src/embedded.ts`). The database is `<profile>/sync-server/sync.db`. It listens on `0.0.0.0`, port 8797 or the next free one (8798 to 8806, then any), remembered so paired devices keep their address, and answers only loopback, private (RFC 1918, link-local, IPv6 ULA) and Tailscale (100.64.0.0/10) clients (`allowClient: isPrivateAddress`). The desktop's own client uses `http://127.0.0.1:<port>`; the pairing code carries the LAN address. SQLite is Node's built-in `node:sqlite` (Electron 44 has it), so the app has no native module to rebuild for Windows, Linux or macOS.
+- **Your own server** (`custom`): any URL, typically the Docker image. Profiles that synced before this existed keep their URL as `custom`.
+
+```mermaid
+flowchart LR
+  subgraph PC["Computer A (Corvus)"]
+    SY["SyncService"] -->|"http://127.0.0.1:8797"| W["utility process: sync server + node:sqlite"]
+  end
+  P["Phone (Corvus app)"] -->|"LAN or Tailscale: http://192.168.x.y:8797"| W
+  B["Computer B (Corvus)"] -->|"pairing code: LAN address"| W
+  SY -. "move chain" .-> O["Your own server (Docker, HTTPS)"]
+```
+
+**Moving a chain** (`SyncService.moveChain`): the computer registers on the new server with its device id, writes a `chain_server` record there (the encrypted list of addresses of the chain's server), pushes the same record on the old server, then starts over on the new one, uploading everything it has. Other devices read the record on the old server and follow (`chainServerMove` in `@corvus/shared`): they check the new address answers, register and fetch everything again. Only chain members can write or read the record, so a server cannot redirect devices. The built-in server keeps answering for 14 days after its chain moved away, then deletes its copy. A computer on This computer keeps the record current with its addresses (Wi-Fi, Ethernet, Tailscale), which a phone tries when the one it uses does not answer. If the built-in server's database is lost, the computer answers `chain_not_found` by uploading everything again; a phone that is no longer registered registers again.
 
 ## 7. Build & release
 

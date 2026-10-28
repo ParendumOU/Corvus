@@ -1,0 +1,62 @@
+// Applied to the generated android/app/build.gradle by plugins/with-third-party-notices.js: release
+// builds get assets/third-party-notices.json (scripts/third-party-notices.mjs), made after Metro has
+// bundled the JavaScript (its source map lists the npm packages that ship) from the release runtime
+// classpath (each Android library with its Maven POM and its parents' POMs, for licences and holders).
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedArtifactResult
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+import groovy.json.JsonOutput
+
+def corvusMobileDir = new File(rootDir, '..')
+def corvusNoticesDir = layout.buildDirectory.dir('generated/corvus-notices')
+
+def corvusPomFile = { String group, String name, String version ->
+  def result = dependencies.createArtifactResolutionQuery().forModule(group, name, version).withArtifacts(MavenModule, MavenPomArtifact).execute()
+  def artifact = result.resolvedComponents.collectMany { it.getArtifacts(MavenPomArtifact) }.find { it instanceof ResolvedArtifactResult }
+  return artifact?.file
+}
+
+def corvusNotices = tasks.register('corvusThirdPartyNotices') {
+  dependsOn 'createBundleReleaseJsAndAssets'
+  inputs.file(new File(corvusMobileDir, 'scripts/third-party-notices.mjs'))
+  inputs.file(new File(corvusMobileDir, 'scripts/notices-lib.mjs'))
+  inputs.dir(new File(corvusMobileDir, 'scripts/licenses'))
+  // The libraries and the bundle change with every build that changes anything: always run (a few seconds).
+  outputs.upToDateWhen { false }
+  outputs.dir(corvusNoticesDir)
+  doLast {
+    def ids = configurations.releaseRuntimeClasspath.incoming.resolutionResult.allComponents
+      .collect { it.id }
+      .findAll { it instanceof ModuleComponentIdentifier }
+    def libraries = ids.collect { ModuleComponentIdentifier id ->
+      def poms = []
+      def coords = [id.group, id.module, id.version]
+      while (coords && poms.size() < 6) {
+        def pom = corvusPomFile(*coords)
+        if (pom == null) break
+        poms << pom.absolutePath
+        def parent = new groovy.xml.XmlSlurper().parse(pom).parent
+        coords = parent.artifactId.text() ? [parent.groupId.text(), parent.artifactId.text(), parent.version.text()] : null
+      }
+      [group: id.group, name: id.module, version: id.version, poms: poms]
+    }
+    def work = corvusNoticesDir.get().asFile
+    work.mkdirs()
+    def maven = new File(work, 'maven.json')
+    maven.text = JsonOutput.toJson(libraries)
+    def maps = fileTree(layout.buildDirectory.dir('generated/sourcemaps/react/release')) { include '*.map' }.files +
+      fileTree(layout.buildDirectory.dir('intermediates/sourcemaps/react/release')) { include '*.packager.map' }.files
+    if (maps.isEmpty()) throw new GradleException('No source map of the release JavaScript bundle')
+    // Gradle 9 has no project.exec.
+    def node = new ProcessBuilder('node', 'scripts/third-party-notices.mjs', '--sourcemap', maps.first().absolutePath,
+        '--maven', maven.absolutePath, '--out', new File(work, 'assets').absolutePath)
+      .directory(corvusMobileDir).inheritIO().start()
+    if (node.waitFor() != 0) throw new GradleException('scripts/third-party-notices.mjs failed')
+  }
+}
+
+android.sourceSets.release.assets.srcDirs += corvusNoticesDir.get().dir('assets').asFile
+afterEvaluate {
+  tasks.matching { it.name in ['mergeReleaseAssets', 'generateReleaseLintVitalReportModel', 'lintVitalAnalyzeRelease'] }.configureEach { dependsOn corvusNotices }
+}

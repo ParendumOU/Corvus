@@ -1,6 +1,6 @@
-import { MAX_CONTEXT_ANSWER, newAsk, parseAsk, type Ask, type SearchEvent } from "@corvus/shared";
+import { MAX_CONTEXT_ANSWER, newAsk, parseAsk, stoppedAsk, type Ask, type SearchEvent } from "@corvus/shared";
 import { describe, expect, it } from "vitest";
-import { answerAsk } from "../src/main/ask-relay";
+import { ASK_MAX_AGE_MS, ASK_STALE_MS, PROGRESS_CHARS, PROGRESS_MS, answerAsk, progressDue, toAnswer } from "../src/main/ask-relay";
 
 const PHONE = "phone-0000-0001";
 const DESK = "desk-0000-0001";
@@ -79,6 +79,56 @@ describe("answering a question from the phone", () => {
   });
 });
 
+describe("a question the phone takes back or stops", () => {
+  const later = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  async function* slow(list: SearchEvent[]): AsyncIterable<SearchEvent> {
+    for (const e of list) {
+      await later(5);
+      yield e;
+    }
+  }
+
+  it("writes nothing more once a write finds it gone, not even the error or the whole answer", async () => {
+    for (const end of [
+      { type: "error", message: "The provider failed.", recoverable: false },
+      { type: "answer-done", text: "abcd", citations: [] },
+    ] as SearchEvent[]) {
+      const pushed: Ask[] = [];
+      let clock = 0;
+      await answerAsk(question, {
+        // The question is deleted while the first piece of the answer is on its way: that write
+        // learns it slowly, after the search has already ended.
+        stream: () => slow([{ type: "answer-delta", text: "ab" }, end]),
+        push: async (ask) => {
+          pushed.push(ask);
+          if (pushed.length === 1) return true;
+          await later(40);
+          return false;
+        },
+        deviceName: "Desk",
+        now: () => (clock += 1000),
+      });
+      expect(pushed.map((a) => a.state)).toEqual(["answering", "answering"]);
+    }
+  });
+
+  it("answers only questions that wait for this computer, never a stopped one", () => {
+    const now = 10 * ASK_STALE_MS;
+    const waiting = newAsk("Why?", DESK, PHONE, "Pixel", now - 1000);
+    expect(toAnswer(waiting, DESK, now)).toBe(true);
+    expect(toAnswer(waiting, "desk-0000-0002", now)).toBe(false);
+    expect(toAnswer({ ...waiting, askedAt: now - ASK_MAX_AGE_MS }, DESK, now)).toBe(false);
+    expect(toAnswer({ ...waiting, state: "answering", updatedAt: now - 1000 }, DESK, now)).toBe(false);
+    expect(toAnswer({ ...waiting, state: "answering", updatedAt: now - ASK_STALE_MS - 1 }, DESK, now)).toBe(true);
+    expect(toAnswer({ ...waiting, state: "done" }, DESK, now)).toBe(false);
+    const stopped = parseAsk(JSON.parse(JSON.stringify(stoppedAsk({ id: "11111111-1111-4111-8111-111111111111", ...waiting, state: "answering", answer: "Because" }, now))))!;
+    expect(stopped).toMatchObject({ state: "done", stopped: true, answer: "Because" });
+    expect(toAnswer(stopped, DESK, now)).toBe(false);
+    // Even one that says it waits.
+    expect(toAnswer({ ...stopped, state: "waiting" }, DESK, now)).toBe(false);
+  });
+});
+
 describe("follow-up questions from the phone", () => {
   const context = [{ question: "How long do ravens live?", answer: "10 to 15 years in the wild [1]." }];
 
@@ -131,5 +181,36 @@ describe("follow-up questions from the phone", () => {
     const old = parseAsk(newAsk("Alone?", DESK, PHONE, "Pixel", 1))!;
     expect(Object.keys(old)).not.toContain("thread");
     expect(Object.keys(old)).not.toContain("context");
+  });
+});
+
+describe("when the answer so far is written", () => {
+  it("writes the first words at once", () => {
+    expect(progressDue({ at: 1000, length: 0 }, 1001, 3)).toBe(true);
+    expect(progressDue({ at: 1000, length: 0 }, 1001, 0)).toBe(false);
+  });
+
+  it("then about every PROGRESS_MS, or sooner after many characters", () => {
+    const written = { at: 1000, length: 50 };
+    expect(progressDue(written, 1000 + PROGRESS_MS - 1, 60)).toBe(false);
+    expect(progressDue(written, 1000 + PROGRESS_MS, 60)).toBe(true);
+    expect(progressDue(written, 1300, 50 + PROGRESS_CHARS)).toBe(true);
+    // Never several times in a burst.
+    expect(progressDue(written, 1050, 50 + PROGRESS_CHARS * 3)).toBe(false);
+  });
+
+  it("does not write the same text again", () => {
+    expect(progressDue({ at: 0, length: 50 }, 10_000, 50)).toBe(false);
+  });
+
+  it("streams a long answer in several growing writes, the last one done", async () => {
+    const words = Array.from({ length: 40 }, (_, i) => ({ type: "answer-delta" as const, text: `word${i} ` }));
+    const { pushed, done } = relay([...words, { type: "answer-done", text: words.map((w) => w.text).join(""), citations: [] }]);
+    await done;
+    const partial = pushed.filter((a) => a.state === "answering" && a.answer);
+    expect(partial.length).toBeGreaterThan(3);
+    expect(partial[0]!.answer).toBe("word0 ");
+    for (let i = 1; i < partial.length; i++) expect(partial[i]!.answer.length).toBeGreaterThan(partial[i - 1]!.answer.length);
+    expect(pushed.at(-1)!.state).toBe("done");
   });
 });

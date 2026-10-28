@@ -45,7 +45,8 @@ import { handOffPage } from '@/lib/page-handoff';
 import { tabHost } from '@/lib/replica';
 import { sendTargets } from '@/lib/send';
 import { activeTab, liveTabIds } from '@/lib/tabs';
-import { BrowserKit } from '../../modules/browser-kit';
+import { nav } from '@/lib/nav';
+import { BrowserKit, ConsentKit } from '../../modules/browser-kit';
 
 /** The user agents to browse with (Android: the WebView's own, unmarked, and a desktop one). */
 const AGENTS = (() => {
@@ -59,7 +60,7 @@ const AGENTS = (() => {
 /** Leaves the browser for Corvus's Home. */
 function goHome(): void {
   if (router.canGoBack()) router.back();
-  else router.replace('/');
+  else nav.replace('/');
 }
 
 /**
@@ -89,6 +90,7 @@ export default function BrowserScreen() {
   const url = tab?.url ?? '';
   const paired = session.status === 'paired';
   const blocks = BrowserKit !== null;
+  const answersBanners = ConsentKit !== null;
   const blockingHere = browser.prefs.blocking && !siteAllowed(tabHost(url), browser.prefs.allowedSites);
   const consentHere = !siteListMatches(tabHost(url), browser.prefs.consentAllowedSites);
   const bookmarked = useMemo(() => !!url && session.bookmarks.some((b) => b.kind === 'bookmark' && b.url === url), [session.bookmarks, url]);
@@ -115,17 +117,21 @@ export default function BrowserScreen() {
         if (id) setRuntime(id, { blocked: e.count });
       }),
       BrowserKit.addListener('onExternalLink', (e) => void offerExternalLink(e.url, tabOfView(e.viewTag))),
-      // A page's cookie banner script reported: checked again here, and only shown.
-      BrowserKit.addListener('onConsent', (e) => {
-        const id = tabOfView(e.viewTag);
-        const event = parseConsentEvent({ type: e.type, cmp: e.cmp, result: e.result, isCosmetic: e.isCosmetic });
-        if (id && event) recordConsent(id, event);
-      }),
       BrowserKit.addListener('onPermissionRequest', (e) =>
         showToast(t('{site} asked for the camera or microphone: Corvus does not give sites access to them.', { site: tabHost(e.origin) || e.origin }), 'info'),
       ),
     ];
     return () => subs.forEach((s) => s.remove());
+  }, []);
+
+  // A page's cookie banner script reported (Android and iOS): checked again here, and only shown.
+  useEffect(() => {
+    const sub = ConsentKit?.addListener('onConsent', (e) => {
+      const id = tabOfView(e.viewTag);
+      const event = parseConsentEvent({ type: e.type, cmp: e.cmp, result: e.result, isCosmetic: e.isCosmetic });
+      if (id && event) recordConsent(id, event);
+    });
+    return () => sub?.remove();
   }, []);
 
   // A link to open: from another app (Corvus as the default browser) or from Corvus itself.
@@ -224,7 +230,7 @@ export default function BrowserScreen() {
     const viewTag = runtimeOf(tab.id).viewTag;
     const raw = BrowserKit && viewTag !== null ? await BrowserKit.evaluate(viewTag, PAGE_TEXT_SCRIPT).catch(() => null) : null;
     handOffPage({ url: tab.url, title: tab.title, text: parsePageText(raw) });
-    router.push({ pathname: '/chat/[id]', params: { id: 'new', page: tab.url } });
+    nav.push({ pathname: '/chat/[id]', params: { id: 'new', page: tab.url } });
   };
 
   const send = async (to: string): Promise<void> => {
@@ -281,7 +287,7 @@ export default function BrowserScreen() {
         setFinding(true);
         break;
       case 'open-in':
-        router.push({ pathname: '/open', params: { url: tab.url, from: 'browser' } });
+        nav.push({ pathname: '/open', params: { url: tab.url, from: 'browser' } });
         break;
       case 'desktop':
         setDesktopSite(tab.id, !tab.desktop);
@@ -292,7 +298,7 @@ export default function BrowserScreen() {
         void allowSite(tabHost(tab.url), blockingHere).then(() => pageOf(tab.id)?.reload());
         break;
       case 'settings':
-        router.push('/browser-settings');
+        nav.push('/browser-settings');
         break;
     }
   };
@@ -426,7 +432,7 @@ export default function BrowserScreen() {
           void allowSite(tabHost(tab.url), blockingHere).then(() => pageOf(tab.id)?.reload());
         }}
         consent={
-          blocks && browser.prefs.cookieConsent
+          answersBanners && browser.prefs.cookieConsent
             ? { here: consentHere, banner: rt?.cookieBanner ? { ...rt.cookieBanner, cmp: cmpDisplayName(rt.cookieBanner.cmp) } : null, handled: browser.bannersHandled }
             : null
         }
@@ -436,7 +442,7 @@ export default function BrowserScreen() {
         }}
         onSettings={() => {
           setPanel(false);
-          router.push('/browser-settings');
+          nav.push('/browser-settings');
         }}
         onClose={() => setPanel(false)}
       />

@@ -70,7 +70,8 @@ function ErrorPage({ description, onRetry }: { description: string; onRetry: () 
  * (no file access, no access from file pages, mixed content blocked, no JavaScript bridge: the app
  * never passes onMessage, so pages get no interface to call), plus Safe Browsing and request
  * blocking, cookie banner rejection and Global Privacy Control set up natively on Android
- * (modules/browser-kit). On iOS, GPC is a script WKWebView adds at document start in every frame.
+ * (modules/browser-kit). On iOS, cookie banners are answered natively too (in a content world of
+ * their own), and GPC is a script WKWebView adds at document start in every frame.
  */
 export function WebPage({ tab, request, visible, userAgent, gpc }: { tab: BrowserTab; request: LoadRequest | undefined; visible: boolean; userAgent: string | undefined; gpc: boolean }) {
   const ref = useRef<WebViewHandle>(null);

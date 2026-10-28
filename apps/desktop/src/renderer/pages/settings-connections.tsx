@@ -168,8 +168,9 @@ export function ConnectionsSection() {
         <ChoiceSelect label={t("This profile connects")} value={choiceValue(config.profile)} proxies={proxies} onChange={(v) => run(api.call("connections.setProfile", choiceOf(v)!))} />
       </Row>
       {containers.length > 0 && (
-        <Row label={t("Containers")} hint={t("Each container can use a proxy of its own.")}>
-          <div className="list connection-containers">
+        <>
+          <Row label={t("Containers")} hint={t("Each container can use a proxy of its own.")} />
+          <div className="list">
             {containers.map((c) => (
               <div key={c.id} className="list-row" data-connection-container={c.id}>
                 <span className="grow">{c.name}</span>
@@ -183,22 +184,25 @@ export function ConnectionsSection() {
               </div>
             ))}
           </div>
-        </Row>
+        </>
       )}
       <Row label={t("Proxies")} hint={view.keychain ? undefined : t("This system has no keychain: proxy passwords are kept until Corvus closes.")}>
-        <div className="list proxy-list">
-          {proxies.length === 0 && <span className="muted small">{t("No proxies yet. Add one below.")}</span>}
+        {proxies.length === 0 ? <span className="muted small">{t("No proxies yet. Add one below.")}</span> : undefined}
+      </Row>
+      {proxies.length > 0 && (
+        <div className="list">
           {proxies.map((p) =>
             editing === p.id ? (
-              <ProxyForm
-                key={p.id}
-                initial={p}
-                onSave={(input) => {
-                  setEditing(null);
-                  run(api.call("connections.saveProxy", input, p.id));
-                }}
-                onCancel={() => setEditing(null)}
-              />
+              <div key={p.id} className="stack">
+                <ProxyForm
+                  initial={p}
+                  onSave={(input) => {
+                    setEditing(null);
+                    run(api.call("connections.saveProxy", input, p.id));
+                  }}
+                  onCancel={() => setEditing(null)}
+                />
+              </div>
             ) : (
               <div key={p.id} className="list-row" data-proxy={p.name}>
                 <div className="grow">
@@ -228,12 +232,14 @@ export function ConnectionsSection() {
             ),
           )}
         </div>
-      </Row>
-      <Row label={t("Add a proxy")} hint={t("Type host:port, or paste an address such as socks5://user@host:1080.")}>
+      )}
+      <Row label={t("Add a proxy")} hint={t("Type host:port, or paste an address such as socks5://user@host:1080.")} />
+      <div className="stack">
         <ProxyForm onSave={(input) => run(api.call("connections.saveProxy", input))} />
-      </Row>
-      <Row label={t("Site rules")} hint={t("Sites that go another way, whatever the profile uses. *.example.com covers its subdomains too.")}>
-        <div className="list connection-rules">
+      </div>
+      <Row label={t("Site rules")} hint={t("Sites that go another way, whatever the profile uses. *.example.com covers its subdomains too.")} />
+      {config.rules.length > 0 && (
+        <div className="list">
           {config.rules.map((r) => (
             <div key={`${r.pattern}-${r.via}`} className="list-row" data-connection-rule={r.pattern}>
               <span className="grow">
@@ -244,22 +250,24 @@ export function ConnectionsSection() {
               </button>
             </div>
           ))}
-          <div className="inline">
-            <input className="input grow" data-rule-pattern placeholder={t("*.example.com")} value={pattern} spellCheck={false} onChange={(e) => setPattern(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRule()} />
-            <select className="input" aria-label={t("Goes through")} value={via} onChange={(e) => setVia(e.target.value)}>
-              <option value="direct">{t("Direct (no proxy)")}</option>
-              {proxies.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button className="btn small" data-rule-add disabled={!pattern.trim()} onClick={addRule}>
-              {t("Add rule")}
-            </button>
-          </div>
         </div>
-      </Row>
+      )}
+      <div className="stack">
+        <div className="field-row">
+          <input className="input" data-rule-pattern placeholder={t("*.example.com")} value={pattern} spellCheck={false} onChange={(e) => setPattern(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addRule()} />
+          <select className="input" aria-label={t("Goes through")} value={via} onChange={(e) => setVia(e.target.value)}>
+            <option value="direct">{t("Direct (no proxy)")}</option>
+            {proxies.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <button className="btn small" data-rule-add disabled={!pattern.trim()} onClick={addRule}>
+            {t("Add rule")}
+          </button>
+        </div>
+      </div>
       <Row label={t("WebRTC")} hint={t("With a proxy, calls and other WebRTC traffic go through it too, so sites cannot see your real address.")}>
         <Toggle label={t("Keep WebRTC on the proxy")} checked={config.webrtcProtection} onChange={(on) => run(api.call("connections.setWebrtc", on))} />
       </Row>

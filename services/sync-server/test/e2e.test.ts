@@ -120,6 +120,25 @@ describe("end-to-end sync through a real server", () => {
     expect(await a.pull()).toEqual([item("solarized")]);
   });
 
+  it("a delete pushed ahead wins over a device still writing the record, whatever the device ids", async () => {
+    for (let round = 0; round < 6; round++) {
+      const writer = client(PHRASE_B, `Writer ${round}`);
+      const remover = client(PHRASE_B, `Remover ${round}`);
+      await writer.register();
+      await remover.register();
+      const id = `answer-${round}`;
+      const write = (answer: string): SyncItem => ({ collection: "asks", id, payload: { answer }, deleted: false });
+      await writer.push([write("a")]);
+      await remover.pull();
+      // The remover saw the first write; the writer keeps writing without having seen the delete.
+      await writer.push([write("ab")]);
+      expect((await remover.push([{ collection: "asks", id, payload: null, deleted: true }], { deleteAhead: 1000 })).conflicts).toEqual([]);
+      const late = await writer.push([write("abc")]);
+      expect(late.conflicts).toEqual([{ collection: "asks", id, payload: null, deleted: true }]);
+      expect((await remover.pull()).filter((i) => i.id === id)).toEqual([]);
+    }
+  });
+
   it("runs full SyncEngine cycles across devices, including restore on a new device", async () => {
     const phrase = PHRASE_A;
     const storeA = bookmarkStore();

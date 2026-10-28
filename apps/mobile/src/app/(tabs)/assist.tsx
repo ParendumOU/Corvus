@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -16,6 +15,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { chatList, searchChats, type ChatSummary } from '@/lib/chat';
 import { ago } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { nav } from '@/lib/nav';
 
 /** While a computer writes an answer, the list looks for it this often. */
 const ANSWER_REFRESH_MS = 3_000;
@@ -23,8 +23,8 @@ const ANSWER_REFRESH_MS = 3_000;
 function ChatRow({ chat }: { chat: ChatSummary }) {
   const theme = useTheme();
   const open = (): void => {
-    if (chat.kind === 'assist') router.push({ pathname: '/chat/[id]', params: { id: chat.id, assist: '1' } });
-    else router.push({ pathname: '/chat/[id]', params: { id: chat.id } });
+    if (chat.kind === 'assist') nav.push({ pathname: '/chat/[id]', params: { id: chat.id, assist: '1' } });
+    else nav.push({ pathname: '/chat/[id]', params: { id: chat.id } });
   };
   const status = chat.waiting ? t('Waiting for {computer}…', { computer: chat.where }) : chat.pending ? t('Answering…') : chat.failed ? t('Could not answer') : chat.snippet;
   return (
@@ -80,7 +80,7 @@ export default function AssistScreen() {
     return () => clearInterval(timer);
   }, [pending]);
 
-  const start = (): void => router.push({ pathname: '/chat/[id]', params: { id: 'new' } });
+  const start = (): void => nav.push({ pathname: '/chat/[id]', params: { id: 'new' } });
 
   return (
     <Screen
@@ -95,7 +95,7 @@ export default function AssistScreen() {
           icon="sparkle"
           title={t('Ask your computer anything')}
           description={t('Pair this phone with your computer first: your computer answers the questions.')}
-          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} testID="ask-pair" />}
+          action={<Button label={t('Pair with a computer')} icon="scan" onPress={() => nav.push('/pair')} testID="ask-pair" />}
         />
       ) : all.length === 0 ? (
         session.refreshed ? (

@@ -23,9 +23,11 @@ export {
 export {
   createSyncClient,
   isNewer,
+  deviceTimesHere,
   SyncError,
   type CorvusSyncClient,
   type CorvusSyncClientOptions,
+  type PushOptions,
 } from "./client.js";
 export { SyncEngine, fingerprint, type SyncAdapter, type SyncConflict, type SyncEngineOptions, type SyncCycleResult, type LocalItem } from "./engine.js";
 export { withDeadline } from "./deadline.js";

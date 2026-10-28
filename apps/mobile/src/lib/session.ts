@@ -5,12 +5,16 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  CHAIN_SERVER_ID,
   OTHER_FOLDER_ID,
+  chainServerAlternatives,
+  chainServerMove,
   isReadingItem,
   isSyncedWatch,
   linkOnlyReadingItem,
   newAsk,
   parseSyncedHistory,
+  stoppedAsk,
   withReadState,
   type AskFollowUp,
   type AskRecord,
@@ -22,6 +26,7 @@ import {
   type SentTab,
   type SentTabRecord,
   type SyncCollection,
+  type SyncItem,
   type SyncStateStorage,
   type SyncedHistoryEntry,
 } from '@corvus/shared';
@@ -30,9 +35,12 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { myAsks } from '@/lib/asks';
 import { chainView, pullChain, type ChainView } from '@/lib/chain-view';
 import { dataStore } from '@/lib/data-store';
 import { bookmarkList, nextPosition } from '@/lib/library';
+import { Outbox } from '@/lib/outbox';
+import { isUnreachable, needsServerMessage } from '@/lib/reach';
 import type { Progress } from '@/lib/refresh';
 import { Replica } from '@/lib/replica';
 import { mergeVisit, retitled } from '@/lib/visits';
@@ -94,6 +102,23 @@ export function clientFor(pairing: Pairing): CorvusSyncClient {
   return client;
 }
 
+const outboxes = new Map<string, Outbox>();
+
+/** Changes made while the server could not be reached, pushed with the next refresh. */
+export function outboxFor(pairing: Pairing): Outbox {
+  let outbox = outboxes.get(pairing.chainId);
+  if (!outbox) {
+    outbox = new Outbox(syncState, `${SYNC_STATE_PREFIX}${pairing.chainId}/outbox`);
+    outboxes.set(pairing.chainId, outbox);
+  }
+  return outbox;
+}
+
+/** Something that needs the server now failed without an answer: say so calmly. */
+function friendly(pairing: Pairing, err: unknown): unknown {
+  return isUnreachable(err) ? new Error(needsServerMessage(pairing.serverUrl)) : err;
+}
+
 /** The synced data kept on the phone for this chain (removed with the rest when unpairing). */
 export function replicaFor(pairing: Pairing): Replica {
   let replica = replicas.get(pairing.chainId);
@@ -141,7 +166,16 @@ async function view(pairing: Pairing, devices: DeviceInfo[], progress: Progress)
 /** Pushes one change of this phone and keeps it in the replica. */
 async function change(pairing: Pairing, collection: SyncCollection, id: string, payload: unknown): Promise<void> {
   const client = clientFor(pairing);
-  const { conflicts } = await client.push([{ collection, id, payload, deleted: payload === null }]);
+  let conflicts: Awaited<ReturnType<CorvusSyncClient['push']>>['conflicts'];
+  try {
+    ({ conflicts } = await client.push([{ collection, id, payload, deleted: payload === null }]));
+  } catch (err) {
+    if (!isUnreachable(err)) throw err;
+    // Kept on the phone and pushed when the server is back.
+    await replicaFor(pairing).put(collection, id, payload);
+    await outboxFor(pairing).add(collection, id);
+    return;
+  }
   // Another device changed the same record first: theirs wins, and the phone shows it.
   const remote = conflicts.find((c) => c.collection === collection && c.id === id);
   await replicaFor(pairing).put(collection, id, remote ? (remote.deleted ? null : remote.payload) : payload);
@@ -262,7 +296,12 @@ export async function removeBookmarksOf(pairing: Pairing, url: string): Promise<
     .filter((b) => b.kind === 'bookmark' && b.url === url)
     .map((b) => b.id);
   if (ids.length === 0) return;
-  await clientFor(pairing).push(ids.map((id) => ({ collection: 'bookmarks' as const, id, payload: null, deleted: true })));
+  try {
+    await clientFor(pairing).push(ids.map((id) => ({ collection: 'bookmarks' as const, id, payload: null, deleted: true })));
+  } catch (err) {
+    if (!isUnreachable(err)) throw err;
+    for (const id of ids) await outboxFor(pairing).add('bookmarks', id);
+  }
   for (const id of ids) await replicaFor(pairing).put('bookmarks', id, null);
 }
 
@@ -271,9 +310,101 @@ export function cachedView(pairing: Pairing, devices: DeviceInfo[] = [], progres
   return view(pairing, devices, progress);
 }
 
-/** Lists the chain's devices and pulls what changed since the last refresh; `progress` hears each step. */
-export function refreshView(pairing: Pairing, progress: Progress = () => undefined): Promise<ChainView> {
+/** Pushes the changes made while the server could not be reached; a newer change from a computer wins. */
+async function flushOutbox(pairing: Pairing): Promise<void> {
+  const outbox = outboxFor(pairing);
+  if ((await outbox.size()) === 0) return;
+  const replica = replicaFor(pairing);
+  const items = await outbox.items(replica);
+  const { conflicts } = await clientFor(pairing).push(items);
+  for (const remote of conflicts) await replica.put(remote.collection, remote.id, remote.deleted ? null : remote.payload);
+  await outbox.done(items);
+}
+
+/**
+ * Pushes what waited on the phone, lists the chain's devices and pulls what changed since the last
+ * refresh; `progress` hears each step.
+ */
+export async function refreshView(pairing: Pairing, progress: Progress = () => undefined): Promise<ChainView> {
+  await flushOutbox(pairing);
   return pullChain(clientFor(pairing), replicaFor(pairing), progress);
+}
+
+/**
+ * Pulls only the questions' changes since `since` (null: since the last full refresh) into the
+ * replica: one small request, made often while a computer writes an answer. Returns the cursor to
+ * pass next time, and this phone's questions.
+ */
+export async function followAsks(pairing: Pairing, since: number | null): Promise<{ cursor: number; asks: AskRecord[] }> {
+  const client = clientFor(pairing);
+  const replica = replicaFor(pairing);
+  const { cursor } = await client.pullCollectionSince('asks', since ?? (await client.cursor()), async (items) => {
+    for (const item of items) await replica.putSoon('asks', item.id, item.deleted ? null : item.payload);
+    await replica.flush();
+  });
+  return { cursor, asks: myAsks(await replica.records('asks'), await client.getDeviceId()) };
+}
+
+async function answers(serverUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${serverUrl}/healthz`, { signal: AbortSignal.timeout(5000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function usePairing(next: Pairing): Promise<Pairing> {
+  clients.delete(next.chainId);
+  await secrets.set(PAIRING_KEY, JSON.stringify(next));
+  return next;
+}
+
+/**
+ * The chain moved to another server (a computer wrote its new address on the chain): joins it there
+ * and starts over from it (the phone's copy is fetched again). Null when it did not move, or none of
+ * its addresses answers yet.
+ */
+export async function followChain(pairing: Pairing): Promise<Pairing | null> {
+  const record = (await replicaFor(pairing).records('chain_server'))[CHAIN_SERVER_ID];
+  const urls = chainServerMove(record, pairing.serverUrl, await clientFor(pairing).getDeviceId());
+  if (!urls) return null;
+  for (const serverUrl of urls) {
+    if (!(await answers(serverUrl))) continue;
+    const next: Pairing = { ...pairing, serverUrl };
+    const client = createSyncClient({ serverUrl, phrase: pairing.phrase, deviceName: pairing.deviceName, platform: Platform.OS, storage: syncState, requestTimeoutMs: REQUEST_TIMEOUT_MS });
+    try {
+      await client.register();
+    } catch {
+      continue;
+    }
+    await client.resetLocalState();
+    replicas.delete(pairing.chainId);
+    await dataStore.clear();
+    return usePairing(next);
+  }
+  return null;
+}
+
+/** The server does not answer at its address: another address of the same server that does (another network, Tailscale), or null. */
+export async function otherAddress(pairing: Pairing): Promise<Pairing | null> {
+  const record = (await replicaFor(pairing).records('chain_server'))[CHAIN_SERVER_ID];
+  for (const serverUrl of chainServerAlternatives(record, pairing.serverUrl)) {
+    if (await answers(serverUrl)) return usePairing({ ...pairing, serverUrl });
+  }
+  return null;
+}
+
+/**
+ * The server lost this phone (its computer set sync up again from scratch): joins again and fetches
+ * everything anew.
+ */
+export async function rejoin(pairing: Pairing): Promise<void> {
+  const client = clientFor(pairing);
+  await client.register();
+  await client.resetLocalState();
+  replicas.delete(pairing.chainId);
+  await dataStore.clear();
 }
 
 const oldServer = (): string => t('Your sync server does not support sending pages yet: update it to the latest Corvus sync server.');
@@ -283,7 +414,9 @@ export async function sendPage(pairing: Pairing, page: Pick<SentTab, 'url' | 'ti
   const client = clientFor(pairing);
   const id = Crypto.randomUUID();
   const payload: SentTab = { ...page, fromId: await client.getDeviceId(), from: pairing.deviceName, sentAt: Date.now() };
-  await client.push([{ collection: 'sent_tabs', id, payload, deleted: false }]);
+  await client.push([{ collection: 'sent_tabs', id, payload, deleted: false }]).catch((err: unknown) => {
+    throw friendly(pairing, err);
+  });
   if (client.unsupported().has('sent_tabs')) throw new Error(oldServer());
   await replicaFor(pairing).put('sent_tabs', id, payload);
   return { id, ...payload };
@@ -296,10 +429,33 @@ export async function askComputer(pairing: Pairing, question: string, to: string
   const client = clientFor(pairing);
   const id = Crypto.randomUUID();
   const payload = newAsk(question, to, await client.getDeviceId(), pairing.deviceName, Date.now(), follow);
-  await client.push([{ collection: 'asks', id, payload, deleted: false }]);
+  await client.push([{ collection: 'asks', id, payload, deleted: false }]).catch((err: unknown) => {
+    throw friendly(pairing, err);
+  });
   if (client.unsupported().has('asks')) throw new Error(oldServerAsks());
   await replicaFor(pairing).put('asks', id, payload);
   return { id, ...payload };
+}
+
+/**
+ * How far ahead of the newest version the phone knows a question is deleted: a computer still
+ * writing the answer then gets the deletion back at its next write and stops, instead of writing
+ * over it (`deleteAhead` of @corvus/sync-core). It writes about twice a second.
+ */
+export const ASK_DELETE_AHEAD = 1000;
+
+/**
+ * Pushes changes to questions, deletions ahead (ASK_DELETE_AHEAD). A deletion the server answers
+ * with a newer live copy (the phone had not seen the computer's last writes) is pushed again, now
+ * ahead of that copy.
+ */
+async function pushAsks(client: CorvusSyncClient, items: SyncItem[]): Promise<void> {
+  let left = items;
+  for (let tries = 0; tries < 3 && left.length > 0; tries++) {
+    const { conflicts } = await client.push(left, { deleteAhead: ASK_DELETE_AHEAD });
+    const live = new Set(conflicts.filter((c) => c.collection === 'asks' && !c.deleted).map((c) => c.id));
+    left = left.filter((i) => i.deleted && live.has(i.id));
+  }
 }
 
 /** Takes a question off the list (and stops its answer if a computer is still writing it). */
@@ -310,8 +466,29 @@ export async function removeAsk(pairing: Pairing, id: string): Promise<void> {
 /** Takes several questions off the list at once (a whole conversation). */
 export async function removeAsks(pairing: Pairing, ids: readonly string[]): Promise<void> {
   if (ids.length === 0) return;
-  await clientFor(pairing).push(ids.map((id) => ({ collection: 'asks' as const, id, payload: null, deleted: true })));
+  await pushAsks(clientFor(pairing), ids.map((id) => ({ collection: 'asks' as const, id, payload: null, deleted: true })));
   for (const id of ids) await replicaFor(pairing).put('asks', id, null);
+}
+
+/**
+ * Stops the answer a computer is writing: a copy of the question with the answer so far, marked
+ * stopped (stoppedAsk of @corvus/shared), takes its place, and the question is deleted, which stops
+ * the computer at its next write. Both go in one request, so the conversation never shows both or
+ * neither. Returns the copy.
+ */
+export async function stopAsk(pairing: Pairing, ask: AskRecord): Promise<AskRecord> {
+  const id = Crypto.randomUUID();
+  const payload = stoppedAsk(ask, Date.now());
+  await pushAsks(clientFor(pairing), [
+    { collection: 'asks', id, payload, deleted: false },
+    { collection: 'asks', id: ask.id, payload: null, deleted: true },
+  ]).catch((err: unknown) => {
+    throw friendly(pairing, err);
+  });
+  const replica = replicaFor(pairing);
+  await replica.put('asks', id, payload);
+  await replica.put('asks', ask.id, null);
+  return { id, ...payload };
 }
 
 /** Takes back a page its computer has not opened yet, or drops one sent here once it is opened. */
@@ -331,6 +508,7 @@ export async function unpair(pairing: Pairing): Promise<void> {
   await secrets.remove(PAIRING_KEY);
   clients.delete(pairing.chainId);
   replicas.delete(pairing.chainId);
+  outboxes.delete(pairing.chainId);
   await dataStore.clear();
   const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SYNC_STATE_PREFIX));
   if (keys.length > 0) await AsyncStorage.multiRemove(keys);

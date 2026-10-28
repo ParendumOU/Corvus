@@ -83,16 +83,24 @@ export class McpAuditLog {
 
   /** Newest first, filtered by client and/or to calls that did not succeed. */
   list(query: McpActivityQuery = {}): McpActivityEntry[] {
+    return this.page(query).entries;
+  }
+
+  /** One page of list(): `query.limit` calls after the first `query.offset`, and how many match in all. */
+  page(query: McpActivityQuery = {}): { entries: McpActivityEntry[]; total: number } {
     const limit = Math.max(1, Math.min(MAX_LIMIT, Math.round(query.limit ?? DEFAULT_LIMIT)));
-    const out: McpActivityEntry[] = [];
+    const offset = Math.max(0, Math.round(query.offset ?? 0));
+    const entries: McpActivityEntry[] = [];
+    let total = 0;
     const list = this.load();
-    for (let i = list.length - 1; i >= 0 && out.length < limit; i--) {
+    for (let i = list.length - 1; i >= 0; i--) {
       const e = list[i]!;
       if (query.client && e.client !== query.client) continue;
       if (query.problemsOnly && e.outcome === "ok") continue;
-      out.push(e);
+      if (total >= offset && entries.length < limit) entries.push(e);
+      total += 1;
     }
-    return out;
+    return { entries, total };
   }
 
   /** Clients seen in the log, most recent first. */

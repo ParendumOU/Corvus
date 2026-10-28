@@ -1,22 +1,20 @@
+/* Add or edit a proxy: name, type, address, then the sign-in with Add (or Save) beside the last field. */
 .proxy-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
   align-items: center;
-  width: 100%;
+  gap: 8px;
 }
 .proxy-form .input {
+  flex: 1 1 130px;
   min-width: 0;
 }
+.proxy-form select.input {
+  flex: 0 1 120px;
+}
 .proxy-form .input.grow {
-  flex: 1 1 180px;
+  flex: 2 1 200px;
 }
-.proxy-list,
-.connection-containers,
-.connection-rules {
-  width: 100%;
-}
-.connection-rules .inline {
-  margin-top: 6px;
-  gap: 6px;
+.proxy-form .btn {
+  height: 34px;
 }

@@ -14,7 +14,7 @@ import { allowCookieBanner, allowSite, clearLocalHistory, setBrowserPrefs, useBr
 import { refreshLists, useBlockingStatus } from '@/lib/content-blocking';
 import { ago } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { BrowserKit } from '../../modules/browser-kit';
+import { BrowserKit, ConsentKit } from '../../modules/browser-kit';
 
 function PrefSwitch({ value, onChange, label }: { value: boolean; onChange: (on: boolean) => void; label: string }) {
   const theme = useTheme();
@@ -128,7 +128,7 @@ export function BrowserSettings() {
 
       {Platform.OS !== 'web' ? (
         <ListGroup testID="browser-settings-privacy">
-          {blocking.supported ? (
+          {ConsentKit ? (
             <ListRow
               leading={<IconTile name="cookie" />}
               title={t('Reject cookie banners')}
@@ -138,7 +138,7 @@ export function BrowserSettings() {
               testID="consent-switch"
             />
           ) : null}
-          {blocking.supported && browser.prefs.cookieConsent
+          {ConsentKit && browser.prefs.cookieConsent
             ? browser.prefs.consentAllowedSites.map((site) => (
                 <ListRow
                   key={site}

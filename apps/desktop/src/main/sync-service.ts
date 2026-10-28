@@ -1,50 +1,50 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { MAX_WATCH_STATUS, askList, encodePairing, sentTabs, type DeviceInfo, type SentTab, type SyncCollection, type SyncStateStorage } from "@corvus/shared";
+import {
+  CHAIN_SERVER_ID,
+  MAX_WATCH_STATUS,
+  askList,
+  chainServerMove,
+  decodePairing,
+  encodePairing,
+  normalizeServerUrl,
+  parseChainServer,
+  phoneServerAddresses,
+  sentTabs,
+  type ChainServer,
+  type DeviceInfo,
+  type NetworkInterfaceMap,
+  type SentTab,
+  type SyncCollection,
+  type SyncStateStorage,
+} from "@corvus/shared";
 import { Notification } from "electron";
 import type { CorvusSyncClient, SyncAdapter, SyncEngine } from "@corvus/sync-core";
 import { extensionSuggestions, webstoreExtensions, type ExtensionSuggestion, type SyncedExtension } from "../shared/extension-suggestions";
-import { SYNC_INTERVALS_MINUTES, type PairingAddress, type PairingCodeView, type SyncDeviceView, type SyncOptions, type SyncStatus } from "../shared/ipc";
+import { SYNC_INTERVALS_MINUTES, type PairingAddress, type PairingCodeView, type LocalServerView, type ServerCheck, type SyncDeviceView, type SyncEnableOptions, type SyncMode, type SyncOptions, type SyncStatus, type SyncTarget } from "../shared/ipc";
 import { OpenTabsPublisher, collectTabs, parseDeviceTabs, type RemoteDeviceTabs } from "../shared/open-tabs";
 import { toWatchStatus } from "../shared/page-watch";
 import { StampedRecord } from "../shared/stamped-record";
 import { CONFLICT_COLLECTIONS, conflictView, freshVersion, type SyncConflictView } from "../shared/sync-conflicts";
-import { answerAsk } from "./ask-relay";
+import { answerAsk, toAnswer } from "./ask-relay";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import { loadOptionalModule } from "./module-loader";
-import { phonePairingAddress } from "./pairing-address";
+import { LocalSyncServer } from "./local-sync-server";
+import { phonePairingAddress, probeHealth } from "./pairing-address";
 import type { ProfileRuntime } from "./profiles";
 import type { SecretCipher } from "./settings-store";
 import { ReadingFiller } from "./reading-fill";
 import { SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
 import { SyncConflictStore } from "./sync-conflict-store";
 import { SyncScheduler } from "./sync-scheduler";
+import { ownChainServer, reviveSyncState, type ProfileSyncState } from "./sync-state";
 import { tr } from "./menu-i18n";
 
 type SyncCoreModule = typeof import("@corvus/sync-core");
 
-interface ProfileSyncState {
-  enabled: boolean;
-  serverUrl: string;
-  deviceName: string;
-  chainId: string | null;
-  phrase: { enc: boolean; data: string } | null;
-  lastSyncAt: number | null;
-  intervalMinutes: number;
-  syncServiceUrls: boolean;
-  /** Sync saved workflows (per device, default on; off keeps local data). */
-  syncWorkflows: boolean;
-  /** Sync site memory (per device, default on; off keeps local data). */
-  syncSiteMemory: boolean;
-  /** Sync the Command Bar's recents (per device, default on; off keeps local data). */
-  syncCommandHistory: boolean;
-  /** Sync Assist conversations (per device, default on; off keeps local data). */
-  syncAssistHistory: boolean;
-  /** Client/engine state written by older versions; moved to sync-kv.json on first start. */
-  kv?: Record<string, string>;
-}
 
 /** Everything that runs while sync is on for one loaded profile. */
 interface Runtime {
@@ -65,14 +65,19 @@ const CHANGE_MAX_WAIT_MS = 60_000;
 /** How often to look for pages sent to this device between full syncs (one cheap request). */
 const INBOX_POLL_MS = 30_000;
 /** How often to look for questions from the phone: someone is waiting for the answer. */
-const ASKS_POLL_MS = 5_000;
-/** A question still marked as being answered after this long lost its computer (Corvus quit). */
-const ASK_STALE_MS = 2 * 60_000;
-/** Questions older than this are left unanswered. */
-const ASK_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const ASKS_POLL_MS = 2_000;
 /** How often open tabs, installed extensions and profile metadata are checked for changes. */
 const WATCH_INTERVAL_MS = 3_000;
 const WIPE_CONFIRMATION = "DELETE";
+/** How long the built-in server keeps answering after the chain moved away (devices follow meanwhile). */
+const RETIRE_LOCAL_MS = 14 * 24 * 60 * 60_000;
+/** How long "Check" and a move wait for an own server to answer. */
+const SERVER_CHECK_TIMEOUT_MS = 6000;
+
+/** The phone (or computer) cannot reach the server: down, wrong address, or not on this network. */
+function unreachable(err: unknown): boolean {
+  return err instanceof TypeError && /fetch failed/i.test(err.message);
+}
 
 function describeError(err: unknown, serverUrl: string): string {
   const { code, message } = err as { code?: unknown; message?: unknown };
@@ -88,7 +93,7 @@ function describeError(err: unknown, serverUrl: string): string {
     case "quota_exceeded":
       return `The sync server's storage limit was reached: ${String(message)}`;
   }
-  if (err instanceof TypeError && /fetch failed/i.test(err.message)) return `Cannot reach the sync server at ${serverUrl}.`;
+  if (unreachable(err)) return tr("Cannot reach the sync server at {url}.", { url: serverUrl });
   return typeof message === "string" ? message : String(err);
 }
 
@@ -145,6 +150,12 @@ export class SyncService {
   /** The chain's devices as of the last sync, per profile (for "Send to your phone" without waiting). */
   private readonly chainDevices = new Map<string, DeviceInfo[]>();
   private watcher: ReturnType<typeof setInterval> | null = null;
+  /** The built-in sync servers ("This computer"), per profile. */
+  private readonly localServers = new Map<string, LocalSyncServer>();
+  /** A note about the last move of the chain, per profile (shown in Settings > Sync). */
+  private readonly notices = new Map<string, string>();
+  /** Profiles following their chain to another server right now. */
+  private readonly following = new Set<string>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -173,6 +184,7 @@ export class SyncService {
     this.watcher = null;
     for (const id of [...this.runtimes.keys()]) this.dispose(id);
     for (const kv of this.kvFiles.values()) kv.flush();
+    for (const server of this.localServers.values()) void server.stop();
   }
 
   private async watch(): Promise<void> {
@@ -183,6 +195,12 @@ export class SyncService {
     for (const profile of this.ctx.profiles.loaded()) {
       const id = profile.profile.id;
       if (!alive.has(id)) continue;
+      try {
+        await this.keepLocalServer(profile);
+      } catch (err) {
+        this.errors.set(id, tr("The sync server on this computer could not start: {error}", { error: (err as Error).message }));
+        continue;
+      }
       const rt = this.runtimes.get(id);
       if (rt) {
         if (this.localChanged(rt)) rt.scheduler.poke();
@@ -213,7 +231,11 @@ export class SyncService {
     if (!file) {
       const defaults = (): ProfileSyncState => ({
         enabled: false,
+        mode: "local",
         serverUrl: this.defaultServerUrl,
+        customServerUrl: this.defaultServerUrl,
+        localPort: null,
+        retireLocalUntil: null,
         deviceName: os.hostname(),
         chainId: null,
         phrase: null,
@@ -228,7 +250,7 @@ export class SyncService {
       file = JsonFile.load<ProfileSyncState>(
         path.join(profile.dataDir, "sync.json"),
         defaults,
-        (raw) => ({ ...defaults(), ...(typeof raw === "object" && raw ? (raw as Partial<ProfileSyncState>) : {}) }),
+        (raw) => reviveSyncState(raw, defaults()),
         0,
       );
       this.states.set(profile.profile.id, file);
@@ -346,6 +368,11 @@ export class SyncService {
         return tabs.record();
       },
       watchStatus: () => watchStatus.record(),
+      chainServer: async () => {
+        if (file.get().mode !== "local") return null;
+        const stored = remote.records("chain_server").all()[CHAIN_SERVER_ID];
+        return ownChainServer(this.lanUrls(file.get().serverUrl), stored, await client.getDeviceId(), Date.now());
+      },
       extensions: () => {
         const key = extensionIdsKey(profile);
         if (key !== published.key) {
@@ -425,6 +452,7 @@ export class SyncService {
       await engine.sync();
       file.update((s) => ({ ...s, lastSyncAt: Date.now() }));
       this.errors.delete(id);
+      void this.followChain(profile);
       // Opened pages leave the replica; the next cycle deletes them on the chain.
       if ((await this.openSentTabs(profile)) > 0) this.runtimes.get(id)?.scheduler.poke();
       this.answerAsks(profile);
@@ -436,6 +464,11 @@ export class SyncService {
       // Links saved from the phone get their article here (a filled item syncs on the next cycle).
       void this.filler.run(profile.reading);
     } catch (err) {
+      // The built-in server lost the chain (its data was deleted): this computer has everything, so it starts it again there.
+      if ((err as { code?: unknown }).code === "chain_not_found" && file.get().mode === "local") {
+        void this.rebuildLocal(profile);
+        return;
+      }
       this.errors.set(id, describeError(err, file.get().serverUrl));
     } finally {
       this.kvFiles.get(id)?.flush();
@@ -475,7 +508,8 @@ export class SyncService {
   /**
    * Answers the questions the phone sent to this computer with its AI search (ask-relay.ts):
    * new ones, and ones a computer started but stopped answering (Corvus quit meanwhile). Each answer
-   * streams onto the chain as it comes; the phone deleting a question stops it.
+   * streams onto the chain as it comes; the phone deleting a question stops it (also when the person
+   * stops the answer: the phone then writes the answer so far as a new "done" record, never answered).
    */
   private answerAsks(profile: ProfileRuntime): void {
     const rt = this.runtimes.get(profile.profile.id);
@@ -484,10 +518,7 @@ export class SyncService {
       const own = await rt.client.getDeviceId();
       const records = this.remote(profile).records("asks");
       const now = Date.now();
-      const pending = askList(
-        records.all(),
-        (a) => a.to === own && now - a.askedAt < ASK_MAX_AGE_MS && (a.state === "waiting" || (a.state === "answering" && now - a.updatedAt > ASK_STALE_MS)),
-      );
+      const pending = askList(records.all(), (a) => toAnswer(a, own, now));
       for (const { id, ...ask } of pending) {
         if (this.answering.has(id)) continue;
         this.answering.add(id);
@@ -518,6 +549,223 @@ export class SyncService {
     return this.runtime(profile, mod);
   }
 
+  private localDir(profile: ProfileRuntime): string {
+    return path.join(profile.dataDir, "sync-server");
+  }
+
+  /** This computer's network adapters. The smoke test replaces them to show Settings with a fixed layout. */
+  networkInterfaces: () => NetworkInterfaceMap = () => os.networkInterfaces();
+
+  /** The addresses other devices reach a server on this computer at (network, then Tailscale). */
+  private lanUrls(serverUrl: string): string[] {
+    return (phoneServerAddresses(serverUrl, this.networkInterfaces()) ?? []).map((a) => a.url);
+  }
+
+  /**
+   * Starts this profile's built-in sync server if needed and returns its loopback address. The port
+   * used last time is tried first, so paired devices keep their address.
+   */
+  private async startLocal(profile: ProfileRuntime): Promise<string> {
+    const id = profile.profile.id;
+    let server = this.localServers.get(id);
+    if (!server) {
+      server = new LocalSyncServer(path.join(this.localDir(profile), "sync.db"));
+      this.localServers.set(id, server);
+    }
+    const port = await server.start(this.state(profile).get().localPort);
+    const url = `http://127.0.0.1:${port}`;
+    const s = this.state(profile).get();
+    if (s.localPort !== port) this.state(profile).update((st) => ({ ...st, localPort: port }));
+    if (s.mode === "local" && s.serverUrl !== url) {
+      this.state(profile).update((st) => ({ ...st, serverUrl: url }));
+      // The client was made for the old address.
+      this.dispose(id);
+    }
+    return url;
+  }
+
+  /**
+   * The built-in server runs while the profile syncs through it, and for a while after its chain
+   * moved away (devices read there where it went); then it stops and its copy of the chain is deleted.
+   */
+  private async keepLocalServer(profile: ProfileRuntime): Promise<void> {
+    const id = profile.profile.id;
+    const s = this.state(profile).get();
+    const retiring = s.retireLocalUntil !== null && Date.now() < s.retireLocalUntil;
+    if ((s.enabled && s.mode === "local") || retiring) {
+      await this.startLocal(profile);
+      return;
+    }
+    const server = this.localServers.get(id);
+    if (server) {
+      this.localServers.delete(id);
+      await server.stop();
+    }
+    if (s.retireLocalUntil !== null) {
+      this.state(profile).update((st) => ({ ...st, retireLocalUntil: null }));
+      fs.rmSync(this.localDir(profile), { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Moves this profile's chain to another server: joins it there with this device's id, writes there
+   * where the chain is (chain_server), then starts over on it, uploading everything this computer
+   * has (end-to-end encrypted as always). With `announce`, the chain on the old server first gets
+   * the new address too, so the devices that sync there follow. Returns whether they were told.
+   */
+  private async switchServer(profile: ProfileRuntime, target: SyncTarget, announce: boolean): Promise<boolean> {
+    const mod = await this.module();
+    if (!mod) throw new Error("Sync is not available in this build");
+    const id = profile.profile.id;
+    const phrase = this.phraseOf(profile);
+    if (!phrase) throw new Error("The recovery phrase is not available on this device");
+    const before = this.state(profile).get();
+    const serverUrl = target.mode === "local" ? await this.startLocal(profile) : normalizeServerUrl(target.serverUrl);
+    if (!serverUrl) throw new Error(tr("Enter a valid sync server address, starting with https:// or http://."));
+    const kv = this.kv(profile);
+    const keep = Object.fromEntries(Object.entries(kv.get()).filter(([key]) => key.endsWith("/deviceId")));
+    const memory = new Map(Object.entries(keep));
+    const next = mod.createSyncClient({
+      serverUrl,
+      phrase,
+      deviceName: before.deviceName,
+      platform: process.platform,
+      storage: {
+        get: async (key) => memory.get(key),
+        set: async (key, value) => {
+          memory.set(key, value);
+        },
+      },
+    });
+    const own = await next.getDeviceId();
+    const record: ChainServer = { urls: target.mode === "local" ? this.lanUrls(serverUrl) : [serverUrl], at: Date.now(), from: own };
+    try {
+      await next.register();
+      if (target.mode === "local") {
+        // A clean start: an older copy of the chain here would bring back what was deleted since.
+        await next.wipeChain();
+        await next.register();
+      }
+      await next.pullCollection("chain_server", () => undefined);
+      if (record.urls.length > 0) await next.push([{ collection: "chain_server", id: CHAIN_SERVER_ID, payload: record, deleted: false }]);
+    } catch (err) {
+      throw new Error(describeError(err, serverUrl));
+    }
+    let told = !announce;
+    const rt = this.runtimes.get(id) ?? (announce ? await this.active(profile).catch(() => undefined) : undefined);
+    if (rt) {
+      rt.scheduler.stop();
+      await rt.scheduler.idle();
+      if (announce && record.urls.length > 0) {
+        try {
+          await rt.client.push([{ collection: "chain_server", id: CHAIN_SERVER_ID, payload: record, deleted: false }]);
+          told = !rt.client.unsupported().has("chain_server");
+        } catch (err) {
+          console.warn("[corvus] could not tell the old sync server where the chain went:", (err as Error).message);
+        }
+      }
+    }
+    this.dispose(id);
+    const leavingLocal = before.mode === "local" && target.mode === "custom";
+    this.state(profile).update((s) => ({
+      ...s,
+      mode: target.mode,
+      serverUrl,
+      lastSyncAt: null,
+      ...(target.mode === "custom" ? { customServerUrl: serverUrl } : {}),
+      retireLocalUntil: target.mode === "local" ? null : leavingLocal ? Date.now() + RETIRE_LOCAL_MS : s.retireLocalUntil,
+    }));
+    kv.set({ ...keep });
+    this.remote(profile).clear();
+    this.remote(profile).records("chain_server").set(CHAIN_SERVER_ID, record);
+    this.errors.delete(id);
+    await (await this.active(profile)).scheduler.trigger();
+    return told;
+  }
+
+  /** Settings > Sync: move the chain to this computer or to the person's own server, both ways. */
+  async moveChain(profile: ProfileRuntime, target: SyncTarget): Promise<SyncStatus> {
+    const id = profile.profile.id;
+    const s = this.state(profile).get();
+    if (!s.enabled) throw new Error(tr("Turn sync on first."));
+    if (target.mode === "local" && s.mode === "local") throw new Error(tr("Your sync chain is already on this computer."));
+    if (target.mode === "custom") {
+      const check = await this.checkServer(target.serverUrl);
+      if (!check.ok || !check.serverUrl) throw new Error(check.message);
+      if (s.mode === "custom" && check.serverUrl === s.serverUrl) throw new Error(tr("Your sync chain is already on that server."));
+      target = { mode: "custom", serverUrl: check.serverUrl };
+    }
+    this.notices.delete(id);
+    const told = await this.switchServer(profile, target, true);
+    this.notices.set(
+      id,
+      told
+        ? tr("Moved. Your other devices follow the next time they sync with the old server.")
+        : tr("Moved. The old server could not be told where the chain went: pair your other devices again."),
+    );
+    return this.status(profile);
+  }
+
+  /** A device of the chain moved it elsewhere: follow it (devices on "Your own server" only). */
+  private async followChain(profile: ProfileRuntime): Promise<void> {
+    const id = profile.profile.id;
+    const s = this.state(profile).get();
+    const rt = this.runtimes.get(id);
+    if (!rt || !s.enabled || s.mode !== "custom" || this.following.has(id)) return;
+    const urls = chainServerMove(this.remote(profile).records("chain_server").all()[CHAIN_SERVER_ID], s.serverUrl, await rt.client.getDeviceId());
+    if (!urls) return;
+    this.following.add(id);
+    try {
+      for (const url of urls) {
+        if (!(await probeHealth(url, SERVER_CHECK_TIMEOUT_MS))) continue;
+        await this.switchServer(profile, { mode: "custom", serverUrl: url }, false);
+        this.notices.set(id, tr("Your sync chain moved to {url}. This device followed it.", { url }));
+        return;
+      }
+      this.notices.set(id, tr("Your sync chain moved to {url}, which this computer cannot reach right now.", { url: urls[0]! }));
+    } catch (err) {
+      this.errors.set(id, (err as Error).message);
+    } finally {
+      this.following.delete(id);
+    }
+  }
+
+  /** The built-in server lost the chain: start it again there from what this computer has. */
+  private async rebuildLocal(profile: ProfileRuntime): Promise<void> {
+    const id = profile.profile.id;
+    if (this.following.has(id)) return;
+    this.following.add(id);
+    try {
+      await this.switchServer(profile, { mode: "local" }, false);
+      this.notices.set(id, tr("The sync data on this computer was missing, so it was uploaded again. Pair your phone again if it stopped syncing."));
+    } catch (err) {
+      this.errors.set(id, (err as Error).message);
+    } finally {
+      this.following.delete(id);
+    }
+  }
+
+  /** "Check" next to an own server's address: whether a Corvus sync server answers there. */
+  async checkServer(raw: string): Promise<ServerCheck> {
+    const serverUrl = normalizeServerUrl(raw);
+    if (!serverUrl) return { ok: false, serverUrl: null, message: tr("Enter a valid sync server address, starting with https:// or http://.") };
+    if (await probeHealth(serverUrl, SERVER_CHECK_TIMEOUT_MS)) return { ok: true, serverUrl, message: tr("The sync server answers.") };
+    return { ok: false, serverUrl, message: tr("No sync server answers at {url}. Check the address and that the server is running.", { url: serverUrl }) };
+  }
+
+  private localView(profile: ProfileRuntime): LocalServerView | null {
+    const s = this.state(profile).get();
+    const server = this.localServers.get(profile.profile.id);
+    const retiring = s.retireLocalUntil !== null && Date.now() < s.retireLocalUntil;
+    if (!server && !(s.enabled && s.mode === "local") && !retiring) return null;
+    const st = server?.status ?? { running: false, port: null, error: null, lastClient: null };
+    return {
+      ...st,
+      addresses: st.port !== null ? (phoneServerAddresses(`http://127.0.0.1:${st.port}`, this.networkInterfaces()) ?? []) : [],
+      retiringUntil: retiring ? s.retireLocalUntil : null,
+    };
+  }
+
   async status(profile: ProfileRuntime): Promise<SyncStatus> {
     const mod = await this.module();
     const s = this.state(profile).get();
@@ -525,6 +773,11 @@ export class SyncService {
     return {
       available: mod !== null,
       enabled: s.enabled,
+      mode: s.mode,
+      customServerUrl: s.customServerUrl,
+      localServer: this.localView(profile),
+      platform: process.platform,
+      notice: this.notices.get(profile.profile.id) ?? null,
       serverUrl: s.serverUrl,
       deviceName: s.deviceName,
       chainId: s.chainId,
@@ -582,21 +835,30 @@ export class SyncService {
     return mod.generateRecoveryPhrase();
   }
 
-  async enable(profile: ProfileRuntime, opts: { serverUrl: string; phrase: string; deviceName: string }): Promise<SyncStatus> {
+  /**
+   * Turns sync on: a new chain or one to join (its recovery phrase), on this computer's built-in
+   * server ("local") or the person's own. A pairing code from another computer joins the chain
+   * where that computer has it.
+   */
+  async enable(profile: ProfileRuntime, opts: SyncEnableOptions): Promise<SyncStatus> {
     const mod = await this.module();
     if (!mod) throw new Error("Sync is not available in this build");
     const id = profile.profile.id;
-    const phrase = mod.normalizeRecoveryPhrase(opts.phrase);
-    if (!mod.validateRecoveryPhrase(phrase)) throw new Error("That recovery phrase is not valid");
-    let serverUrl: string;
-    try {
-      serverUrl = new URL(opts.serverUrl).toString().replace(/\/$/, "");
-    } catch {
-      throw new Error("Enter a valid sync server URL");
-    }
+    const code = decodePairing(opts.phrase);
+    const mode: SyncMode = code ? "custom" : (opts.mode ?? (opts.serverUrl ? "custom" : "local"));
+    const phrase = mod.normalizeRecoveryPhrase(code ? code.phrase : opts.phrase);
+    if (!mod.validateRecoveryPhrase(phrase)) throw new Error(tr("That recovery phrase is not valid"));
+    const customUrl = mode === "custom" ? normalizeServerUrl(code?.serverUrl ?? opts.serverUrl ?? "") : null;
+    if (mode === "custom" && !customUrl) throw new Error(tr("Enter a valid sync server address, starting with https:// or http://."));
     const chainId = mod.deriveKeys(phrase).chainId;
     const clash = this.ctx.profiles.list().find((p) => p.id !== id && p.syncChainId === chainId);
     if (clash) throw new Error(`This recovery phrase already syncs the profile “${clash.name}” on this device. A sync chain belongs to one profile.`);
+    let serverUrl: string;
+    try {
+      serverUrl = customUrl ?? (await this.startLocal(profile));
+    } catch (err) {
+      throw new Error(tr("The sync server on this computer could not start: {error}", { error: (err as Error).message }));
+    }
 
     this.dispose(id);
     const encrypted = this.cipher.isEncryptionAvailable();
@@ -607,7 +869,9 @@ export class SyncService {
       enabled: false,
       chainId: null,
       lastSyncAt: null,
+      mode,
       serverUrl,
+      ...(customUrl ? { customServerUrl: customUrl } : { retireLocalUntil: null }),
       deviceName: opts.deviceName.trim().slice(0, 64) || os.hostname(),
       phrase: encrypted ? { enc: true, data: this.cipher.encryptString(phrase).toString("base64") } : null,
     }));

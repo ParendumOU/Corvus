@@ -1,5 +1,4 @@
 import Constants from 'expo-constants';
-import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Switch, View } from 'react-native';
 
@@ -19,6 +18,7 @@ import { enableNotifications } from '@/lib/background';
 import { ago, platformName } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { notificationsOn } from '@/lib/notifications';
+import { nav } from '@/lib/nav';
 
 const PHONES = new Set(['android', 'ios', 'web']);
 
@@ -73,7 +73,7 @@ export default function SettingsScreen() {
               title={t('Not paired')}
               description={t('What the phone and your computer share is end-to-end encrypted: the sync server only stores ciphertext.')}
             />
-            <Button label={t('Pair with a computer')} icon="scan" onPress={() => router.push('/pair')} testID="settings-pair" />
+            <Button label={t('Pair with a computer')} icon="scan" onPress={() => nav.push('/pair')} testID="settings-pair" />
           </Card>
         )}
       </View>
@@ -145,6 +145,14 @@ export default function SettingsScreen() {
                 {version}
               </ThemedText>
             }
+          />
+          <ListRow
+            leading={<IconTile name="book" />}
+            title={t('Third-party licences')}
+            subtitle={t('The open-source software in Corvus')}
+            chevron
+            onPress={() => nav.push('/licenses')}
+            testID="settings-licenses"
           />
         </ListGroup>
       </View>

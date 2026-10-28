@@ -1,6 +1,6 @@
-// Builds what Corvus's Android browser needs to answer cookie banners and send Global Privacy
-// Control (modules/browser-kit). The module's Gradle build runs it (task corvusConsentAssets) into
-// its build/generated/corvus-consent folder:
+// Builds what Corvus's mobile browser needs to answer cookie banners and send Global Privacy
+// Control (modules/browser-kit). For Android, the module's Gradle build runs it (task
+// corvusConsentAssets) into its build/generated/corvus-consent folder:
 //   assets/corvus-consent/page.js     modules/browser-kit/consent/page.ts with DuckDuckGo Autoconsent, one minified script
 //   assets/corvus-consent/gpc.js      GPC_PAGE_SCRIPT of @corvus/shared
 //   assets/corvus-consent/rules.txt   Autoconsent's compact rules, packed (packRules) so that the native side picks a
@@ -8,7 +8,12 @@
 //   assets/corvus-consent/LICENSE-autoconsent.txt
 //   test/corvus-consent/cases.tsv     what filterCompactRules gives for many frames; ConsentRulesTest checks that
 //                                     ConsentRules.kt gives exactly the same
-// Usage: node scripts/consent-assets.mjs <out dir>
+// For iOS (--ios), the module's podspec runs it at pod install into ios/generated:
+//   assets/corvus-consent/page.js     modules/browser-kit/consent/page-ios.ts with Autoconsent, for an isolated content world
+//   assets/corvus-consent/snippets.json  Autoconsent's main-world snippets by id: the only code the module runs in a page
+//   assets/corvus-consent/rules.txt, LICENSE-autoconsent.txt and test/corvus-consent/cases.tsv as above
+//                                     (ConsentRules.swift is checked against the same cases)
+// Usage: node scripts/consent-assets.mjs <out dir> [--ios]
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -116,14 +121,24 @@ async function bundle(input, format) {
   return output[0].code;
 }
 
-export async function buildConsentAssets(outDir) {
+/** Autoconsent's main-world snippets as source text, by id (each an arrow function to call). */
+export function snippetSources(evalSnippets) {
+  const out = {};
+  for (const [id, snippet] of Object.entries(evalSnippets)) {
+    if (!/^EVAL_[A-Z0-9_]+$/.test(id) || id.length > 80) throw new Error(`unexpected snippet id ${id}`);
+    if (typeof snippet === 'function') out[id] = String(snippet);
+  }
+  return out;
+}
+
+export async function buildConsentAssets(outDir, { ios = false } = {}) {
   const autoconsent = await import('@duckduckgo/autoconsent');
   const packageDir = path.resolve(path.dirname(require.resolve('@duckduckgo/autoconsent')), '..');
   const { version, license } = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
   const rules = require('@duckduckgo/autoconsent/rules/compact-rules.json');
 
-  const page = await bundle(path.join(mobileDir, 'modules/browser-kit/consent/page.ts'), 'iife');
-  if (page.split(PORT_PLACEHOLDER).length !== 2) throw new Error(`page.js must name ${PORT_PLACEHOLDER} exactly once`);
+  const page = await bundle(path.join(mobileDir, 'modules/browser-kit/consent', ios ? 'page-ios.ts' : 'page.ts'), 'iife');
+  if (!ios && page.split(PORT_PLACEHOLDER).length !== 2) throw new Error(`page.js must name ${PORT_PLACEHOLDER} exactly once`);
   const shared = await bundle(path.resolve(mobileDir, '../../packages/shared/src/cookie-consent.ts'), 'esm');
   const { GPC_PAGE_SCRIPT } = await import(`data:text/javascript;base64,${Buffer.from(shared).toString('base64')}`);
 
@@ -133,18 +148,19 @@ export async function buildConsentAssets(outDir) {
   fs.mkdirSync(tests, { recursive: true });
   const notice = `/*! Corvus cookie banner script (MPL-2.0). Includes DuckDuckGo Autoconsent ${version} (${license}, source: https://github.com/duckduckgo/autoconsent). */\n`;
   fs.writeFileSync(path.join(assets, 'page.js'), notice + page);
-  fs.writeFileSync(path.join(assets, 'gpc.js'), GPC_PAGE_SCRIPT);
+  if (ios) fs.writeFileSync(path.join(assets, 'snippets.json'), JSON.stringify(snippetSources(autoconsent.evalSnippets)));
+  else fs.writeFileSync(path.join(assets, 'gpc.js'), GPC_PAGE_SCRIPT);
   fs.writeFileSync(path.join(assets, 'rules.txt'), packRules(rules));
   fs.copyFileSync(path.join(packageDir, 'LICENSE'), path.join(assets, 'LICENSE-autoconsent.txt'));
   fs.writeFileSync(path.join(tests, 'cases.tsv'), consentCases(rules, autoconsent.filterCompactRules));
-  console.log(`[consent-assets] Autoconsent ${version}: page.js ${Math.round((notice.length + page.length) / 1024)} KB, ${rules.r.length} rules -> ${outDir}`);
+  console.log(`[consent-assets] Autoconsent ${version}${ios ? ' (iOS)' : ''}: page.js ${Math.round((notice.length + page.length) / 1024)} KB, ${rules.r.length} rules -> ${outDir}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const outDir = process.argv[2];
-  if (!outDir) {
-    console.error('usage: node scripts/consent-assets.mjs <out dir>');
+  if (!outDir || (process.argv[3] && process.argv[3] !== '--ios')) {
+    console.error('usage: node scripts/consent-assets.mjs <out dir> [--ios]');
     process.exit(2);
   }
-  await buildConsentAssets(path.resolve(outDir));
+  await buildConsentAssets(path.resolve(outDir), { ios: process.argv[3] === '--ios' });
 }

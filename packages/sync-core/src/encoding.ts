@@ -21,6 +21,7 @@ export const SYNC_COLLECTIONS = [
   "asks",
   "command_history",
   "assist_history",
+  "chain_server",
 ] as const satisfies readonly SyncCollection[];
 
 // Compile-time guard: fails if a collection is added to @corvus/shared but not listed above.

@@ -1,6 +1,6 @@
 # @corvus/sync-server
 
-Self-hostable sync server for Corvus. Fastify + SQLite (WAL). It stores only what clients send: opaque record ids, versions and XChaCha20-Poly1305 ciphertext. It never has, and cannot derive, any decryption key. See [`@corvus/sync-core`](../../packages/sync-core/README.md) for the crypto scheme.
+Sync server for Corvus. Fastify + SQLite (WAL, Node's built-in `node:sqlite`: no native module). The same code runs in Docker for people who host it themselves, and inside the Corvus desktop app as "This computer" (`src/embedded.ts`: `startEmbeddedServer` listens on port 8797 or the next free one and answers only private networks). It stores only what clients send: opaque record ids, versions and XChaCha20-Poly1305 ciphertext. It never has, and cannot derive, any decryption key. See [`@corvus/sync-core`](../../packages/sync-core/README.md) for the crypto scheme.
 
 ## Run
 
@@ -8,6 +8,21 @@ Self-hostable sync server for Corvus. Fastify + SQLite (WAL). It stores only wha
 docker compose build sync-server && docker compose up -d sync-server   # http://localhost:8787
 curl http://localhost:8787/healthz                                       # {"ok":true}
 ```
+
+Self-hosting with Docker Compose on a VPS, NAS or home server (build from this repository):
+
+```yaml
+services:
+  corvus-sync:
+    build: { context: ., dockerfile: services/sync-server/Dockerfile }
+    ports: ["8787:8787"]
+    volumes: ["corvus-sync:/data"]
+    restart: unless-stopped
+volumes:
+  corvus-sync:
+```
+
+Behind HTTPS (recommended whenever it is reachable from the internet), for example with Caddy: `sync.example.org { reverse_proxy corvus-sync:8787 }`, and set `CORVUS_SYNC_TRUST_PROXY=1` so rate limits see the real client address. Then in Corvus: Settings → Sync → **Your own server**, the address, **Check**. A chain already on a computer moves there with **Move to your own server**; its devices follow.
 
 The image is multi-stage (build on `node:22-bookworm`, run on `node:22-bookworm-slim`), runs as user `node`, keeps the database in the `/data` volume and has a `HEALTHCHECK` on `/healthz`.
 
@@ -64,3 +79,7 @@ The server never logs ciphertext, request bodies or auth headers: request logs c
 What the operator can and cannot see is described in the [sync-core README](../../packages/sync-core/README.md#threat-model). In short: metadata (ids, sizes, timing, device names, IPs) is visible; content is not, and cannot be modified undetected. The operator can delete or withhold data. The server holds no keys: **if a user loses their recovery phrase, their synced data is unrecoverable**.
 
 Replay cache and rate limits are in memory, so run a single instance per database.
+
+### Built into the desktop app (This computer)
+
+The server runs on the person's computer and listens on its network, so the devices on that network can reach it. It answers only clients with a loopback, private (10/8, 172.16/12, 192.168/16, link-local, IPv6 ULA) or Tailscale (100.64/10) address, has no admin or unauthenticated routes besides `/healthz`, and keeps every limit above. Anyone on the same network can see that a Corvus sync server is running on that computer and its port, and, watching the network, which devices sync and when, and how much (plain HTTP on the LAN: request paths carry the chain id, headers the device id, the bodies are ciphertext). Device names and platforms are stored in clear in the database, as on any server. The content (bookmarks, history, logins, tabs) stays end-to-end encrypted.

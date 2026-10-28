@@ -175,7 +175,7 @@ export function SitePanel({
   /** Blocking is on in Settings. */
   blockingOn: boolean;
   blockingHere: boolean;
-  /** Null where cookie banners are not answered (iOS, the web build, the setting off). */
+  /** Null where cookie banners are not answered (the web build, the setting off). */
   consent: SiteConsent | null;
   onToggle: () => void;
   onToggleConsent: () => void;

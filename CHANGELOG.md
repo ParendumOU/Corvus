@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.30.0
+
+### Settings
+- Sync → This computer: the addresses your other devices reach it at are a list, one a line, as `192.168.1.200:8798` with the network adapter after it, instead of running together.
+- AI agents → Recent calls shows the latest 5, with Previous and Next to go through the whole log; the agent menu and Only problems (now labelled) still filter it, and Export CSV and Clear are unchanged.
+- Command Bar → "What the agent remembers about you": the field looks like the other fields and takes the card's width with Add beside it; Enter adds.
+- Every row keeps its label readable: a control that does not fit beside its label (a narrow window, longer Spanish text) goes under it, instead of squeezing the label to a word a line or pushing a button under its field. A field and its button share one height.
+- Search shortcuts and Connections (per-container proxies, Add a proxy, Site rules) use the card's full width and wrap cleanly.
+- Smaller fixes: status pills no longer break over two lines, "Open …" buttons no longer look like underlined links, "1 hour" instead of "1 hours", Test connection's result wraps as text, and a few untranslated notes are now in Spanish too. The Passwords page pager uses the same shared pager.
+
+### Sync
+- **Sync with nothing to set up**: the sync server is now built into Corvus. Turning sync on keeps your data on **This computer** (the default), and your phone and other computers sync with it on the same Wi-Fi (or Tailscale) while Corvus is open there: no Docker, no ports, no server to run. It listens on port 8797 (or the next free one, remembered), answers only devices on private networks, and stores only ciphertext, like the self-hosted server, whose code it is.
+- **Your own server** stays the option for syncing from anywhere: enter its address and **Check**. Profiles that already sync with a server keep it, unchanged.
+- **Move your chain** between This computer and your own server, both ways: Corvus uploads this computer's data to the new server (end-to-end encrypted, as always) and writes the new address, encrypted, on the old one, so your other devices follow on their own the next time they sync.
+- **Pair a device**: the pairing panel shows the QR code for the phone and a code to paste on another computer, says when your phone reached this computer, and **Phone cannot connect?** checks what Corvus can see on Windows (a network set as Public, a firewall rule that blocks Corvus) and opens the page to fix it, with exact steps for the rest (guest Wi-Fi, router isolation, macOS and Linux firewalls). Corvus says beforehand that Windows will ask to let it reach the network.
+- The welcome screen's Sync step uses This computer, with "I run my own sync server" for the other case.
+- Self-hosting: the README has a short guide with a ready `docker-compose.yml`. The sync server now uses Node's built-in SQLite instead of better-sqlite3 (nothing to compile; existing databases are used as they are).
+- Settings → Sync → "Where your data syncs" is a proper list of choices: the radio on the left, the option's name in bold and its description under it, wrapping cleanly in a narrow window. The pairing panel puts its steps under the QR code when the window is narrow.
+- Questions from your phone are picked up within about 2 seconds (5 before), and the answer reaches the phone as it is written: its first words at once, then about twice a second.
+- The sync server sends its clock with the device list, so a phone whose clock is off from the computer's no longer says "Corvus is not open" on a computer that is open and answering.
+- Stopping an answer on the phone stops the computer's search at its next write, and a computer still writing an answer the phone deleted can no longer bring the question back (before, a write that crossed the deletion could win over it, and the answer went on).
+
+### Corvus for mobile
+- **Answers write themselves out as they arrive**: while your computer answers, the chat shows the text a moment after it starts writing and writes it out smoothly, with bold and citations as they come, instead of the whole answer at once at the end. Sources and suggested questions follow when it is done. Older Corvus versions on the computer still work (their answers arrive in fewer, larger pieces).
+- "Corvus is not open on your computer" no longer shows while it is answering: the chat follows the question closely while it is open, and tells a computer that stopped answering by the phone's own clock.
+- Citations [1] [2] are small pills in the line, at text height, instead of tall boxes over the lines around them; tapping one opens its source.
+- The keyboard's Send key sends your message in the Assist chat and in "Ask about this page".
+- **Stop an answer, or add to your question while it is answered**, as in other AI chats: while your computer answers, the send button turns into a Stop button (a square) as long as the message box is empty. Stop keeps what had come of the answer, marked "Stopped". A message you send meanwhile stops the answer where it is and your computer answers the new message with it, as the next turn of the same conversation, instead of answering both separately. Works with any Corvus version on the computer.
+- Deleting a conversation while your computer is still answering it now always stops the answer.
+- **Calm when your computer is out of reach**: away from home, or with the computer off, Home says "Your computer is not reachable. Changes are kept and sync when you are on the same Wi-Fi as it" instead of an error. Bookmarks, reading list changes and watches you make meanwhile wait on the phone and sync when it can reach the computer again; the app tries again every 30 seconds while open. Pairing that gets no answer says what to check (same Wi-Fi, computer on with Corvus open, firewall) instead of a timeout.
+- **Follows your chain** when it moves to another server, and tries your computer's other addresses (another network adapter, Tailscale) when the usual one does not answer.
+- **Cookie banners rejected for you on iPhone too**: as on Android and the desktop, Corvus clicks "Reject all", or unticks every purpose and saves, with DuckDuckGo's Autoconsent rules, and hides a banner it can only hide. The shield's panel says what happened ("Cookie banner rejected (OneTrust)"), "Allow this site's cookie banner" leaves a site's banner to you, and Settings → Browser → "Reject cookie banners" turns it off. On iOS the banner script runs in a world of its own that the page's scripts can neither see nor reach.
+- **Third-party licences** in Settings → About: every open-source package in the Android app (the JavaScript packages, the Android libraries and the C++ code inside React Native), with its licence, copyright and full licence text, searchable, in English and Spanish. The list is made by each build from what actually ships in it.
+- **Turns with the phone and fills large screens** (Android): the portrait lock is gone, so Corvus works in landscape and on tablets, foldables and desktop windows, as Google Play now asks.
+- Smaller, faster Android app: release builds are optimized and obfuscated with R8 (the app's code shrinks to about a quarter, and the APK is about 9 MB smaller), and the status and navigation bar colours that Android 15 ignores are no longer set, which Google Play reported.
+- On iPhone, the back button of Browser settings reads "Browser" instead of "browser".
+- Fixed: tapping something that opens another screen right as the app starts could close the app.
+
 ## v0.29.0
 
 ### Corvus for mobile

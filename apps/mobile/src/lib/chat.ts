@@ -82,7 +82,7 @@ export function chatList(asks: readonly AskRecord[], conversations: readonly Con
       id: askThread(first),
       kind: 'phone',
       title: first.question,
-      snippet: answer || (list.length > 1 ? last.question : ''),
+      snippet: answer || (last.stopped ? t('Stopped') : list.length > 1 ? last.question : ''),
       updatedAt: Math.max(last.askedAt, last.updatedAt),
       where: last.answeredBy || deviceName(last.to),
       url: first.origin?.url ?? contextPage(first.context)?.url ?? '',
@@ -123,14 +123,25 @@ export function searchChats(list: readonly ChatSummary[], query: string): ChatSu
 
 const turn = (question: string, answer: string): SearchTurn => ({ question: question.slice(0, 1000), answer: plainText(answer).slice(0, MAX_CONTEXT_ANSWER) });
 
+/** What a question stopped before any answer came carries as its answer (for the computer's AI). */
+export const NO_ANSWER_YET = '(no answer yet)';
+
 /**
  * What a follow-up carries: the conversation's answered turns, last ones first to go when there are
- * too many, after the desktop conversation it continues (if any).
+ * too many, after the desktop conversation it continues (if any). A stopped answer counts with what
+ * had come of it, so a message sent to add to a question answers that question with it.
  */
 export function followUpContext(thread: readonly AskRecord[]): SearchTurn[] {
   const first = thread[0];
-  const answered = thread.filter((a) => a.state === 'done' && a.answer.trim()).map((a) => turn(a.question, a.answer));
+  const answered = thread
+    .filter((a) => a.state === 'done' && (a.answer.trim() || a.stopped))
+    .map((a) => (a.answer.trim() ? turn(a.question, a.answer) : turn(a.question, NO_ANSWER_YET)));
   return [...(first?.context ?? []), ...answered].slice(-MAX_ASK_CONTEXT);
+}
+
+/** The conversation once `next` took the place of question `id` (its answer stopped), oldest first. */
+export function replaceAsk(thread: readonly AskRecord[], id: string, next: AskRecord): AskRecord[] {
+  return [...thread.filter((a) => a.id !== id && a.id !== next.id), next].sort((a, b) => a.askedAt - b.askedAt);
 }
 
 /** A desktop Assist conversation as the context of a phone conversation that continues it. */
@@ -147,19 +158,24 @@ export function assistOrigin(c: ConversationView): AskOrigin {
   return { conversation: c.id, title: assistTitle(c).slice(0, 300), url: c.url };
 }
 
-/** How long a computer's last contact with the sync server can be for it to count as running Corvus (it checks for questions every 5 s). */
+/** How long a computer's last contact with the sync server can be for it to count as running Corvus (it checks for questions every 2 s; older ones every 5 s). */
 export const ONLINE_MS = 90_000;
 /** A question nobody picked up for this long while its computer runs Corvus: its setting may be off. */
 export const UNANSWERED_MS = 45_000;
 /** An answer that has not moved for this long: the computer stopped writing it. */
 export const STALLED_MS = 2 * 60_000;
 
-export type AskPhase = 'waiting' | 'offline' | 'unanswered' | 'answering' | 'stalled' | 'done' | 'error';
+export type AskPhase = 'waiting' | 'offline' | 'unanswered' | 'answering' | 'stalled' | 'done' | 'stopped' | 'error';
 
-/** Where a question stands, telling a computer without Corvus open apart from one that is slow. */
-export function askPhase(ask: AskRecord, computer: DeviceInfo | undefined, now: number): AskPhase {
+/**
+ * Where a question stands, telling a computer without Corvus open apart from one that is slow.
+ * `movedAt` is when the phone last saw the question change, on its own clock (lib/answer-follow.ts);
+ * without it the computer's `updatedAt` is used, which is off by however far the clocks are apart.
+ */
+export function askPhase(ask: AskRecord, computer: DeviceInfo | undefined, now: number, movedAt: number = ask.updatedAt): AskPhase {
+  if (ask.stopped) return 'stopped';
   if (ask.state === 'done' || ask.state === 'error') return ask.state;
-  if (ask.state === 'answering') return now - ask.updatedAt > STALLED_MS ? 'stalled' : 'answering';
+  if (ask.state === 'answering') return now - movedAt > STALLED_MS ? 'stalled' : 'answering';
   if (computer && now - computer.lastSeen > ONLINE_MS) return 'offline';
   return now - ask.askedAt > UNANSWERED_MS ? 'unanswered' : 'waiting';
 }
@@ -171,5 +187,5 @@ export function isOnline(computer: DeviceInfo | undefined, now: number): boolean
 
 /** A follow-up the computer answered without its conversation (a Corvus that predates follow-ups). */
 export function answeredAlone(ask: AskRecord): boolean {
-  return ask.state === 'done' && (ask.context?.length ?? 0) > 0 && !ask.withContext;
+  return ask.state === 'done' && !ask.stopped && (ask.context?.length ?? 0) > 0 && !ask.withContext;
 }

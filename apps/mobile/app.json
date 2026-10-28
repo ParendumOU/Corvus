@@ -2,14 +2,14 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.parendum.corvus.mobile",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "icon": "./assets/images/icon.png",
       "supportsTablet": false,
       "infoPlist": {
@@ -20,7 +20,7 @@
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 9,
+      "versionCode": 10,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -81,7 +81,11 @@
       ],
       ["expo-notifications", { "color": "#5B5BD6", "icon": "./assets/images/notification-icon.png" }],
       "expo-background-task",
-      "./plugins/with-web-pages"
+      "./plugins/with-web-pages",
+      "./plugins/with-third-party-notices",
+      "./plugins/with-edge-to-edge",
+      "./plugins/with-large-screens",
+      "./plugins/with-r8-rules"
     ],
     "experiments": {
       "typedRoutes": true,

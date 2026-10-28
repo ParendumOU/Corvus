@@ -17,20 +17,23 @@ cd apps/mobile
 VERSION="$(node -p "require('./package.json').version")"
 pnpm exec expo prebuild --platform android --no-install --clean
 cd android
-# The generated project turns R8 on for release builds. R8 broke the app at start-up (WorkManager,
-# used by expo-background-task, could not create its Room database: "Failed to create an instance
-# of class androidx.work.impl.WorkDatabase"), so release builds are not minified.
-GRADLE_FLAGS=(--no-daemon --console=plain -Pandroid.enableMinifyInReleaseBuilds=false)
+# Release builds are shrunk and obfuscated with R8 (the generated project's
+# android.enableMinifyInReleaseBuilds); the keep rules the app needs beyond those its libraries ship
+# are in plugins/proguard-rules.pro (see "R8" in docs/MOBILE.md).
+GRADLE_FLAGS=(--no-daemon --console=plain)
 # The QR scanner's decoder is tested first, on real QR images (modules/qr-scanner, QrDecoderTest;
 # library modules only have unit tests for the debug build type), and the browser's ad and tracker
 # matcher on the cases the app's own matcher passes (modules/browser-kit, ContentBlockerTest).
 ./gradlew "${GRADLE_FLAGS[@]}" :qr-scanner:testDebugUnitTest :browser-kit:testDebugUnitTest assembleRelease
 
 APK=app/build/outputs/apk/release/app-release.apk
+MAPPING=app/build/outputs/mapping/release/mapping.txt
 BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
 # Google ML Kit sends Google diagnostics, so it must stay out of the app (see "The QR scanner has no
 # Google code" in docs/MOBILE.md): no ML Kit classes in the APK and nothing of it in its manifest.
-MLKIT_CLASSES="$(unzip -p "$APK" 'classes*.dex' | grep -aoE 'L(com/google/mlkit|com/google/android/gms/internal/mlkit_[a-z_]+|com/google/android/gms/vision|androidx/camera/mlkit)/' | sort -u || true)"
+# R8 renames classes, so their original names are looked up in its mapping file too.
+MLKIT_PATTERN='L(com/google/mlkit|com/google/android/gms/internal/mlkit_[a-z_]+|com/google/android/gms/vision|androidx/camera/mlkit)/'
+MLKIT_CLASSES="$( { unzip -p "$APK" 'classes*.dex'; sed -nE 's/^([^ #][^ ]*) -> .*:$/L\1\//p' "$MAPPING" | tr . /; } | grep -aoE "$MLKIT_PATTERN" | sort -u || true)"
 MLKIT_MANIFEST="$("$BUILD_TOOLS/aapt2" dump xmltree --file AndroidManifest.xml "$APK" | grep -iE 'mlkit|vision\.DEPENDENCIES' || true)"
 if [ -n "$MLKIT_CLASSES$MLKIT_MANIFEST" ]; then
   echo "Google ML Kit is in the APK:" >&2
@@ -41,6 +44,9 @@ echo "No Google ML Kit in the APK or its manifest."
 OUT_DIR=/workspace/out/mobile
 mkdir -p "$OUT_DIR"
 OUT="$OUT_DIR/corvus-mobile-$VERSION.apk"
+# R8's mapping file turns the obfuscated names in stack traces (Play Console's crashes and ANRs) back
+# into the real ones. The App Bundle carries it for Play; this copy goes with the APK and the release.
+cp "$MAPPING" "$OUT_DIR/corvus-mobile-$VERSION-mapping.txt"
 if [ -f /secrets/corvus-mobile.keystore ] && [ -f /secrets/corvus-mobile-keystore.env ]; then
   set -a
   # shellcheck disable=SC1091
