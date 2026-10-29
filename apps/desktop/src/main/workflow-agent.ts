@@ -269,7 +269,7 @@ export async function runWorkflowAgentTool(deps: WorkflowToolDeps, name: string,
   const outcome = await runWorkflowSteps(filled.startUrl, filled.steps, {
     signal,
     navigate: async (url) => {
-      await c.navigate(tabId, url);
+      await c.navigate(tabId, url, "refuse");
     },
     snapshot: async () => {
       const snap = await c.snapshot(tabId, { maxChars: 500 });

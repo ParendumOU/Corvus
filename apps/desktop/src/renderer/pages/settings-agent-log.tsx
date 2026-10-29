@@ -166,6 +166,9 @@ export function AgentActivityLog({ view, update }: Props) {
                     <strong>{e.client}</strong> <span className="mono">{e.tool}</span>
                     {e.host && <span className="muted"> · {e.host}</span>}
                     {e.error && <div className="muted small agent-log-error">{e.error}</div>}
+                    {e.certificateError && (
+                      <div className="small agent-log-cert">{t("Continued past an invalid certificate for {host} ({code})", { host: e.host, code: e.certificateError })}</div>
+                    )}
                   </span>
                   <span className="muted small">{t("{ms} ms", { ms: e.durationMs })}</span>
                   <OutcomePill entry={e} />

@@ -13,7 +13,7 @@
       "icon": "./assets/images/icon.png",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": true,
+        "ITSAppUsesNonExemptEncryption": false,
         "CFBundleLocalizations": ["en", "es"],
         "NSLocalNetworkUsageDescription": "Corvus connects to the sync server on your computer or home network to pair and sync.",
         "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": false, "NSAllowsLocalNetworking": true }

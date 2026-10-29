@@ -498,6 +498,14 @@ body,
 .omni-chip.warn {
   color: var(--danger);
 }
+/* An invalid certificate: tinted, so it reads stronger than a plain http page. */
+.omni-chip.warn.cert {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  font-weight: 600;
+}
+.omni-chip.warn.cert:hover {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+}
 
 .omni-input {
   flex: 1 1 auto;

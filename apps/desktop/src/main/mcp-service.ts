@@ -32,6 +32,8 @@ export class McpService {
   readonly audit: McpAuditLog;
   /** Host each running call is about, until its result arrives (keyed by client, tool and start time). */
   private readonly callHosts = new Map<string, string>();
+  /** A client's running call went on past this certificate error (full access): its log entry says so. */
+  private readonly certNotes = new Map<string, string>();
   private pendingApprovals = new Map<string, Promise<boolean>>();
   private applying: Promise<void> = Promise.resolve();
   private runningConfig = "";
@@ -41,6 +43,11 @@ export class McpService {
     ctx.settings.onChange((next, prev) => {
       if (next === prev || JSON.stringify(next.mcp) !== JSON.stringify(prev.mcp)) this.apply();
     });
+  }
+
+  /** A client's call went on past an invalid certificate (full access): for its entry in the activity log. */
+  noteCertificateError(client: string, code: string): void {
+    this.certNotes.set(client, code);
   }
 
   isRunning(): boolean {
@@ -134,6 +141,8 @@ export class McpService {
         const key = callKey(event);
         const host = this.callHosts.get(key) ?? "";
         this.callHosts.delete(key);
+        const certificateError = this.certNotes.get(event.client);
+        this.certNotes.delete(event.client);
         this.audit.record({
           at: event.at,
           client: event.client,
@@ -142,6 +151,7 @@ export class McpService {
           outcome: event.outcome ?? (event.ok ? "ok" : "error"),
           durationMs: event.durationMs,
           ...(event.error ? { error: event.error } : {}),
+          ...(certificateError ? { certificateError } : {}),
         });
         // A call refused by the rate limit never started, so the activity timeline has no step for it.
         if (event.outcome !== "rate-limited") this.ctx.agents.toolResult(event);

@@ -39,9 +39,11 @@ import type {
 } from "@corvus/shared";
 import type { WebContents } from "electron";
 import { OTHER_FOLDER_ID } from "../shared/bookmark-tree";
+import { certAgentError } from "../shared/cert-errors";
 import { isExecutableFilename, uniqueFilename } from "../shared/downloads";
 import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
+import { resolveMcpAccessLevel } from "../shared/settings";
 import { GROUP_COLORS } from "../shared/tab-strip";
 import type { AppContext } from "./context";
 import {
@@ -82,6 +84,16 @@ const DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const DOWNLOAD_HARD_MAX = 500 * 1024 * 1024;
 
 export class AgentError extends Error {}
+
+/** An agent's load ended on a certificate error it may not go past by itself. */
+export class CertificateError extends AgentError {}
+
+/**
+ * What an agent's navigation does at a certificate error: stop, leaving the choice to the person, or
+ * (full auto) go on as the person's "Proceed" would, telling `proceeded` the host and error so the
+ * run shows it. Never for HSTS sites or errors nobody may override.
+ */
+export type CertErrorPolicy = "refuse" | { proceeded: (host: string, code: string) => void };
 
 /** Best-effort file name for a fetched download: Content-Disposition, then the URL path, then a default. */
 function downloadFilename(url: string, disposition: string | null): string {
@@ -190,6 +202,29 @@ export class Controller implements BrowserController {
     return url;
   }
 
+  /** MCP clients (who pass no policy) are in full auto at the full access level; it shows in the activity log. */
+  private mcpCertPolicy(): CertErrorPolicy {
+    if (resolveMcpAccessLevel(this.ctx.settings.get().mcp) !== "full") return "refuse";
+    const client = this.ctx.agents.currentClient;
+    return { proceeded: (_host, code) => this.ctx.mcp.noteCertificateError(client, code) };
+  }
+
+  /**
+   * After an agent's load: a certificate error ends the call with an error, so the person decides on
+   * the error page, unless the policy is full auto and the person could proceed there too.
+   */
+  private async certGate(window: BrowserWindowCtl, tab: TabRuntime, certs: CertErrorPolicy = this.mcpCertPolicy()): Promise<void> {
+    const problem = tab.certError;
+    if (!problem) return;
+    if (certs === "refuse" || problem.block) throw new CertificateError(certAgentError(problem.code, problem.host, problem.block));
+    window.proceedPastCertError(tab);
+    await waitForLoad(tab.view.webContents);
+    certs.proceeded(problem.host, problem.code);
+    // Another error now (the site changed its certificate meanwhile): that one is not accepted.
+    const again = tab.certError;
+    if (again) throw new CertificateError(certAgentError(again.code, again.host, again.block));
+  }
+
   /** The tab's page, when agents may use it; "block" refuses while the page waits on a dialog. */
   private readable(id: TabId, dialogs: "block" | "allow" = "block"): { window: BrowserWindowCtl; tab: TabRuntime; wc: WebContents } {
     const found = this.locate(id);
@@ -235,7 +270,7 @@ export class Controller implements BrowserController {
     return this.ctx.windows.regular().flatMap((w) => w.listGroups());
   }
 
-  async openTab(url: string, opts: { background?: boolean; groupId?: GroupId; agent?: boolean } = {}): Promise<Tab> {
+  async openTab(url: string, opts: { background?: boolean; groupId?: GroupId; agent?: boolean } = {}, certs?: CertErrorPolicy): Promise<Tab> {
     const target = this.agentUrl(url);
     const window = (opts.groupId ? this.ctx.windows.regular().find((w) => w.hasGroup(opts.groupId as GroupId)) : undefined) ?? this.ctx.windows.target();
     const groupId = opts.groupId && window.hasGroup(opts.groupId) ? opts.groupId : undefined;
@@ -243,6 +278,7 @@ export class Controller implements BrowserController {
     this.logs.watch(tab.view.webContents);
     this.dialogs.watch(tab.view.webContents);
     await waitForLoad(tab.view.webContents);
+    await this.certGate(window, tab, certs);
     return window.toTab(tab);
   }
 
@@ -256,13 +292,14 @@ export class Controller implements BrowserController {
     window.activate(id);
   }
 
-  async navigate(id: TabId, url: string): Promise<Tab> {
+  async navigate(id: TabId, url: string, certs?: CertErrorPolicy): Promise<Tab> {
     const target = this.agentUrl(url);
     const { window, tab } = this.locate(id);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, tab.view.webContents, { kind: "navigate", url: target });
     window.loadUrl(id, target);
     await waitForLoad(tab.view.webContents);
+    await this.certGate(window, tab, certs);
     return window.toTab(tab);
   }
 
@@ -271,6 +308,7 @@ export class Controller implements BrowserController {
     this.touch(window, id);
     window.goBack(id);
     await waitForLoad(tab.view.webContents);
+    await this.certGate(window, tab);
   }
 
   async goForward(id: TabId): Promise<void> {
@@ -278,6 +316,7 @@ export class Controller implements BrowserController {
     this.touch(window, id);
     window.goForward(id);
     await waitForLoad(tab.view.webContents);
+    await this.certGate(window, tab);
   }
 
   async reload(id: TabId): Promise<void> {
@@ -285,6 +324,7 @@ export class Controller implements BrowserController {
     this.touch(window, id);
     window.reload(id);
     await waitForLoad(tab.view.webContents);
+    await this.certGate(window, tab);
   }
 
   async createGroup(tabIds: TabId[], opts: { title?: string; color?: GroupColor } = {}): Promise<TabGroup> {

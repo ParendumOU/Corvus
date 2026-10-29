@@ -8,6 +8,8 @@ import { AgentRunStore } from "../src/main/agent-run-store";
 import { AgentRunner, HANDED_BACK } from "../src/main/agent-runner";
 import type { CredentialFillOptions } from "../src/main/agent-credentials";
 import type { AppContext } from "../src/main/context";
+import { CertificateError, type CertErrorPolicy } from "../src/main/controller";
+import { certAgentError } from "../src/shared/cert-errors";
 import { SECRET_FILL_LOCK_MESSAGE, SecretFillGuard } from "../src/main/secret-fill-guard";
 import type { BrowserWindowCtl } from "../src/main/window";
 
@@ -210,6 +212,41 @@ describe("AgentRunner", () => {
     expect(runner.windowExtras(win).agentOthers.map((o) => o.task)).toEqual(["second task"]);
     runner.clear(win);
     expect(runner.windowExtras(win).agentRun!.task).toBe("second task");
+  });
+
+  it("goes past a certificate error in full auto and shows it as a step; asking first, leaves it to the person", async () => {
+    for (const askBeforeRisky of [false, true]) {
+      const controller = mockController();
+      const policies: string[] = [];
+      controller.navigate = async (_id: string, url: string, certs?: CertErrorPolicy) => {
+        if (!certs || certs === "refuse") {
+          policies.push("refuse");
+          throw new CertificateError(certAgentError("ERR_CERT_AUTHORITY_INVALID", "10.0.10.1", null));
+        }
+        policies.push("proceed");
+        certs.proceeded("10.0.10.1", "ERR_CERT_AUTHORITY_INVALID");
+        return { id: "agent1", windowId: "w1", url, title: "Router", pinned: false, active: true, loading: false, agentControlled: true };
+      };
+      const { ctx } = fakeContext(controller, askBeforeRisky);
+      const { provider, seen } = scripted([[{ type: "tool_use", id: "t1", name: "navigate", input: { url: "https://10.0.10.1/" } }], [{ type: "text", text: "done" }]]);
+      const runner = new AgentRunner(ctx);
+      runner.setTestProvider(provider);
+      const win = fakeWindow();
+      runner.start(win, "open my router");
+      await waitFor(() => runner.windowExtras(win).agentRun?.status === "done");
+      const steps = runner.windowExtras(win).agentRun!.steps;
+      const result = JSON.stringify(seen[1]!.messages.at(-1)!.content[0]);
+      if (askBeforeRisky) {
+        expect(policies).toEqual(["refuse"]);
+        expect(steps.find((s) => s.kind === "navigate")?.status).toBe("error");
+        expect(steps.some((s) => s.kind === "certificate_error")).toBe(false);
+        expect(result).toContain("certificate error: ERR_CERT_AUTHORITY_INVALID for 10.0.10.1; the person must choose to proceed");
+      } else {
+        expect(policies).toEqual(["proceed"]);
+        expect(steps.find((s) => s.kind === "certificate_error")).toMatchObject({ status: "ok", label: "Continued past an invalid certificate for 10.0.10.1 (ERR_CERT_AUTHORITY_INVALID)" });
+        expect(steps.find((s) => s.kind === "navigate")?.status).toBe("ok");
+      }
+    }
   });
 
   it("asks for approval before a risky click and runs it when approved", async () => {

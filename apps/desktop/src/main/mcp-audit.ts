@@ -28,6 +28,7 @@ function parseEntry(line: string): McpActivityEntry | null {
 
 function clean(e: McpActivityEntry): McpActivityEntry {
   const error = clip(e.error, MAX_TEXT);
+  const certificateError = clip(e.certificateError, 100);
   return {
     at: Math.round(e.at),
     client: clip(e.client, 100) || "unknown",
@@ -36,6 +37,7 @@ function clean(e: McpActivityEntry): McpActivityEntry {
     outcome: e.outcome,
     durationMs: Math.max(0, Math.round(Number(e.durationMs) || 0)),
     ...(error ? { error } : {}),
+    ...(certificateError ? { certificateError } : {}),
   };
 }
 
@@ -146,9 +148,9 @@ export class McpAuditLog {
 
   /** The whole log as CSV, oldest first. */
   csv(): string {
-    const rows = [["time", "client", "tool", "site", "outcome", "duration_ms", "error"].join(",")];
+    const rows = [["time", "client", "tool", "site", "outcome", "duration_ms", "error", "certificate_error"].join(",")];
     for (const e of this.load()) {
-      rows.push([new Date(e.at).toISOString(), e.client, e.tool, e.host, e.outcome, e.durationMs, e.error ?? ""].map(csvCell).join(","));
+      rows.push([new Date(e.at).toISOString(), e.client, e.tool, e.host, e.outcome, e.durationMs, e.error ?? "", e.certificateError ?? ""].map(csvCell).join(","));
     }
     return `${rows.join("\n")}\n`;
   }

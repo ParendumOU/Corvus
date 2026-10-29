@@ -397,6 +397,8 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "agentRuns.resume": ["agent-runs"],
   "agentRuns.shots": ["agent-runs"],
   "crash.reload": ["crash"],
+  "certError.proceed": ["cert-error"],
+  "certError.back": ["cert-error"],
   "crashReports.openFolder": ["settings"],
   "app.openThirdPartyNotices": ["settings"],
   "crashReports.logPath": ["settings"],
@@ -889,6 +891,14 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "crash.reload": (c) => {
       const found = ctx.windows.byTabWebContents(c.sender);
       if (found) found.window.recoverCrashed(found.tab);
+    },
+    "certError.proceed": (c) => {
+      const found = ctx.windows.byTabWebContents(c.sender);
+      return found ? found.window.proceedPastCertError(found.tab) : false;
+    },
+    "certError.back": (c) => {
+      const found = ctx.windows.byTabWebContents(c.sender);
+      if (found) found.window.leaveCertError(found.tab);
     },
     "crashReports.openFolder": () => ctx.crashReporter.openFolder(),
     "app.openThirdPartyNotices": async () => {

@@ -17,6 +17,7 @@ import type { AppContext } from "./context";
 import { AgentCredentialService } from "./agent-credentials";
 import { SpendApprovalService } from "./spend-approvals";
 import { UserActionService } from "./user-actions";
+import { CertErrorService } from "./cert-errors";
 import { Controller } from "./controller";
 import { KeePassService } from "./keepass-service";
 import { PasswordCheckupService } from "./password-checkup";
@@ -71,9 +72,8 @@ installUserAgents();
 // The smoke test also serves its pages as a non-local site (the ad blocker never touches loopback)
 // and a stand-in YouTube watch page (video features key on youtube.com).
 if (process.env.CORVUS_SMOKE_TEST === "1") {
-  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP www.youtube.com 127.0.0.1");
-  // The YouTube stand-in is served over HTTPS (HSTS) with a throwaway certificate.
-  app.commandLine.appendSwitch("ignore-certificate-errors");
+  // corvus-smoke.dev is HSTS-preloaded (all of .dev is), for the certificate error checks.
+  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP corvus-smoke.dev 127.0.0.1, MAP www.youtube.com 127.0.0.1");
   // Dictation records from a fake microphone (a beep) instead of the machine's.
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
 }
@@ -204,6 +204,8 @@ async function main(): Promise<void> {
   ctx.tabSleeper = new TabSleeper(ctx);
   ctx.reader = new ReaderService(ctx);
   ctx.controller = new Controller(ctx);
+  ctx.certErrors = new CertErrorService();
+  ctx.certErrors.install();
   ctx.agentRunner = new AgentRunner(ctx);
   ctx.agentCredentials = new AgentCredentialService(ctx);
   ctx.spendApprovals = new SpendApprovalService(ctx);

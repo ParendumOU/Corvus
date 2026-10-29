@@ -1,4 +1,3 @@
-import type { BrowserController } from "@corvus/shared";
 import type { AdblockService } from "./adblock";
 import type { AgentActivityService } from "./agent-activity-service";
 import type { AgentCredentialService } from "./agent-credentials";
@@ -8,6 +7,8 @@ import type { AssistService } from "./assist-service";
 import type { TranslateService } from "./translate-service";
 import type { TabSleeper } from "./tab-sleeper";
 import type { AutofillService } from "./autofill-service";
+import type { CertErrorService } from "./cert-errors";
+import type { Controller } from "./controller";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
 import type { DefaultBrowser } from "./default-browser";
@@ -51,7 +52,9 @@ export interface AppContext {
   windows: WindowManager;
   search: SearchService;
   semanticSearch: SemanticSearchService;
-  controller: BrowserController;
+  controller: Controller;
+  /** Pages whose certificate fails: the interstitial, and certificates accepted for this session. */
+  certErrors: CertErrorService;
   mcp: McpService;
   sync: SyncService;
   updater: UpdateService;

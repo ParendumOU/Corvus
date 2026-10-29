@@ -21,6 +21,7 @@ import { NEWTAB_GUIDE, challengeGuidance } from "@corvus/shared";
 import { classifyAction, classifyPointAction, stricterRisk, type ActionRisk } from "../shared/agent-safety";
 import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry } from "../shared/visual-input";
 import type { AppContext } from "./context";
+import type { CertErrorPolicy } from "./controller";
 import { agentScreenshot, clickAt, describeFocused, describePoint, hoverAt, pressKey, scrollAt, typeText } from "./visual-input";
 import { claudeCliEnv } from "../shared/settings";
 import { parseAgentDownloadRequest } from "../shared/download-ai";
@@ -464,7 +465,7 @@ export function agentSetupReason(ctx: AppContext): string | null {
 
 /** An interactive run's tabs (RunTabs): grouped under the task, left open for the person. */
 export interface RunTabsHandle {
-  open(url: string, group: string): Promise<Tab>;
+  open(url: string, group: string, certs?: CertErrorPolicy): Promise<Tab>;
   switchTo(id: TabId): Tab;
   /** Returns the tab to work in next. */
   close(id: TabId, working: TabId | null): TabId | null;
@@ -482,6 +483,8 @@ export interface ToolRunState {
   lastUrl?: string;
   /** Size of the latest screenshot and the viewport it shows, to map *_at points to CSS px. */
   lastShot?: ShotGeometry;
+  /** At a certificate error: refuse (the default), or go on in full auto ("Ask before risky actions" off). */
+  certErrors?: CertErrorPolicy;
 }
 
 /** The viewport CSS point a click_at/hover_at/scroll_at targets, or null when it is not on the screenshot. */
@@ -561,16 +564,16 @@ export async function runAgentTool(
       return { content: wrapUntrusted(snap.url, renderSnapshot(snap, SNAPSHOT_CHARS)) + challenge };
     }
     case "navigate": {
-      const tab = await c.navigate(tabId!, argStr(input, "url"));
+      const tab = await c.navigate(tabId!, argStr(input, "url"), state.certErrors ?? "refuse");
       return { content: `Opened ${tab.url} — ${tab.title}` };
     }
     case "open_tab": {
       if (state.tabs) {
-        const tab = await state.tabs.open(argStr(input, "url"), argStr(input, "group"));
+        const tab = await state.tabs.open(argStr(input, "url"), argStr(input, "group"), state.certErrors ?? "refuse");
         switchedTo(state, tab.id);
         return { content: `Opened tab ${tab.id} at ${tab.url} — ${tab.title}` };
       }
-      const tab = await c.openTab(argStr(input, "url"), { agent: true });
+      const tab = await c.openTab(argStr(input, "url"), { agent: true }, state.certErrors ?? "refuse");
       state.tabId = tab.id;
       return { content: `Opened a new tab at ${tab.url} — ${tab.title}` };
     }

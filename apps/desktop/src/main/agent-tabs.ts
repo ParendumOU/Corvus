@@ -4,6 +4,7 @@ import { isNewTabUrl, NEW_TAB_URL } from "../shared/internal-urls";
 import { agentGroupTitle, agentTabLine } from "../shared/agent-tabs";
 import type { AppContext } from "./context";
 import type { RunTabsHandle } from "./agent-tools";
+import { CertificateError, type CertErrorPolicy } from "./controller";
 import type { BrowserWindowCtl } from "./window";
 
 /**
@@ -40,11 +41,11 @@ export class RunTabs implements RunTabsHandle {
     return this.groupId_;
   }
 
-  async open(url: string, name: string): Promise<Tab> {
+  async open(url: string, name: string, certs: CertErrorPolicy = "refuse"): Promise<Tab> {
     if (name.trim()) this.title = agentGroupTitle("", name);
     const blank = this.takeBlank();
     if (blank) {
-      const tab = await this.ctx.controller.navigate(blank, url);
+      const tab = await this.ctx.controller.navigate(blank, url, certs);
       this.group();
       return tab;
     }
@@ -53,8 +54,10 @@ export class RunTabs implements RunTabsHandle {
     this.own.add(fresh.id);
     this.group();
     try {
-      return await this.ctx.controller.navigate(fresh.id, url);
+      return await this.ctx.controller.navigate(fresh.id, url, certs);
     } catch (err) {
+      // A certificate error waits there for the person's choice (Proceed or Back to safety).
+      if (err instanceof CertificateError) throw err;
       this.own.delete(fresh.id);
       if (this.win.hasTab(fresh.id)) this.win.closeTab(fresh.id);
       throw err;

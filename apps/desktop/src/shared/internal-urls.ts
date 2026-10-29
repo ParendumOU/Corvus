@@ -2,7 +2,7 @@ export const INTERNAL_SCHEME = "corvus";
 
 /** Internal pages served from the corvus:// protocol. "chrome" is the browser UI itself. */
 /** "assist", "agent-overlay" and "reader" render only in their own trusted views, never with tab IPC rights. */
-export const INTERNAL_PAGES = ["chrome", "newtab", "search", "settings", "bookmarks", "history", "extensions", "downloads", "assist", "agent-overlay", "webscope", "watches", "schedules", "reader", "reading", "passwords", "pdf", "find", "crash", "devices", "agent-runs", "flows", "welcome", "annotations", "site-profiles"] as const;
+export const INTERNAL_PAGES = ["chrome", "newtab", "search", "settings", "bookmarks", "history", "extensions", "downloads", "assist", "agent-overlay", "webscope", "watches", "schedules", "reader", "reading", "passwords", "pdf", "find", "crash", "cert-error", "devices", "agent-runs", "flows", "welcome", "annotations", "site-profiles"] as const;
 export type InternalPage = (typeof INTERNAL_PAGES)[number];
 
 export const NEW_TAB_URL = "corvus://newtab/";

@@ -34,6 +34,7 @@ import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, agentToolset, a
 import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared/site-profiles";
 import { userMemoryPrompt } from "../shared/user-memory";
 import type { AppContext } from "./context";
+import type { CertErrorPolicy } from "./controller";
 import type { BrowserWindowCtl } from "./window";
 import { stepToToolCall } from "../shared/flow";
 import { captureAction, isWorkflowTool, learnFromRun, noteToolResult, runWorkflowAgentTool, workflowRunContext, type WorkflowRunState } from "./workflow-agent";
@@ -107,6 +108,8 @@ interface Run {
   handBack: (() => void) | null;
   /** They handed it back before the next action: that action is dropped so the agent re-reads. */
   handedBack: boolean;
+  /** What the current tool call does at a certificate error (see certPolicy). */
+  certErrors?: CertErrorPolicy;
 }
 
 /** Input that means the person is using the page (pointer moves and wheel scrolls do not). */
@@ -757,6 +760,7 @@ export class AgentRunner {
     const started = Date.now();
     try {
       run.wf.captured = captureAction(run, name, input);
+      run.certErrors = this.certPolicy(win, run);
       const result = await runAgentTool(this.ctx, run, name, input, signal);
       this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - started, ok: !result.isError, resultChars: result.content.length });
       return result;
@@ -764,6 +768,22 @@ export class AgentRunner {
       this.ctx.agents.toolResult({ client: AGENT_CLIENT, tool: name, at, durationMs: Date.now() - started, ok: false, resultChars: 0 });
       throw err;
     }
+  }
+
+  /**
+   * A certificate error stops the agent for the person, unless it runs on its own ("Ask before risky
+   * actions" off): then it goes on as the person's Proceed would, and the run says so in a step.
+   */
+  private certPolicy(win: BrowserWindowCtl, run: Run): CertErrorPolicy {
+    if (this.ctx.settings.get().agent.askBeforeRisky) return "refuse";
+    return {
+      proceeded: (host, code) => {
+        const label = tr("Continued past an invalid certificate for {host} ({code})", { host, code });
+        run.steps = [...run.steps, { id: crypto.randomUUID(), kind: "certificate_error", summary: "", label, status: "ok", at: Date.now() }];
+        this.push(win, run);
+        this.persist(win, run, true);
+      },
+    };
   }
 
   /**

@@ -110,6 +110,10 @@ export interface SiteInfo {
   agent: boolean;
   permissions: SitePermissionView[];
   zoomPercent: number;
+  /** The site's certificate is not valid ("ERR_CERT_AUTHORITY_INVALID"): not secure, whatever the scheme. */
+  certError?: string;
+  /** ...and the person (or an agent in full auto) chose to go on anyway, for this session. */
+  certAccepted?: boolean;
 }
 
 export type BrowserChromeCommand = { type: "find-focus" } | { type: "open-downloads" } | { type: "open-share"; share: PhoneShare };
@@ -119,6 +123,8 @@ export interface BrowserChromeRpc {
   "site.info"(): SiteInfo | null;
   "site.setPermission"(kind: PermissionKind, decision: PermissionDecision | null): SiteInfo | null;
   "site.resetPermissions"(): SiteInfo | null;
+  /** "Turn on warnings again" for a site whose invalid certificate was accepted this session. */
+  "site.restoreCertWarnings"(): void;
   "find.query"(text: string): void;
   "find.step"(forward: boolean): void;
   "find.close"(): void;

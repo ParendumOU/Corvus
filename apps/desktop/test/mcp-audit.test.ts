@@ -105,9 +105,19 @@ describe("McpAuditLog", () => {
     const log = new McpAuditLog(dir, () => true, () => NOW);
     log.record(entry({ at: NOW - 1000, tool: "navigate", host: "a.example" }));
     log.record(entry({ client: "=cmd|calc", outcome: "error", error: 'failed: "quoted", with comma' }));
+    log.record(entry({ tool: "navigate", host: "10.0.10.1", certificateError: "ERR_CERT_AUTHORITY_INVALID" }));
     const rows = log.csv().trim().split("\n");
-    expect(rows[0]).toBe("time,client,tool,site,outcome,duration_ms,error");
-    expect(rows[1]).toBe(`${new Date(NOW - 1000).toISOString()},claude-code,navigate,a.example,ok,40,`);
-    expect(rows[2]).toBe(`${new Date(NOW).toISOString()},'=cmd|calc,click,shop.example,error,40,"failed: ""quoted"", with comma"`);
+    expect(rows[0]).toBe("time,client,tool,site,outcome,duration_ms,error,certificate_error");
+    expect(rows[1]).toBe(`${new Date(NOW - 1000).toISOString()},claude-code,navigate,a.example,ok,40,,`);
+    expect(rows[2]).toBe(`${new Date(NOW).toISOString()},'=cmd|calc,click,shop.example,error,40,"failed: ""quoted"", with comma",`);
+    expect(rows[3]).toBe(`${new Date(NOW).toISOString()},claude-code,navigate,10.0.10.1,ok,40,,ERR_CERT_AUTHORITY_INVALID`);
+  });
+
+  it("keeps the certificate error a call went on past, across restarts", () => {
+    const log = new McpAuditLog(dir, () => true, () => NOW);
+    log.record(entry({ tool: "navigate", host: "10.0.10.1", certificateError: "ERR_CERT_AUTHORITY_INVALID" }));
+    log.record(entry());
+    const entries = new McpAuditLog(dir, () => true, () => NOW).list();
+    expect(entries.map((e) => e.certificateError ?? null)).toEqual([null, "ERR_CERT_AUTHORITY_INVALID"]);
   });
 });

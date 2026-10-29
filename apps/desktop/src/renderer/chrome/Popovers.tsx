@@ -118,8 +118,13 @@ export function SiteInfoPopover({ anchor, onClose }: { anchor: Anchor; onClose: 
   }, [api]);
   if (!info) return null;
 
-  const connection =
-    info.scheme === "https"
+  const connection = info.certError
+    ? {
+        icon: <IconWarning size={15} />,
+        title: t("Connection is not secure"),
+        detail: t("The certificate of this site is not valid ({code}). Don't enter passwords or other sensitive information here.", { code: info.certError }),
+      }
+    : info.scheme === "https"
       ? { icon: <IconLock size={15} />, title: t("Connection is secure"), detail: t("Information you send to this site is private.") }
       : info.scheme === "http"
         ? {
@@ -136,13 +141,24 @@ export function SiteInfoPopover({ anchor, onClose }: { anchor: Anchor; onClose: 
   return (
     <div className="popover site-info" role="dialog" aria-label={t("Site information")} style={placement(anchor)} onMouseDown={stop}>
       <div className="popover-title site-host">{info.host}</div>
-      <div className={`site-connection ${info.scheme === "http" ? "warn" : ""}`}>
+      <div className={`site-connection ${info.scheme === "http" || info.certError ? "warn" : ""}`}>
         {connection.icon}
         <div>
           <div>{connection.title}</div>
           {connection.detail && <div className="muted small">{connection.detail}</div>}
         </div>
       </div>
+      {info.certAccepted && (
+        <div className="site-cert-accepted">
+          <span className="muted small">{t("You chose to go on to this site despite its certificate, for this session.")}</span>
+          <button
+            className="btn small"
+            onClick={() => {
+              void api.call("site.restoreCertWarnings").then(onClose);
+            }}
+          >{t("Turn on warnings again")}</button>
+        </div>
+      )}
       {info.agent && (
         <div className="perm-agent">
           <IconAgent size={15} />

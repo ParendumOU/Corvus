@@ -15,6 +15,7 @@ import { runDialogsSmoke } from "./smoke-dialogs";
 import { runLibrarySmoke } from "./smoke-library";
 import { runAssistAgentSmoke } from "./smoke-assist-agent";
 import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
+import { runCertErrorSmoke } from "./smoke-cert-errors";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
@@ -196,6 +197,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runSettingsLayoutSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=cert: only the certificate error checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "cert") {
+      await runCertErrorSmoke(ctx, { win, check });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
     if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
@@ -217,6 +223,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       ["annotations", ".side-nav a.active"],
       ["passwords", ".btn.primary"],
       ["crash?url=https%3A%2F%2Fexample.com%2F&reason=crashed", ".crash-view .btn.primary"],
+      ["cert-error?url=https%3A%2F%2F10.0.10.1%2F&code=ERR_CERT_AUTHORITY_INVALID&kind=authority", ".cert-view .btn.primary"],
       ["devices", ".devices-page"],
       ["welcome", ".wz"],
     ];
@@ -251,6 +258,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runBookmarksBarSmoke(ctx, { url, win, check, capture });
     await runSleepSmoke(ctx, { url, win, check });
     await runMediaSmoke(ctx, { url, win, check, capture });
+    await runCertErrorSmoke(ctx, { win, check });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();

@@ -60,6 +60,8 @@ export interface TabView extends Tab {
   inSplit?: boolean;
   /** The container it runs in (its own cookies and site data). */
   container?: TabContainer;
+  /** Its site's certificate is not valid ("ERR_CERT_…"): the error page, or a page let through anyway. */
+  certError?: string;
 }
 
 export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, CommandBarWindowExtras {
@@ -265,6 +267,8 @@ export interface McpActivityEntry {
   durationMs: number;
   /** The tool's own error message, clipped (errors and rate-limited calls). */
   error?: string;
+  /** The call went on past this certificate error of the site (full access only). */
+  certificateError?: string;
 }
 
 export interface McpToolSummary {
@@ -598,6 +602,10 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "clipboard.write"(text: string): void;
   /** Reload the page that crashed in the calling tab (the recovery page calls this). */
   "crash.reload"(): void;
+  /** The certificate error page: "Proceed to <host> (unsafe)" for the calling tab (refused when not allowed). */
+  "certError.proceed"(): boolean;
+  /** The certificate error page: "Back to safety". */
+  "certError.back"(): void;
   /** Open the local crash-log folder in the OS file manager. Returns an error string or null. */
   "crashReports.openFolder"(): string | null;
   /** Opens the third-party licence notices shipped with the app; returns an error message or null. */

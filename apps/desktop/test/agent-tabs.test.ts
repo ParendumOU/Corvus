@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Tab, TabGroup } from "@corvus/shared";
 import { agentGroupTitle, agentTabLine } from "../src/shared/agent-tabs";
 import { RunTabs } from "../src/main/agent-tabs";
+import { CertificateError } from "../src/main/controller";
 import type { AppContext } from "../src/main/context";
 import type { BrowserWindowCtl } from "../src/main/window";
 
@@ -165,5 +166,20 @@ describe("RunTabs", () => {
     const run = new RunTabs(f.ctx, f.win, "t", "t1");
     await expect(run.open("file:///etc/passwd", "")).rejects.toThrow(/may not open/);
     expect(f.tabs.map((t) => t.id)).toEqual(["t1"]);
+  });
+
+  it("keeps a tab stopped on a certificate error open for the person's choice, and passes the run's policy", async () => {
+    const f = fakeWindow();
+    const policies: unknown[] = [];
+    (f.ctx.controller as unknown as { navigate: (id: string, url: string, certs: unknown) => Promise<never> }).navigate = async (id, url, certs) => {
+      policies.push(certs);
+      f.tabs.find((t) => t.id === id)!.url = url;
+      throw new CertificateError("certificate error: ERR_CERT_AUTHORITY_INVALID for 10.0.10.1; the person must choose to proceed.");
+    };
+    const run = new RunTabs(f.ctx, f.win, "router", "t1");
+    await expect(run.open("https://10.0.10.1/", "")).rejects.toThrow(/person must choose/);
+    expect(f.tabs).toHaveLength(2);
+    expect(run.list(null)).toContain("[yours] https://10.0.10.1/");
+    expect(policies).toEqual(["refuse"]);
   });
 });

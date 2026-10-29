@@ -56,6 +56,7 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
     "site.info": (w) => w.siteInfo(),
     "site.setPermission": (w, k, d) => w.setSitePermission(kind(k), decision(d)),
     "site.resetPermissions": (w) => w.resetSitePermissions(),
+    "site.restoreCertWarnings": (w) => w.restoreCertWarnings(),
     "find.query": (w, text) => w.findQuery(str(text, "text", 1000)),
     "find.step": (w, forward) => w.findStep(forward !== false),
     "find.close": (w) => w.closeFind(),

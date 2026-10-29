@@ -615,7 +615,7 @@ export class FlowService {
     if (!tabId) throw new Error("The replay tab is gone.");
     const c = this.ctx.controller;
     if (step.kind === "navigate") {
-      await withTimeout(c.navigate(tabId, step.url), PER_STEP_TIMEOUT_MS, "Navigation timed out.");
+      await withTimeout(c.navigate(tabId, step.url, "refuse"), PER_STEP_TIMEOUT_MS, "Navigation timed out.");
       return;
     }
     const ref = await this.resolveRef(r, step);

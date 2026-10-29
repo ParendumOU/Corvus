@@ -47,9 +47,18 @@ function dragPage(e: DragEvent<HTMLElement>, url: string, title: string): void {
   setTimeout(() => ghost.remove(), 0);
 }
 
-function SecurityChip({ url, title, onOpen }: { url: string; title: string; onOpen: (rect: DOMRect) => void }) {
+function SecurityChip({ url, title, certError, onOpen }: { url: string; title: string; certError: string | undefined; onOpen: (rect: DOMRect) => void }) {
   const open = (e: MouseEvent<HTMLButtonElement>): void => onOpen(e.currentTarget.getBoundingClientRect());
   const drag = { draggable: true, onDragStart: (e: DragEvent<HTMLElement>) => dragPage(e, url, title) };
+  // Never the lock for a site whose certificate failed, even once the person went on anyway.
+  if (certError) {
+    return (
+      <button className="omni-chip clickable warn cert site-chip" title={t("Your connection to this site is not private. View site information")} onClick={open} {...drag}>
+        <IconWarning size={13} />
+        <span>{t("Not secure")}</span>
+      </button>
+    );
+  }
   if (url.startsWith("corvus:")) {
     return (
       <span className="omni-chip internal" title={t("Corvus page")}>
@@ -257,7 +266,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               <IconSearch size={14} />
             </span>
           ) : (
-            <SecurityChip url={url} title={tab?.title ?? ""} onOpen={onSiteInfo} />
+            <SecurityChip url={url} title={tab?.title ?? ""} certError={tab?.certError} onOpen={onSiteInfo} />
           )}
           <input
             ref={inputRef}

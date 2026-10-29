@@ -151,6 +151,13 @@
 .site-empty {
   padding: 2px 0;
 }
+.site-cert-accepted {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 25px;
+}
 .site-perms {
   list-style: none;
   margin: 0;

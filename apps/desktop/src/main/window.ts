@@ -3,6 +3,7 @@ import type { GroupColor, GroupId, Tab, TabGroup, TabId } from "@corvus/shared";
 import { hostFromUrl, isYouTubeHost } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
+import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError, type CertBlockReason } from "../shared/cert-errors";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
@@ -65,6 +66,7 @@ import {
   type TabStripState,
 } from "../shared/tab-strip";
 import type { SplitState } from "../shared/split";
+import type { CertProblem } from "./cert-errors";
 import type { AppContext } from "./context";
 import { showPageContextMenu } from "./menus";
 import { paths } from "./paths";
@@ -122,6 +124,8 @@ export interface TabRuntime {
   pendingUrl?: string;
   /** Real page URL to reload after a crash while the recovery page is shown. */
   crashedUrl?: string;
+  /** Its page failed on the site's certificate: the certificate error page stands in for it. */
+  certError?: CertProblem & { block: CertBlockReason | null };
   /** Pending grace timer started when the renderer went unresponsive. */
   unresponsiveTimer?: NodeJS.Timeout;
   /** Find bar state; null when the find bar is closed. */
@@ -605,9 +609,11 @@ export class BrowserWindowCtl {
     const pid = tab.pendingUrl ? 0 : tab.view.webContents.getOSProcessId();
     const memoryKB = pid ? this.processMemory.get(pid) : undefined;
     const container = tab.containerId ? this.profile.containers.get(tab.containerId) : undefined;
+    const certError = this.certErrorOf(tab);
     return {
       ...this.toTab(tab),
       ...(container ? { container } : {}),
+      ...(certError ? { certError } : {}),
       ...(this.splitSession?.has(tab.id) ? { inSplit: true } : {}),
       canGoBack: history.canGoBack(),
       canGoForward: history.canGoForward(),
@@ -617,6 +623,11 @@ export class BrowserWindowCtl {
       ...(tab.asleep ? { sleeping: true } : {}),
       ...(memoryKB ? { memoryKB } : {}),
     };
+  }
+
+  /** The certificate error the tab's page failed on, or was let through with in this session ("Not secure"). */
+  private certErrorOf(tab: TabRuntime): string | null {
+    return tab.certError?.code ?? this.ctx.certErrors.proceededWith(tab.view.webContents.session, tab.url);
   }
 
   toTab(tab: TabRuntime): Tab {
@@ -895,6 +906,13 @@ export class BrowserWindowCtl {
       this.applyPageBase(tab, url);
       // The recovery page is loaded over a crashed tab; keep the tab's real URL and crashed flag.
       if (internalPageOf(url) === "crash") return;
+      // So is the certificate error page over the page that failed.
+      if (internalPageOf(url) === "cert-error") {
+        this.tidyCertHistory(wc, tab.certError?.url);
+        return;
+      }
+      delete tab.certError;
+      this.tidyCertHistory(wc);
       const chain = redirects.commit(url, Date.now());
       // Bookmarks it went through on the way to another site show that site's icon from now on.
       if (!this.isPrivate) {
@@ -933,7 +951,7 @@ export class BrowserWindowCtl {
     });
     wc.on("page-title-updated", (_e, title) => {
       tab.title = title;
-      if (isHistoryWorthy(tab.url)) this.profile.history.update(tab.url, { title });
+      if (isHistoryWorthy(tab.url) && !tab.certError) this.profile.history.update(tab.url, { title });
       push();
     });
     this.ctx.pageDialogs.watch(wc);
@@ -949,8 +967,14 @@ export class BrowserWindowCtl {
     wc.on("did-fail-load", (_e, code, description, validatedURL, isMainFrame) => {
       if (!isMainFrame || code === -3) return;
       tab.url = validatedURL || tab.url;
-      tab.title = `${hostOf(tab.url)} — ${description}`;
       tab.loading = false;
+      if (isCertNetError(code)) {
+        const problem = this.ctx.certErrors.take(wc, tab.url) ?? { url: tab.url, host: certHost(tab.url), code: certErrorCode(description), fingerprint: "", hsts: false };
+        this.showCertError(tab, problem);
+      } else {
+        delete tab.certError;
+        tab.title = `${hostOf(tab.url)} - ${description}`;
+      }
       push();
     });
     wc.on("render-process-gone", (_e, details) => {
@@ -1385,6 +1409,70 @@ export class BrowserWindowCtl {
     });
   }
 
+  /**
+   * Chrome's "Your connection is not private" in place of a page that failed on its certificate.
+   * The tab keeps the page's URL (the address bar says it is not secure); Reload tries it again.
+   */
+  private showCertError(tab: TabRuntime, problem: CertProblem): void {
+    // Without the certificate there is nothing to accept: no Proceed.
+    const block = certBlockReason(problem.code, problem.hsts) ?? (problem.fingerprint ? null : "fatal");
+    const shown = { ...problem, block };
+    tab.certError = shown;
+    tab.title = problem.host;
+    const query = new URLSearchParams({ url: problem.url, code: problem.code, kind: certErrorKind(problem.code, problem.validity), ...(block ? { block } : {}) });
+    // Not from inside the failed navigation's own events, and not once something else was loaded meanwhile.
+    setImmediate(() => {
+      if (tab.certError !== shown || tab.view.webContents.isDestroyed()) return;
+      tab.view.webContents.loadURL(`corvus://cert-error/?${query}`).catch(() => {
+        // The page is internal; a failure here just leaves the tab blank.
+      });
+    });
+  }
+
+  /**
+   * History keeps no trace of a certificate error: not the failed load the error page stands in for
+   * (Back would fail on it again), nor error pages left behind (they would show stale errors).
+   */
+  private tidyCertHistory(wc: WebContents, failedUrl?: string): void {
+    const history = wc.navigationHistory;
+    const active = history.getActiveIndex();
+    for (let i = history.length() - 1; i >= 0; i--) {
+      if (i === active) continue;
+      const url = history.getEntryAtIndex(i)?.url ?? "";
+      if (internalPageOf(url) === "cert-error" || (i === active - 1 && url === failedUrl)) history.removeEntryAtIndex(i);
+    }
+  }
+
+  /** "Proceed to <host> (unsafe)": accepts that certificate for the host in this session and loads the page. */
+  proceedPastCertError(tab: TabRuntime): boolean {
+    const problem = tab.certError;
+    if (!problem) {
+      // An error page with nothing behind it (a tab woken from sleep): try the page again.
+      if (/^https?:/i.test(tab.url)) this.loadUrl(tab.id, tab.url);
+      return false;
+    }
+    if (problem.block) return false;
+    this.ctx.certErrors.exceptions.allow(tab.view.webContents.session, problem.host, problem.fingerprint, problem.code);
+    this.loadUrl(tab.id, problem.url);
+    return true;
+  }
+
+  /** "Back to safety": the page before, or the New Tab page when there is none. */
+  leaveCertError(tab: TabRuntime): void {
+    const history = tab.view.webContents.navigationHistory;
+    if (history.canGoBack()) history.goBack();
+    else this.loadUrl(tab.id, NEW_TAB_URL);
+  }
+
+  /** "Turn on warnings again": the site's certificate is no longer accepted in this session. */
+  restoreCertWarnings(): void {
+    const tab = this.activeTab();
+    const session = tab?.view.webContents.session;
+    if (!tab || !session || !this.ctx.certErrors.exceptions.revoke(session, certHost(tab.url))) return;
+    // Connections opened with the accepted certificate would otherwise carry on serving the site.
+    void session.closeAllConnections().then(() => this.reload(tab.id));
+  }
+
   private clearUnresponsive(tab: TabRuntime): void {
     if (tab.unresponsiveTimer) {
       clearTimeout(tab.unresponsiveTimer);
@@ -1414,6 +1502,7 @@ export class BrowserWindowCtl {
     this.clearUnresponsive(tab);
     tab.crashed = false;
     delete tab.crashedUrl;
+    delete tab.certError;
     url = pdfViewerRedirect(this.ctx, tab.agentControlled, url) ?? url;
     delete tab.pendingUrl;
     tab.url = url;
@@ -1497,6 +1586,7 @@ export class BrowserWindowCtl {
   reload(id: TabId, hard = false): void {
     const tab = this.tabs.get(id);
     if (tab?.crashedUrl) return this.recoverCrashed(tab);
+    if (tab?.certError) return this.loadUrl(tab.id, tab.certError.url);
     if (tab?.pendingUrl) return this.loadPending(tab);
     const wc = tab?.view.webContents;
     if (!wc) return;
@@ -1906,7 +1996,8 @@ export class BrowserWindowCtl {
   siteInfo(): SiteInfo | null {
     const tab = this.activeTab();
     if (!tab || tab.view.webContents.isDestroyed()) return null;
-    const url = tab.view.webContents.getURL() || tab.url;
+    // The certificate error page stands in for the site: its information is the site's.
+    const url = tab.certError ? tab.url : tab.view.webContents.getURL() || tab.url;
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -1915,6 +2006,7 @@ export class BrowserWindowCtl {
     }
     const scheme = parsed.protocol === "https:" ? "https" : parsed.protocol === "http:" ? "http" : parsed.protocol === "file:" ? "file" : "other";
     const view = this.profile.permissions.siteView(tab.view.webContents, url);
+    const certError = this.certErrorOf(tab);
     return {
       origin: view.origin,
       host: parsed.host || parsed.protocol.replace(/:$/, ""),
@@ -1923,6 +2015,7 @@ export class BrowserWindowCtl {
       agent: tab.agentControlled,
       permissions: view.permissions,
       zoomPercent: zoomPercent(tab.view.webContents.getZoomFactor()),
+      ...(certError ? { certError, certAccepted: !tab.certError } : {}),
     };
   }
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.32.1
+
+### Browser
+- **Sites with an invalid certificate** (a router or NAS with a self-signed certificate, an expired certificate, one issued for another name, and so on) now show Corvus's "Your connection is not private" page instead of a blank tab, in light and dark, English and Spanish. It explains in a sentence what is wrong. **Back to safety** returns to the page before (or a new tab); **Advanced** shows the error code and the site, and **Proceed to the site (unsafe)** opens it anyway.
+- Proceeding accepts that exact certificate for that site only, for this session of this profile: a private window or another profile asks again, and so does Corvus after a restart. If the site's certificate changes, you are asked again. Sites that use HSTS (such as google.com, youtube.com or any .dev address) and certificates that can never be accepted (revoked, for example) offer no Proceed, as in Chrome.
+- The address bar never shows the lock for such a site: it says **Not secure** in red, on the error page and after you proceed. Site information says the certificate is not valid and offers **Turn on warnings again**. The tab is titled "Privacy error" instead of the bare error code.
+- Images, scripts and frames from a site with an invalid certificate stay blocked on an otherwise valid page, with no warning page, as before.
+- **AI agents** stop at an invalid certificate and leave the choice to you: the error page waits in the tab and the agent is told so. Only in full auto (the Command Bar agent with "Ask before risky actions" off, or MCP clients at the Full access level) do they go on by themselves, never for HSTS sites, and the run shows "Continued past an invalid certificate for the site", as does the MCP activity log (and its CSV export).
+
 ## v0.32.0
 
 ### WebScope

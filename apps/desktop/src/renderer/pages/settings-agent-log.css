@@ -62,6 +62,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.agent-log-cert {
+  color: var(--danger);
+}
 .agent-log .pill.warn {
   background: color-mix(in srgb, var(--warning) 22%, transparent);
   color: var(--warning);

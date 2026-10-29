@@ -553,7 +553,7 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
 }
 
 /** A throwaway self-signed certificate for `host` (openssl, as in the Docker image), or null. */
-function selfSignedCert(host: string): { key: Buffer; cert: Buffer } | null {
+export function selfSignedCert(host: string): { key: Buffer; cert: Buffer } | null {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-smoke-tls-"));
   const key = path.join(dir, "key.pem");
   const cert = path.join(dir, "cert.pem");
