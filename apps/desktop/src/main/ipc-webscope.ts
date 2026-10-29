@@ -2,6 +2,7 @@ import type {
   EncoderOp,
   FuzzerConfig,
   HashAlg,
+  HistoryCursor,
   HistoryFilter,
   InterceptConfig,
   InterceptEdit,
@@ -39,12 +40,23 @@ const str = (value: unknown, name: string, max = 8192): string => {
   return value;
 };
 
+/** A history cursor from the page, or null for a full page. */
+function cursor(value: unknown): HistoryCursor | null {
+  if (value === null || value === undefined) return null;
+  const c = obj(value, "cursor");
+  if (!Number.isSafeInteger(c.epoch) || !Number.isSafeInteger(c.seq)) throw new IpcError("Invalid cursor");
+  return { epoch: c.epoch as number, seq: c.seq as number };
+}
+
+const historyLimit = (limit: unknown): number => Math.min(1000, Math.max(1, Number(limit) || 200));
+
 const WS = "webscope" as const;
 
 export const WEBSCOPE_INTERNAL_PERMISSIONS: Record<keyof WebScopeRpc, readonly InternalPage[]> = {
   "webscope.state": [WS],
   "webscope.setEnabled": [WS],
   "webscope.history": [WS],
+  "webscope.historyPage": [WS],
   "webscope.detail": [WS],
   "webscope.clearHistory": [WS],
   "webscope.getScope": [WS],
@@ -75,7 +87,8 @@ export function webscopeInternalHandlers(ctx: AppContext): Handlers<WebScopeRpc,
   return {
     "webscope.state": (c) => ctx.webscope.state(c.profile),
     "webscope.setEnabled": (_c, enabled) => ctx.webscope.setEnabled(enabled === true),
-    "webscope.history": (c, filter, limit) => engine(c).queryHistory(obj(filter, "filter") as HistoryFilter, Math.min(1000, Math.max(1, Number(limit) || 200))),
+    "webscope.history": (c, filter, limit) => engine(c).queryHistory(obj(filter, "filter") as HistoryFilter, historyLimit(limit)),
+    "webscope.historyPage": (c, filter, since, limit) => engine(c).historyPage(obj(filter, "filter") as HistoryFilter, cursor(since), historyLimit(limit)),
     "webscope.detail": (c, id) => engine(c).getEntry(str(id, "id", 256)) ?? null,
     "webscope.clearHistory": (c) => engine(c).clearHistory(),
     "webscope.getScope": (c) => engine(c).getScope(),

@@ -38,7 +38,7 @@ import type { SplitState } from "./split";
 import type { GroupPatch } from "./tab-strip";
 import type { WatchBarState, WatchChromeRpc, WatchInternalEvent, WatchInternalRpc } from "./watch-ipc";
 import type { WorkspaceChromeRpc } from "./workspace-ipc";
-import type { WebScopeRpc } from "./webscope-ipc";
+import type { WebScopeInternalEvent, WebScopeRpc } from "./webscope-ipc";
 import type { UserNote } from "./user-memory";
 
 export const CHROME_RPC = "corvus:chrome-rpc";
@@ -664,6 +664,7 @@ export type InternalEvent =
   | AgentRunsInternalEvent
   | FlowInternalEvent
   | NewTabInternalEvent
+  | WebScopeInternalEvent
   | { type: "extensions-changed" };
 
 type Promisify<F> = F extends (...args: infer A) => infer R ? (...args: A) => Promise<Awaited<R>> : never;

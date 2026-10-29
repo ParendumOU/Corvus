@@ -328,7 +328,7 @@ export default function ChatScreen() {
                   <ThemedText type="bodyStrong" numberOfLines={2}>
                     {conversation.pageTitle || tabHost(conversation.url)}
                   </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  <ThemedText type="small" themeColor="textSecondary">
                     {t('Corvus Assist on your computer · {when}', { when: ago(conversation.updatedAt, now) })}
                   </ThemedText>
                 </View>
@@ -371,7 +371,7 @@ export default function ChatScreen() {
                   <ThemedText type="bodyStrong" numberOfLines={2}>
                     {aboutPage.title || tabHost(aboutPage.url)}
                   </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  <ThemedText type="small" themeColor="textSecondary">
                     {handed?.text?.text ? t('About this page · its text goes with your question') : t('About this page · {site}', { site: tabHost(aboutPage.url) })}
                   </ThemedText>
                 </View>

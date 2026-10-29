@@ -73,6 +73,7 @@ export function BrowserSettings() {
             <ListRow
               key={e.id}
               title={e.name}
+              wrap
               subtitle={chosen && fromComputers ? t('As on your computers') : e.id === 'duckduckgo' ? t('Default: does not track your searches') : undefined}
               accessibilityRole="radio"
               accessibilityState={{ checked: chosen }}
@@ -93,7 +94,7 @@ export function BrowserSettings() {
             leading={<IconTile name="shield" />}
             title={t('Block ads and trackers')}
             subtitle={listsLine}
-            subtitleLines={4}
+            wrap
             trailing={
               <PrefSwitch
                 value={browser.prefs.blocking}
@@ -113,6 +114,7 @@ export function BrowserSettings() {
               leading={<IconTile name="shieldOff" />}
               title={site}
               subtitle={t('Blocking off on this site')}
+              wrap
               trailing={<IconButton icon="close" size={18} accessibilityLabel={t('Block on this site again')} onPress={() => void allowSite(site, false)} />}
               testID={`allowed-${site}`}
             />
@@ -133,7 +135,7 @@ export function BrowserSettings() {
               leading={<IconTile name="cookie" />}
               title={t('Reject cookie banners')}
               subtitle={t('Answers cookie consent banners for you with DuckDuckGo’s Autoconsent rules: rejects everything, or unticks every purpose and saves. A banner it cannot answer is hidden.')}
-              subtitleLines={6}
+              wrap
               trailing={<PrefSwitch value={browser.prefs.cookieConsent} onChange={(on) => void setBrowserPrefs({ cookieConsent: on })} label={t('Reject cookie banners')} />}
               testID="consent-switch"
             />
@@ -145,6 +147,7 @@ export function BrowserSettings() {
                   leading={<IconTile name="cookie" />}
                   title={site}
                   subtitle={t('Keeps its cookie banner')}
+                  wrap
                   trailing={<IconButton icon="close" size={18} accessibilityLabel={t('Reject its cookie banner again')} onPress={() => void allowCookieBanner(site, false)} />}
                   testID={`consent-allowed-${site}`}
                 />
@@ -154,7 +157,7 @@ export function BrowserSettings() {
             leading={<IconTile name="shieldCheck" />}
             title={t('Send Global Privacy Control')}
             subtitle={t('Tells sites not to sell or share your data. In some places, such as California, sites must honour it.')}
-            subtitleLines={4}
+            wrap
             trailing={<PrefSwitch value={browser.prefs.gpc} onChange={(on) => void setBrowserPrefs({ gpc: on })} label={t('Send Global Privacy Control')} />}
             testID="gpc-switch"
           />
@@ -163,7 +166,7 @@ export function BrowserSettings() {
 
       {Platform.OS !== 'web' ? (
         <ListGroup>
-          <ListRow leading={<IconTile name="trash" />} title={t('Clear cookies and site data')} subtitle={t('Signs you out of every site')} onPress={() => void clear()} testID="browser-clear-data" />
+          <ListRow leading={<IconTile name="trash" />} title={t('Clear cookies and site data')} subtitle={t('Signs you out of every site')} wrap onPress={() => void clear()} testID="browser-clear-data" />
         </ListGroup>
       ) : null}
     </View>

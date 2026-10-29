@@ -1,10 +1,11 @@
 # Android toolchain for the mobile app (apps/mobile): Node 22 + pnpm, JDK 17 and the Android SDK
 # command-line tools with the licenses accepted. Gradle downloads the SDK platform, build tools and
-# NDK the project asks for into ANDROID_HOME (a cached volume) on the first build.
+# NDK the project asks for into ANDROID_HOME (a cached volume) on the first build. ccache keeps the
+# compiled C++ of the native modules between builds (apps/mobile/scripts/build-android.sh).
 FROM node:22-bookworm
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate \
  && apt-get update && apt-get install -y --no-install-recommends \
-      openjdk-17-jdk-headless unzip git ca-certificates \
+      openjdk-17-jdk-headless unzip git ca-certificates ccache \
  && rm -rf /var/lib/apt/lists/*
 ENV ANDROID_HOME=/opt/android-sdk \
     ANDROID_SDK_ROOT=/opt/android-sdk \

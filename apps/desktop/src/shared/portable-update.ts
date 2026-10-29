@@ -1,9 +1,9 @@
 /**
  * Self-update of the Windows portable build. electron-updater only knows the installer (latest.yml
  * points at Corvus-Setup), so a portable copy would install Corvus instead of updating itself. The
- * portable build instead downloads the next Corvus-Portable-<v>.exe next to itself, checks it
- * against the release's SHA256SUMS.txt, and swaps the files after it quits. Pure rules here; the
- * network, file and process work lives in main/portable-updater.ts.
+ * portable build instead downloads the next Corvus-Portable-<v>.exe, checks it against the
+ * release's SHA256SUMS.txt, and writes it into its own file after it quits (same name and place).
+ * Pure rules here; the network, file and process work lives in main/portable-updater.ts.
  */
 import type { UpdateChannel } from "./settings";
 
@@ -109,19 +109,13 @@ export function sha256For(sums: string, fileName: string): string | null {
 }
 
 /**
- * The name the updated copy takes: the release's own name when this copy still has a release name
- * (so the file says which version it is), otherwise the name the person gave it.
+ * A cmd script that waits for this copy's process to exit, then writes the downloaded version into
+ * the same file and starts it. Writing into the file (not swapping files) keeps its name, place and
+ * identity, so desktop icons, shortcuts and taskbar pins of it stay as they were. The old bytes are
+ * kept aside first and go back when the write fails, so the person is never left without Corvus.
+ * Paths cmd could misread (quotes, %, ^, !) are refused.
  */
-export function updatedFileName(currentName: string, version: string): string {
-  return /^Corvus-Portable-\d[\w.-]*\.exe$/i.test(currentName) ? portableAssetName(version) : currentName;
-}
-
-/**
- * A cmd script that waits for this copy's process to exit, sets it aside, puts the downloaded copy
- * in its place and starts it; when anything fails the old copy goes back and starts instead, so the
- * person is never left without Corvus. Paths cmd could misread (quotes, %, ^, !) are refused.
- */
-export function swapScript(paths: { current: string; download: string; target: string }, pid: number): string {
+export function swapScript(paths: { current: string; download: string; backup: string }, pid: number): string {
   for (const p of Object.values(paths)) {
     if (!/^[A-Za-z]:\\/.test(p) || /["%\r\n^!&|<>]/.test(p)) throw new Error(`Cannot update a portable copy at this path: ${p}`);
   }
@@ -133,8 +127,7 @@ export function swapScript(paths: { current: string; download: string; target: s
     "setlocal EnableDelayedExpansion",
     `set "CURRENT=${paths.current}"`,
     `set "DOWNLOAD=${paths.download}"`,
-    `set "TARGET=${paths.target}"`,
-    'if not exist "!DOWNLOAD!" goto done',
+    `set "BACKUP=${paths.backup}"`,
     "rem Wait up to two minutes for Corvus to quit.",
     "for /l %%i in (1,1,120) do (",
     `  tasklist /fi "PID eq ${pid}" 2>nul | find "${pid}" >nul || goto replace`,
@@ -142,23 +135,23 @@ export function swapScript(paths: { current: string; download: string; target: s
     ")",
     "goto done",
     ":replace",
-    "rem The portable wrapper may still hold its file for a moment: retry setting it aside.",
-    "for /l %%i in (1,1,30) do (",
-    '  move /y "!CURRENT!" "!CURRENT!.old" >nul 2>&1',
-    '  if not exist "!CURRENT!" goto swap',
+    'if not exist "!DOWNLOAD!" goto start',
+    'copy /y /b "!CURRENT!" "!BACKUP!" >nul 2>&1 || goto start',
+    "rem The portable launcher holds its file until it has cleaned up after Corvus: retry for a minute.",
+    "for /l %%i in (1,1,60) do (",
+    '  copy /y /b "!DOWNLOAD!" "!CURRENT!" >nul 2>&1 && goto check',
     "  ping -n 2 127.0.0.1 >nul",
     ")",
+    ":restore",
+    'copy /y /b "!BACKUP!" "!CURRENT!" >nul 2>&1',
+    "goto start",
+    ":check",
+    'for %%F in ("!DOWNLOAD!") do set "WANT=%%~zF"',
+    'for %%F in ("!CURRENT!") do set "HAVE=%%~zF"',
+    'if not "!WANT!"=="!HAVE!" goto restore',
+    ":start",
     'start "" "!CURRENT!"',
-    "goto done",
-    ":swap",
-    'move /y "!DOWNLOAD!" "!TARGET!" >nul 2>&1',
-    'if exist "!TARGET!" (',
-    '  del /f /q "!CURRENT!.old" >nul 2>&1',
-    '  start "" "!TARGET!"',
-    ") else (",
-    '  move /y "!CURRENT!.old" "!CURRENT!" >nul 2>&1',
-    '  start "" "!CURRENT!"',
-    ")",
+    'del /f /q "!DOWNLOAD!" "!BACKUP!" >nul 2>&1',
     ":done",
     '(goto) 2>nul & del /f /q "%~f0"',
     "",

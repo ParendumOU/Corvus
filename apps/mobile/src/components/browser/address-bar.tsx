@@ -7,7 +7,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Radius, Space, Type } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { displayAddress, isSecure, isWebPage } from '@/lib/address';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
 
 const NO_OUTLINE = Platform.select<TextStyle>({ web: { outlineStyle: 'none' } as unknown as TextStyle, default: {} });
 
@@ -71,7 +71,7 @@ export function AddressBar({
       {editing ? null : (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={blocked === null ? t('About this site') : t('{n} ads and trackers blocked on this page', { n: blocked })}
+          accessibilityLabel={blocked === null ? t('About this site') : tn(blocked, '1 ad or tracker blocked on this page', '{n} ads and trackers blocked on this page')}
           onPress={onShield}
           hitSlop={6}
           style={styles.shield}

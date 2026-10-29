@@ -95,6 +95,7 @@ export default function SettingsScreen() {
                   leading={<IconTile name={PHONES.has(d.platform) ? 'phone' : 'screen'} />}
                   title={`${d.name}${d.id === session.self ? ` ${t('(this phone)')}` : ''}`}
                   subtitle={`${platformName(d.platform)} · ${t('seen {when}', { when: ago(d.lastSeen) })}`}
+                  wrap
                   testID={`device-${d.name}`}
                 />
               ))}
@@ -111,7 +112,7 @@ export default function SettingsScreen() {
               leading={<IconTile name="bell" />}
               title={t('Notifications')}
               subtitle={t('Pages your computer sends to this phone, and watched pages that change. The phone checks about every 15 minutes in the background, when the system allows it.')}
-              subtitleLines={6}
+              wrap
               trailing={
                 <View style={styles.switch}>
                   <Switch
@@ -140,6 +141,7 @@ export default function SettingsScreen() {
           <ListRow
             leading={<IconTile name="info" />}
             title={t('Version')}
+            wrap
             trailing={
               <ThemedText type="body" themeColor="textSecondary" style={styles.value} testID="app-version" accessibilityLabel={t('Corvus for mobile {version}', { version })}>
                 {version}
@@ -150,6 +152,7 @@ export default function SettingsScreen() {
             leading={<IconTile name="book" />}
             title={t('Third-party licences')}
             subtitle={t('The open-source software in Corvus')}
+            wrap
             chevron
             onPress={() => nav.push('/licenses')}
             testID="settings-licenses"

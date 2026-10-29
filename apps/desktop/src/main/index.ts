@@ -54,6 +54,7 @@ import { setExtensionMessageBox } from "./extensions";
 import { dictationReady, internalMicrophoneAllowed } from "../shared/dictation";
 import { SyncService } from "./sync-service";
 import { UpdateService } from "./update-service";
+import { applyAppTaskbarIdentity } from "./taskbar";
 import { WebScopeService } from "./webscope-service";
 import { WindowManager } from "./window-manager";
 
@@ -62,6 +63,8 @@ const MAIN_LOADED_AT = Date.now();
 
 registerInternalScheme();
 app.setName("Corvus");
+// Windows: the taskbar identity pins and shortcuts belong to, so they keep matching across updates.
+applyAppTaskbarIdentity();
 // Before any session exists, so every request (tabs, favicons, the default session) shares one UA.
 installUserAgents();
 

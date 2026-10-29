@@ -52,7 +52,7 @@ export function ListHeader({ title, subtitle, leading, trailing }: { title: stri
           {title}
         </ThemedText>
         {subtitle ? (
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
             {subtitle}
           </ThemedText>
         ) : null}
@@ -78,6 +78,7 @@ export function ListRow({
   onLongPress,
   titleLines = 1,
   subtitleLines = 1,
+  wrap,
   muted,
   accessibilityRole,
   accessibilityLabel,
@@ -96,6 +97,8 @@ export function ListRow({
   onLongPress?: () => void;
   titleLines?: number;
   subtitleLines?: number;
+  /** The app's own words (a setting and what it does): title and subtitle shown in full, never cut with "…". */
+  wrap?: boolean;
   /** Already done (a read article): drawn quieter. */
   muted?: boolean;
   accessibilityRole?: AccessibilityRole;
@@ -110,14 +113,14 @@ export function ListRow({
       {leading ? <View style={styles.leading}>{leading}</View> : null}
       <View style={styles.text}>
         {typeof title === 'string' ? (
-          <ThemedText type="body" numberOfLines={titleLines} themeColor={muted ? 'textSecondary' : 'text'}>
+          <ThemedText type="body" numberOfLines={wrap ? undefined : titleLines} themeColor={muted ? 'textSecondary' : 'text'}>
             {title}
           </ThemedText>
         ) : (
           title
         )}
         {subtitle === undefined || subtitle === null || subtitle === '' ? null : typeof subtitle === 'string' ? (
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={subtitleLines}>
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={wrap ? undefined : subtitleLines}>
             {subtitle}
           </ThemedText>
         ) : (

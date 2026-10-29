@@ -32,7 +32,7 @@ import { answerAsk, toAnswer } from "./ask-relay";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import { loadOptionalModule } from "./module-loader";
-import { LocalSyncServer } from "./local-sync-server";
+import { LocalSyncServer, type ServerProcess } from "./local-sync-server";
 import { phonePairingAddress, probeHealth } from "./pairing-address";
 import type { ProfileRuntime } from "./profiles";
 import type { SecretCipher } from "./settings-store";
@@ -156,11 +156,15 @@ export class SyncService {
   private readonly notices = new Map<string, string>();
   /** Profiles following their chain to another server right now. */
   private readonly following = new Set<string>();
+  /** Profiles whose sync server is changing right now (see changingServer), with how many changes run. */
+  private readonly changing = new Map<string, number>();
 
   constructor(
     private readonly ctx: AppContext,
     private readonly cipher: SecretCipher,
     private readonly defaultServerUrl: string,
+    /** Starts a built-in server's process (a fake in tests). */
+    private readonly forkServer?: () => ServerProcess,
   ) {}
 
   private module(): Promise<SyncCoreModule | null> {
@@ -194,7 +198,7 @@ export class SyncService {
     for (const id of [...this.runtimes.keys()]) if (!alive.has(id)) this.dispose(id);
     for (const profile of this.ctx.profiles.loaded()) {
       const id = profile.profile.id;
-      if (!alive.has(id)) continue;
+      if (!alive.has(id) || this.changing.has(id)) continue;
       try {
         await this.keepLocalServer(profile);
       } catch (err) {
@@ -569,7 +573,7 @@ export class SyncService {
     const id = profile.profile.id;
     let server = this.localServers.get(id);
     if (!server) {
-      server = new LocalSyncServer(path.join(this.localDir(profile), "sync.db"));
+      server = new LocalSyncServer(path.join(this.localDir(profile), "sync.db"), this.forkServer);
       this.localServers.set(id, server);
     }
     const port = await server.start(this.state(profile).get().localPort);
@@ -608,12 +612,34 @@ export class SyncService {
   }
 
   /**
+   * Runs a change of the profile's sync server (turning sync on, moving the chain). Meanwhile the
+   * watcher leaves the profile alone: the built-in server a change starts is not wanted yet by the
+   * saved state (sync still off, or on another server), and stopping it would leave the change
+   * talking to nothing ("Cannot reach the sync server"), on a busy computer above all.
+   */
+  private async changingServer<T>(profile: ProfileRuntime, change: () => Promise<T>): Promise<T> {
+    const id = profile.profile.id;
+    this.changing.set(id, (this.changing.get(id) ?? 0) + 1);
+    try {
+      return await change();
+    } finally {
+      const left = (this.changing.get(id) ?? 1) - 1;
+      if (left > 0) this.changing.set(id, left);
+      else this.changing.delete(id);
+    }
+  }
+
+  /**
    * Moves this profile's chain to another server: joins it there with this device's id, writes there
    * where the chain is (chain_server), then starts over on it, uploading everything this computer
    * has (end-to-end encrypted as always). With `announce`, the chain on the old server first gets
    * the new address too, so the devices that sync there follow. Returns whether they were told.
    */
-  private async switchServer(profile: ProfileRuntime, target: SyncTarget, announce: boolean): Promise<boolean> {
+  private switchServer(profile: ProfileRuntime, target: SyncTarget, announce: boolean): Promise<boolean> {
+    return this.changingServer(profile, () => this.moveServer(profile, target, announce));
+  }
+
+  private async moveServer(profile: ProfileRuntime, target: SyncTarget, announce: boolean): Promise<boolean> {
     const mod = await this.module();
     if (!mod) throw new Error("Sync is not available in this build");
     const id = profile.profile.id;
@@ -840,7 +866,11 @@ export class SyncService {
    * server ("local") or the person's own. A pairing code from another computer joins the chain
    * where that computer has it.
    */
-  async enable(profile: ProfileRuntime, opts: SyncEnableOptions): Promise<SyncStatus> {
+  enable(profile: ProfileRuntime, opts: SyncEnableOptions): Promise<SyncStatus> {
+    return this.changingServer(profile, () => this.turnOn(profile, opts));
+  }
+
+  private async turnOn(profile: ProfileRuntime, opts: SyncEnableOptions): Promise<SyncStatus> {
     const mod = await this.module();
     if (!mod) throw new Error("Sync is not available in this build");
     const id = profile.profile.id;

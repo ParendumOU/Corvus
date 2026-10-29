@@ -72,6 +72,7 @@ import { attachUiContextMenu } from "./ui-context-menu";
 import { SplitSession } from "./split-view";
 import { pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
+import { applyWindowTaskbarIdentity } from "./taskbar";
 import { currentUserAgent, followSignInUserAgent, userAgentFor } from "./user-agent";
 
 let seq = 0;
@@ -243,6 +244,7 @@ export class BrowserWindowCtl {
         ? { trafficLightPosition: { x: 14, y: 13 } }
         : { titleBarOverlay: { color: palette.strip, symbolColor: palette.symbol, height: TAB_STRIP_HEIGHT }, icon: paths.icon }),
     });
+    applyWindowTaskbarIdentity(this.win);
 
     this.chrome = new WebContentsView({
       webPreferences: {

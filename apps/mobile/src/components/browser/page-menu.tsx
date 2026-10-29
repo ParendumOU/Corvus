@@ -8,7 +8,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { isSecure, isWebPage } from '@/lib/address';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
 import { tabHost } from '@/lib/replica';
 
 export type PageMenuAction = 'new-tab' | 'ask' | 'send' | 'read-later' | 'bookmark' | 'watch' | 'share' | 'find' | 'open-in' | 'desktop' | 'blocking' | 'settings';
@@ -207,7 +207,7 @@ export function SitePanel({
         <>
           <SheetRow
             icon={blockingHere && blockingOn ? 'shieldCheck' : 'shieldOff'}
-            label={blockingOn ? (blocked === 1 ? t('1 ad or tracker blocked on this page') : t('{n} ads and trackers blocked on this page', { n: blocked })) : t('Ad and tracker blocking is off')}
+            label={blockingOn ? tn(blocked, '1 ad or tracker blocked on this page', '{n} ads and trackers blocked on this page') : t('Ad and tracker blocking is off')}
             detail={blockingOn ? t('Requests to ad and tracker hosts from the filter lists your computers use (EasyList, EasyPrivacy and more) never leave the phone.') : undefined}
             testID="site-blocked"
           />
@@ -229,7 +229,7 @@ export function SitePanel({
             <SheetRow
               icon="cookie"
               label={bannerLine(consent.banner)}
-              detail={consent.handled === 1 ? t('1 cookie banner rejected since Corvus started') : t('{n} cookie banners rejected since Corvus started', { n: consent.handled })}
+              detail={tn(consent.handled, '1 cookie banner rejected since Corvus started', '{n} cookie banners rejected since Corvus started')}
               active={consent.banner?.outcome === 'rejected' || consent.banner?.outcome === 'hidden'}
               testID="site-cookie-banner"
             />

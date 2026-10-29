@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resources the libraries look up by name (getIdentifier), which R8's resource shrinking cannot
+     see; plugins/with-r8-rules.js copies this file to the generated res/raw/corvus_keep.xml.
+     share_into_scheme: expo-sharing's "share into Corvus" (text shared from other apps). The images
+     Metro bundles are kept by the keep.xml React Native writes for them. -->
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@string/share_into_scheme" />

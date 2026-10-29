@@ -1,6 +1,6 @@
 # Corvus WebScope
 
-WebScope is a Burp-style web-traffic security and diagnostics workbench built into Corvus. It captures **your own** browser traffic, and lets you replay, fuzz, transform and compare requests — for authorized testing of systems you own or have explicit written permission to test.
+WebScope is a Burp-style web-traffic security and diagnostics workbench built into Corvus. It captures **your own** browser traffic, and lets you replay, fuzz, transform and compare requests, for authorized testing of systems you own or have explicit written permission to test.
 
 It is **off by default**. Enable it under Settings → Security workbench, or from the app menu (**WebScope (security workbench)**), then open `corvus://webscope`.
 
@@ -20,35 +20,37 @@ WebScope is built around a few hard guarantees, enforced in the engine itself (n
 
 Private, Electron-free engine so it is unit-testable and reusable. Key exports (`src/index.ts`):
 
-- `WebScopeEngine` — owns scope, rules, HTTP history (ring buffer), audit log; drives capture, repeater, fuzzer, comparer and HAR. Scope is enforced here.
-- `CaptureEngine` — records a CDP `Network` event stream into history. It consumes an injected `CdpClient` (an Electron `webContents.debugger` in the app, a fake in tests), with a body-size cap.
-- `sendRequest` — Node HTTP client honoring DNS-style host overrides (keeps the original Host/SNI) and an injected Cookie header; does not follow redirects unless asked.
-- `runFuzz` / `planRequests` / `RateLimiter` — intruder-style fuzzer: `§payload§` positions, sniper + cluster-bomb attacks, wordlist/numbers/charset payload sets, concurrency and rate limit.
-- `applyRequestRules` / `applyResponseRules` — match/replace, block and host-override rules.
-- `compareResponses` / `diffLines` — response comparer.
-- `exportHar` / `importHar` — HAR 1.2 round-trip.
-- `buildSession` / `parseSession` — WebScope session files (see Sessions below); the engine wraps them as `exportSession` / `importSession`.
-- `encode` / `hash` / `jwtDecode` — decoder/encoder (base64, url, html, hex, md5/sha1/sha256/sha512, JWT decode).
+- `WebScopeEngine`: owns scope, rules, HTTP history (ring buffer), audit log; drives capture, repeater, fuzzer, comparer and HAR. Scope is enforced here.
+- `CaptureEngine`: records a CDP `Network` event stream into history. It consumes an injected `CdpClient` (an Electron `webContents.debugger` in the app, a fake in tests), with a body-size cap.
+- `sendRequest`: Node HTTP client honoring DNS-style host overrides (keeps the original Host/SNI) and an injected Cookie header; does not follow redirects unless asked.
+- `runFuzz` / `planRequests` / `RateLimiter`: intruder-style fuzzer: `§payload§` positions, sniper + cluster-bomb attacks, wordlist/numbers/charset payload sets, concurrency and rate limit.
+- `applyRequestRules` / `applyResponseRules`: match/replace, block and host-override rules.
+- `compareResponses` / `diffLines`: response comparer.
+- `exportHar` / `importHar`: HAR 1.2 round-trip.
+- `buildSession` / `parseSession`: WebScope session files (see Sessions below); the engine wraps them as `exportSession` / `importSession`.
+- `encode` / `hash` / `jwtDecode`: decoder/encoder (base64, url, html, hex, md5/sha1/sha256/sha512, JWT decode).
 
 ## Desktop integration
 
-`apps/desktop/src/main/webscope-service.ts` keeps one `WebScopeEngine` per profile. When the setting is on, it attaches each tab's `webContents.debugger` as a `CdpClient` to the active profile's engine. The `corvus://webscope` page talks to the engine over the typed internal IPC in `src/shared/webscope-ipc.ts`. UI code: `src/renderer/pages/webscope.tsx` (views), `webscope-lib.tsx` (shared components) and `webscope-format.ts` (pure helpers, unit-tested).
+`apps/desktop/src/main/webscope-service.ts` keeps one `WebScopeEngine` per profile. When the setting is on, it attaches each tab's `webContents.debugger` as a `CdpClient` to the active profile's engine. The `corvus://webscope` page talks to the engine over the typed internal IPC in `src/shared/webscope-ipc.ts`.
+
+The page is live, with no polling. The engine reports every change (`onChange`: new or updated history, the held intercept queue, scope, rules and intercept settings), and the service batches them per profile with a `ChangeCoalescer` (at most one push every 250 ms, carrying every topic seen since the last one) into a `webscope-changed` internal event with the command bar figures, sent to that profile's open WebScope pages. Each view refreshes only for its topics, one refresh at a time (`serialRefresher`): History asks for the rows added or updated since its cursor (`HistoryBuffer.querySince`; a clear resets the cursor), Target and Findings rebuild at most once a second, and Intercept reloads its queue. The batching and merge logic is pure and unit-tested in `src/shared/webscope-live.ts`. UI code: `src/renderer/pages/webscope.tsx` (views), `webscope-lib.tsx` (shared components) and `webscope-format.ts` (pure helpers, unit-tested).
 
 ## Using the workbench
 
 The page has three thin rows of chrome above one working surface:
 
-- **Command bar:** the *Authorized testing only* notice, **Session** (save or open a session, see below), captured and attached-tab counts, and the **Capture** switch.
+- **Command bar:** the *Authorized testing only* notice, **Session** (save or open a session, see below), captured and attached-tab counts (live), and the **Capture** switch.
 - **Tool tabs**, grouped by job: History, Intercept, Repeater, Fuzzer | Target, Findings | Scope, Rules, Decoder, Comparer. Left/Right arrows move between tabs when one has focus.
 - **Scope strip**, visible on every tool: whether the scope is armed and the in-scope hosts, with an **Edit scope** button.
 
 Per tool:
 
-- **History:** filter by host, method, status class, resource type, in-scope and free-text search (URL, headers, bodies). Click a column header to sort. Long lists are windowed so thousands of rows stay fast. Selecting a row opens the request and response side by side; both panes and the table/detail divider can be dragged (or moved with the arrow keys when focused). Each message has **Pretty** (indented JSON and HTML), **Raw**, **Headers** and **Hex** tabs. From the request pane, **Send to Repeater** or **Send to Fuzzer**. Mark two rows to **Compare** them. HAR export and import, and **Clear** (asks first).
+- **History:** filter by host, method, status class, resource type, in-scope and free-text search (URL, headers, bodies). Click a column header to sort. Long lists are windowed so thousands of rows stay fast (the table keeps the newest 1000 matching rows). New traffic appears as it is captured: at the top of the list new rows simply show up; scrolled down, the row you are reading stays in place and a **N new** button counts the rows that arrived out of view (click it to jump to them). Selection, compare marks, sorting and filters are kept. Selecting a row opens the request and response side by side; both panes and the table/detail divider can be dragged (or moved with the arrow keys when focused). Each message has **Pretty** (indented JSON and HTML), **Raw**, **Headers** and **Hex** tabs. From the request pane, **Send to Repeater** or **Send to Fuzzer**. Mark two rows to **Compare** them. HAR export and import, and **Clear** (asks first).
 - **Repeater:** one tab per request; sending from History opens a new tab. **Ctrl+Enter** sends.
 - **Fuzzer:** setup is grouped (Target, Attack, Payload sets, Payload processing, Throttle, Grep and extract). It shows how many `§` positions are marked and how many requests the attack will send before you start. Results sort by index, status, size or time, can be narrowed to grep hits and exported as CSV.
-- **Intercept:** turn interception on, optionally narrow it with host, method and path filters, then edit and **Forward edited**, **Forward** or **Drop**. **F** forwards (edited) and **D** drops the selected item.
-- **Target:** collapsible host-to-path tree with method and request counts. **Findings:** grouped by severity (Medium, Low, Info); the same observation on several responses is one card listing where it was seen.
+- **Intercept:** turn interception on, optionally narrow it with host, method and path filters, then edit and **Forward edited**, **Forward** or **Drop**. **F** forwards (edited) and **D** drops the selected item. Held requests appear as they are paused, and their count shows on the Intercept tab from any tool.
+- **Target:** collapsible host-to-path tree with method and request counts. **Findings:** grouped by severity (Medium, Low, Info); the same observation on several responses is one card listing where it was seen. Both grow as traffic arrives (at most once a second) and keep what you expanded and where you scrolled.
 - **Scope** and **Rules:** labelled tables; the audit log sits under the scope lists.
 - **Decoder:** encode, decode, hash and JWT operations in labelled groups. **Comparer:** header and body diff of two responses.
 
@@ -56,19 +58,19 @@ Per tool:
 
 Exposed only at the **full** access level, only when the app wires in the engine, and always scope-gated. Out-of-scope targets are refused with a clear error; response bodies are wrapped as untrusted content.
 
-- `webscope_history` — list captured exchanges (filterable).
-- `webscope_request_detail` — full request/response for one entry.
-- `webscope_send` — issue one request (Repeater), in-scope only.
-- `webscope_fuzz` — bounded intruder-style fuzz (≤ 500 requests, ≤ 10 req/s over MCP).
-- `webscope_scope` — get/set the scope allowlist.
-- `webscope_set_rules` — set match/replace, block and host-override rules.
+- `webscope_history`: list captured exchanges (filterable).
+- `webscope_request_detail`: full request/response for one entry.
+- `webscope_send`: issue one request (Repeater), in-scope only.
+- `webscope_fuzz`: bounded intruder-style fuzz (≤ 500 requests, ≤ 10 req/s over MCP).
+- `webscope_scope`: get/set the scope allowlist.
+- `webscope_set_rules`: set match/replace, block and host-override rules.
 
 ## Tests
 
-- Engine units: `packages/webscope/test/` (scope, capture parsing, fuzzer expansion + rate limiter, match/replace, encoders, HAR round-trip, session save/open, HTTP client, scope enforcement incl. out-of-scope refusal).
+- Engine units: `packages/webscope/test/` (scope, capture parsing, fuzzer expansion + rate limiter, match/replace, encoders, HAR round-trip, session save/open, HTTP client, scope enforcement incl. out-of-scope refusal, the history cursor and change events behind live updates).
 - MCP tools: `packages/mcp-server/test/webscope-tools.test.ts` (full-level gating, scope refusal, untrusted wrapping, bounded fuzz) against a local test server.
-- Desktop UI helpers: `apps/desktop/test/webscope-format.test.ts` (formatting, pretty-print, hex dump, and the Fuzzer request preview checked against the engine's `planRequests`).
-- Desktop smoke: `apps/desktop/src/main/smoke-webscope.ts` captures a request over CDP, replays it, runs a 3-payload in-scope fuzz, saves a session with that traffic and opens it in a fresh engine, holds and forwards an intercepted request, and screenshots every tool (History, Intercept, Repeater, Fuzzer, Target, Findings, Scope, Rules, Decoder, Comparer) and the session panel in light and dark.
+- Desktop UI helpers: `apps/desktop/test/webscope-format.test.ts` (formatting, pretty-print, hex dump, and the Fuzzer request preview checked against the engine's `planRequests`) and `apps/desktop/test/webscope-live.test.ts` (change batching, one refresh at a time, merging new rows, keeping the scroll position).
+- Desktop smoke: `apps/desktop/src/main/smoke-webscope.ts` captures a request over CDP, replays it, runs a 3-payload in-scope fuzz, saves a session with that traffic and opens it in a fresh engine, and holds and forwards an intercepted request. With the workbench open it then sends traffic to the smoke's own local server and checks, without a reload, that History rows and the captured count appear, that the row being read stays in place and the **N new** button counts rows above it, and that Target, Findings and the Intercept queue (with its tab count) follow. It screenshots every tool in light and dark, and checks the Session popover in English and Spanish: titles, the traffic option, aligned actions, the confirmation before replacing a scope, the feedback after saving and opening, and a narrow window. `CORVUS_SMOKE_ONLY=webscope` runs only these checks.
 
 ## Interactive intercept
 
@@ -76,13 +78,13 @@ With **Intercept on** (Intercept tab), in-scope requests that match the optional
 
 ## Target and passive findings
 
-The **Target** tab shows a host-to-path tree of captured traffic, with the methods and request count per node. The **Findings** tab lists passive, read-only observations from captured responses: missing security headers (CSP, HSTS, X-Content-Type-Options, framing), cookies without Secure/HttpOnly/SameSite, version disclosure, mixed content, and reflected query parameters, each with a plain-language explanation and an advisory severity. These are observations only — WebScope never sends a request or attempts an exploit to produce them. Agents can read them at Full access via webscope_findings and webscope_sitemap.
+The **Target** tab shows a host-to-path tree of captured traffic, with the methods and request count per node. The **Findings** tab lists passive, read-only observations from captured responses: missing security headers (CSP, HSTS, X-Content-Type-Options, framing), cookies without Secure/HttpOnly/SameSite, version disclosure, mixed content, and reflected query parameters, each with a plain-language explanation and an advisory severity. These are observations only: WebScope never sends a request or attempts an exploit to produce them. Agents can read them at Full access via webscope_findings and webscope_sitemap.
 
 ## Sessions
 
-Scope, rules and captured traffic live in memory and are gone when Corvus closes. **Session** in the command bar saves them to a JSON file (`corvus-webscope-session-<date>.json`) and opens one again:
+Scope, rules and captured traffic live in memory and are gone when Corvus closes. **Session** in the command bar opens a small panel under the button that saves them to a JSON file (`corvus-webscope-session-<date>.json`) and opens one again. Escape or a click outside closes it.
 
-- **Save session** writes the scope, the rules and the intercept filters. **Include captured traffic** adds every request in History, in full: it can hold cookies, tokens and passwords you typed, so it is off by default and the panel says so when you tick it.
-- **Open session** replaces the scope, rules and intercept filters, adds the saved traffic to History and takes you to the Scope tab. The scope always arrives **disarmed**: a session file can never put targets in scope on its own; you review it and arm it yourself. Intercept stays on or off as it was.
+- **Save session** (**Save to file**) writes the scope, the rules and the intercept filters. **Include captured traffic** adds every request in History, in full: it can hold cookies, tokens and passwords you typed, so it is off by default and the panel says so when you tick it. After saving, the panel names the file and says whether, and how many, requests went in.
+- **Open session** (**Open file…**) replaces the scope, rules and intercept filters, adds the saved traffic to History and takes you to the Scope tab. When you already have a scope or rules, the panel asks first, naming the file. Afterwards it says how many requests it added. The scope always arrives **disarmed**: a session file can never put targets in scope on its own; you review it and arm it yourself. Intercept stays on or off as it was.
 - Everything in the file is checked before use: unknown fields, malformed entries and rules are dropped, IDs are new, and each request's host, path and in-scope flag are worked out again from its URL (in scope means the session's scope would include it once armed). Requests that were hidden from AI stay hidden from AI.
 - Saving and opening are recorded in the audit log. Sessions are a page feature only: there is no MCP tool for them.

@@ -20,7 +20,7 @@ import { HISTORY_PAGE, groupByDay, searchHistory, timeOfDay } from '@/lib/histor
 import { folderContents, folderPath, searchBookmarks, searchReading } from '@/lib/library';
 import { openInApp, openInBrowser } from '@/lib/open-url';
 import { tabHost } from '@/lib/replica';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
 import { nav } from '@/lib/nav';
 
 type Section = 'bookmarks' | 'reading' | 'history';
@@ -217,7 +217,7 @@ function History({ entries, query, refreshed }: { entries: SyncedHistoryEntry[];
         </View>
       ))}
       {matches.length > limit && (
-        <Button label={t('Show more ({n} left)', { n: matches.length - limit })} kind="tonal" onPress={() => setLimit((n) => n + HISTORY_PAGE)} testID="history-more" />
+        <Button label={tn(matches.length - limit, 'Show more (1 left)', 'Show more ({n} left)')} kind="tonal" onPress={() => setLimit((n) => n + HISTORY_PAGE)} testID="history-more" />
       )}
     </>
   );

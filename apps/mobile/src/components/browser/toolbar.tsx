@@ -5,7 +5,7 @@ import { CorvusMark } from '@/components/icon';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
 
 /** The browser's bottom bar: back, forward, Corvus (Home), the tabs and the page's menu. */
 export function Toolbar({
@@ -45,7 +45,7 @@ export function Toolbar({
       </Pressable>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={tabCount === 1 ? t('1 tab open') : t('{n} tabs open', { n: tabCount })}
+        accessibilityLabel={tn(tabCount, '1 tab open', '{n} tabs open')}
         onPress={onTabs}
         android_ripple={{ color: theme.ripple, borderless: true, radius: 24 }}
         style={({ pressed }) => [styles.tabs, pressed && Platform.OS !== 'android' && { opacity: 0.7 }]}

@@ -1,0 +1,23 @@
+// Gradle init script of scripts/build-android.sh.
+//
+// With ccache (CCACHE_DIR set), every module's CMake build (the app's and the native modules', per
+// ABI) compiles through it. Passed as CMake arguments, not through the environment, so build
+// folders configured before switch to it too.
+def compileThroughCcache = { ext ->
+  ext.defaultConfig.externalNativeBuild.cmake.arguments.addAll(
+    ['-DCMAKE_C_COMPILER_LAUNCHER=ccache', '-DCMAKE_CXX_COMPILER_LAUNCHER=ccache'])
+}
+
+allprojects { project ->
+  // The local modules (modules/*/android) build into the native project's build folder, in its
+  // Docker volume, instead of next to their sources in the Windows folder, whose file access is slow.
+  def modules = new File(project.rootDir, '../modules').canonicalPath + File.separator
+  if (project.projectDir.canonicalPath.startsWith(modules)) {
+    project.layout.buildDirectory.set(new File(project.rootDir, "build/corvus-modules/${project.name}"))
+  }
+  if (System.getenv('CCACHE_DIR')) {
+    ['com.android.application', 'com.android.library'].each { id ->
+      project.plugins.withId(id) { project.extensions.getByName('androidComponents').finalizeDsl(compileThroughCcache) }
+    }
+  }
+}

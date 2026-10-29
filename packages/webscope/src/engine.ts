@@ -17,8 +17,10 @@ import type {
   FuzzResultRow,
   FuzzSummary,
   FuzzerConfig,
+  HistoryCursor,
   HistoryEntry,
   HistoryFilter,
+  HistoryPage,
   HistorySummary,
   InterceptConfig,
   InterceptEdit,
@@ -31,6 +33,9 @@ import type {
 } from "./types.js";
 
 export class ScopeError extends Error {}
+
+/** What changed: captured traffic, the held intercept queue, or scope, rules and intercept settings. */
+export type WebScopeChange = "history" | "intercept" | "config";
 export class BlockedError extends Error {}
 
 /** Reads made for an AI agent or MCP client get "hidden from AI" requests redacted. */
@@ -76,6 +81,7 @@ export class WebScopeEngine {
   private readonly cookieProvider: ((url: string) => Promise<string | undefined>) | undefined;
   private capture: CaptureEngine | null = null;
   private readonly captures = new Set<CaptureEngine>();
+  private readonly changeListeners = new Set<(change: WebScopeChange) => void>();
   private counter = 0;
 
   constructor(private readonly opts: WebScopeEngineOptions = {}) {
@@ -86,6 +92,25 @@ export class WebScopeEngine {
     this.maxBodyBytes = opts.maxBodyBytes ?? 5 * 1024 * 1024;
     this.send = opts.send ?? sendRequest;
     this.cookieProvider = opts.cookieProvider;
+    this.history.onChange(() => this.emitChange("history"));
+  }
+
+  /** Called on every change, synchronously: a listener that updates a UI should batch. */
+  onChange(listener: (change: WebScopeChange) => void): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
+
+  private emitChange(change: WebScopeChange): void {
+    for (const listener of this.changeListeners) {
+      try {
+        listener(change);
+      } catch {
+        // A listener never gets to break capture or intercept.
+      }
+    }
   }
 
   // ---- scope & rules
@@ -97,6 +122,7 @@ export class WebScopeEngine {
   setScope(scope: Scope): void {
     this.scope = scope;
     this.audit.record("scope-change", `scope ${scope.enabled ? "enabled" : "disabled"}, ${scope.include.length} include / ${scope.exclude.length} exclude`);
+    this.emitChange("config");
   }
 
   isInScope(url: string): boolean {
@@ -119,6 +145,7 @@ export class WebScopeEngine {
   setRules(rules: RuleSet): void {
     this.rules = rules;
     this.audit.record("rules-change", `${rules.matchReplace.length} match/replace, ${rules.block.length} block, ${rules.hostOverride.length} host override`);
+    this.emitChange("config");
   }
 
   // ---- history
@@ -129,6 +156,11 @@ export class WebScopeEngine {
    */
   queryHistory(filter: HistoryFilter = {}, limit = 200, opts: AiReadOptions = {}): HistorySummary[] {
     return this.history.query(filter, limit, opts.forAi ? entryForAi : undefined);
+  }
+
+  /** What was added or updated since `since` (see HistoryBuffer.querySince), for live views. */
+  historyPage(filter: HistoryFilter, since: HistoryCursor | null, limit = 200, opts: AiReadOptions = {}): HistoryPage {
+    return this.history.querySince(filter, since, limit, opts.forAi ? entryForAi : undefined);
   }
 
   getEntry(id: string): HistoryEntry | undefined {
@@ -271,6 +303,7 @@ export class WebScopeEngine {
     this.audit.record("rules-change", `intercept ${config.enabled ? "on" : "off"}${config.interceptResponses ? " +responses" : ""}`);
     await Promise.all([...this.intercepts].map((i) => i.sync()));
     this.emitIntercept();
+    this.emitChange("config");
   }
 
   onInterceptChange(listener: () => void): () => void {
@@ -280,6 +313,7 @@ export class WebScopeEngine {
 
   private emitIntercept(): void {
     for (const l of this.interceptListeners) l();
+    this.emitChange("intercept");
   }
 
   /** Aggregate held queue across all attached tabs, oldest first (redacted for AI with `forAi`). */

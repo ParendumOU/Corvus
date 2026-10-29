@@ -203,11 +203,12 @@ export class UpdateService {
   install(): void {
     if (this.phase !== "downloaded") return;
     try {
-      if (this.portable && this.portableFile && this.newVersion) {
-        this.portable.install(this.portableFile, this.newVersion, () => app.quit());
+      if (this.portable && this.portableFile) {
+        this.portable.install(this.portableFile, () => app.quit());
         return;
       }
-      autoUpdater.quitAndInstall();
+      // Silent (no installer wizard, the install is updated in place) and started again afterwards.
+      autoUpdater.quitAndInstall(true, true);
     } catch (err) {
       this.error = cleanError(err as Error);
       this.set("error");

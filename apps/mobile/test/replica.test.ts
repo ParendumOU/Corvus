@@ -126,9 +126,11 @@ describe("tabs from your computers", () => {
     expect(tabHost("https://www.example.com/a?b")).toBe("example.com");
     expect(tabHost("not a url")).toBe("");
     const now = 1_000_000_000;
-    expect(ago(now - 10_000, now)).toBe("just now");
-    expect(ago(now - 5 * 60_000, now)).toBe("5 min ago");
-    expect(ago(now - 3 * 3_600_000, now)).toBe("3 h ago");
-    expect(ago(now - 2 * 86_400_000, now)).toBe("2 d ago");
+    // No-break spaces keep a time on one line when the text around it wraps.
+    const nbsp = (s: string): string => s.replace(/ /g, "\u00a0");
+    expect(ago(now - 10_000, now)).toBe(nbsp("just now"));
+    expect(ago(now - 5 * 60_000, now)).toBe(nbsp("5 min ago"));
+    expect(ago(now - 3 * 3_600_000, now)).toBe(nbsp("3 h ago"));
+    expect(ago(now - 2 * 86_400_000, now)).toBe(nbsp("2 d ago"));
   });
 });

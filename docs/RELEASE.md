@@ -4,9 +4,9 @@ Everything to cut an auto-updating release. Releases live on [github.com/Parendu
 
 The website (https://corvus.parendum.com) links to `https://github.com/ParendumOU/Corvus/releases/download/v<version>/<file>` with exactly these names: `Corvus-Setup-<v>.exe`, `Corvus-Portable-<v>.exe`, `Corvus-<v>-x86_64.AppImage`, `corvus_<v>_amd64.deb` (`test/update-feed.test.ts` pins the patterns in `electron-builder.yml`).
 
-Current: `v0.30.0` (Windows + Linux unsigned, macOS signed and notarized), published 2026-10-28. Corvus for mobile: `mobile-v0.8.0` (Android preview, pre-release), published 2026-10-28.
+Current: `v0.31.0` (Windows + Linux unsigned, macOS signed and notarized), draft. Corvus for mobile: `mobile-v0.9.0` (Android preview, pre-release), draft.
 
-Previous tags: `v0.29.0`, `v0.28.0`, `v0.27.0`, `v0.26.1`, `v0.26.0`, `v0.25.1`, `v0.25.0`, `v0.24.0`, `v0.23.0`, `v0.22.0`, `v0.21.1`, `v0.21.0`, `v0.20.2`, `v0.20.1`, `v0.20.0`, `v0.19.0`, `v0.18.0`, `v0.17.0`, `v0.16.0`, `v0.15.0`, `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
+Previous tags: `v0.30.0`, `v0.29.0`, `v0.28.0`, `v0.27.0`, `v0.26.1`, `v0.26.0`, `v0.25.1`, `v0.25.0`, `v0.24.0`, `v0.23.0`, `v0.22.0`, `v0.21.1`, `v0.21.0`, `v0.20.2`, `v0.20.1`, `v0.20.0`, `v0.19.0`, `v0.18.0`, `v0.17.0`, `v0.16.0`, `v0.15.0`, `v0.14.0`, `v0.13.0`, `v0.12.0`, `v0.11.0`, `v0.10.0`, `v0.9.0`, `v0.8.0`, `v0.7.0`, `v0.6.0`, `v0.5.0`, `v0.4.2`, `v0.4.1`, `v0.4.0`, `v0.3.4`, `v0.3.3`, `v0.3.2`, `v0.3.1`, `v0.3.0`, `v0.2.0`, `v0.1.1`.
 
 ---
 
@@ -35,6 +35,14 @@ The release scripts never force-push; rewriting a public history is a deliberate
   - Downgrades are only offered when a pre-release build switches to Stable (electron-updater's `channel` setter would otherwise allow them for everyone).
 - Only packaged builds check (`app.isPackaged`); dev and smoke never touch the network.
 - macOS auto-update (Squirrel.Mac) only works for **signed** builds; unsigned Macs must update by hand.
+
+## How a Windows update installs (in place, pins kept)
+
+- **Installed (NSIS)**: Restart to update runs the downloaded Corvus-Setup silently (`quitAndInstall(true, true)`, so `--updated /S --force-run`): no installer wizard, the new files replace the old ones in the same folder, Corvus starts again from the Start menu shortcut. electron-builder runs the old uninstaller with `--keep-shortcuts --updated`, so the Start menu and desktop shortcuts are the same files afterwards and taskbar/Start pins stay. The profile (`%APPDATA%\Corvus`) is never touched.
+- **Setup run by hand** over an install does the same: electron-builder only keeps shortcuts for `--updated` when `allowToChangeInstallationDirectory` is on, and otherwise unpins Corvus (`WinShell::UninstShortcut`, `UninstAppUserModelId`) and makes new shortcuts. `customHeader` in `apps/desktop/build/installer.nsh` undefines that flag after the folder page is built, so the page stays and the shortcuts are kept whenever `Corvus.exe` is already in the chosen folder (another folder still gets new shortcuts).
+- **App ID**: pins belong to the Application User Model ID. The installer gives its shortcuts the `appId` (`com.parendum.corvus`), and the app sets the same one (`WINDOWS_APP_ID` in `src/shared/taskbar-identity.ts`, checked against `electron-builder.yml` by `test/taskbar-identity.test.ts`) on the process and on every window (`src/main/taskbar.ts`). Never change `appId`, `productName` or the executable name: the next update would leave every pin pointing at nothing.
+- **Portable**: downloads the next `Corvus-Portable-<v>.exe` to `%LOCALAPPDATA%\corvus-portable-update`, checks it against `SHA256SUMS.txt`, and after Corvus quits writes it into the running copy's own file (same name, folder, NTFS file ID and desktop position), then starts it. If the file stays locked for a minute, the old bytes are put back and the old copy starts. The portable launcher runs Corvus from `%TEMP%\<per-build id>`, deleted when Corvus quits, so its windows (ID `com.parendum.corvus.portable`) name the portable file as what a taskbar pin starts.
+- **Checked on Windows 11** (2026-10-29) with test-identity builds (another `appId` and `productName`, installed with `/S /D=<scratch folder>`): `--updated /S` and a plain `/S` over the install keep both `.lnk` files (same NTFS file IDs; before this change the plain run recreated them), another folder recreates them for the new path, and the windows carry the shortcuts' app ID; the portable swap keeps the file ID. Taskbar pinning itself cannot be scripted on Windows 11: that pins follow is inferred from the kept shortcuts and app ID.
 
 ---
 
@@ -99,7 +107,7 @@ The Android app (`apps/mobile`) is released from the same repo as a **pre-releas
 
 1. Bump `apps/mobile/package.json` and `apps/mobile/app.json` (`expo.version`, and `android.versionCode` + 1 with `ios.buildNumber` the same).
 2. Checks in Docker: `typecheck`, `test`, `export:web` and `smoke:web` of `@corvus/mobile` (the smoke needs the `sync-server` service and `CORVUS_SYNC_URL`).
-3. Signed APK: `docker compose --profile android run --rm android`, with the release key mounted from `../secrets` (`corvus-mobile.keystore` and `corvus-mobile-keystore.env`, never in a repository). It prints the APK's SHA-256. Losing the key means later versions cannot install over earlier ones: keep a backup of it off this machine. The same run builds the App Bundle for Google Play. Install the APK on a phone and open it before shipping (`adb install -r`): 0.3.0 and 0.4.0 closed at start-up and nothing caught it.
+3. Signed APK: `docker compose --profile android run --rm --build android` (`--build` keeps the toolchain image in step with `docker/Dockerfile.android`), with the release key mounted from `../secrets` (`corvus-mobile.keystore` and `corvus-mobile-keystore.env`, never in a repository). It prints the APK's SHA-256. Losing the key means later versions cannot install over earlier ones: keep a backup of it off this machine. The same run builds the App Bundle for Google Play. Install the APK on a phone and open it before shipping (`adb install -r`): 0.3.0 and 0.4.0 closed at start-up and nothing caught it.
 4. The target is a public commit with this version's `apps/mobile` sources.
 5. `gh release create mobile-v<v> -R ParendumOU/Corvus --prerelease --latest=false --target <public SHA> --title "Corvus for mobile <v>" --notes-file <notes>` with `corvus-mobile-<v>.apk` and `SHA256SUMS.txt`.
 6. Google Play internal testing: `docker compose --profile android run --rm --no-deps --entrypoint node android apps/mobile/scripts/play-upload.mjs --notes "<text>"` uploads the bundle and releases it to testers through the Google Play Developer API, with the service account in `../secrets/google-play-service-account.json` (project `corvus-512818`, invited in Play Console with "Release apps to testing tracks"). A version code already on Play is skipped.
@@ -116,5 +124,5 @@ The release script (`publish-release.ps1 <v> -MobileVersion <m>`) runs steps 3, 
 - [ ] Windows build **signed** (once the cert exists); macOS **notarized** (once the ID exists)
 - [ ] Draft reviewed and installed from, then published
 - [ ] Source tagged `v<v>`
-- [ ] Auto-update verified from the previous version
+- [ ] Auto-update verified from the previous version (Windows: no installer window, Corvus restarts, pins and shortcuts stay)
 - [ ] No `Co-Authored-By` / "Generated with" lines anywhere

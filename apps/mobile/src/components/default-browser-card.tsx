@@ -74,6 +74,7 @@ export function DefaultBrowserSettings() {
           <ListRow
             title={t('Corvus')}
             subtitle={t('Its own browser, with your tabs, history and bookmarks synced')}
+            wrap
             accessibilityRole="radio"
             accessibilityState={{ checked: inCorvus }}
             onPress={() => void setBrowserPrefs({ openIn: 'corvus' })}
@@ -86,6 +87,7 @@ export function DefaultBrowserSettings() {
                 <ListRow
                   key={b.packageName}
                   title={b.label}
+                  wrap
                   accessibilityRole="radio"
                   accessibilityState={{ checked: chosen }}
                   onPress={() => {

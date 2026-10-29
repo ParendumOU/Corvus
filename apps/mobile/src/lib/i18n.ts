@@ -34,3 +34,11 @@ export function t(text: string, vars?: Record<string, string | number>): string 
   const translated = language === 'es' ? (ES[text] ?? text) : text;
   return vars ? translated.replace(/\{(\w+)\}/g, (m, key: string) => (key in vars ? String(vars[key]) : m)) : translated;
 }
+
+/**
+ * A count in words: `one` for 1 ("1 tab"), `other` for any other number ("{n} tabs"), with {n} and
+ * `vars` filled in. English and Spanish both keep the singular for 1 alone.
+ */
+export function tn(n: number, one: string, other: string, vars?: Record<string, string | number>): string {
+  return t(n === 1 ? one : other, { ...vars, n });
+}

@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.31.0
+
+### WebScope
+- **Live workbench**: History, Target, Findings, the Intercept queue and the captured and tab counts update by themselves as traffic arrives, with nothing to refresh. Changes are batched to a few updates a second, so heavy traffic stays smooth, and the polling every page did before is gone.
+- History keeps your place while rows arrive: at the top of the list new rows simply appear; scrolled down, the row you are reading stays where it is and a **N new** button counts the rows that arrived out of view (click it to jump to them). Selection, marks, sorting and filters are kept. Only the new rows are fetched, so a busy History stays fast.
+- Requests held by Intercept show as a count on the Intercept tab, so you see them from any tool.
+- **Session** opens a small panel under its button: a Save card (with the "Include captured traffic" option and its privacy note) and an Open card, each with a one-line explanation and its action in the same place, and a confirmation in the panel, naming the file, before a session replaces the scope and rules you have. After saving or opening it says what happened (the file name and how many requests). Works in a narrow window; Escape or a click outside closes it.
+- The scope strip and the Intercept switch say "armed", "off" and "on" in Spanish too.
+
+### Windows
+- **Updates keep your taskbar pins and shortcuts**: the update installs over Corvus in place, without the installer's windows, and starts Corvus again. The Start menu and desktop shortcuts stay the same files, so Corvus stays pinned. Running a newer Corvus-Setup by hand now does the same (before, it removed the pins and made new shortcuts; it still makes new ones when you install to another folder).
+- Corvus's windows now carry the same Windows app ID as its shortcuts, so a pinned Corvus shows as running whichever way Corvus was started (for example, a link opened from another app), instead of a second Corvus button next to it.
+- **Portable copy**: an update writes the new version into the same file, which keeps its name, folder and place on the desktop, so shortcuts and pins of it keep working. Copies named `Corvus-Portable-<version>.exe` keep that name too, and the download waits in `%LOCALAPPDATA%\corvus-portable-update` instead of next to the copy. If the file cannot be written, the copy you had stays and starts again.
+- Pinning the portable copy's window now pins the portable file itself, not the temporary copy it runs from, which was deleted when Corvus closed and was different for every version.
+
+### Sync
+- Turning sync on with **This computer** no longer fails now and then on a busy or slow computer with "Cannot reach the sync server at http://127.0.0.1:8797": a check Corvus runs every 3 seconds stopped the server while sync was turning on with it. Moving your chain to This computer had the same problem.
+
+### Corvus for mobile
+- Settings and the browser's panels show their texts in full: the site panel (what was blocked, blocking on the site, the site's cookie banner), the page menu, Settings → Browser and the rest of Settings wrap long titles and descriptions onto more lines instead of cutting them with "…", which mostly hit the Spanish texts. In landscape and on tablets the panels keep to a centred column, like the screens, so a switch stays near its label.
+- Counts say the singular for one: "1 ad or tracker blocked" ("1 anuncio o rastreador bloqueado", read out by TalkBack as "1 anuncios" before), "1 watched", "every hour" for a page checked every 61 to 89 minutes, "Show more (1 left)".
+- Your question in an Assist chat is one clean colour: after sending with a keyboard key (a hardware keyboard), Android drew its focus box over it, a lighter rectangle like a selection.
+- A slightly smaller Android app: release builds now also remove resources the app never uses.
+
 ## v0.30.0
 
 ### Settings

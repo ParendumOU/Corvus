@@ -9,7 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Elevation, Radius, Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { displayAddress } from '@/lib/address';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
 import type { BrowserTab } from '@/lib/tabs';
 
 /** The phone's tabs as a grid of cards (site icon, title, address), newest last; tap one to show it. */
@@ -50,7 +50,7 @@ export function TabSwitcher({
         <View style={styles.header}>
           <IconButton icon="back" accessibilityLabel={t('Back to the page')} onPress={onDismiss} testID="tabs-back" />
           <ThemedText type="title" style={styles.grow} accessibilityRole="header">
-            {tabs.length === 1 ? t('1 tab') : t('{n} tabs', { n: tabs.length })}
+            {tn(tabs.length, '1 tab', '{n} tabs')}
           </ThemedText>
           {tabs.length > 1 ? <Button label={t('Close all')} kind="text" size="sm" onPress={() => void closeAll()} testID="tabs-close-all" /> : null}
         </View>

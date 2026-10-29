@@ -209,47 +209,178 @@ textarea.input {
   cursor: default;
 }
 
-/* ---- session panel (save / open) ---- */
-.ws-session-panel {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px 28px;
-  padding: 14px 16px;
-  background: var(--ws-chrome);
-  border-bottom: 1px solid var(--border);
-  flex: none;
-}
-.ws-session-col {
+/* ---- session popover (save / open) ---- */
+/* Hangs under the Session button; two cards with their action at the bottom right, then feedback. */
+.ws-session {
+  position: fixed;
+  z-index: 40;
+  width: min(400px, calc(100vw - 24px));
+  max-height: calc(100vh - 60px);
+  overflow: auto;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+}
+.ws-session p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.ws-session-head {
+  display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
+  padding: 0 2px;
+}
+.ws-session-head > div {
+  flex: 1;
   min-width: 0;
 }
-.ws-session-col h3 {
+.ws-session-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+.ws-session-close {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: -3px -4px 0 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.ws-session-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ws-session-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.ws-session-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--ws-radius);
+  background: var(--ws-chrome);
+}
+.ws-session-cardhead {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ws-session-cardhead > div {
+  min-width: 0;
+}
+.ws-session-card h3 {
   margin: 0;
   font-size: 13px;
   font-weight: 620;
   color: var(--text);
 }
-.ws-session-col p {
-  margin: 0;
-  max-width: 520px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-2);
+.ws-session-icon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
-.ws-session-col .ws-session-warn {
-  display: inline-flex;
+.ws-session-option {
+  display: flex;
   align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  cursor: pointer;
+}
+.ws-session-option input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.ws-session-option:hover {
+  background: var(--hover);
+}
+.ws-session-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--accent-soft);
+}
+.ws-session .ws-session-warn {
+  display: flex;
+  align-items: flex-start;
   gap: 6px;
+  margin: 0;
   color: var(--ws-signal);
 }
-.ws-session-msg {
-  grid-column: 1 / -1;
-  padding: 7px 10px;
+.ws-session-warn svg,
+.ws-session-msg svg {
+  flex: none;
+  margin-top: 2px;
+}
+.ws-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ws-session-actions .btn {
+  min-width: 150px;
+  justify-content: center;
+}
+.ws-session-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--ws-signal) 35%, transparent);
   border-radius: 6px;
+  background: var(--ws-signal-soft);
+}
+.ws-session .ws-session-confirm p {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ws-session-msg {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 7px;
   font-size: 12px;
+  line-height: 1.45;
+}
+.ws-session-msg b {
+  display: block;
+  font-weight: 620;
+}
+.ws-session-msg span {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 .ws-session-msg.ok {
   background: var(--ws-inscope-soft);
@@ -330,6 +461,13 @@ textarea.input {
   outline: 2px solid var(--accent);
   outline-offset: -3px;
   border-radius: 4px;
+}
+/* Requests waiting in Intercept show on its tab from any tool. */
+.ws-tab .ws-held {
+  margin-left: 6px;
+  color: var(--ws-signal);
+  background: var(--ws-signal-soft);
+  font-weight: 600;
 }
 
 /* ---- scope strip ---- */
@@ -642,16 +780,46 @@ textarea.input {
 
 /* ---- data table ---- */
 .ws-view-table {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
+/* History keeps its place itself as live rows arrive (see HistoryView), so the browser must not. */
 .ws-tablewrap {
   overflow: auto;
+  overflow-anchor: none;
   flex: 1;
   min-height: 0;
   position: relative;
+}
+/* "N new": rows that arrived out of view while the list was scrolled. */
+.ws-unseen {
+  position: absolute;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 12px 0 9px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 560;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.ws-unseen:hover {
+  background: var(--accent-2);
+}
+.ws-unseen:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .ws-table {
   width: 100%;

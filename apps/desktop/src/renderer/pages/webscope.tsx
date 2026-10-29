@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   AuditEntry,
   BlockRule,
   FuzzResultRow,
   FuzzSummary,
+  HistoryCursor,
   HistoryEntry,
   HistoryFilter,
   HistorySummary,
@@ -21,9 +22,10 @@ import type {
   ScopeEntry,
   SitemapNode,
 } from "@corvus/webscope";
-import type { WebScopeInterceptState, WebScopeState } from "../../shared/webscope-ipc";
+import type { WebScopeCounters, WebScopeInternalEvent, WebScopeInterceptState, WebScopeState } from "../../shared/webscope-ipc";
+import { anchoredScrollTop, firstIndexOf, mergeHistory, scrollAnchor, serialRefresher, type ScrollAnchor, type WebScopeTopic } from "../../shared/webscope-live";
 import { internalApi, errorMessage } from "../common/api";
-import { IconActivity, IconChevronDown, IconChevronRight, IconChevronUp, IconCopy, IconGlobe, IconPause, IconPlay, IconPlus, IconSearch, IconShield, IconWarning } from "../common/icons";
+import { IconActivity, IconCheck, IconChevronDown, IconChevronRight, IconChevronUp, IconClose, IconCopy, IconDownload, IconFolder, IconGlobe, IconPause, IconPlay, IconPlus, IconSearch, IconShield, IconWarning } from "../common/icons";
 import "../common/theme.css";
 import "./webscope.css";
 import {
@@ -54,6 +56,42 @@ import {
 
 import { t as tx } from "../common/i18n";
 const api = internalApi();
+
+// ================================================================== Live updates
+
+// The main process pushes a batched "webscope-changed" event a few times a second at most while
+// traffic flows. One subscription serves the page; each view listens for the topics it shows.
+const liveListeners = new Set<(event: WebScopeInternalEvent) => void>();
+api.onEvent((event) => {
+  if (event.type === "webscope-changed") for (const listener of liveListeners) listener(event);
+});
+function onLive(listener: (event: WebScopeInternalEvent) => void): () => void {
+  liveListeners.add(listener);
+  return () => {
+    liveListeners.delete(listener);
+  };
+}
+
+/** Runs `refresh` again whenever one of `topics` changes, never two at once. */
+function useLiveRefresh(topics: readonly WebScopeTopic[], refresh: () => Promise<unknown>, minGapMs = 0): void {
+  const latest = useRef(refresh);
+  latest.current = refresh;
+  const key = topics.join(",");
+  useEffect(() => {
+    const wanted = key.split(",");
+    const refresher = serialRefresher(() => latest.current(), minGapMs);
+    const off = onLive((event) => {
+      if (event.topics.some((t) => wanted.includes(t))) refresher.trigger();
+    });
+    return () => {
+      off();
+      refresher.dispose();
+    };
+  }, [key, minGapMs]);
+}
+
+/** Target and Findings rebuild from all captured traffic, so they refresh at most once a second. */
+const REBUILD_GAP_MS = 1000;
 
 type View = "history" | "intercept" | "repeater" | "fuzzer" | "target" | "findings" | "rules" | "scope" | "decoder" | "comparer";
 
@@ -131,21 +169,48 @@ interface HistoryActions {
   onCompare: (ids: string[]) => void;
 }
 
+/** Rows the History table keeps; the oldest drop off the bottom as new traffic arrives. */
+const HISTORY_ROWS = 1000;
+
 function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
   const [rows, setRows] = useState<HistorySummary[] | null>(null);
   const [filter, setFilter] = useState<HistoryFilter>({});
   const [selected, setSelected] = useState<HistoryEntry | null>(null);
   const [marked, setMarked] = useState<string[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
+  const [unseen, setUnseen] = useState<ReadonlySet<string>>(() => new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const reload = useCallback(() => {
-    void api.call("webscope.history", filter, 500).then(setRows);
-  }, [filter]);
+  // A filter change loads a full page; after that only what changed since `cursor` is fetched and
+  // merged in. `generation` drops replies that belong to an earlier filter.
+  const rowsRef = useRef<HistorySummary[] | null>(null);
+  const cursor = useRef<HistoryCursor | null>(null);
+  const generation = useRef(0);
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+  const merged = useRef<{ added: string[] } | null>(null);
+  const load = useCallback((): Promise<void> => {
+    const gen = generation.current;
+    return api.call("webscope.historyPage", filterRef.current, cursor.current, HISTORY_ROWS).then((page) => {
+      if (gen !== generation.current) return;
+      cursor.current = page.cursor;
+      const { rows: next, added } = mergeHistory(rowsRef.current ?? [], page, HISTORY_ROWS);
+      if (next === rowsRef.current) return;
+      merged.current = page.reset ? null : { added };
+      if (page.reset) setUnseen(new Set());
+      rowsRef.current = next;
+      setRows(next);
+    });
+  }, []);
   useEffect(() => {
-    const t = setTimeout(reload, 120);
+    const t = setTimeout(() => {
+      generation.current++;
+      cursor.current = null;
+      void load();
+    }, 120);
     return () => clearTimeout(t);
-  }, [reload]);
+  }, [filter, load]);
+  useLiveRefresh(["history"], () => (cursor.current ? load() : Promise.resolve()));
 
   // The highlighted row updates at once; the detail fills in when it arrives. A late reply for a
   // row the user already moved past is ignored.
@@ -174,7 +239,7 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
     setImportError(null);
     void file.text().then((text) => {
       try {
-        void api.call("webscope.importHar", JSON.parse(text)).then(reload);
+        void api.call("webscope.importHar", JSON.parse(text));
       } catch {
         setImportError(tx("That file is not valid JSON or HAR."));
       }
@@ -186,7 +251,6 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
       setSelected(null);
       setSelectedId(null);
       wanted.current = null;
-      reload();
     });
   };
 
@@ -208,6 +272,58 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
   const ROW_H = 27;
   const HEAD_H = 28;
   const vw = useVirtualRows(sorted.length, ROW_H);
+
+  // New traffic never moves the rows being read. At the top of the list new rows simply show up;
+  // scrolled down, the row at the top of the view stays put and new rows out of view are counted on
+  // the "new" button instead.
+  const ids = useMemo(() => sorted.map((r) => r.id), [sorted]);
+  const anchor = useRef<ScrollAnchor | null>(null);
+  const inView = (el: HTMLElement): [number, number] => {
+    const first = Math.floor(el.scrollTop / ROW_H);
+    return [first, first + Math.ceil(Math.max(0, el.clientHeight - HEAD_H) / ROW_H)];
+  };
+  useLayoutEffect(() => {
+    const el = vw.ref.current;
+    const live = merged.current;
+    merged.current = null;
+    if (!el) return;
+    if (live && anchor.current) {
+      const top = anchoredScrollTop(ids, anchor.current, ROW_H);
+      if (top !== null && Math.abs(top - el.scrollTop) >= 1) {
+        el.scrollTop = top;
+        vw.onScroll();
+      }
+      const [first, last] = inView(el);
+      const index = new Map(ids.map((id, i) => [id, i]));
+      const hidden = live.added.filter((id) => {
+        const i = index.get(id);
+        return i !== undefined && (i < first || i > last);
+      });
+      if (hidden.length > 0) setUnseen((u) => new Set([...u, ...hidden]));
+    }
+    anchor.current = scrollAnchor(ids, el.scrollTop, ROW_H);
+  }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onScroll = (): void => {
+    vw.onScroll();
+    const el = vw.ref.current;
+    if (!el) return;
+    anchor.current = scrollAnchor(ids, el.scrollTop, ROW_H);
+    if (unseen.size === 0) return;
+    const [first, last] = inView(el);
+    const seen = ids.slice(first, last + 1).filter((id) => unseen.has(id));
+    if (seen.length > 0) setUnseen((u) => new Set([...u].filter((id) => !seen.includes(id))));
+  };
+  const unseenCount = useMemo(() => (unseen.size === 0 ? 0 : ids.filter((id) => unseen.has(id)).length), [ids, unseen]);
+  const unseenIndex = unseenCount > 0 ? firstIndexOf(ids, unseen) : -1;
+  const unseenAbove = unseenIndex >= 0 && unseenIndex * ROW_H < (vw.ref.current?.scrollTop ?? 0);
+  const showUnseen = (): void => {
+    const el = vw.ref.current;
+    if (el && unseenIndex >= 0) {
+      el.scrollTop = unseenIndex * ROW_H;
+      onScroll();
+    }
+    setUnseen(new Set());
+  };
 
   // Up/Down step through the rows (with the detail following); Space marks the row for Compare.
   const onTableKey = (e: React.KeyboardEvent): void => {
@@ -235,7 +351,13 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
 
   const table = (
     <div className="ws-view-table">
-      <div className="ws-tablewrap" ref={vw.ref} onScroll={vw.onScroll} tabIndex={0} onKeyDown={onTableKey} aria-label={tx("Captured requests. Up and Down move the selection, Space marks for compare.")}>
+      {unseenCount > 0 && (
+        <button className="ws-unseen" onClick={showUnseen} style={{ top: HEAD_H + 8 }}>
+          {unseenAbove ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
+          {unseenCount === 1 ? tx("1 new") : tx("{n} new", { n: unseenCount })}
+        </button>
+      )}
+      <div className="ws-tablewrap" ref={vw.ref} onScroll={onScroll} tabIndex={0} onKeyDown={onTableKey} aria-label={tx("Captured requests. Up and Down move the selection, Space marks for compare.")}>
         <table className="ws-table">
           <thead>
             <tr>
@@ -784,22 +906,20 @@ function parseHeaders(text: string): HttpHeader[] {
     .filter((h): h is HttpHeader => h !== null && h.name.length > 0);
 }
 
-function InterceptView({ state, visible }: { state: WebScopeState; visible: boolean }) {
+function InterceptView({ state }: { state: WebScopeState }) {
   const [intercept, setIntercept] = useState<WebScopeInterceptState | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   // `forId` ties the editor contents to one held item, so switching items loads that item's request.
   const [edit, setEdit] = useState<{ forId: string; method: string; url: string; headers: string; body: string } | null>(null);
-  // Match filters are edited locally and sent after a short pause, so typing is never fighting the poll.
+  // Match filters are edited locally and sent after a short pause, so typing never fights live updates.
   const [matchDraft, setMatchDraft] = useState<{ host: string; method: string; path: string } | null>(null);
   const matchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const reload = useCallback(() => { void api.call("webscope.interceptState").then(setIntercept); }, []);
+  const reload = useCallback(() => api.call("webscope.interceptState").then(setIntercept), []);
   useEffect(() => {
-    if (!visible) return;
-    reload();
-    const t = setInterval(reload, 800);
-    return () => clearInterval(t);
-  }, [reload, visible]);
+    void reload();
+  }, [reload]);
+  useLiveRefresh(["intercept"], reload);
 
   const config = intercept?.config ?? { enabled: false, interceptRequests: true, interceptResponses: false };
   const queue = intercept?.queue ?? [];
@@ -858,7 +978,7 @@ function InterceptView({ state, visible }: { state: WebScopeState; visible: bool
   return (
     <div className="ws-view">
       <div className="ws-toolbar">
-        <label className="ws-toggle master"><input type="checkbox" checked={config.enabled} onChange={(e) => setConfig({ enabled: e.target.checked })} />{" "}{tx("Intercept")}{" "}{config.enabled ? "on" : "off"}</label>
+        <label className="ws-toggle master"><input type="checkbox" checked={config.enabled} onChange={(e) => setConfig({ enabled: e.target.checked })} />{" "}{config.enabled ? tx("Intercept on") : tx("Intercept off")}</label>
         <label className="ws-toggle"><input type="checkbox" checked={config.interceptResponses} disabled={!config.enabled} onChange={(e) => setConfig({ interceptResponses: e.target.checked })} />{" "}{tx("Hold responses")}</label>
         <div className="ws-spacer" />
         <div className="ws-tool-group" role="group" aria-label={tx("Match filters")}>
@@ -982,7 +1102,11 @@ function SitemapRows({ nodes, depth }: { nodes: SitemapNode[]; depth: number }) 
 
 function TargetView() {
   const [tree, setTree] = useState<SitemapNode[] | null>(null);
-  useEffect(() => { void api.call("webscope.sitemap").then(setTree); }, []);
+  const load = useCallback(() => api.call("webscope.sitemap").then(setTree), []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useLiveRefresh(["history"], load, REBUILD_GAP_MS);
   const total = tree?.reduce((n, h) => n + h.count, 0) ?? 0;
   return (
     <div className="ws-view">
@@ -1041,7 +1165,11 @@ function FindingCard({ group }: { group: FindingGroup }) {
 
 function FindingsView() {
   const [findings, setFindings] = useState<Finding[] | null>(null);
-  useEffect(() => { void api.call("webscope.findings").then(setFindings); }, []);
+  const load = useCallback(() => api.call("webscope.findings").then(setFindings), []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useLiveRefresh(["history"], load, REBUILD_GAP_MS);
 
   // Severity -> identical observations merged into one card listing where each was seen.
   const groups = useMemo(() => {
@@ -1348,7 +1476,7 @@ function ScopeStrip({ scope, onEdit }: { scope: Scope; onEdit: () => void }) {
   const hosts = scope.include.filter((e) => e.enabled && e.host.trim());
   return (
     <div className={`ws-scopestrip ${scope.enabled ? "armed" : "off"}`}>
-      <span className="ws-scope-label"><span className="ws-scope-dot" />{" "}{tx("Scope")}{" "}{scope.enabled ? "armed" : "off"}</span>
+      <span className="ws-scope-label"><span className="ws-scope-dot" />{" "}{scope.enabled ? tx("Scope armed") : tx("Scope off")}</span>
       <div className="ws-scope-chips">
         {!scope.enabled ? (
           <span className="ws-muted">{tx("Nothing is in scope. Arm a scope to capture, replay or fuzz.")}</span>
@@ -1376,60 +1504,185 @@ function downloadJson(data: unknown, name: string): void {
   URL.revokeObjectURL(a.href);
 }
 
-/** Save the scope, rules and (optionally) the captured traffic to a file, or open one. */
-function SessionPanel({ state, onOpened }: { state: WebScopeState; onOpened: () => void }) {
+const sessionFileName = (): string => `corvus-webscope-session-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.json`;
+
+/** Requests in a session file. */
+function sessionRequests(json: unknown): number {
+  const history = (json as { history?: unknown } | null)?.history;
+  return Array.isArray(history) ? history.length : 0;
+}
+
+const requestsAdded = (n: number): string => (n === 1 ? tx("1 request added to History. Review the scope, then arm it.") : tx("{n} requests added to History. Review the scope, then arm it.", { n }));
+
+interface SessionMessage {
+  kind: "ok" | "error";
+  title: string;
+  text: string;
+}
+
+/** Space the session popover keeps from the window edges. */
+const POPOVER_GUTTER = 12;
+
+/**
+ * Save the scope, rules and (optionally) the captured traffic to a file, or open one. A popover under
+ * the Session button; Escape or a click outside closes it.
+ */
+function SessionPanel({ state, anchor, onOpened, onClose }: { state: WebScopeState; anchor: HTMLElement | null; onOpened: () => void; onClose: () => void }) {
   const [includeHistory, setIncludeHistory] = useState(false);
-  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<SessionMessage | null>(null);
+  const [pending, setPending] = useState<{ name: string; json: unknown } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const place = (): void => {
+      const panel = panelRef.current;
+      if (!anchor || !panel) return;
+      const a = anchor.getBoundingClientRect();
+      const left = Math.max(POPOVER_GUTTER, Math.min(a.right - panel.offsetWidth, window.innerWidth - panel.offsetWidth - POPOVER_GUTTER));
+      setPos({ top: a.bottom + 6, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [anchor]);
+  useEffect(() => {
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      onClose();
+      anchor?.focus();
+    };
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node;
+      if (!panelRef.current?.contains(target) && !anchor?.contains(target)) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [anchor, onClose]);
+
+  const failed = (title: string) => (err: unknown) => setMessage({ kind: "error", title, text: errorMessage(err) });
 
   const save = (): void => {
     setMessage(null);
-    api.call("webscope.exportSession", includeHistory).then(
-      (session) => downloadJson(session, `corvus-webscope-session-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.json`),
-      (err: unknown) => setMessage({ kind: "error", text: errorMessage(err) }),
-    );
+    setBusy(true);
+    const file = sessionFileName();
+    api
+      .call("webscope.exportSession", includeHistory)
+      .then((session) => {
+        downloadJson(session, file);
+        const n = sessionRequests(session);
+        const text = !includeHistory ? tx("{file}, without captured traffic.", { file }) : n === 1 ? tx("{file}, with 1 request.", { file }) : tx("{file}, with {n} requests.", { file, n });
+        setMessage({ kind: "ok", title: tx("Session saved"), text });
+      }, failed(tx("Could not save the session")))
+      .finally(() => setBusy(false));
   };
-  const open = (file: File): void => {
+
+  const open = (json: unknown): void => {
+    setPending(null);
+    setBusy(true);
+    api
+      .call("webscope.importSession", json)
+      .then((res) => {
+        setMessage({ kind: "ok", title: tx("Session opened"), text: requestsAdded(res.history) });
+        onOpened();
+      }, failed(tx("Could not open the session")))
+      .finally(() => setBusy(false));
+  };
+
+  // Opening replaces the scope and rules, so when there are any the panel asks first.
+  const pick = (file: File): void => {
     setMessage(null);
-    const replacing = state.scope.include.length + state.scope.exclude.length + state.rules.matchReplace.length + state.rules.block.length + state.rules.hostOverride.length > 0;
-    if (replacing && !confirm(tx("Opening a session replaces the current scope and rules. Continue?"))) return;
     void file.text().then((text) => {
       let json: unknown;
       try {
         json = JSON.parse(text);
       } catch {
-        setMessage({ kind: "error", text: tx("That file is not valid JSON.") });
+        setMessage({ kind: "error", title: tx("Could not open the session"), text: tx("That file is not valid JSON.") });
         return;
       }
-      api.call("webscope.importSession", json).then(
-        (res) => {
-          setMessage({ kind: "ok", text: tx("Session opened: {n} requests added. Review the scope, then arm it.", { n: res.history }) });
-          onOpened();
-        },
-        (err: unknown) => setMessage({ kind: "error", text: errorMessage(err) }),
-      );
+      const replacing = state.scope.include.length + state.scope.exclude.length + state.rules.matchReplace.length + state.rules.block.length + state.rules.hostOverride.length > 0;
+      if (replacing) setPending({ name: file.name, json });
+      else open(json);
     });
   };
 
+  const n = state.historySize;
   return (
-    <div className="ws-session-panel">
-      <section className="ws-session-col">
-        <h3>{tx("Save session")}</h3>
-        <p>{tx("Saves the scope, rules and intercept filters to a file you can open later.")}</p>
-        <label className="ws-check"><input type="checkbox" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />{" "}{tx("Include captured traffic ({n} requests)", { n: state.historySize })}</label>
-        {includeHistory && <p className="ws-session-warn"><IconWarning size={13} />{" "}{tx("It can hold cookies, tokens and passwords you typed. Keep the file private.")}</p>}
-        <div><button className="btn small primary" onClick={save}>{tx("Save session")}</button></div>
+    <div className="ws-session" role="dialog" aria-label={tx("Session")} tabIndex={-1} ref={panelRef} style={pos ? { top: pos.top, left: pos.left } : { visibility: "hidden" }}>
+      <div className="ws-session-head">
+        <div>
+          <h2>{tx("Session")}</h2>
+          <p>{tx("Scope, rules and traffic last until Corvus closes. Keep them in a file.")}</p>
+        </div>
+        <button className="ws-session-close" onClick={onClose} aria-label={tx("Close")} title={tx("Close")}><IconClose size={14} /></button>
+      </div>
+
+      <section className="ws-session-card" aria-labelledby="ws-session-save">
+        <div className="ws-session-cardhead">
+          <span className="ws-session-icon"><IconDownload size={15} /></span>
+          <div>
+            <h3 id="ws-session-save">{tx("Save session")}</h3>
+            <p>{tx("Scope, rules and intercept filters, in a file you can open later.")}</p>
+          </div>
+        </div>
+        <label className="ws-session-option">
+          <input type="checkbox" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />
+          <span>{n === 1 ? tx("Include captured traffic (1 request)") : tx("Include captured traffic ({n} requests)", { n })}</span>
+        </label>
+        {includeHistory && (
+          <p className="ws-session-warn"><IconWarning size={13} /><span>{tx("It can hold cookies, tokens and passwords you typed. Keep the file private.")}</span></p>
+        )}
+        <div className="ws-session-actions">
+          <button className="btn small primary" onClick={save} disabled={busy}>{tx("Save to file")}</button>
+        </div>
       </section>
-      <section className="ws-session-col">
-        <h3>{tx("Open session")}</h3>
-        <p>{tx("Replaces the scope, rules and intercept filters and adds the saved traffic to History. The scope arrives disarmed so you can review it before arming it.")}</p>
-        <div><button className="btn small" onClick={() => fileRef.current?.click()}>{tx("Open session…")}</button></div>
-        <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) open(f); }} />
+
+      <section className="ws-session-card" aria-labelledby="ws-session-open">
+        <div className="ws-session-cardhead">
+          <span className="ws-session-icon"><IconFolder size={15} /></span>
+          <div>
+            <h3 id="ws-session-open">{tx("Open session")}</h3>
+            <p>{tx("Replaces the scope and rules and adds the saved traffic. The scope arrives disarmed.")}</p>
+          </div>
+        </div>
+        {pending ? (
+          <div className="ws-session-confirm" role="alert">
+            <p>{tx("Replace the current scope and rules with {file}?", { file: pending.name })}</p>
+            <div className="ws-session-actions">
+              <button className="btn small" onClick={() => setPending(null)}>{tx("Cancel")}</button>
+              <button className="btn small primary" onClick={() => open(pending.json)} disabled={busy}>{tx("Replace and open")}</button>
+            </div>
+          </div>
+        ) : (
+          <div className="ws-session-actions">
+            <button className="btn small" onClick={() => fileRef.current?.click()} disabled={busy}>{tx("Open file…")}</button>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) pick(f); }} />
       </section>
-      {message && <div className={`ws-session-msg ${message.kind}`} role="status">{message.text}</div>}
+
+      {message && (
+        <div className={`ws-session-msg ${message.kind}`} role="status">
+          {message.kind === "ok" ? <IconCheck size={14} /> : <IconWarning size={14} />}
+          <div>
+            <b>{message.title}</b>
+            <span>{message.text}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const sameCounters = (a: WebScopeCounters, b: WebScopeCounters): boolean =>
+  a.enabled === b.enabled && a.historySize === b.historySize && a.attachedTabs === b.attachedTabs && a.held === b.held;
 
 function App() {
   const [view, setView] = useState<View>("history");
@@ -1448,8 +1701,8 @@ function App() {
   }, [view]);
   const opened: ReadonlySet<View> = openedSet.has(view) ? openedSet : new Set([...openedSet, view]);
 
-  // Polled so the counts and scope strip stay live. Scope and rules keep their identity while
-  // unchanged, so the Scope and Rules editors do not lose unsaved edits on every poll.
+  // Scope and rules keep their identity while unchanged, so the Scope and Rules editors do not lose
+  // unsaved edits when something else changes.
   const reload = useCallback(() => {
     void api.call("webscope.state").then((next) =>
       setState((prev) => {
@@ -1457,12 +1710,23 @@ function App() {
         const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
         const scope = same(prev.scope, next.scope) ? prev.scope : next.scope;
         const rules = same(prev.rules, next.rules) ? prev.rules : next.rules;
-        const unchanged = scope === prev.scope && rules === prev.rules && prev.enabled === next.enabled && prev.historySize === next.historySize && prev.attachedTabs === next.attachedTabs;
+        const unchanged = scope === prev.scope && rules === prev.rules && sameCounters(prev, next);
         return unchanged ? prev : { ...next, scope, rules };
       }),
     );
   }, []);
-  useEffect(() => { reload(); const t = setInterval(reload, 2500); return () => clearInterval(t); }, [reload]);
+  useEffect(() => reload(), [reload]);
+  // Live: the counters come with every change event; scope and rules are fetched when they change.
+  useEffect(
+    () =>
+      onLive((event) => {
+        setState((prev) => (!prev || sameCounters(prev, event.counters) ? prev : { ...prev, ...event.counters }));
+        if (event.topics.includes("config")) reload();
+      }),
+    [reload],
+  );
+  const sessionButton = useRef<HTMLButtonElement>(null);
+  const closeSession = useCallback(() => setShowSession(false), []);
 
   const toggleEnabled = (): void => {
     if (!state) return;
@@ -1489,7 +1753,7 @@ function App() {
         <button className="ws-caution" onClick={() => setShowCaution((s) => !s)} aria-expanded={showCaution}>
           <IconWarning size={13} />{" "}{tx("Authorized testing only")}</button>
         <div className="ws-spacer" />
-        <button className={`ws-topbtn${showSession ? " on" : ""}`} onClick={() => setShowSession((s) => !s)} aria-expanded={showSession} disabled={!state}>
+        <button ref={sessionButton} className={`ws-topbtn${showSession ? " on" : ""}`} onClick={() => setShowSession((s) => !s)} aria-expanded={showSession} aria-haspopup="dialog" disabled={!state}>
           {tx("Session")}{showSession ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
         </button>
         <span className="ws-readout"><b>{state?.historySize ?? 0}</b>{" "}{tx("captured")}</span>
@@ -1503,7 +1767,7 @@ function App() {
         <div className="ws-caution-panel">
           <b>{tx("Authorized testing only.")}</b>{" "}{tx("Only capture, replay, intercept or fuzz systems you own or have explicit written permission to test. WebScope works on your own browser traffic and is gated to the scope allowlist.")}</div>
       )}
-      {showSession && state && <SessionPanel state={state} onOpened={() => { reload(); setView("scope"); }} />}
+      {showSession && state && <SessionPanel state={state} anchor={sessionButton.current} onClose={closeSession} onOpened={() => { reload(); setView("scope"); }} />}
       <nav className="ws-tabs" role="tablist" aria-label={tx("WebScope tools")}>
         {NAV_GROUPS.map((g, gi) => (
           <div className="ws-tabgroup" key={gi}>
@@ -1517,10 +1781,12 @@ function App() {
                   aria-selected={view === item.id}
                   tabIndex={view === item.id ? 0 : -1}
                   className={`ws-tab ${view === item.id ? "active" : ""}`}
+                  data-view={item.id}
                   onClick={() => setView(item.id)}
                   onKeyDown={(e) => onTabKey(e, idx)}
                 >
                   {item.label}
+                  {item.id === "intercept" && !!state?.held && <span className="ws-tab-count ws-held" title={tx("Held requests")}>{state.held}</span>}
                 </button>
               );
             })}
@@ -1533,9 +1799,9 @@ function App() {
           <div className="ws-view"><Loading label={tx("Starting WebScope")} /></div>
         ) : (
           <>
-            {/* Data views mount when shown, so they always load fresh data. */}
+            {/* Data views mount when shown and then follow live updates. */}
             {view === "history" && <HistoryView onRepeater={goRepeater} onFuzzer={goFuzzer} onCompare={goCompare} />}
-            {view === "intercept" && <InterceptView state={state} visible />}
+            {view === "intercept" && <InterceptView state={state} />}
             {view === "target" && <TargetView />}
             {view === "findings" && <FindingsView />}
             {view === "scope" && <ScopeView scope={state.scope} reload={reload} goBack={() => setView("history")} />}

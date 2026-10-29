@@ -120,6 +120,19 @@ export interface HistoryFilter {
   source?: HistorySource;
 }
 
+/** A reader's place in the history: `seq` grows with every add, `epoch` with every clear. */
+export interface HistoryCursor {
+  epoch: number;
+  seq: number;
+}
+
+/** History rows since a cursor; `reset` means `rows` replace everything the reader had. */
+export interface HistoryPage {
+  rows: HistorySummary[];
+  cursor: HistoryCursor;
+  reset: boolean;
+}
+
 // -------------------------------------------------------------------------- scope
 
 /**

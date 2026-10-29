@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/icon';
@@ -8,14 +8,22 @@ import { Elevation, Layout, Radius, Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
 
+/** On a wide screen (landscape, a tablet) a sheet keeps to the screens' column, centred at the bottom. */
+export function useSheetSides(): { left: number; right: number } {
+  const { width } = useWindowDimensions();
+  const side = Math.max(0, (width - Layout.maxWidth) / 2);
+  return { left: side, right: side };
+}
+
 /** A sheet from the bottom over a scrim (the browser's menu, its site panel); tapping outside closes it. */
 export function Sheet({ open, onClose, children, header, testID }: { open: boolean; onClose: () => void; children: ReactNode; header?: ReactNode; testID?: string }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const sides = useSheetSides();
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: theme.scrim }]} onPress={onClose} accessibilityLabel={t('Close')} />
-      <View style={[styles.sheet, { backgroundColor: theme.surfaceRaised, paddingBottom: insets.bottom + Space.sm }, Elevation.overlay]} accessibilityViewIsModal testID={testID}>
+      <View style={[styles.sheet, sides, { backgroundColor: theme.surfaceRaised, paddingBottom: insets.bottom + Space.sm }, Elevation.overlay]} accessibilityViewIsModal testID={testID}>
         <View style={[styles.grabber, { backgroundColor: theme.borderStrong }]} />
         {header}
         <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
@@ -26,7 +34,7 @@ export function Sheet({ open, onClose, children, header, testID }: { open: boole
   );
 }
 
-/** A row of a sheet: an icon, a label (and a line under it), something on the right. */
+/** A row of a sheet: an icon, a label (and a line under it, both shown in full), something on the right. */
 export function SheetRow({
   icon,
   label,
@@ -59,11 +67,11 @@ export function SheetRow({
       testID={testID}>
       <Icon name={icon} size={22} color={disabled ? theme.textDisabled : active ? theme.accentText : theme.textSecondary} />
       <View style={styles.grow}>
-        <ThemedText type="body" numberOfLines={1} style={disabled ? { color: theme.textDisabled } : undefined}>
+        <ThemedText type="body" style={disabled ? { color: theme.textDisabled } : undefined}>
           {label}
         </ThemedText>
         {detail ? (
-          <ThemedText type="small" themeColor="textSecondary" numberOfLines={3}>
+          <ThemedText type="small" themeColor="textSecondary">
             {detail}
           </ThemedText>
         ) : null}

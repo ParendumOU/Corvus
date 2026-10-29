@@ -11,7 +11,6 @@ import {
   portableAssetName,
   sha256For,
   swapScript,
-  updatedFileName,
   type PortableOffer,
   type ReleaseInfo,
 } from "../shared/portable-update";
@@ -24,15 +23,21 @@ export function portableExecutable(env: NodeJS.ProcessEnv = process.env, platfor
   return platform === "win32" && file ? file : null;
 }
 
+/** Where downloads wait for the restart: out of sight, not next to the copy (often on the desktop). */
+export function portableUpdateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(env.LOCALAPPDATA || os.tmpdir(), "corvus-portable-update");
+}
+
 /**
  * Updates the Windows portable build in place (see shared/portable-update.ts): finds the next
- * release, downloads its portable exe next to the running one, verifies its SHA-256 against the
- * release checksums, and on install swaps the files once Corvus has quit.
+ * release, downloads its portable exe, verifies its SHA-256 against the release checksums, and on
+ * install writes it into the running copy's own file once Corvus has quit.
  */
 export class PortableUpdater {
   constructor(
     private readonly exePath: string,
     private readonly fetchImpl: Fetch = fetch,
+    private readonly workDir: string = portableUpdateDir(),
   ) {}
 
   /** The offer for this channel, or null when this copy is current. A custom feed URL is a generic feed. */
@@ -71,9 +76,8 @@ export class PortableUpdater {
     ];
   }
 
-  /** Where the update is downloaded to: next to this copy, so the swap is a rename. */
   downloadPath(offer: PortableOffer): string {
-    return path.join(path.dirname(this.exePath), `${portableAssetName(offer.version)}.download`);
+    return path.join(this.workDir, `${portableAssetName(offer.version)}.download`);
   }
 
   /** Downloads and verifies the offered copy; returns its path. A copy that does not match is deleted. */
@@ -87,6 +91,7 @@ export class PortableUpdater {
     if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}).`);
     const total = Number(res.headers.get("content-length")) || 0;
     const target = this.downloadPath(offer);
+    fs.mkdirSync(this.workDir, { recursive: true });
     const hash = createHash("sha256");
     const out = fs.createWriteStream(target);
     let received = 0;
@@ -117,13 +122,14 @@ export class PortableUpdater {
   }
 
   /**
-   * Hands the swap to a detached cmd script and lets Corvus quit: the script waits for this process
-   * to exit, puts the new copy in place (renamed to its release name when this one has one) and
-   * starts it. Throws, before quitting, when this copy's location cannot be updated.
+   * Hands the update to a detached cmd script and lets Corvus quit: the script waits for this
+   * process to exit, writes the new version into this copy's own file and starts it. Throws, before
+   * quitting, when the download is gone or this copy's location cannot be updated.
    */
-  install(downloaded: string, version: string, quit: () => void, pid = process.pid): void {
-    const target = path.join(path.dirname(this.exePath), updatedFileName(path.basename(this.exePath), version));
-    const script = swapScript({ current: this.exePath, download: downloaded, target }, pid);
+  install(downloaded: string, quit: () => void, pid = process.pid): void {
+    if (!fs.existsSync(downloaded)) throw new Error("The downloaded update is gone. Download it again.");
+    const backup = path.join(this.workDir, `${path.basename(this.exePath)}.previous`);
+    const script = swapScript({ current: this.exePath, download: downloaded, backup }, pid);
     const file = path.join(os.tmpdir(), `corvus-update-${pid}.cmd`);
     fs.writeFileSync(file, script, "utf8");
     const child = spawn("cmd.exe", ["/d", "/c", file], { detached: true, stdio: "ignore", windowsHide: true });

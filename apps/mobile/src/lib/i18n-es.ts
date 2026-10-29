@@ -32,7 +32,10 @@ export const ES: Record<string, string> = {
   'Waiting for {computer} to open it · sent {when}': 'Esperando a que {computer} la abra · enviada {when}',
   Cancel: 'Cancelar',
   'Watch a page for changes or for a price to drop.': 'Vigila una página para saber si cambia o si baja un precio.',
-  '{n} watched · {changed} changed in the last day': '{n} vigiladas · {changed} cambiaron en el último día',
+  '1 watched': '1 vigilada',
+  '{n} watched': '{n} vigiladas',
+  '1 changed in the last day': '1 cambió en el último día',
+  '{n} changed in the last day': '{n} cambiaron en el último día',
   'Find a tab': 'Buscar una pestaña',
   'No tab matches “{query}”.': 'Ninguna pestaña coincide con «{query}».',
   'No open tabs from your computers yet. Corvus shares a computer’s open tabs while Sync is on there; pull down to refresh.':
@@ -136,6 +139,7 @@ export const ES: Record<string, string> = {
   'Mark read': 'Marcar como leído',
   'Nothing in your history matches “{query}”.': 'Nada en tu historial coincide con «{query}».',
   'No history from your computers yet.': 'Aún no hay historial de tus ordenadores.',
+  'Show more (1 left)': 'Mostrar más (queda 1)',
   'Show more ({n} left)': 'Mostrar más (quedan {n})',
   'Pair this phone with your computer to see your bookmarks and reading list here.':
     'Empareja este móvil con tu ordenador para ver aquí tus favoritos y tu lista de lectura.',

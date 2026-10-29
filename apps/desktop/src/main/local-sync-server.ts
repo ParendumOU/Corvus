@@ -74,21 +74,27 @@ export class LocalSyncServer {
       child.on("message", (msg) => {
         if (msg.type === "client") {
           this.current = { ...this.current, lastClient: { address: msg.address, at: msg.at } };
-        } else if (msg.type === "listening") {
-          clearTimeout(timer);
+          return;
+        }
+        // Stopped meanwhile: what it says now is about a server that is going away (its exit settles the start).
+        if (this.child !== child) return;
+        clearTimeout(timer);
+        if (msg.type === "listening") {
           this.current = { ...this.current, running: true, port: msg.port, error: null };
           settled = true;
           resolve(msg.port);
-        } else if (msg.type === "failed") {
-          clearTimeout(timer);
+        } else {
           child.kill();
           fail(msg.error);
         }
       });
       child.once("exit", (code) => {
         clearTimeout(timer);
-        if (this.child !== child) return;
-        fail(settled ? `The sync server stopped (code ${code})` : `The sync server could not start (code ${code})`);
+        if (this.child === child) fail(settled ? `The sync server stopped (code ${code})` : `The sync server could not start (code ${code})`);
+        else if (!settled) {
+          settled = true;
+          reject(new Error("The sync server was stopped while it started"));
+        }
       });
       child.postMessage({ type: "start", dbPath: this.dbPath, remembered });
     });

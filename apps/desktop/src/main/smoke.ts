@@ -196,6 +196,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runSettingsLayoutSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
+    if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
+      await runWebscopeSmoke(ctx, { url, win, check, capture });
+      return;
+    }
     await capture("chrome", win.chrome.webContents);
     await runFaviconSmoke(ctx, { url, win, check, capture });
     const pages: Array<[string, string]> = [

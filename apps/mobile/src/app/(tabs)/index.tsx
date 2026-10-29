@@ -18,7 +18,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Space } from '@/constants/theme';
 import { cancelSending, openReceived, refreshSession, useSession } from '@/hooks/use-session';
 import { useTheme } from '@/hooks/use-theme';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
 import { ago } from '@/lib/format';
 import { showBrowser, startBrowsing } from '@/lib/browser-nav';
 import { useBrowser } from '@/lib/browser-store';
@@ -165,7 +165,7 @@ function ComputerCard({ computer }: { computer: ComputerTabs }) {
         <ListHeader
           leading={<IconTile name="screen" />}
           title={computer.device}
-          subtitle={`${computer.tabs.length === 1 ? t('1 tab') : t('{n} tabs', { n: computer.tabs.length })} · ${t('updated {when}', { when: ago(computer.updatedAt) })}`}
+          subtitle={`${tn(computer.tabs.length, '1 tab', '{n} tabs')} · ${t('updated {when}', { when: ago(computer.updatedAt) })}`}
         />
       }>
       {computer.tabs.map((tab, i) => (
@@ -202,7 +202,8 @@ export default function HomeScreen() {
         <ListGroup testID="phone-tabs">
           <ListRow
             leading={<IconTile name="tabs" />}
-            title={phoneTabs.length === 1 ? t('1 tab open on this phone') : t('{n} tabs open on this phone', { n: phoneTabs.length })}
+            title={tn(phoneTabs.length, '1 tab open on this phone', '{n} tabs open on this phone')}
+            titleLines={2}
             subtitle={phoneTabs[phoneTabs.length - 1]?.title || tabHost(phoneTabs[phoneTabs.length - 1]?.url ?? '')}
             chevron
             onPress={showBrowser}
@@ -265,6 +266,7 @@ export default function HomeScreen() {
               leading={<IconTile name="send" />}
               title={page.title || page.url}
               subtitle={t('Waiting for {computer} to open it · sent {when}', { computer: deviceName(page.to), when: ago(page.sentAt) })}
+              subtitleLines={2}
               trailing={<Button label={t('Cancel')} kind="text" size="sm" onPress={() => void cancelSending(page.id)} testID={`outbox-cancel-${page.url}`} />}
               testID={`outbox-${page.url}`}
             />
@@ -278,6 +280,7 @@ export default function HomeScreen() {
             leading={<IconTile name="send" />}
             title={t('Send a page to your computer')}
             subtitle={t('It opens there on its next sync.')}
+            wrap
             chevron
             onPress={() => nav.push('/send')}
             testID="home-send"
@@ -288,9 +291,9 @@ export default function HomeScreen() {
             subtitle={
               session.watches.length === 0
                 ? t('Watch a page for changes or for a price to drop.')
-                : t('{n} watched · {changed} changed in the last day', { n: session.watches.length, changed })
+                : `${tn(session.watches.length, '1 watched', '{n} watched')} · ${tn(changed, '1 changed in the last day', '{n} changed in the last day')}`
             }
-            subtitleLines={2}
+            wrap
             chevron
             onPress={() => nav.push('/watches')}
             badge={changed > 0 ? <View style={[styles.dot, styles.flush, { backgroundColor: theme.accent }]} /> : undefined}

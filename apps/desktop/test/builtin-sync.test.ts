@@ -1,11 +1,17 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { chainServerAlternatives, chainServerMove, parseChainServer } from "@corvus/shared";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({}));
 
+import type { AppContext } from "../src/main/context";
 import { LocalSyncServer, type LocalServerReply, type LocalServerRequest, type ServerProcess } from "../src/main/local-sync-server";
 import { firewallVerdict, networkCategories, programRules } from "../src/main/network-help";
+import type { ProfileRuntime } from "../src/main/profiles";
+import { SyncService } from "../src/main/sync-service";
 import { ownChainServer, reviveSyncState, type ProfileSyncState } from "../src/main/sync-state";
 
 const defaults = (): ProfileSyncState => ({
@@ -195,5 +201,81 @@ describe("LocalSyncServer", () => {
   it("gives up when the process never answers", async () => {
     const server = new LocalSyncServer("/p/sync.db", () => new FakeProcess(() => undefined), 20);
     await expect(server.start(null)).rejects.toThrow(/did not start/);
+  });
+
+  it("stopped while it starts: the start fails, even when the process still says it listens", async () => {
+    let proc: FakeProcess | undefined;
+    const server = new LocalSyncServer("/p/sync.db", () => (proc = new FakeProcess(() => undefined)));
+    const starting = server.start(null);
+    const stopping = server.stop();
+    proc!.reply({ type: "listening", port: 8797 });
+    proc!.emit("exit", 0);
+    await stopping;
+    await expect(starting).rejects.toThrow(/stopped/);
+    expect(server.status).toMatchObject({ running: false, port: null, error: null });
+  });
+});
+
+describe("SyncService and the built-in server", () => {
+  const PROFILE_ID = "p1";
+  const PHRASE = `${"abandon ".repeat(23)}art`;
+  const cipher = { isEncryptionAvailable: () => false, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() };
+
+  /** A profile whose built-in server process only answers when the test says so. */
+  function setup(state?: Partial<ProfileSyncState>) {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-builtin-sync-"));
+    if (state) fs.writeFileSync(path.join(dataDir, "sync.json"), JSON.stringify(state));
+    const profile = { profile: { id: PROFILE_ID }, dataDir } as unknown as ProfileRuntime;
+    const ctx = {
+      profiles: { list: () => [{ id: PROFILE_ID, syncChainId: null }], loaded: () => [profile] },
+      settings: { onChange: () => () => undefined },
+    } as unknown as AppContext;
+    const procs: FakeProcess[] = [];
+    let asked: () => void = () => undefined;
+    const startAsked = new Promise<void>((resolve) => (asked = resolve));
+    const sync = new SyncService(ctx, cipher, "http://localhost:8797", () => {
+      const proc = new FakeProcess((msg, self) => {
+        if (msg.type === "start") asked();
+        else self.emit("exit", 0);
+      });
+      procs.push(proc);
+      return proc;
+    });
+    const cleanup = (): void => {
+      sync.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    };
+    return { sync, profile, procs, startAsked, cleanup };
+  }
+
+  /** The background watcher runs a round while the server is still starting; it must leave it running. */
+  async function watcherRoundWhileStarting(t: ReturnType<typeof setup>): Promise<void> {
+    await t.startAsked;
+    t.sync.start();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.procs.map((p) => p.sent.map((m) => m.type))).toEqual([["start"]]);
+    t.procs[0]!.reply({ type: "failed", error: "test over" });
+  }
+
+  it("turning sync on: the watcher does not stop the server sync is turning on with", async () => {
+    const t = setup();
+    try {
+      const turningOn = t.sync.enable(t.profile, { mode: "local", phrase: PHRASE, deviceName: "pc" });
+      await watcherRoundWhileStarting(t);
+      await expect(turningOn).rejects.toThrow(/test over/);
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it("moving the chain to this computer: the watcher does not stop the server it moves to", async () => {
+    const t = setup({ enabled: true, mode: "custom", serverUrl: "https://sync.example.org", phrase: { enc: false, data: PHRASE } });
+    try {
+      const moving = t.sync.moveChain(t.profile, { mode: "local" });
+      await watcherRoundWhileStarting(t);
+      await expect(moving).rejects.toThrow(/test over/);
+    } finally {
+      t.cleanup();
+    }
   });
 });

@@ -3,7 +3,8 @@ import { WebScopeEngine as Engine } from "@corvus/webscope";
 import { app, webContents as allWebContents, type Session, type WebContents } from "electron";
 import type { ProfileId } from "@corvus/shared";
 import type { CapturedRequest, InterceptConfig, InterceptEdit } from "@corvus/webscope";
-import type { WebScopeInterceptState, WebScopeState } from "../shared/webscope-ipc";
+import type { WebScopeCounters, WebScopeInternalEvent, WebScopeInterceptState, WebScopeState } from "../shared/webscope-ipc";
+import { ChangeCoalescer, type WebScopeTopic } from "../shared/webscope-live";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
 
@@ -37,13 +38,18 @@ async function cookieHeader(session: Session, url: string): Promise<string | und
   }
 }
 
+/** Open WebScope pages hear about changes at most four times a second, however heavy the traffic. */
+const LIVE_INTERVAL_MS = 250;
+
 /**
  * Attaches a WebScope capture engine to the active profile's browsing when enabled in settings.
  * One engine per profile; the CDP source is each tab's webContents debugger. Scope is enforced by the
- * engine, so capturing everything here is safe — out-of-scope traffic is just recorded as such.
+ * engine, so capturing everything here is safe - out-of-scope traffic is just recorded as such.
+ * Engine changes are batched per profile and pushed to that profile's open corvus://webscope pages.
  */
 export class WebScopeService {
   private readonly engines = new Map<ProfileId, WebScopeEngine>();
+  private readonly live = new Map<ProfileId, ChangeCoalescer<WebScopeTopic>>();
   private readonly detachers = new Map<WebContents, () => void>();
 
   constructor(private readonly ctx: AppContext) {
@@ -66,8 +72,28 @@ export class WebScopeService {
         cookieProvider: (url) => cookieHeader(profile.session, url),
       });
       this.engines.set(profile.profile.id, engine);
+      const live = new ChangeCoalescer<WebScopeTopic>((topics) => this.publish(profile, topics), LIVE_INTERVAL_MS);
+      engine.onChange((change) => live.push(change));
+      this.live.set(profile.profile.id, live);
     }
     return engine;
+  }
+
+  private counters(engine: WebScopeEngine): WebScopeCounters {
+    return { enabled: this.enabled, historySize: engine.history.size(), attachedTabs: this.detachers.size, held: engine.interceptQueue().length };
+  }
+
+  /** Tells the profile's open WebScope pages what changed, with the command bar figures. */
+  private publish(profile: ProfileRuntime, topics: WebScopeTopic[]): void {
+    const engine = this.engines.get(profile.profile.id);
+    if (!engine) return;
+    const event: WebScopeInternalEvent = { type: "webscope-changed", topics, counters: this.counters(engine) };
+    for (const win of this.ctx.windows.forProfile(profile.profile.id)) win.notifyInternalPages(event, ["webscope"]);
+  }
+
+  /** Capture went on or off, or a tab attached or closed: the counts on every page moved. */
+  private captureChanged(): void {
+    for (const live of this.live.values()) live.push("capture");
   }
 
   /** The engine for the focused window's profile, or null when WebScope is off. Used by the MCP tools. */
@@ -107,9 +133,11 @@ export class WebScopeService {
         // ignore
       }
       this.detachers.delete(wc);
+      this.captureChanged();
     };
     wc.once("destroyed", cleanup);
     this.detachers.set(wc, cleanup);
+    this.captureChanged();
   }
 
   /** Reconcile attachments with the current setting. */
@@ -119,24 +147,19 @@ export class WebScopeService {
     } else {
       for (const cleanup of [...this.detachers.values()]) cleanup();
     }
+    this.captureChanged();
   }
 
   setEnabled(enabled: boolean): WebScopeState {
     this.ctx.settings.update({ webscope: { enabled } });
     this.apply();
     const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
-    return window ? this.state(window.profile) : { enabled, scope: this.emptyState().scope, rules: this.emptyState().rules, historySize: 0, attachedTabs: this.detachers.size };
+    return window ? this.state(window.profile) : { enabled, scope: this.emptyState().scope, rules: this.emptyState().rules, historySize: 0, attachedTabs: this.detachers.size, held: 0 };
   }
 
   state(profile: ProfileRuntime): WebScopeState {
     const engine = this.engineFor(profile);
-    return {
-      enabled: this.enabled,
-      scope: engine.getScope(),
-      rules: engine.getRules(),
-      historySize: engine.history.size(),
-      attachedTabs: this.detachers.size,
-    };
+    return { ...this.counters(engine), scope: engine.getScope(), rules: engine.getRules() };
   }
 
   private activeProfileEngine(): WebScopeEngine | null {
@@ -175,5 +198,6 @@ export class WebScopeService {
   stop(): void {
     for (const cleanup of [...this.detachers.values()]) cleanup();
     for (const engine of this.engines.values()) engine.detachAll();
+    for (const live of this.live.values()) live.dispose();
   }
 }

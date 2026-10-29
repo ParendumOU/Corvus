@@ -5,14 +5,13 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PortableUpdater, portableExecutable } from "../src/main/portable-updater";
+import { PortableUpdater, portableExecutable, portableUpdateDir } from "../src/main/portable-updater";
 import {
   compareVersions,
   fromGitHubRelease,
   pickPortableUpdate,
   sha256For,
   swapScript,
-  updatedFileName,
   type ReleaseInfo,
 } from "../src/shared/portable-update";
 
@@ -70,31 +69,30 @@ describe("portable update rules", () => {
     expect(sha256For(sums, "Corvus-Setup-0.4.2.exe")).toBeNull();
   });
 
-  it("names the updated copy after its release unless the person renamed it", () => {
-    expect(updatedFileName("Corvus-Portable-0.4.1.exe", "0.4.2")).toBe("Corvus-Portable-0.4.2.exe");
-    expect(updatedFileName("corvus-portable-0.4.1.exe", "0.5.0-beta.1")).toBe("Corvus-Portable-0.5.0-beta.1.exe");
-    expect(updatedFileName("Corvus.exe", "0.4.2")).toBe("Corvus.exe");
-  });
-
-  it("writes a swap script that waits for Corvus, keeps the old copy on failure and refuses unsafe paths", () => {
+  it("writes a script that waits for Corvus, writes the new version into the same file and keeps the old one on failure", () => {
     const script = swapScript(
       {
         current: "C:\\Program Files (x86)\\Corvus\\Corvus-Portable-0.4.1.exe",
-        download: "C:\\Program Files (x86)\\Corvus\\Corvus-Portable-0.4.2.exe.download",
-        target: "C:\\Program Files (x86)\\Corvus\\Corvus-Portable-0.4.2.exe",
+        download: "C:\\Users\\Ana\\AppData\\Local\\corvus-portable-update\\Corvus-Portable-0.4.2.exe.download",
+        backup: "C:\\Users\\Ana\\AppData\\Local\\corvus-portable-update\\Corvus-Portable-0.4.1.exe.previous",
       },
       4321,
     );
     expect(script).toContain("setlocal EnableDelayedExpansion");
     expect(script).toContain('set "CURRENT=C:\\Program Files (x86)\\Corvus\\Corvus-Portable-0.4.1.exe"');
     expect(script).toContain('tasklist /fi "PID eq 4321" 2>nul | find "4321" >nul || goto replace');
-    expect(script).toContain('move /y "!CURRENT!.old" "!CURRENT!" >nul 2>&1');
+    // The file keeps its name, place and identity: its bytes are rewritten, it is never moved.
+    expect(script).not.toMatch(/\b(move|ren|rename)\b/i);
+    expect(script).toContain('copy /y /b "!CURRENT!" "!BACKUP!" >nul 2>&1 || goto start');
+    expect(script).toContain('  copy /y /b "!DOWNLOAD!" "!CURRENT!" >nul 2>&1 && goto check');
+    expect(script).toContain('copy /y /b "!BACKUP!" "!CURRENT!" >nul 2>&1');
+    expect(script).toContain('start "" "!CURRENT!"');
     // Paths only ever appear through delayed expansion inside ( ... ) blocks.
-    expect(script.split("\r\n").filter((l) => l.startsWith("  ")).some((l) => l.includes("%CURRENT%") || l.includes("%TARGET%"))).toBe(false);
+    expect(script.split("\r\n").filter((l) => l.startsWith("  ")).some((l) => /%(CURRENT|DOWNLOAD|BACKUP)%/.test(l))).toBe(false);
     for (const bad of ["C:\\a\\100%\\x.exe", 'C:\\a\\"x.exe', "relative\\x.exe", "C:\\a\\x!.exe", "C:\\a&b\\x.exe"]) {
-      expect(() => swapScript({ current: bad, download: "C:\\d.download", target: "C:\\t.exe" }, 1)).toThrow(/Cannot update/);
+      expect(() => swapScript({ current: bad, download: "C:\\d.download", backup: "C:\\b.previous" }, 1)).toThrow(/Cannot update/);
     }
-    expect(() => swapScript({ current: "C:\\c.exe", download: "C:\\d.download", target: "C:\\t.exe" }, 0)).toThrow(/process id/);
+    expect(() => swapScript({ current: "C:\\c.exe", download: "C:\\d.download", backup: "C:\\b.previous" }, 0)).toThrow(/process id/);
   });
 
   it("knows the portable build by the launcher's variable, on Windows only", () => {
@@ -131,20 +129,32 @@ describe("PortableUpdater", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("checks a self-hosted feed, downloads next to the copy and verifies the checksum", async () => {
-    const updater = new PortableUpdater(path.join(dir, "Corvus-Portable-0.4.1.exe"));
+  it("checks a self-hosted feed, downloads out of the copy's folder and verifies the checksum", async () => {
+    const updater = new PortableUpdater(path.join(dir, "Corvus-Portable-0.4.1.exe"), fetch, path.join(dir, "updates"));
     const offer = await updater.check("stable", "0.4.1", base);
     expect(offer?.version).toBe("0.4.9");
     sums = `${good} *Corvus-Portable-0.4.9.exe\n`;
     const progress: number[] = [];
     const file = await updater.download(offer!, (p) => progress.push(p));
-    expect(file).toBe(path.join(dir, "Corvus-Portable-0.4.9.exe.download"));
+    expect(file).toBe(path.join(dir, "updates", "Corvus-Portable-0.4.9.exe.download"));
     expect(fs.readFileSync(file).equals(body)).toBe(true);
     expect(progress.at(-1)).toBe(100);
   });
 
+  it("keeps downloads in the local app data folder", () => {
+    expect(portableUpdateDir({ LOCALAPPDATA: path.join(dir, "Local") })).toBe(path.join(dir, "Local", "corvus-portable-update"));
+    expect(portableUpdateDir({})).toBe(path.join(os.tmpdir(), "corvus-portable-update"));
+  });
+
+  it("does not quit when the downloaded update is gone", () => {
+    const updater = new PortableUpdater(path.join(dir, "Corvus-Portable-0.4.1.exe"), fetch, path.join(dir, "updates"));
+    let quit = false;
+    expect(() => updater.install(path.join(dir, "updates", "missing.download"), () => (quit = true))).toThrow(/gone/);
+    expect(quit).toBe(false);
+  });
+
   it("deletes a download that does not match its checksum", async () => {
-    const updater = new PortableUpdater(path.join(dir, "Corvus-Portable-0.4.1.exe"));
+    const updater = new PortableUpdater(path.join(dir, "Corvus-Portable-0.4.1.exe"), fetch, path.join(dir, "updates"));
     const offer = (await updater.check("stable", "0.4.1", base))!;
     sums = `${"0".repeat(64)} *Corvus-Portable-0.4.9.exe\n`;
     fs.rmSync(updater.downloadPath(offer), { force: true });

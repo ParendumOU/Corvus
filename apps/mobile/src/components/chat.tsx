@@ -12,6 +12,7 @@ import { AnswerText } from '@/components/answer-text';
 import { Button } from '@/components/button';
 import { Favicon } from '@/components/favicon';
 import { CorvusMark, Icon, type IconName } from '@/components/icon';
+import { useSheetSides } from '@/components/sheet';
 import { ThemedText } from '@/components/themed-text';
 import { Elevation, Layout, Radius, Space, Type } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -344,10 +345,11 @@ export function ComputerSheet({
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const sides = useSheetSides();
   return (
     <Modal visible={open} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={[styles.scrim, { backgroundColor: theme.scrim }]} onPress={onClose} accessibilityLabel={t('Close')} />
-      <View style={[styles.sheet, { backgroundColor: theme.surfaceRaised, paddingBottom: insets.bottom + Space.lg }, Elevation.overlay]} accessibilityViewIsModal>
+      <View style={[styles.sheet, sides, { backgroundColor: theme.surfaceRaised, paddingBottom: insets.bottom + Space.lg }, Elevation.overlay]} accessibilityViewIsModal>
         <View style={[styles.grabber, { backgroundColor: theme.borderStrong }]} />
         <ThemedText type="title" style={styles.sheetTitle}>
           {t('Who answers')}
@@ -372,7 +374,7 @@ export function ComputerSheet({
                 <ThemedText type="bodyStrong" numberOfLines={1}>
                   {c.name}
                 </ThemedText>
-                <ThemedText type="small" style={{ color: online ? theme.success : theme.textSecondary }} numberOfLines={1}>
+                <ThemedText type="small" style={{ color: online ? theme.success : theme.textSecondary }}>
                   {online ? t('Corvus is open · {platform}', { platform: platformName(c.platform) }) : t('Last seen {when} · {platform}', { when: ago(c.lastSeen, now), platform: platformName(c.platform) })}
                 </ThemedText>
               </View>

@@ -1,6 +1,7 @@
 /**
- * IPC contract for the corvus://webscope security workbench. Merged into InternalRpc in ./ipc.ts.
- * All types come from @corvus/webscope so the renderer and the engine stay in lockstep.
+ * IPC contract for the corvus://webscope security workbench. Merged into InternalRpc and
+ * InternalEvent in ./ipc.ts. All types come from @corvus/webscope so the renderer and the engine stay
+ * in lockstep.
  */
 import type {
   AuditEntry,
@@ -10,8 +11,10 @@ import type {
   Finding,
   FuzzerConfig,
   HashAlg,
+  HistoryCursor,
   HistoryEntry,
   HistoryFilter,
+  HistoryPage,
   HistorySummary,
   InterceptConfig,
   InterceptEdit,
@@ -23,19 +26,34 @@ import type {
   RuleSet,
   Scope,
 } from "@corvus/webscope";
+import type { WebScopeTopic } from "./webscope-live";
 
-export interface WebScopeState {
+/** The figures in the command bar and the Intercept tab badge. */
+export interface WebScopeCounters {
   enabled: boolean;
-  scope: Scope;
-  rules: RuleSet;
   historySize: number;
   attachedTabs: number;
+  /** Requests and responses held by Intercept right now. */
+  held: number;
+}
+
+export interface WebScopeState extends WebScopeCounters {
+  scope: Scope;
+  rules: RuleSet;
+}
+
+/** Pushed to open WebScope pages a few times a second at most while anything changes. */
+export interface WebScopeInternalEvent {
+  type: "webscope-changed";
+  topics: WebScopeTopic[];
+  counters: WebScopeCounters;
 }
 
 export interface WebScopeRpc {
   "webscope.state"(): WebScopeState;
   "webscope.setEnabled"(enabled: boolean): WebScopeState;
   "webscope.history"(filter: HistoryFilter, limit: number): HistorySummary[];
+  "webscope.historyPage"(filter: HistoryFilter, since: HistoryCursor | null, limit: number): HistoryPage;
   "webscope.detail"(id: string): HistoryEntry | null;
   "webscope.clearHistory"(): void;
   "webscope.getScope"(): Scope;
