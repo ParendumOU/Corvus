@@ -24,6 +24,16 @@ public final class ConsentKitModule: Module {
         ConsentKit.shared.configure(enabled: consent, allowedSites: sites.map { $0.lowercased() })
       }
     }
+
+    // Settings, Browser, "Clear cookies and site data": every site's cookies, storage and cache in
+    // the data store react-native-webview's WebViews use (the default one), as Android's module does.
+    AsyncFunction("clearBrowsingData") { (promise: Promise) in
+      DispatchQueue.main.async {
+        WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {
+          promise.resolve(true)
+        }
+      }
+    }
   }
 }
 

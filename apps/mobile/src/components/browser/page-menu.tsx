@@ -35,6 +35,7 @@ export function PageMenu({
   paired,
   bookmarked,
   desktop,
+  canDesktop,
   canFind,
   canBlock,
   blockingHere,
@@ -47,6 +48,8 @@ export function PageMenu({
   paired: boolean;
   bookmarked: boolean;
   desktop: boolean;
+  /** The desktop site can be asked for (Android, with a desktop user agent; iOS has none yet). */
+  canDesktop: boolean;
   /** Find in page is available (Android). */
   canFind: boolean;
   /** This phone blocks ads and trackers (Android) and blocking is on. */
@@ -99,7 +102,7 @@ export function PageMenu({
           <SheetRow icon="share" label={t('Share')} onPress={() => onAction('share')} testID="menu-share" />
           {canFind ? <SheetRow icon="search" label={t('Find in page')} onPress={() => onAction('find')} testID="menu-find" /> : null}
           {Platform.OS === 'android' ? <SheetRow icon="external" label={t('Open in…')} detail={t('Another browser, or send or keep the link')} onPress={() => onAction('open-in')} testID="menu-open-in" /> : null}
-          <SheetRow icon="monitor" label={t('Desktop site')} onPress={() => onAction('desktop')} trailing={<MenuSwitch value={desktop} onChange={() => onAction('desktop')} label={t('Desktop site')} />} testID="menu-desktop" />
+          {canDesktop ? <SheetRow icon="monitor" label={t('Desktop site')} onPress={() => onAction('desktop')} trailing={<MenuSwitch value={desktop} onChange={() => onAction('desktop')} label={t('Desktop site')} />} testID="menu-desktop" /> : null}
           {canBlock ? (
             <SheetRow
               icon={blockingHere ? 'shieldCheck' : 'shieldOff'}

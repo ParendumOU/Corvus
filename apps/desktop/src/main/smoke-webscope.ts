@@ -2,7 +2,7 @@ import { WebScopeEngine } from "@corvus/webscope";
 import { nativeTheme } from "electron";
 import type { AppContext } from "./context";
 import { narrowWindow } from "./smoke-pairing";
-import type { BrowserWindowCtl } from "./window";
+import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 type Check = (name: string, ok: boolean, detail?: unknown) => void;
 type Capture = (name: string, wc: Electron.WebContents) => Promise<void>;
@@ -12,7 +12,8 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * WebScope end-to-end: enable capture, scope the local smoke host, capture a real request over CDP,
  * replay it from Node, run a small in-scope fuzz, then open the workbench and check that History, the
  * counters, Target, Findings and Intercept follow new local traffic live, screenshot every tool in
- * light and dark, and check the Session popover in English and Spanish.
+ * light and dark, and check the header from a 480 px page up and the Session popover in English and
+ * Spanish.
  */
 export async function runWebscopeSmoke(
   ctx: AppContext,
@@ -219,6 +220,8 @@ export async function runWebscopeSmoke(
       await showView("intercept");
       await capture(`webscope-intercept-${theme}`, wc);
     }
+    // The header with the held request counted on the Intercept tab.
+    await runHeaderSmoke(ctx, { win, page, check, capture, js, poll, click });
     for (const q of ctx.webscope.interceptState().queue) await ctx.webscope.interceptForward(q.id, null);
     await ctx.webscope.setInterceptConfig({ enabled: false, interceptRequests: true, interceptResponses: false });
 
@@ -230,6 +233,114 @@ export async function runWebscopeSmoke(
 
   ctx.settings.update({ webscope: { enabled: false } });
   ctx.webscope.apply();
+}
+
+/** Page widths the header is checked at: WebScope in a split pane or a small window, up to a wide one. */
+const HEADER_WIDTHS = [480, 520, 640, 800, 1280];
+
+interface HeaderAudit {
+  width: number;
+  /** Width the top bar's items take, spacer aside: how much room is left. */
+  topbar: number;
+  /** Items outside the page or their row, overlapping, with text cut off or broken over lines, or with neither text nor tooltip. */
+  problems: string[];
+}
+
+const HEADER_AUDIT = `(() => {
+  const problems = [];
+  let topbar = 0;
+  const name = (el) => el.getAttribute('class') + ' "' + el.textContent.trim().slice(0, 24) + '"';
+  const inside = (r, box) => r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+  for (const row of document.querySelectorAll('.ws-topbar, .ws-tabs, .ws-scopestrip')) {
+    const box = row.getBoundingClientRect();
+    if (!inside(box, { left: 0, right: innerWidth, top: 0, bottom: innerHeight })) problems.push('outside the page: ' + name(row));
+    const items = row.matches('.ws-tabs') ? [...row.querySelectorAll('.ws-tab')] : [...row.children].filter((el) => !el.matches('.ws-spacer') && el.getClientRects().length > 0);
+    if (row.matches('.ws-topbar')) {
+      const style = getComputedStyle(row);
+      topbar = Math.round(items.reduce((w, el) => w + el.getBoundingClientRect().width, 0) + parseFloat(style.columnGap) * (row.children.length - 1) + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight));
+    }
+    items.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      if (!inside(r, box)) problems.push('clipped: ' + name(el));
+      for (const other of items.slice(i + 1)) {
+        const o = other.getBoundingClientRect();
+        if (Math.min(r.right, o.right) - Math.max(r.left, o.left) > 1 && Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top) > 1) problems.push('overlaps: ' + name(el) + ' / ' + name(other));
+      }
+      let shown = '';
+      const texts = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let node = texts.nextNode(); node; node = texts.nextNode()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lines = new Set([...range.getClientRects()].filter((l) => l.width > 0).map((l) => Math.round(l.top)));
+        if (!node.textContent.trim() || lines.size === 0) continue;
+        shown += node.textContent;
+        if (lines.size > 1) problems.push('broken over lines: ' + name(el));
+        if (!inside(range.getBoundingClientRect(), r)) problems.push('text cut off: ' + name(el));
+      }
+      if (!shown.trim() && !el.title && !el.getAttribute('aria-label')) problems.push('neither text nor tooltip: ' + name(el));
+    });
+  }
+  return { width: innerWidth, topbar, problems };
+})()`;
+
+/**
+ * The header (top bar, tool tabs with the held count on Intercept, scope strip) from a split pane to
+ * a wide window, in English and Spanish, light and dark: nothing outside the page, clipped,
+ * overlapping or broken over lines, and the Session popover fits the narrowest page.
+ */
+async function runHeaderSmoke(
+  ctx: AppContext,
+  {
+    win,
+    page,
+    check,
+    capture,
+    js,
+    poll,
+    click,
+  }: {
+    win: BrowserWindowCtl;
+    page: TabRuntime;
+    check: Check;
+    capture: Capture;
+    js: <T>(script: string) => Promise<T>;
+    poll: <T>(script: string, done: (value: T) => boolean, ms?: number) => Promise<T>;
+    click: (script: string) => Promise<void>;
+  },
+): Promise<void> {
+  const wc = page.view.webContents;
+  const setWidth = async (width: number): Promise<void> => {
+    page.view.setBounds({ ...page.view.getBounds(), width });
+    await delay(400);
+  };
+  for (const language of ["en", "es"] as const) {
+    ctx.settings.update({ appearance: { language } });
+    wc.reload();
+    await poll<boolean>("Boolean(document.querySelector('.ws-tab .ws-held') && !document.querySelector('.ws-topbtn').disabled)", Boolean);
+    for (const width of HEADER_WIDTHS) {
+      await setWidth(width);
+      for (const theme of ["light", "dark"] as const) {
+        nativeTheme.themeSource = theme;
+        await delay(400);
+        if (theme === "light") {
+          const audit = await js<HeaderAudit>(HEADER_AUDIT);
+          check(`webscope header (${language}, ${width} px): nothing clipped, overlapping or broken over lines`, audit.width === width && audit.problems.length === 0, audit);
+        }
+        await capture(`webscope-header-${language}-${width}-${theme}`, wc);
+      }
+    }
+    const narrowest = HEADER_WIDTHS[0]!;
+    await setWidth(narrowest);
+    nativeTheme.themeSource = "light";
+    await delay(400);
+    await click("document.querySelector('.ws-topbtn').click()");
+    const session = await poll<SessionPanelAudit | null>(SESSION_AUDIT, (a) => a !== null);
+    check(`webscope Session popover (${language}) fits a ${narrowest} px page`, !!session && session.width === narrowest && session.placed && session.aligned && session.fits, session);
+    await capture(`webscope-header-${language}-${narrowest}-session`, wc);
+    await click("document.querySelector('.ws-topbtn').click()");
+    win.relayout();
+    await delay(300);
+  }
 }
 
 interface SessionPanelAudit {

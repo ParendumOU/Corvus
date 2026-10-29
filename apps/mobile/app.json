@@ -2,25 +2,26 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.9.0",
+    "version": "0.10.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.parendum.corvus.mobile",
-      "buildNumber": "11",
+      "buildNumber": "12",
       "icon": "./assets/images/icon.png",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
+        "ITSAppUsesNonExemptEncryption": true,
+        "CFBundleLocalizations": ["en", "es"],
         "NSLocalNetworkUsageDescription": "Corvus connects to the sync server on your computer or home network to pair and sync.",
         "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": false, "NSAllowsLocalNetworking": true }
       }
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 11,
+      "versionCode": 12,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -46,6 +47,9 @@
         "com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE"
       ]
     },
+    "locales": {
+      "es": "./locales/es.json"
+    },
     "web": {
       "output": "single",
       "favicon": "./assets/images/favicon.png"
@@ -60,7 +64,7 @@
           "imageWidth": 120
         }
       ],
-      "expo-secure-store",
+      ["expo-secure-store", { "faceIDPermission": false }],
       [
         "expo-camera",
         {
@@ -84,6 +88,8 @@
       "./plugins/with-web-pages",
       "./plugins/with-third-party-notices",
       "./plugins/with-edge-to-edge",
+      "./plugins/with-splash-exit",
+      "./plugins/with-system-theme",
       "./plugins/with-large-screens",
       "./plugins/with-text-focus",
       "./plugins/with-r8-rules"

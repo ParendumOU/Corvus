@@ -1737,6 +1737,10 @@ function App() {
   const goFuzzer = (e: HistoryEntry): void => { setFuzzSeed(e); setFuzzNonce((n) => n + 1); setView("fuzzer"); };
   const goCompare = (ids: string[]): void => { setCompareIds(ids); setView("comparer"); };
 
+  const captured = state?.historySize ?? 0;
+  const tabs = state?.attachedTabs ?? 0;
+  const tabsLabel = `${tx("tab")}${tabs === 1 ? "" : "s"}`;
+
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const onTabKey = (e: React.KeyboardEvent, idx: number): void => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
@@ -1750,14 +1754,14 @@ function App() {
     <div className="ws-root">
       <header className="ws-topbar">
         <div className="ws-brand"><IconShield size={17} /> <b>{tx("WebScope")}</b></div>
-        <button className="ws-caution" onClick={() => setShowCaution((s) => !s)} aria-expanded={showCaution}>
-          <IconWarning size={13} />{" "}{tx("Authorized testing only")}</button>
+        <button className="ws-caution" onClick={() => setShowCaution((s) => !s)} aria-expanded={showCaution} title={tx("Authorized testing only")}>
+          <IconWarning size={13} /><span>{tx("Authorized testing only")}</span></button>
         <div className="ws-spacer" />
         <button ref={sessionButton} className={`ws-topbtn${showSession ? " on" : ""}`} onClick={() => setShowSession((s) => !s)} aria-expanded={showSession} aria-haspopup="dialog" disabled={!state}>
           {tx("Session")}{showSession ? <IconChevronUp size={13} /> : <IconChevronDown size={13} />}
         </button>
-        <span className="ws-readout"><b>{state?.historySize ?? 0}</b>{" "}{tx("captured")}</span>
-        <span className="ws-readout"><b>{state?.attachedTabs ?? 0}</b>{" "}{tx("tab")}{state?.attachedTabs === 1 ? "" : "s"}</span>
+        <span className="ws-readout" title={`${captured} ${tx("captured")}`}><b>{captured}</b>{" "}<span>{tx("captured")}</span></span>
+        <span className="ws-readout" title={`${tabs} ${tabsLabel}`}><b>{tabs}</b>{" "}<span>{tabsLabel}</span></span>
         <label className={`ws-capture${state?.enabled ? " on" : ""}`}>
           <span>{tx("Capture")}</span>
           <button className={`toggle ${state?.enabled ? "on" : ""}`} onClick={toggleEnabled} role="switch" aria-checked={!!state?.enabled} aria-label={tx("Capture traffic")}><span className="knob" /></button>

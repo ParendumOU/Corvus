@@ -32,7 +32,6 @@ import {
 } from '@corvus/shared';
 import { createSyncClient, type CorvusSyncClient } from '@corvus/sync-core';
 import * as Crypto from 'expo-crypto';
-import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import { myAsks } from '@/lib/asks';
@@ -43,6 +42,7 @@ import { Outbox } from '@/lib/outbox';
 import { isUnreachable, needsServerMessage } from '@/lib/reach';
 import type { Progress } from '@/lib/refresh';
 import { Replica } from '@/lib/replica';
+import { secrets } from '@/lib/secrets';
 import { mergeVisit, retitled } from '@/lib/visits';
 import { watchFor } from '@/lib/watches';
 import { t } from './i18n';
@@ -62,19 +62,6 @@ export interface Pairing extends PairingInfo {
   deviceName: string;
   pairedAt: number;
 }
-
-const secrets =
-  Platform.OS === 'web'
-    ? {
-        get: (key: string) => AsyncStorage.getItem(key),
-        set: (key: string, value: string) => AsyncStorage.setItem(key, value),
-        remove: (key: string) => AsyncStorage.removeItem(key),
-      }
-    : {
-        get: (key: string) => SecureStore.getItemAsync(key),
-        set: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-        remove: (key: string) => SecureStore.deleteItemAsync(key),
-      };
 
 const syncState: SyncStateStorage = {
   get: async (key) => (await AsyncStorage.getItem(key)) ?? undefined,

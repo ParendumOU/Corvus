@@ -119,7 +119,7 @@ export default function LicensesScreen() {
         notices ? (
           <EmptyState icon="search" description={t('No package matches “{query}”.', { query })} compact />
         ) : (
-          <EmptyState icon="info" description={t('The list of third-party licences ships with the Android app.')} compact testID="licenses-missing" />
+          <EmptyState icon="info" description={t('This build of the app does not include the list of third-party licences.')} compact testID="licenses-missing" />
         )
       }
       renderSectionHeader={({ section }) => (

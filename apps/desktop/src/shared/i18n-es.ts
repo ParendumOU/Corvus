@@ -640,8 +640,8 @@ export const ES: Record<string, string> = {
   "Delete sync chain": "Eliminar la cadena de sincronización",
   "Deletes all synced data from the server and signs out every device. Local data on each device is kept.":
     "Borra del servidor todos los datos sincronizados y desconecta todos los dispositivos. Los datos locales de cada dispositivo se conservan.",
-  Type: "Escribe",
-  "to confirm.": "para confirmar.",
+  Type: "Tipo",
+  "To confirm, type": "Para confirmar, escribe",
   "Deleting…": "Eliminando…",
   "Delete chain and all synced data": "Eliminar la cadena y todos los datos sincronizados",
   "Last synced {when}": "Última sincronización: {when}",

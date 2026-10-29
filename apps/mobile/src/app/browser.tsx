@@ -412,6 +412,7 @@ export default function BrowserScreen() {
           paired={paired}
           bookmarked={bookmarked}
           desktop={!!tab.desktop}
+          canDesktop={AGENTS !== null}
           canFind={blocks && rt?.viewTag != null}
           canBlock={blocks && browser.prefs.blocking}
           blockingHere={blockingHere}

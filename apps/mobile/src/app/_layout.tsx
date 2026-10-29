@@ -54,7 +54,8 @@ export default function RootLayout() {
           headerTitleStyle: { fontSize: 20, fontWeight: '600', color: theme.text },
           contentStyle: { backgroundColor: theme.background },
         }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        {/* Its title is what iOS's back button reads in the screens opened from the tabs (not "(tabs)"). */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Corvus' }} />
         <Stack.Screen name="pair" options={{ presentation: 'modal', title: t('Pair with a computer') }} />
         <Stack.Screen name="send" options={{ presentation: 'modal', title: t('Save or send a page') }} />
         <Stack.Screen name="open" options={{ presentation: 'modal', title: t('Open link') }} />

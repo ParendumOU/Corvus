@@ -10,6 +10,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { classifyAddress, displayAddress, type SearchEngine } from '@/lib/address';
+import { useBlockingStatus } from '@/lib/content-blocking';
 import { t } from '@/lib/i18n';
 import { tabHost } from '@/lib/replica';
 import { suggest, type Suggestion } from '@/lib/suggest';
@@ -40,6 +41,8 @@ export function StartPage({
   onSearch: () => void;
 }) {
   const theme = useTheme();
+  // Only the Android app blocks ads and trackers: elsewhere the hint does not promise it.
+  const blocks = useBlockingStatus().supported;
   const rows = useMemo(() => suggest(draft, { tabs, bookmarks, history }), [draft, tabs, bookmarks, history]);
   const tiles = useMemo(() => bookmarks.filter((b) => b.parentId === BAR_FOLDER_ID && b.kind === 'bookmark' && b.url).sort((a, b) => a.position - b.position).slice(0, 8), [bookmarks]);
   const recent = useMemo(() => history.slice(0, 6), [history]);
@@ -102,7 +105,7 @@ export function StartPage({
             <View style={styles.hint}>
               <Icon name="globe" size={36} color={theme.textTertiary} />
               <ThemedText type="small" themeColor="textSecondary" style={styles.center}>
-                {t('Search with {engine} or type a web address. Ads and trackers are blocked, and nothing you browse leaves the phone except what you sync.', { engine: engine.name })}
+                {t(blocks ? 'Search with {engine} or type a web address. Ads and trackers are blocked, and nothing you browse leaves the phone except what you sync.' : 'Search with {engine} or type a web address. Nothing you browse leaves the phone except what you sync.', { engine: engine.name })}
               </ThemedText>
             </View>
           ) : null}

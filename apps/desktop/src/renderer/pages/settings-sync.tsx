@@ -481,7 +481,7 @@ function DangerZone({ onStatus }: { onStatus: (s: SyncStatus) => void }) {
       {open && (
         <div className="stack sync-wipe">
           <label className="small">
-            {t("Type")} <strong>{WIPE_WORD}</strong> {t("to confirm.")}
+            {t("To confirm, type")} <strong>{WIPE_WORD}</strong>
           </label>
           <div className="field-row">
             <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={WIPE_WORD} spellCheck={false} />

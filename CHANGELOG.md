@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.32.0
+
+### WebScope
+- **Fits a narrow page** (WebScope in a split, or a small window, from about 480 px wide): the tool tabs wrap onto a second row by group instead of running off the edge, the "Authorized testing only" pill keeps just its warning icon, and the captured and tab counts keep just their numbers, with the words in a tooltip. The Capture switch and the Session button stay in view, nothing breaks over lines in English or Spanish, and wide windows look as before. In the dark theme, the corner where a table's two scrollbars meet is no longer a white square.
+- In Spanish, History's Type filter and column read "Tipo" instead of "Escribe".
+
+### Corvus for mobile
+- Android: the app no longer opens now and then with a black band across the top and everything pushed down a little, until you closed it. It happened when the phone was busy as Corvus started (often right after an update): Android's splash screen and the app's start-up got in each other's way.
+- Android: Corvus now always follows the phone's dark mode when you come back to it. If dark mode turned on or off while Corvus was in the background (for example on a schedule) and Android reopened the app's screen from scratch, as it does after a language change or to free memory, Corvus kept the old colours until you closed it.
+- iPhone: the app is in Spanish on an iPhone set to Spanish (it showed English, since iOS gave it an English locale), and the start page of a new tab no longer says ads and trackers are blocked, which only the Android app does. "Clear cookies and site data" now clears them on iPhone too (it only said so), and the page menu no longer offers "Desktop site" there, where it changed nothing. The back button of screens opened from the tabs (an Assist chat, Watched pages) reads "Corvus" instead of "(tabs)". The licences screen no longer mentions Android, and the app no longer carries an unused Face ID permission text.
+- iPhone: the camera and local network permission prompts are in Spanish on an iPhone set to Spanish. Notifications of sent and watched pages no longer need the iPhone unlocked: the check behind them could not read your pairing while the iPhone was locked, which is when iOS runs it most. Your pairing now stays on this iPhone only, so a backup restored to another iPhone no longer brings it along (pair the new one). Nothing to do after updating: the app keeps its pairing.
+
 ## v0.31.0
 
 ### WebScope

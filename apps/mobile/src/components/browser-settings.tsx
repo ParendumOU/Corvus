@@ -14,7 +14,7 @@ import { allowCookieBanner, allowSite, clearLocalHistory, setBrowserPrefs, useBr
 import { refreshLists, useBlockingStatus } from '@/lib/content-blocking';
 import { ago } from '@/lib/format';
 import { t } from '@/lib/i18n';
-import { BrowserKit, ConsentKit } from '../../modules/browser-kit';
+import { ConsentKit } from '../../modules/browser-kit';
 
 function PrefSwitch({ value, onChange, label }: { value: boolean; onChange: (on: boolean) => void; label: string }) {
   const theme = useTheme();
@@ -52,7 +52,7 @@ export function BrowserSettings() {
       destructive: true,
     });
     if (!ok) return;
-    await BrowserKit?.clearBrowsingData().catch(() => false);
+    await ConsentKit?.clearBrowsingData().catch(() => false);
     await clearLocalHistory();
     showToast(t('Cookies and site data cleared'));
   };

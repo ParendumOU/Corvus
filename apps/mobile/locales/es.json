@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Corvus usa la cámara para escanear el código de emparejamiento que Corvus muestra en tu ordenador.",
+    "NSLocalNetworkUsageDescription": "Corvus se conecta al servidor de sincronización de tu ordenador o de tu red de casa para emparejar y sincronizar."
+  }
+}

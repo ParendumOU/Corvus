@@ -392,22 +392,20 @@ textarea.input {
 }
 
 /* ---- tool tabs ---- */
+/* Groups that do not fit wrap onto another row, so every tool stays in view. */
 .ws-tabs {
   display: flex;
-  align-items: stretch;
+  flex-wrap: wrap;
   gap: 0;
-  height: 38px;
   padding: 0 10px;
   background: var(--ws-chrome);
   border-bottom: 1px solid var(--border);
   flex: none;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
 }
 .ws-tabgroup {
   display: flex;
   align-items: stretch;
+  height: 38px;
 }
 .ws-tabgroup:not(:last-child)::after {
   content: "";
@@ -468,6 +466,38 @@ textarea.input {
   color: var(--ws-signal);
   background: var(--ws-signal-soft);
   font-weight: 600;
+}
+
+/* ---- narrow pages (WebScope in a split or a small window) ---- */
+/* The caution pill keeps its icon and the counters their numbers, with the words in tooltips; the
+   tool tabs tighten and their groups are set apart by space, as they may wrap. */
+@media (max-width: 880px) {
+  .ws-caution {
+    width: 24px;
+    padding: 0;
+    justify-content: center;
+  }
+  .ws-caution span {
+    display: none;
+  }
+  .ws-tabs {
+    column-gap: 14px;
+  }
+  .ws-tabgroup:not(:last-child)::after {
+    display: none;
+  }
+  .ws-tab {
+    padding: 0 8px;
+  }
+}
+@media (max-width: 620px) {
+  .ws-topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+  .ws-readout span {
+    display: none;
+  }
 }
 
 /* ---- scope strip ---- */
@@ -1868,7 +1898,8 @@ span.ws-tree-twist:hover {
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 

@@ -83,9 +83,11 @@ interface BrowserKitNative {
 
 export const BrowserKit = requireOptionalNativeModule<BrowserKitNative>('CorvusBrowserKit');
 
-/** Cookie banners: configurePrivacy and onConsent, the same on Android and iOS. */
+/** Cookie banners (configurePrivacy, onConsent) and clearing the sites' data, the same on Android and iOS. */
 export interface ConsentKitNative {
   configurePrivacy(consent: boolean, gpc: boolean, consentAllowedSites: string[]): void;
+  /** Forgets cookies, site storage and the cache of every site. */
+  clearBrowsingData(): Promise<boolean>;
   addListener(event: 'onConsent', listener: BrowserKitEvents['onConsent']): EventSubscription;
 }
 
