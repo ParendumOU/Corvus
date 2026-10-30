@@ -15,6 +15,15 @@ allprojects { project ->
   if (project.projectDir.canonicalPath.startsWith(modules)) {
     project.layout.buildDirectory.set(new File(project.rootDir, "build/corvus-modules/${project.name}"))
   }
+  // React Native's JavaScript bundle task leaves node_modules out of its inputs, so a change of the
+  // npm packages alone (the lockfile, a patch in patches/) kept the bundle of the previous build.
+  project.tasks.configureEach { task ->
+    if (task.name ==~ /createBundle.*JsAndAssets/) {
+      def repo = new File(project.rootDir, '../../..')
+      task.inputs.file(new File(repo, 'pnpm-lock.yaml')).withPropertyName('corvusLockfile')
+      task.inputs.dir(new File(repo, 'patches')).withPropertyName('corvusPatches')
+    }
+  }
   if (System.getenv('CCACHE_DIR')) {
     ['com.android.application', 'com.android.library'].each { id ->
       project.plugins.withId(id) { project.extensions.getByName('androidComponents').finalizeDsl(compileThroughCcache) }

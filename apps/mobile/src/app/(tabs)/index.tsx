@@ -23,6 +23,7 @@ import { ago } from '@/lib/format';
 import { showBrowser, startBrowsing } from '@/lib/browser-nav';
 import { useBrowser } from '@/lib/browser-store';
 import { openInApp, openInBrowser } from '@/lib/open-url';
+import { unreachableNote } from '@/lib/reach';
 import { filterTabs, tabHost, type ComputerTabs } from '@/lib/replica';
 import { changedRecently } from '@/lib/watches';
 import { nav } from '@/lib/nav';
@@ -234,7 +235,7 @@ export default function HomeScreen() {
       )}
 
       {session.error && <Banner tone="error" message={session.error} testID="home-error" />}
-      {session.unreachable && <Banner tone="info" icon="laptop" message={session.unreachable} testID="home-unreachable" />}
+      {session.unreachable && <Banner tone="info" icon="laptop" message={unreachableNote(session.unreachable)} testID="home-unreachable" />}
 
       {paired && session.inbox.length > 0 && (
         <View style={styles.section}>

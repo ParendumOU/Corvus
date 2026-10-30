@@ -63,6 +63,7 @@ import { checkScript, fillScript, focusScript, selectScript } from "./element-sc
 import type { PageDialogs } from "./page-dialogs";
 import { extractScript, findScript, htmlScript, textScript, waitProbeScript } from "./read-scripts";
 import { TabLogs } from "./tab-logs";
+import { pageOf, pageUrl } from "./tab-page";
 import { captureTab, dragBetween, hoverAt, mouseClickAt, pressKeys, scrollAt, typeTextPaced } from "./visual-input";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -115,9 +116,10 @@ function downloadFilename(url: string, disposition: string | null): string {
   return "download";
 }
 
-function waitForLoad(wc: WebContents, timeoutMs = LOAD_TIMEOUT_MS): Promise<void> {
+/** Waits for the page to stop loading; at once when it is gone (its tab closed). */
+function waitForLoad(wc: WebContents | null, timeoutMs = LOAD_TIMEOUT_MS): Promise<void> {
   return new Promise((resolve) => {
-    if (wc.isDestroyed()) return resolve();
+    if (!wc || wc.isDestroyed()) return resolve();
     let started = wc.isLoading();
     const done = (): void => {
       clearTimeout(timer);
@@ -154,6 +156,11 @@ function urlMatches(url: string, pattern: string): boolean {
 function scriptResult<T>(value: T | { error: string }): T {
   if (value && typeof value === "object" && "error" in value && typeof (value as { error: unknown }).error === "string") throw new AgentError((value as { error: string }).error);
   return value as T;
+}
+
+/** The tab closed under the call (by the person, or its page closed itself). */
+function tabClosed(id: TabId): AgentError {
+  return new AgentError(`Tab ${id} is closed`);
 }
 
 /** Scripts and input wait behind an open alert/confirm: the agent reads it in page_snapshot first. */
@@ -217,8 +224,8 @@ export class Controller implements BrowserController {
     const problem = tab.certError;
     if (!problem) return;
     if (certs === "refuse" || problem.block) throw new CertificateError(certAgentError(problem.code, problem.host, problem.block));
-    window.proceedPastCertError(tab);
-    await waitForLoad(tab.view.webContents);
+    if (!window.proceedPastCertError(tab)) throw tabClosed(tab.id);
+    await waitForLoad(pageOf(tab.view));
     certs.proceeded(problem.host, problem.code);
     // Another error now (the site changed its certificate meanwhile): that one is not accepted.
     const again = tab.certError;
@@ -228,8 +235,8 @@ export class Controller implements BrowserController {
   /** The tab's page, when agents may use it; "block" refuses while the page waits on a dialog. */
   private readable(id: TabId, dialogs: "block" | "allow" = "block"): { window: BrowserWindowCtl; tab: TabRuntime; wc: WebContents } {
     const found = this.locate(id);
-    const wc = found.tab.view.webContents;
-    if (wc.isDestroyed()) throw new AgentError(`Tab ${id} is closed`);
+    const wc = pageOf(found.tab.view);
+    if (!wc) throw tabClosed(id);
     if (!isAgentAllowedUrl(wc.getURL() || found.tab.url)) throw new AgentError("Agents cannot access this page");
     const dialog = dialogs === "block" ? this.dialogs.pending(wc) : null;
     if (dialog) throw dialogBlocked(dialog);
@@ -238,15 +245,17 @@ export class Controller implements BrowserController {
 
   private touch(window: BrowserWindowCtl, id: TabId): void {
     window.markAgent(id);
-    const tab = window.getTab(id);
-    if (tab) {
-      this.logs.watch(tab.view.webContents);
-      this.dialogs.watch(tab.view.webContents);
+    const wc = pageOf(window.getTab(id)?.view);
+    if (wc) {
+      this.logs.watch(wc);
+      this.dialogs.watch(wc);
     }
   }
 
   /** Runs a page script; ends early when the page opens a dialog (the script waits behind it). */
   private exec<T>(wc: WebContents, code: string): Promise<T> {
+    // Its tab closed while the call waited (an approval, the pointer moving to its target).
+    if (wc.isDestroyed()) return Promise.reject(new AgentError("The tab was closed"));
     const dialog = this.dialogs.pending(wc);
     if (dialog) return Promise.reject(dialogBlocked(dialog));
     const run = timeout(wc.executeJavaScriptInIsolatedWorld(AGENT_WORLD_ID, [{ code }]) as Promise<T>, EVALUATE_TIMEOUT_MS, "Page script timed out");
@@ -296,9 +305,12 @@ export class Controller implements BrowserController {
     const target = this.agentUrl(url);
     const { window, tab } = this.locate(id);
     this.touch(window, id);
-    await this.ctx.agents.beforeAction(window, id, tab.view.webContents, { kind: "navigate", url: target });
+    const page = pageOf(tab.view);
+    if (!page) throw tabClosed(id);
+    await this.ctx.agents.beforeAction(window, id, page, { kind: "navigate", url: target });
+    if (!window.hasTab(id)) throw tabClosed(id);
     window.loadUrl(id, target);
-    await waitForLoad(tab.view.webContents);
+    await waitForLoad(pageOf(tab.view));
     await this.certGate(window, tab, certs);
     return window.toTab(tab);
   }
@@ -307,7 +319,7 @@ export class Controller implements BrowserController {
     const { window, tab } = this.locate(id);
     this.touch(window, id);
     window.goBack(id);
-    await waitForLoad(tab.view.webContents);
+    await waitForLoad(pageOf(tab.view));
     await this.certGate(window, tab);
   }
 
@@ -315,7 +327,7 @@ export class Controller implements BrowserController {
     const { window, tab } = this.locate(id);
     this.touch(window, id);
     window.goForward(id);
-    await waitForLoad(tab.view.webContents);
+    await waitForLoad(pageOf(tab.view));
     await this.certGate(window, tab);
   }
 
@@ -323,7 +335,7 @@ export class Controller implements BrowserController {
     const { window, tab } = this.locate(id);
     this.touch(window, id);
     window.reload(id);
-    await waitForLoad(tab.view.webContents);
+    await waitForLoad(pageOf(tab.view));
     await this.certGate(window, tab);
   }
 
@@ -508,7 +520,7 @@ export class Controller implements BrowserController {
     this.touch(window, id);
     let host = "";
     try {
-      host = new URL(tab.view.webContents.getURL() || tab.url).host;
+      host = new URL(pageUrl(tab)).host;
     } catch {
       host = "";
     }
@@ -608,7 +620,7 @@ export class Controller implements BrowserController {
   /** Waits until the tab finishes loading (or the timeout passes), then returns it. */
   async waitForLoad(id: TabId, timeoutMs = LOAD_TIMEOUT_MS): Promise<Tab> {
     const { window, tab } = this.locate(id);
-    await waitForLoad(tab.view.webContents, Math.max(100, Math.min(WAIT_MAX_MS, timeoutMs)));
+    await waitForLoad(pageOf(tab.view), Math.max(100, Math.min(WAIT_MAX_MS, timeoutMs)));
     return window.toTab(tab);
   }
 
@@ -667,7 +679,7 @@ export class Controller implements BrowserController {
     let idleSince: number | null = null;
     let detail = "";
     for (;;) {
-      if (wc.isDestroyed()) throw new AgentError(`Tab ${id} is closed`);
+      if (wc.isDestroyed()) throw tabClosed(id);
       const url = wc.getURL();
       const missing: string[] = [];
       if (condition.url && !urlMatches(url, condition.url)) missing.push("url");

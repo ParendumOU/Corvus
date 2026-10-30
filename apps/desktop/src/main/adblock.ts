@@ -56,6 +56,7 @@ import { FilterSet, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
 import { elementPickerScript, pickedFilter } from "./adblock-picker";
 import { JsonFile } from "./json-file";
 import { paths } from "./paths";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 /** Isolated world of the "Hide this element" picker. */
@@ -411,8 +412,8 @@ export class AdblockService {
    * once. Resolves with the rule, or null when the picker was cancelled.
    */
   async pickElement(win: BrowserWindowCtl, tab: TabRuntime, at?: { x: number; y: number }): Promise<string | null> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return null;
+    const wc = pageOf(tab.view);
+    if (!wc) return null;
     const url = wc.getURL();
     const host = hostFromUrl(url) ?? "";
     const controller = this.controllerFor(wc.session);

@@ -10,6 +10,7 @@ import { reviveSession } from "../shared/session-state";
 import type { AppContext } from "./context";
 import { parseLists } from "./adblock-lists";
 import { SiteSettingsStore } from "./site-settings";
+import { waitForInternalPage, waitForPage } from "./smoke-wait";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 const FIND_PAGE = `<!doctype html><html><head><title>Find</title></head><body>
@@ -481,16 +482,16 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   await containerSmoke(ctx, win, { site, url, check, capture, chromeHas });
 
   const adblockSettings = win.createTab("corvus://settings/#adblock");
-  await sleep(1500);
-  check("settings adblock section", (await adblockSettings.view.webContents.executeJavaScript("Boolean(document.querySelector('#adblock'))")) === true);
+  const adblockShown = await waitForInternalPage(adblockSettings.view.webContents, "#adblock");
+  check("settings adblock section", adblockShown.ok, adblockShown.detail);
   await capture("settings-adblock", adblockSettings.view.webContents);
   win.closeTab(adblockSettings.id);
   win.closeTab(adTab.id);
 
   // ------------------------------------------------------------------ settings: site permissions
   const settings = win.createTab("corvus://settings/#site-permissions");
-  await sleep(1500);
-  check("settings site permissions list", (await settings.view.webContents.executeJavaScript("document.querySelectorAll('.site-entry').length")) >= 1);
+  const sitesShown = await waitForInternalPage(settings.view.webContents, ".site-entry");
+  check("settings site permissions list", sitesShown.ok, sitesShown.detail);
   await capture("settings-site-permissions", settings.view.webContents);
   win.closeTab(settings.id);
 
@@ -609,7 +610,7 @@ async function containerSmoke(
   check("containers: removing a container closes its tabs and deletes its cookies", !win.getTab(tempTab.id) && left.length === 0, { left: left.length });
 
   const settings = win.createTab("corvus://settings/#containers");
-  await sleep(1500);
+  await waitForPage(settings.view.webContents, `document.querySelectorAll('#containers .container-row').length >= ${profile.containers.list().length}`);
   const rows = (await settings.view.webContents.executeJavaScript("document.querySelectorAll('#containers .container-row').length")) as number;
   check("containers: settings lists the containers", rows === profile.containers.list().length && rows >= 4, rows);
   await capture("settings-containers", settings.view.webContents);

@@ -102,6 +102,8 @@ for (const dir of roots) {
     .map((f) => ({ file: f, text: fs.readFileSync(path.join(dir, f), "utf8").slice(0, MAX_TEXT).trim() }));
   const repo = typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url;
   const copyleft = isAllowedLicense(licenseOf(pkg)) ? null : acceptedCopyleft(pkg.name, pkg.version);
+  // Licence files a reviewed package keeps next to the code it ships rather than at its root.
+  for (const file of copyleft?.files ?? []) texts.push({ file, text: fs.readFileSync(path.join(dir, file), "utf8").slice(0, MAX_TEXT).trim() });
   packages.set(key, {
     name: pkg.name,
     version: pkg.version,

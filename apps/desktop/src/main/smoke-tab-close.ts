@@ -2,12 +2,13 @@ import http from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
 import type { WebContents } from "electron";
-import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
-import { NEW_TAB_URL, isNewTabUrl } from "../shared/internal-urls";
+import type { AgentModelProvider, AgentTurnRequest, AnswerProvider, ProviderEvent, TurnEvent } from "@corvus/ai-engine";
+import { NEW_TAB_URL, internalPageOf, isNewTabUrl } from "../shared/internal-urls";
 import type { WindowState } from "../shared/ipc";
 import { displayUrl, searchQueryOf } from "../shared/omnibox";
 import type { AppContext } from "./context";
 import { selfSignedCert } from "./smoke-assist";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 interface Helpers {
@@ -82,20 +83,48 @@ function loopProvider(url: string): AgentModelProvider {
   };
 }
 
+/** A readable page in another language: Corvus probes it for reader mode, offers to translate it, indexes and annotates it. */
+const ARTICLE = `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Raben</title></head><body><article><h1>Raben</h1>${Array.from(
+  { length: 8 },
+  (_, i) =>
+    `<p>Raben gehören zu den klügsten Vögeln der Welt (Absatz ${i + 1}). Sie lösen Rätsel, merken sich Gesichter und planen für die Zukunft. In vielen Geschichten begleiten sie Götter und Reisende, und in Städten lernen sie schnell, wo es etwas zu fressen gibt.</p>`,
+).join("")}</article></body></html>`;
+
+/** An AI provider that answers slowly (about two seconds), so a summary or a translation is still under way when its tab closes. */
+function slowProvider(): AnswerProvider {
+  return {
+    kind: "anthropic-api",
+    model: "claude-haiku-5-5",
+    async *answer(req): AsyncGenerator<ProviderEvent> {
+      for (let i = 0; i < 40; i++) {
+        if (req.signal?.aborted) return;
+        await sleep(50);
+        yield { type: "delta", text: `Zeile ${i + 1}\n` };
+      }
+      yield { type: "usage", inputTokens: 100, outputTokens: 40, model: "claude-haiku-5-5" };
+    },
+  };
+}
+
 /**
  * Closing tabs never leaves the chrome UI behind (tabs that stay on the strip after they closed, an
  * address bar stuck on an old page): tabs in every state (internal pages, certificate errors, crashed,
  * asleep, not loaded yet, a page dialog or permission prompt open, split, agent run, pinned, grouped,
  * private window, container, pages that close themselves or their popups) are closed every way the
  * person can (active and background, close others and to the right, the strip's close and middle
- * click, Ctrl+W, the page's window.close()). After each step the window's state builds and can be sent,
- * no error was thrown in the main process, and the strip and the address bar show the window's tabs.
+ * click, Ctrl+W, the page's window.close()), also while work runs in them (a reader probe, a translation, a
+ * summary, an agent step, a page watch check) and from a page menu left open. After each step the
+ * window's state builds and can be sent, no error was thrown in the main process, and the strip and
+ * the address bar show the window's tabs.
  */
 export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }: Helpers): Promise<void> {
   const server = http.createServer((req, res) => {
     const path = (req.url ?? "/").split("?")[0] ?? "/";
     const name = decodeURIComponent((req.url ?? "").split("?")[1] ?? "") || path.slice(1) || "home";
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page(`Close ${name}`));
+    const send = (html: string): void => void res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(html);
+    if (path === "/article") send(ARTICLE);
+    else if (path === "/slow") setTimeout(() => send(page("Close slow")), 2500);
+    else send(page(`Close ${name}`));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
@@ -397,6 +426,106 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
       check("tab close: window.open opens a second tab", false, { active: w.activeTab()?.url });
     }
 
+    // Background work still running when its tab (or its window) closes: once the page is gone, what
+    // comes after an await finds it gone and stops, with nothing thrown in the main process.
+    ctx.assist.setTestProvider(slowProvider());
+    const article = `${base}article`;
+    // Page-load work (reader probe, translation offer, page index, saved notes, logins): the tab
+    // closes the moment its page has loaded, in the background and while shown.
+    for (const activate of [false, true]) {
+      const loading = w.createTab(article, { activate });
+      loading.view.webContents.once("did-finish-load", () => w.closeTab(loading.id));
+      check(`tab close: a tab closes as its page finishes loading (${activate ? "shown" : "background"})`, await until(() => !w.hasTab(loading.id), 10_000));
+    }
+    const annotation = w.profile.annotations.add({ url: article, pageTitle: "Raben", color: "yellow", note: "", anchor: { quote: "Raben", prefix: "", suffix: "" } });
+    await sleep(600);
+    await verify("tabs closed as their pages finished loading");
+    // A translation from the address bar, a summary and an Assist translation under way.
+    const translating = await open(article);
+    void ctx.translate.translate(w, translating);
+    const summarizing = await open(article, { activate: false });
+    ctx.assist.runPage(w, summarizing, "summarize");
+    const assistTranslating = await open(article, { activate: false });
+    ctx.assist.runPage(w, assistTranslating, "translate-page");
+    await sleep(400);
+    const started = w.state().translate?.state === "translating";
+    w.closeTabs([translating.id, summarizing.id, assistTranslating.id]);
+    // Longer than the provider takes to answer: whatever kept going has ended by now.
+    await sleep(2500);
+    check("tab close: a translation was under way when its tab closed", started);
+    check("tab close: a closed tab's translation leaves nothing behind", ctx.translate.barState(translating) === null, ctx.translate.barState(translating));
+    await verify("tabs closed while they were translated and summarized");
+    // The same in a window that closes.
+    const busy = ctx.windows.open(profileId, [article]);
+    windows.push(busy);
+    const busyFirst = busy.activeTab();
+    if (busyFirst) await loaded(busyFirst);
+    const busySecond = await open(article, {}, busy);
+    if (busyFirst) void ctx.translate.translate(busy, busyFirst);
+    ctx.assist.runPage(busy, busySecond, "translate-page");
+    await sleep(400);
+    busy.close();
+    check("tab close: a window closes while its tabs translate", await until(() => busy.isDisposed(), 4000));
+    await sleep(2500);
+    await verify("a window closed while its tabs translated", busy);
+    // An agent waiting on a tab, and loading a page in it, when the tab closes: it hears that the tab closed.
+    const agentTab = await open(at("agent-wait"));
+    const waiting = ctx.controller.waitFor(agentTab.id, { text: "text that never shows", timeoutMs: 15_000 }).then(
+      () => "resolved",
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    const navigating = ctx.controller.navigate(agentTab.id, `${base}slow`).then(
+      () => "resolved",
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    await sleep(500);
+    w.closeTab(agentTab.id);
+    const [waited, navigated] = await Promise.all([waiting, navigating]);
+    check("tab close: an agent waiting on a tab hears that it closed", /closed/.test(waited), { waited, navigated });
+    await verify("an agent's tab closed while it waited and loaded");
+    // A page watch checked from a tab that closes while the check runs.
+    ctx.monitor.setTestFetcher(async () => {
+      await sleep(800);
+      return "Raben gehören zu den klügsten Vögeln der Welt.";
+    });
+    const watchFrom = await open(at("watch-from"));
+    ctx.monitor.watchTab(w, { url: "https://watched.example.com/raben", title: "Raben" });
+    w.closeTab(watchFrom.id);
+    const watches = ctx.monitor.storeFor(w.profile);
+    const watch = watches.list().find((x) => x.url.startsWith("https://watched.example.com/"));
+    const checked = await until(() => Boolean(watch && watches.get(watch.id)?.lastCheckedAt), 6000);
+    check("tab close: a page watch check ends normally after the tab it was started from closed", checked && watches.get(watch?.id ?? "")?.lastResult === "ok", watch && watches.get(watch.id));
+    if (watch) watches.remove(watch.id);
+    w.closeTabs(w.tabIds().filter((id) => internalPageOf(w.getTab(id)?.url ?? "") === "watches"));
+    await verify("a page watch checked from a closed tab");
+    // A page's menu left open while its tab closed: what is picked in it then does nothing.
+    const late = await open(article);
+    w.closeTab(late.id);
+    await until(() => pageOf(late.view) === null, 4000);
+    const outcomes = await Promise.allSettled([
+      ctx.assist.writeInField(w, late, "fix"),
+      ctx.translate.translate(w, late),
+      ctx.translate.showOriginal(w, late),
+      ctx.reader.probe(w, late),
+      ctx.adblock.pickElement(w, late),
+      ctx.grabber.grabTab(w, late.id),
+      ctx.grabber.grabSelection(w, late.id),
+      ctx.assist.restoreTranslation(late),
+      (async () => {
+        ctx.assist.runPage(w, late, "summarize");
+        ctx.assist.runSelection(w, late, "explain", "Raben");
+        w.zoomTab(late, 1);
+        w.proceedPastCertError(late);
+        w.leaveCertError(late);
+      })(),
+    ]);
+    await sleep(300);
+    const rejected = outcomes.flatMap((o, i) => (o.status === "rejected" ? [`${i}: ${o.reason instanceof Error ? o.reason.message : String(o.reason)}`] : []));
+    check("tab close: actions from a page menu left open after its tab closed do nothing", rejected.length === 0 && pageOf(late.view) === null, rejected);
+    ctx.assist.close(w);
+    if (annotation) w.profile.annotations.remove(annotation.id);
+    await verify("actions on a closed tab");
+
     // A part of the window's state that throws: it is logged, and the strip and the address bar still follow the tabs.
     const copiedLinks = ctx.grabber.copiedLinks;
     ctx.grabber.copiedLinks = () => {
@@ -430,6 +559,8 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     ctx.agentRunner.stop(w);
     ctx.agentRunner.clear(w);
     ctx.agentRunner.setTestProvider(undefined);
+    ctx.assist.setTestProvider(undefined);
+    ctx.monitor.setTestFetcher(undefined);
     for (const win2 of windows) if (!win2.isDisposed()) win2.close();
     if (containerId) w.profile.containers.remove(containerId);
     ctx.certErrors.exceptions.revoke(win.profile.session, "corvus-smoke.test");

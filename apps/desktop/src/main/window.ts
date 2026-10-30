@@ -77,6 +77,7 @@ import { pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
 import { applyWindowTaskbarIdentity } from "./taskbar";
 import { currentUserAgent, followSignInUserAgent, userAgentFor } from "./user-agent";
+import { pageOf, pageUrl } from "./tab-page";
 
 let seq = 0;
 const nextId = (prefix: string): string => `${prefix}${Date.now().toString(36)}${(++seq).toString(36)}`;
@@ -185,12 +186,6 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
-}
-
-/** A view's page, or null once it is closed (Electron then drops it from the view: `webContents` is undefined). */
-function pageOf(view: WebContentsView): WebContents | null {
-  const wc = view.webContents as WebContents | undefined;
-  return wc && !wc.isDestroyed() ? wc : null;
 }
 
 /** One browser window: a chrome UI view on top of one WebContentsView per tab. */
@@ -430,7 +425,7 @@ export class BrowserWindowCtl {
     }
     this.win.setBackgroundColor(palette.strip);
     for (const tab of this.tabs.values()) {
-      if (!tab.view.webContents.isDestroyed()) this.applyPageBase(tab, tab.view.webContents.getURL() || tab.url);
+      if (pageOf(tab.view)) this.applyPageBase(tab, pageUrl(tab));
     }
     this.splitSession?.setTheme(this.splitAccent());
     this.pushState();
@@ -498,8 +493,8 @@ export class BrowserWindowCtl {
    * gesture, so the request runs with one, in an isolated world the page's scripts cannot reach.
    */
   private async enterAutoPip(tab: TabRuntime): Promise<void> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return;
+    const wc = pageOf(tab.view);
+    if (!wc) return;
     const result = (await wc.executeJavaScriptInIsolatedWorld(PIP_WORLD_ID, [{ code: PIP_ENTER_SCRIPT }], true).catch(() => "failed")) as PipEnterResult;
     if (result !== "entered") return;
     tab.autoPip = true;
@@ -510,8 +505,8 @@ export class BrowserWindowCtl {
   /** Back on a tab whose video Corvus floated: the video returns to the page. */
   private async exitAutoPip(tab: TabRuntime): Promise<void> {
     tab.autoPip = false;
-    const wc = tab.view.webContents;
-    if (!wc.isDestroyed()) await wc.executeJavaScriptInIsolatedWorld(PIP_WORLD_ID, [{ code: PIP_EXIT_SCRIPT }]).catch(() => undefined);
+    const wc = pageOf(tab.view);
+    if (wc) await wc.executeJavaScriptInIsolatedWorld(PIP_WORLD_ID, [{ code: PIP_EXIT_SCRIPT }]).catch(() => undefined);
   }
 
   /** Page views that must be visible: the panes of a split one of whose tabs is active, otherwise just the active tab. */
@@ -740,8 +735,8 @@ export class BrowserWindowCtl {
   notifyInternalPages(event: InternalEvent, pages: InternalPage[]): void {
     for (const tab of this.tabs.values()) {
       const page = internalPageOf(tab.url);
-      const wc = tab.view.webContents;
-      if (page && pages.includes(page) && !wc.isDestroyed()) wc.send(INTERNAL_EVENT, event);
+      const wc = pageOf(tab.view);
+      if (page && pages.includes(page) && wc) wc.send(INTERNAL_EVENT, event);
     }
   }
 
@@ -751,8 +746,7 @@ export class BrowserWindowCtl {
   }
 
   focusContent(): void {
-    const tab = this.activeTab();
-    if (tab) this.focusWebContents(tab.view.webContents);
+    this.focusWebContents(pageOf(this.activeTab()?.view));
   }
 
   /** Give a webContents of this window the keyboard and remember it as where focus belongs. */
@@ -766,8 +760,8 @@ export class BrowserWindowCtl {
     this.focusWebContents(this.chrome.webContents);
   }
 
-  private focusWebContents(wc: WebContents): void {
-    if (wc.isDestroyed()) return;
+  private focusWebContents(wc: WebContents | null): void {
+    if (!wc || wc.isDestroyed()) return;
     this.lastFocused = wc;
     wc.focus();
   }
@@ -900,14 +894,17 @@ export class BrowserWindowCtl {
     );
     // A page opened by window.open loads itself (and its opener may still write to or navigate it).
     if (!lazy && !opened) {
+      // Not once the tab closed while its session was getting on its proxy.
       const start = (): void =>
-        void view.webContents.loadURL(url).catch(() => {
-          // Load failures surface through did-fail-load.
-        });
+        void pageOf(view)
+          ?.loadURL(url)
+          .catch(() => {
+            // Load failures surface through did-fail-load.
+          });
       // Not before the session is on its proxy (right after start or a change), so nothing leaks.
       const ses = view.webContents.session;
       if (this.profile.isConnected(ses)) start();
-      else void this.profile.whenConnected(ses).then(() => (view.webContents.isDestroyed() ? undefined : start()));
+      else void this.profile.whenConnected(ses).then(start);
     }
     this.syncActive(true);
     this.pushState();
@@ -1280,16 +1277,8 @@ export class BrowserWindowCtl {
         ...(tab.containerId ? { containerId: tab.containerId } : {}),
       });
     }
-    this.clearUnresponsive(tab);
     const page = pageOf(tab.view);
-    if (page) this.profile.adblock.forgetTab(page.id);
-    this.ctx.reader.forgetTab(id);
-    this.ctx.translate.forget(id);
-    this.ctx.autofill.forgetTab(id);
-    this.ctx.secretFills.clear(id);
-    this.ctx.annotations.forgetTab(id);
-    this.ctx.assist.forgetTab(id);
-    this.ctx.userActions.forgetTab(id);
+    this.forgetTab(tab);
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);
     // A site set to be forgotten loses its cookies and data once no tab of its session shows it.
@@ -1307,6 +1296,20 @@ export class BrowserWindowCtl {
     }
     this.syncActive(true);
     this.pushState();
+  }
+
+  /** A tab closes (alone or with its window): what Corvus was doing in it stops and nothing of it is kept. */
+  private forgetTab(tab: TabRuntime): void {
+    this.clearUnresponsive(tab);
+    const page = pageOf(tab.view);
+    if (page) this.profile.adblock.forgetTab(page.id);
+    this.ctx.reader.forgetTab(tab.id);
+    this.ctx.translate.forget(tab.id);
+    this.ctx.autofill.forgetTab(tab.id);
+    this.ctx.secretFills.clear(tab.id);
+    this.ctx.annotations.forgetTab(tab.id);
+    this.ctx.assist.forgetTab(tab.id);
+    this.ctx.userActions.forgetTab(tab.id);
   }
 
   closeTabs(ids: TabId[]): void {
@@ -1346,13 +1349,14 @@ export class BrowserWindowCtl {
 
   private loadPending(tab: TabRuntime): void {
     const url = tab.pendingUrl;
-    if (!url) return;
+    const wc = pageOf(tab.view);
+    if (!url || !wc) return;
     delete tab.pendingUrl;
     tab.loading = true;
     const asleep = tab.asleep;
     delete tab.asleep;
     // A sleeping tab wakes with its whole history, scroll position and form values.
-    const load = asleep ? tab.view.webContents.navigationHistory.restore(asleep) : tab.view.webContents.loadURL(url);
+    const load = asleep ? wc.navigationHistory.restore(asleep) : wc.loadURL(url);
     load.catch(() => {
       // Reported via did-fail-load.
     });
@@ -1364,14 +1368,17 @@ export class BrowserWindowCtl {
    */
   async ensureLoaded(id: TabId, timeoutMs = 15_000): Promise<void> {
     const tab = this.tabs.get(id);
-    if (!tab?.pendingUrl) return;
-    const wc = tab.view.webContents;
+    const wc = tab?.pendingUrl ? pageOf(tab.view) : null;
+    if (!tab || !wc) return;
+    // Also done when the tab closes meanwhile.
     const stopped = new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, timeoutMs);
-      wc.once("did-stop-loading", () => {
+      const done = (): void => {
         clearTimeout(timer);
         resolve();
-      });
+      };
+      wc.once("did-stop-loading", done);
+      wc.once("destroyed", done);
     });
     this.loadPending(tab);
     await stopped;
@@ -1379,8 +1386,8 @@ export class BrowserWindowCtl {
 
   /** Whether the tab can go to sleep right now, by what only its page knows (typed text). */
   async pageIsEdited(id: TabId): Promise<boolean> {
-    const wc = this.tabs.get(id)?.view.webContents;
-    if (!wc || wc.isDestroyed()) return false;
+    const wc = pageOf(this.tabs.get(id)?.view);
+    if (!wc) return false;
     return (await wc.executeJavaScriptInIsolatedWorld(SLEEP_CHECK_WORLD_ID, [{ code: EDITED_PAGE_SCRIPT }]).catch(() => true)) === true;
   }
 
@@ -1393,8 +1400,8 @@ export class BrowserWindowCtl {
     const tab = this.tabs.get(id);
     if (!tab || tab.pendingUrl || this.shownTabIds.includes(id) || !/^https?:/i.test(tab.url)) return false;
     const old = tab.view;
-    const wc = old.webContents;
-    if (wc.isDestroyed()) return false;
+    const wc = pageOf(old);
+    if (!wc) return false;
     const entries = wc.navigationHistory.getAllEntries();
     const index = wc.navigationHistory.getActiveIndex();
     if (entries.length === 0 || index < 0) return false;
@@ -1462,8 +1469,8 @@ export class BrowserWindowCtl {
     tab.crashed = true;
     tab.loading = false;
     tab.crashedUrl = tab.url;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return;
+    const wc = pageOf(tab.view);
+    if (!wc) return;
     const target = `corvus://crash/?reason=${encodeURIComponent(reason)}&url=${encodeURIComponent(tab.url)}`;
     wc.loadURL(target).catch(() => {
       // The recovery page is internal; a failure here just leaves the tab blank.
@@ -1483,8 +1490,9 @@ export class BrowserWindowCtl {
     const query = new URLSearchParams({ url: problem.url, code: problem.code, kind: certErrorKind(problem.code, problem.validity), ...(block ? { block } : {}) });
     // Not from inside the failed navigation's own events, and not once something else was loaded meanwhile.
     setImmediate(() => {
-      if (tab.certError !== shown || tab.view.webContents.isDestroyed()) return;
-      tab.view.webContents.loadURL(`corvus://cert-error/?${query}`).catch(() => {
+      const wc = pageOf(tab.view);
+      if (tab.certError !== shown || !wc) return;
+      wc.loadURL(`corvus://cert-error/?${query}`).catch(() => {
         // The page is internal; a failure here just leaves the tab blank.
       });
     });
@@ -1507,20 +1515,24 @@ export class BrowserWindowCtl {
   /** "Proceed to <host> (unsafe)": accepts that certificate for the host in this session and loads the page. */
   proceedPastCertError(tab: TabRuntime): boolean {
     const problem = tab.certError;
+    // A tab that closed meanwhile (an agent proceeds after waiting on its load).
+    const page = this.tabs.get(tab.id) === tab ? pageOf(tab.view) : null;
+    if (!page) return false;
     if (!problem) {
       // An error page with nothing behind it (a tab woken from sleep): try the page again.
       if (/^https?:/i.test(tab.url)) this.loadUrl(tab.id, tab.url);
       return false;
     }
     if (problem.block) return false;
-    this.ctx.certErrors.exceptions.allow(tab.view.webContents.session, problem.host, problem.fingerprint, problem.code);
+    this.ctx.certErrors.exceptions.allow(page.session, problem.host, problem.fingerprint, problem.code);
     this.loadUrl(tab.id, problem.url);
     return true;
   }
 
   /** "Back to safety": the page before, or the New Tab page when there is none. */
   leaveCertError(tab: TabRuntime): void {
-    const history = tab.view.webContents.navigationHistory;
+    const history = pageOf(tab.view)?.navigationHistory;
+    if (!history) return;
     if (history.canGoBack()) history.goBack();
     else this.loadUrl(tab.id, NEW_TAB_URL);
   }
@@ -1528,7 +1540,7 @@ export class BrowserWindowCtl {
   /** "Turn on warnings again": the site's certificate is no longer accepted in this session. */
   restoreCertWarnings(): void {
     const tab = this.activeTab();
-    const session = tab?.view.webContents.session;
+    const session = pageOf(tab?.view)?.session;
     if (!tab || !session || !this.ctx.certErrors.exceptions.revoke(session, certHost(tab.url))) return;
     // Connections opened with the accepted certificate would otherwise carry on serving the site.
     void session.closeAllConnections().then(() => this.reload(tab.id));
@@ -1548,12 +1560,11 @@ export class BrowserWindowCtl {
     tab.crashed = false;
     tab.loading = true;
     tab.url = url;
-    const wc = tab.view.webContents;
-    if (!wc.isDestroyed()) {
-      wc.loadURL(url).catch(() => {
+    pageOf(tab.view)
+      ?.loadURL(url)
+      .catch(() => {
         // Reported via did-fail-load.
       });
-    }
     this.pushState();
   }
 
@@ -1567,10 +1578,11 @@ export class BrowserWindowCtl {
     url = pdfViewerRedirect(this.ctx, tab.agentControlled, url) ?? url;
     delete tab.pendingUrl;
     tab.url = url;
-    tab.view.webContents.loadURL(url).catch(() => {
+    const wc = pageOf(tab.view);
+    wc?.loadURL(url).catch(() => {
       // Reported via did-fail-load.
     });
-    if (id === this.strip.activeId) this.focusWebContents(tab.view.webContents);
+    if (wc && id === this.strip.activeId) this.focusWebContents(wc);
     this.pushState();
   }
 
@@ -1618,7 +1630,8 @@ export class BrowserWindowCtl {
       const tab = this.tabs.get(t.id);
       if (tab && page && internalPageOf(tab.url) === page) {
         // The page is open: go to the section asked for (corvus://settings/#dictation) in it.
-        if (url.includes("#") && !tab.view.webContents.isDestroyed() && tab.view.webContents.getURL() !== url) this.loadUrl(t.id, url);
+        const wc = pageOf(tab.view);
+        if (url.includes("#") && wc && wc.getURL() !== url) this.loadUrl(t.id, url);
         this.activate(t.id);
         return;
       }
@@ -1629,12 +1642,12 @@ export class BrowserWindowCtl {
   }
 
   goBack(id: TabId): void {
-    const history = this.tabs.get(id)?.view.webContents.navigationHistory;
+    const history = pageOf(this.tabs.get(id)?.view)?.navigationHistory;
     if (history?.canGoBack()) history.goBack();
   }
 
   goForward(id: TabId): void {
-    const history = this.tabs.get(id)?.view.webContents.navigationHistory;
+    const history = pageOf(this.tabs.get(id)?.view)?.navigationHistory;
     if (history?.canGoForward()) history.goForward();
   }
 
@@ -1650,7 +1663,7 @@ export class BrowserWindowCtl {
     if (tab?.crashedUrl) return this.recoverCrashed(tab);
     if (tab?.certError) return this.loadUrl(tab.id, tab.certError.url);
     if (tab?.pendingUrl) return this.loadPending(tab);
-    const wc = tab?.view.webContents;
+    const wc = pageOf(tab?.view);
     if (!wc) return;
     // A page a form sent (POST, as after many "checking your browser" pages) does not reload:
     // Chromium waits for a "resubmit the form?" answer Electron never asks. When nothing starts
@@ -1675,7 +1688,7 @@ export class BrowserWindowCtl {
   }
 
   stop(id: TabId): void {
-    this.tabs.get(id)?.view.webContents.stop();
+    pageOf(this.tabs.get(id)?.view)?.stop();
   }
 
   duplicate(id: TabId): void {
@@ -1942,7 +1955,7 @@ export class BrowserWindowCtl {
         break;
       }
       case "devtools": {
-        const wc = active?.view.webContents;
+        const wc = pageOf(active?.view);
         if (!wc) break;
         if (wc.isDevToolsOpened()) wc.closeDevTools();
         else wc.openDevTools({ mode: "detach" });
@@ -1987,8 +2000,8 @@ export class BrowserWindowCtl {
 
   /** Zoom a tab one preset step (0 = reset) and remember the level for its site in this profile. */
   zoomTab(tab: TabRuntime, delta: 1 | -1 | 0): void {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return;
+    const wc = pageOf(tab.view);
+    if (!wc) return;
     const factor = stepZoom(wc.getZoomFactor(), delta);
     const key = zoomKey(wc.getURL() || tab.url);
     wc.setZoomFactor(factor);
@@ -2000,8 +2013,8 @@ export class BrowserWindowCtl {
   /** Apply a site's zoom to every tab of this window showing it. */
   applyZoom(key: string, factor: number): void {
     for (const tab of this.tabs.values()) {
-      const wc = tab.view.webContents;
-      if (wc.isDestroyed() || tab.pendingUrl || zoomKey(wc.getURL() || tab.url) !== key) continue;
+      const wc = pageOf(tab.view);
+      if (!wc || tab.pendingUrl || zoomKey(wc.getURL() || tab.url) !== key) continue;
       if (Math.abs(wc.getZoomFactor() - factor) > 0.001) wc.setZoomFactor(factor);
     }
     this.pushState();
@@ -2027,25 +2040,26 @@ export class BrowserWindowCtl {
   findQuery(text: string): void {
     const tab = this.activeTab();
     if (!tab?.find) return;
-    const wc = tab.view.webContents;
+    const wc = pageOf(tab.view);
     tab.find = { text, active: 0, matches: 0 };
-    if (text) wc.findInPage(text, { findNext: true });
-    else wc.stopFindInPage("clearSelection");
+    if (text) wc?.findInPage(text, { findNext: true });
+    else wc?.stopFindInPage("clearSelection");
     this.pushState();
   }
 
   findStep(forward: boolean): void {
     const tab = this.activeTab();
     if (!tab?.find?.text) return;
-    tab.view.webContents.findInPage(tab.find.text, { forward, findNext: false });
+    pageOf(tab.view)?.findInPage(tab.find.text, { forward, findNext: false });
   }
 
   closeFind(): void {
     const tab = this.activeTab();
     if (!tab?.find) return;
     tab.find = null;
-    tab.view.webContents.stopFindInPage("keepSelection");
-    this.focusWebContents(tab.view.webContents);
+    const wc = pageOf(tab.view);
+    wc?.stopFindInPage("keepSelection");
+    this.focusWebContents(wc);
     this.pushState();
   }
 
@@ -2057,9 +2071,10 @@ export class BrowserWindowCtl {
 
   siteInfo(): SiteInfo | null {
     const tab = this.activeTab();
-    if (!tab || tab.view.webContents.isDestroyed()) return null;
+    const wc = pageOf(tab?.view);
+    if (!tab || !wc) return null;
     // The certificate error page stands in for the site: its information is the site's.
-    const url = tab.certError ? tab.url : tab.view.webContents.getURL() || tab.url;
+    const url = tab.certError ? tab.url : wc.getURL() || tab.url;
     let parsed: URL;
     try {
       parsed = new URL(url);
@@ -2067,7 +2082,7 @@ export class BrowserWindowCtl {
       return null;
     }
     const scheme = parsed.protocol === "https:" ? "https" : parsed.protocol === "http:" ? "http" : parsed.protocol === "file:" ? "file" : "other";
-    const view = this.profile.permissions.siteView(tab.view.webContents, url);
+    const view = this.profile.permissions.siteView(wc, url);
     const certError = this.certErrorOf(tab);
     return {
       origin: view.origin,
@@ -2076,24 +2091,22 @@ export class BrowserWindowCtl {
       secure: view.secure,
       agent: tab.agentControlled,
       permissions: view.permissions,
-      zoomPercent: zoomPercent(tab.view.webContents.getZoomFactor()),
+      zoomPercent: zoomPercent(wc.getZoomFactor()),
       ...(certError ? { certError, certAccepted: !tab.certError } : {}),
     };
   }
 
   setSitePermission(kind: PermissionKind, decision: PermissionDecision | null): SiteInfo | null {
     const tab = this.activeTab();
-    if (tab && !tab.view.webContents.isDestroyed()) {
-      this.profile.permissions.setSitePermission(tab.view.webContents, tab.view.webContents.getURL() || tab.url, kind, decision);
-    }
+    const wc = pageOf(tab?.view);
+    if (tab && wc) this.profile.permissions.setSitePermission(wc, pageUrl(tab), kind, decision);
     return this.siteInfo();
   }
 
   resetSitePermissions(): SiteInfo | null {
     const tab = this.activeTab();
-    if (tab && !tab.view.webContents.isDestroyed()) {
-      this.profile.permissions.resetSite(tab.view.webContents, tab.view.webContents.getURL() || tab.url);
-    }
+    const wc = pageOf(tab?.view);
+    if (tab && wc) this.profile.permissions.resetSite(wc, pageUrl(tab));
     return this.siteInfo();
   }
 
@@ -2266,8 +2279,9 @@ export class BrowserWindowCtl {
     this.teardownSplit();
     for (const cleanup of this.cleanups) cleanup();
     for (const tab of this.tabs.values()) {
-      this.clearUnresponsive(tab);
-      pageOf(tab.view)?.close();
+      const page = pageOf(tab.view);
+      this.forgetTab(tab);
+      page?.close();
     }
     this.tabs.clear();
     this.ctx.assist.disposeWindow(this);

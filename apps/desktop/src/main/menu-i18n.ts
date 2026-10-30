@@ -12,3 +12,8 @@ export function setMenuLanguage(language: () => UiLanguage): void {
 export function tr(text: string, vars?: Record<string, string | number>): string {
   return translate(menuLanguage(), text, vars);
 }
+
+/** The language Corvus's UI is in now (for views that draw their own text, like the field dropdown). */
+export function uiLanguage(): UiLanguage {
+  return menuLanguage();
+}

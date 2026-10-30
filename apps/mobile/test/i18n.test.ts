@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { languageFor, setUiLanguage, t, tn } from '../src/lib/i18n';
+import { languageFor, onLanguageChange, setUiLanguage, t, tn, uiLanguage } from '../src/lib/i18n';
 import { ES } from '../src/lib/i18n-es';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
@@ -68,6 +68,18 @@ describe('app language', () => {
       '2 anuncios y rastreadores bloqueados en esta página',
     ]);
     expect([1, 3].map((n) => tn(n, 'every hour', 'every {n} hours'))).toEqual(['cada hora', 'cada 3 horas']);
+  });
+
+  it('tells the screens when it changes, once per change', () => {
+    const seen: string[] = [];
+    const unsubscribe = onLanguageChange(() => seen.push(uiLanguage()));
+    setUiLanguage('es');
+    setUiLanguage('es');
+    expect(t('Home')).toBe('Inicio');
+    setUiLanguage('en');
+    unsubscribe();
+    setUiLanguage('es');
+    expect(seen).toEqual(['es', 'en']);
   });
 
   it('fills other placeholders of a count', () => {

@@ -1,5 +1,5 @@
 // React Native learns that dark mode changed only when Android hands the change to the running
-// activity. When Android builds the activity again instead (the language changed as well, or it closed
+// activity. When Android builds the activity again instead (the font size changed as well, or it closed
 // the activity in the background) while the app keeps running, the app kept its old colours. On every
 // resume the activity passes its configuration to React Native, which tells the app when the colour
 // scheme differs from the last one it reported.

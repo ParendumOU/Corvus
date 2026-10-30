@@ -53,6 +53,7 @@ import type { AppContext } from "./context";
 import { FlowStore } from "./flow-store";
 import { SiteMemoryService } from "./site-memory-service";
 import type { ProfileRuntime } from "./profiles";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -228,9 +229,9 @@ export class FlowService {
     const existing = this.recordings.get(profileId);
     if (existing) existing.cleanup();
     const tab = this.pickRecordTab(win);
-    const wc = tab?.view.webContents;
+    const wc = pageOf(tab?.view);
     const url = tab?.url ?? "";
-    if (!tab || !wc || wc.isDestroyed() || !/^https?:/i.test(url)) {
+    if (!tab || !wc || !/^https?:/i.test(url)) {
       this.recordings.delete(profileId);
       throw new Error("Open a web page in a tab, then start recording.");
     }

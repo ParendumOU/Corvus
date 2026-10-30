@@ -3,6 +3,7 @@ import type { TabId } from "@corvus/shared";
 import { resolveUiLanguage } from "../shared/settings";
 import { shouldOfferTranslation, translationTarget, type TranslateBarState, type TranslateState } from "../shared/translate";
 import type { AppContext } from "./context";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 /** Isolated world for reading a page's declared language (separate from the page's own scripts). */
@@ -64,12 +65,13 @@ export class TranslateService {
 
   /** After a page loads: offer translation when it declares another language. */
   async onPageLoad(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed() || !/^https?:/i.test(wc.getURL()) || this.tabs.get(tab.id)?.state === "translating") return;
+    const wc = pageOf(tab.view);
+    if (!wc || !/^https?:/i.test(wc.getURL()) || this.tabs.get(tab.id)?.state === "translating") return;
     const pageLang = (await wc.executeJavaScriptInIsolatedWorld(LANG_WORLD_ID, [{ code: LANG_SCRIPT }]).catch(() => "")) as unknown;
     const lang = typeof pageLang === "string" ? pageLang.slice(0, 35) : "";
     const target = this.target();
-    if (this.tabs.get(tab.id)?.state === "translated") return;
+    // Closed meanwhile: no offer is kept for it.
+    if (!win.hasTab(tab.id) || this.tabs.get(tab.id)?.state === "translated") return;
     if (this.ctx.settings.get().translate.offer && shouldOfferTranslation(lang, target)) {
       this.tabs.set(tab.id, { state: "offer", pageLang: lang, target, translated: 0, abort: null });
     } else {
@@ -80,6 +82,8 @@ export class TranslateService {
 
   /** Translates the tab's page into the target language (any page, also one that was not offered). */
   async translate(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
+    // A page menu left open while its tab closed.
+    if (!win.hasTab(tab.id)) return;
     const previous = this.tabs.get(tab.id);
     previous?.abort?.abort();
     const abort = new AbortController();
@@ -115,6 +119,7 @@ export class TranslateService {
     const entry = this.tabs.get(tab.id);
     entry?.abort?.abort();
     await this.ctx.assist.restoreTranslation(tab);
+    if (!win.hasTab(tab.id)) return;
     if (entry && shouldOfferTranslation(entry.pageLang, entry.target)) {
       this.tabs.set(tab.id, { state: "offer", pageLang: entry.pageLang, target: entry.target, translated: 0, abort: null });
     } else {

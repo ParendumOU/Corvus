@@ -160,7 +160,8 @@ export class AgentActivityService {
     let box: RefBox | null = null;
     if (step.kind === "click" || step.kind === "type") {
       box = await (wc.executeJavaScriptInIsolatedWorld(AGENT_WORLD_ID, [{ code: describeRefScript(step.ref) }]) as Promise<RefBox | null>).catch(() => null);
-      if (!box) return;
+      // Also when the tab closed meanwhile: the step itself finds it gone.
+      if (!box || wc.isDestroyed()) return;
     }
     const zoom = wc.getZoomFactor();
     if (step.kind === "point" || step.kind === "key") {

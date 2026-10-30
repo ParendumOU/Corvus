@@ -60,6 +60,7 @@ import { youTubeVideoId } from "../shared/youtube";
 import { ASSIST_AGENT_SYSTEM } from "./agent-tools";
 import { copyableText } from "../shared/assist-artifacts";
 import type { AppContext } from "./context";
+import { pageOf, pageUrl } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { claudeCliEnv } from "../shared/settings";
 
@@ -453,7 +454,7 @@ export class AssistService {
       }
     }
     const active = win.activeTab();
-    const activeUrl = active ? (active.view.webContents.isDestroyed() ? active.url : active.view.webContents.getURL() || active.url) : "";
+    const activeUrl = active ? pageUrl(active) : "";
     const free = active && !this.tabs.get(active.id)?.messages.length;
     let tabId: TabId;
     if (active && free && activeUrl === record.url) tabId = active.id;
@@ -523,8 +524,8 @@ export class AssistService {
 
   private async captureLive(win: BrowserWindowCtl, live: LiveCapture): Promise<void> {
     if (win.isDisposed() || !this.panels.get(win)?.open) return this.stopLive(win);
-    const wc = win.getTab(live.tabId)?.view.webContents;
-    if (!wc || wc.isDestroyed() || live.busy) return;
+    const wc = pageOf(win.getTab(live.tabId)?.view);
+    if (!wc || live.busy) return;
     live.busy = true;
     try {
       const image = await this.captureHidden(wc);
@@ -574,7 +575,7 @@ export class AssistService {
   private workflowsView(win: BrowserWindowCtl): AssistPanelState["workflows"] {
     const tab = win.activeTab();
     let url = "";
-    if (tab) url = tab.view.webContents.isDestroyed() ? tab.url : tab.view.webContents.getURL() || tab.url;
+    if (tab) url = pageUrl(tab);
     const all = this.ctx.flows.list(win.profile);
     return {
       host: hostKey(url),
@@ -600,7 +601,7 @@ export class AssistService {
     if (!tab) return null;
     this.prune();
     const entry = this.tabs.get(tab.id);
-    const url = tab.view.webContents.isDestroyed() ? tab.url : tab.view.webContents.getURL() || tab.url;
+    const url = pageUrl(tab);
     if (entry && entry.translation === "translated" && entry.translatedUrl !== url) entry.translation = "none";
     return {
       tabId: tab.id,
@@ -617,9 +618,14 @@ export class AssistService {
     };
   }
 
-  /** A tab closed: its conversation goes with it, unless another tab (an agent's) still shows it. */
+  /**
+   * A tab closed: its conversation goes with it, unless another tab (an agent's) still shows it;
+   * otherwise what it was working on (a summary, a translation) stops too.
+   */
   forgetTab(id: TabId): void {
+    const entry = this.tabs.get(id);
     this.tabs.delete(id);
+    if (entry && ![...this.tabs.values()].includes(entry)) entry.abort?.abort();
   }
 
   /** Drops conversations of tabs that no longer exist. */
@@ -660,10 +666,13 @@ export class AssistService {
    * composer what to write.
    */
   async writeInField(win: BrowserWindowCtl, tab: TabRuntime, action: WriteAction): Promise<void> {
-    const wc = tab.view.webContents;
+    const wc = pageOf(tab.view);
+    // The field's menu stayed open while its tab closed.
+    if (!wc || !win.hasTab(tab.id)) return;
     const entry = this.entry(tab.id);
-    const site = hostKey(wc.isDestroyed() ? tab.url : wc.getURL() || tab.url);
-    const field = wc.isDestroyed() ? null : await this.exec<CapturedField | null>(wc, captureFieldScript(crypto.randomUUID())).catch(() => null);
+    const site = hostKey(pageUrl(tab));
+    const field = await this.exec<CapturedField | null>(wc, captureFieldScript(crypto.randomUUID())).catch(() => null);
+    if (!win.hasTab(tab.id)) return;
     this.open(win, "assist");
     const label = writeActionLabel(action, this.languageName());
     const fail = (error: string): void => {
@@ -711,8 +720,7 @@ export class AssistService {
       this.refresh(win);
     };
     this.refresh(win);
-    const wc = tab.view.webContents;
-    const siteProfile = win.profile.siteProfiles.match(wc.isDestroyed() ? tab.url : wc.getURL() || tab.url);
+    const siteProfile = win.profile.siteProfiles.match(pageUrl(tab));
     const addendum = siteProfile?.promptAddendum.trim();
     const provider = this.providerFor(siteProfile);
     try {
@@ -750,8 +758,8 @@ export class AssistService {
     const message = entry?.messages.find((m) => m.id === messageId);
     const token = entry?.writeTokens?.get(messageId);
     if (!tab || !entry || !message?.write || message.status !== "done" || message.write.inserted || !token) return;
-    const wc = tab.view.webContents;
-    const inserted = !wc.isDestroyed() && (await this.exec<boolean>(wc, insertFieldScript(token, message.text)).catch(() => false)) === true;
+    const wc = pageOf(tab.view);
+    const inserted = wc !== null && (await this.exec<boolean>(wc, insertFieldScript(token, message.text)).catch(() => false)) === true;
     const write = { ...message.write, inserted, ...(inserted ? {} : { gone: true }) };
     entry.messages = entry.messages.map((m) => (m.id === messageId ? { ...m, write } : m));
     if (inserted) {
@@ -809,8 +817,8 @@ export class AssistService {
         if (abort.signal.aborted) break;
         await win.ensureLoaded(id);
         const t = win.getTab(id);
-        const wc = t?.view.webContents;
-        if (!t || !wc || wc.isDestroyed() || !isReadable(wc.getURL())) continue;
+        const wc = pageOf(t?.view);
+        if (!t || !wc || !isReadable(wc.getURL())) continue;
         const raw = await this.readPage(wc).catch(() => null);
         if (!raw || raw.sections.length === 0) continue;
         pages.push({ url: raw.url, title: raw.title, sections: raw.sections });
@@ -900,7 +908,7 @@ export class AssistService {
     entry.abort?.abort();
     const abort = new AbortController();
     entry.abort = abort;
-    const wc = tab.view.webContents;
+    const wc = pageOf(tab.view);
     const prompt = question.trim().slice(0, AGENT_REQUEST_CHARS);
     const history: ChatTurn[] = entry.messages
       .filter((m) => m.kind === "ask" && m.status === "done")
@@ -922,9 +930,10 @@ export class AssistService {
     this.refresh(win);
 
     const started = Date.now();
-    const url = wc.isDestroyed() ? tab.url : wc.getURL() || tab.url;
-    const page = !wc.isDestroyed() && isReadable(url) ? await this.readPage(wc).catch(() => null) : null;
-    if (abort.signal.aborted) {
+    const url = pageUrl(tab);
+    const page = wc && isReadable(url) ? await this.readPage(wc).catch(() => null) : null;
+    // Stopped, or its tab closed while the page was read: no run starts.
+    if (abort.signal.aborted || !win.hasTab(tab.id)) {
       update({ status: "cancelled" });
       finish();
       return;
@@ -1025,8 +1034,8 @@ export class AssistService {
 
   async jumpToSection(win: BrowserWindowCtl, index: number): Promise<void> {
     const tab = win.activeTab();
-    const wc = tab?.view.webContents;
-    if (!tab || !wc || wc.isDestroyed()) return;
+    const wc = pageOf(tab?.view);
+    if (!tab || !wc) return;
     // A video's sections are stretches of its transcript: jump the video, not the page.
     const video = this.tabs.get(tab.id)?.video;
     const start = video && video.url === wc.getURL() ? video.starts[index] : undefined;
@@ -1061,8 +1070,8 @@ export class AssistService {
    * whatever was translated stays until restoreTranslation.
    */
   async translateWholePage(win: BrowserWindowCtl, tab: TabRuntime, lang: string, onProgress: (translated: number) => void, signal: AbortSignal): Promise<number> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed() || !isReadable(wc.getURL())) throw new Error("Only web pages can be translated.");
+    const wc = pageOf(tab.view);
+    if (!wc || !isReadable(wc.getURL())) throw new Error("Only web pages can be translated.");
     const siteProfile = win.profile.siteProfiles.match(wc.getURL());
     const provider = this.providerFor(siteProfile);
     if (!provider) throw new Error(providerSetupReason(this.ctx.settings.get().ai.provider, "page translation"));
@@ -1086,8 +1095,9 @@ export class AssistService {
 
   /** Puts a page's original text back after a translation. */
   async restoreTranslation(tab: TabRuntime): Promise<void> {
-    if (tab.view.webContents.isDestroyed()) return;
-    await this.exec(tab.view.webContents, restoreTranslationScript()).catch(() => 0);
+    const wc = pageOf(tab.view);
+    if (!wc) return;
+    await this.exec(wc, restoreTranslationScript()).catch(() => 0);
     const entry = this.tabs.get(tab.id);
     if (entry) entry.translation = "none";
   }
@@ -1097,17 +1107,20 @@ export class AssistService {
     if (!tab) return;
     const entry = this.entry(tab.id);
     entry.abort?.abort();
-    await this.exec(tab.view.webContents, restoreTranslationScript()).catch(() => 0);
+    const wc = pageOf(tab.view);
+    if (wc) await this.exec(wc, restoreTranslationScript()).catch(() => 0);
     entry.translation = "none";
     this.refresh(win);
   }
 
   async run(win: BrowserWindowCtl, tab: TabRuntime, kind: Exclude<AssistActionKind, "write" | "compare">, input: string, continuing = false): Promise<void> {
+    const wc = pageOf(tab.view);
+    // A page menu left open while its tab closed.
+    if (!wc || !win.hasTab(tab.id)) return;
     const entry = this.entry(tab.id);
     entry.abort?.abort();
     const abort = new AbortController();
     entry.abort = abort;
-    const wc = tab.view.webContents;
     const prompt = kind === "ask" ? input.trim().slice(0, 600) : kind === "explain" || kind === "translate-selection" ? input.trim().slice(0, 280) : "";
     const message: AssistMessage = { id: crypto.randomUUID(), kind, prompt, text: "", status: "streaming", at: Date.now() };
     entry.messages = [...entry.messages, message].slice(-MAX_MESSAGES);
@@ -1118,8 +1131,7 @@ export class AssistService {
     };
     this.refresh(win);
 
-    const matchUrl = wc.isDestroyed() ? tab.url : wc.getURL() || tab.url;
-    const siteProfile = win.profile.siteProfiles.match(matchUrl);
+    const siteProfile = win.profile.siteProfiles.match(pageUrl(tab));
     const addendum = siteProfile?.promptAddendum.trim();
     const provider = this.providerFor(siteProfile);
     try {
@@ -1200,7 +1212,7 @@ export class AssistService {
         const translations = parseTranslatedSegments(text, segmentsCount);
         const changed = await this.exec<number>(wc, applyTranslationsScript(translations));
         entry.translation = "translated";
-        entry.translatedUrl = wc.getURL();
+        entry.translatedUrl = pageUrl(tab);
         update({ text: "", status: "done", translated: changed, more });
       } else {
         const final = text.trim();
@@ -1210,7 +1222,8 @@ export class AssistService {
         update({ text: final, status: "done", ...(kind === "summarize" ? { summary: parseSummary(final, sections?.length ?? 0) } : {}) });
       }
     } catch (err) {
-      if (kind === "translate-page") entry.translation = entry.translatedUrl === wc.getURL() && !wc.isDestroyed() ? "translated" : "none";
+      // The page may be gone by now (its tab closed during the translation).
+      if (kind === "translate-page") entry.translation = !wc.isDestroyed() && entry.translatedUrl === wc.getURL() ? "translated" : "none";
       update({ status: abort.signal.aborted ? "cancelled" : "error", error: errorText(err) });
     } finally {
       if (entry.abort === abort) entry.abort = null;

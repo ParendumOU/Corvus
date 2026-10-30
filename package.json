@@ -1,7 +1,7 @@
 {
   "name": "corvus",
   "private": true,
-  "version": "0.32.4",
+  "version": "0.32.5",
   "license": "MPL-2.0",
   "description": "Corvus — an AI-native browser that is also an MCP server for AI agents.",
   "packageManager": "pnpm@9.15.4",
@@ -24,7 +24,8 @@
   },
   "pnpm": {
     "patchedDependencies": {
-      "react-native-webview@14.0.1": "patches/react-native-webview@14.0.1.patch"
+      "react-native-webview@14.0.1": "patches/react-native-webview@14.0.1.patch",
+      "expo-router@58.0.26": "patches/expo-router@58.0.26.patch"
     }
   }
 }

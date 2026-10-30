@@ -140,12 +140,12 @@ export default function BrowserScreen() {
     if (params.open) {
       openTab(params.open, { external: params.incoming === '1' });
       setEditing(false);
-      router.setParams({ open: undefined, incoming: undefined });
+      nav.setParams({ open: undefined, incoming: undefined });
     } else if (params.edit) {
       newTab();
       setDraft('');
       setEditing(true);
-      router.setParams({ edit: undefined });
+      nav.setParams({ edit: undefined });
     }
   }, [browser.loaded, params.open, params.incoming, params.edit]);
 

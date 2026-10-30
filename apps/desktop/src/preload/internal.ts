@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor } from "../shared/annotations";
 import { ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
-import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_FIELD_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
+import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
 import { INTERNAL_EVENT, INTERNAL_RPC, type InternalBridge, type InternalEvent } from "../shared/ipc";
@@ -79,21 +79,55 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     if (!TEXT_TYPES.includes(type)) return null;
     return type === "password" || (el.form || document).querySelector("input[type=password]") ? "login" : null;
   };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const report = (el: any): void => {
+    const kind = fieldKind(el);
+    if (!kind) return;
+    const r = el.getBoundingClientRect();
+    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height });
+  };
   document.addEventListener(
     "click",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       try {
-        const kind = e.isTrusted && e.button === 0 ? fieldKind(e.target) : null;
-        if (!kind) return;
-        const r = e.target.getBoundingClientRect();
-        ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height });
+        if (e.isTrusted && e.button === 0) report(e.target);
       } catch {
         // never let autofill break a page's own click handling
       }
     },
     true,
   );
+  // The down arrow in such a field opens the accounts too, as in Chrome (while they are open, the main
+  // process takes the arrows before the page sees them).
+  document.addEventListener(
+    "keydown",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      try {
+        if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) report(e.target);
+      } catch {
+        // never let autofill break a page's own keys
+      }
+    },
+    true,
+  );
+  // While the accounts are open under a field, typing or pasting, the keyboard moving to another part
+  // of the page, or a scroll closes them (only that it happened is sent).
+  let dropdownOpen = false;
+  ipcRenderer.on(AUTOFILL_DROPDOWN_CHANNEL, (_event: IpcRendererEvent, open: unknown) => {
+    dropdownOpen = open === true;
+  });
+  const done = (): void => {
+    if (!dropdownOpen) return;
+    dropdownOpen = false;
+    ipcRenderer.send(AUTOFILL_DROPDOWN_DONE_CHANNEL);
+  };
+  document.addEventListener("input", done, true);
+  document.addEventListener("scroll", done, { capture: true, passive: true });
+  // Focus that leaves the page altogether (to the dropdown itself, or another app) is not the page's to
+  // report: the page has lost it by the time its field hears of it.
+  document.addEventListener("focusout", () => document.hasFocus() && done(), true);
 }
 
 // Flow recorder: while recording is enabled for this tab, report the user's clicks, field edits and

@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dialog, nativeImage, nativeTheme, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { dialog, nativeImage, nativeTheme, type WebContents } from "electron";
 import type { AuthenticatorPreview, PhotoReport } from "../shared/authenticator-import";
 import { encodeMigrationPayload, migrationUri, type MigrationOtpInput } from "../shared/authenticator-migration";
 import { base32Encode, totpCode, type TotpConfig } from "../shared/totp";
 import { addPhotos, authenticatorPreview, discardAuthenticatorImport, readAuthenticatorPhoto } from "./authenticator-import";
 import type { AppContext } from "./context";
+import { createKdbx, openKdbx } from "./keepass-format";
+import { dropdownDriver } from "./smoke-otp-fill";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 interface Helpers {
@@ -201,7 +203,7 @@ export async function runAuthenticatorImportSmoke(ctx: AppContext, { url, win, c
   const direct = addPhotos(profileId, null, [files[0]!, files[1]!]);
   const firstReport = await readAuthenticatorPhoto(profileId, direct.importId, 0);
   await readAuthenticatorPhoto(profileId, direct.importId, 1);
-  const directPreview: AuthenticatorPreview = authenticatorPreview(profileId, direct.importId, vault, {});
+  const directPreview: AuthenticatorPreview = authenticatorPreview(profileId, direct.importId, { vault }, {});
   const payload = JSON.stringify([firstReport, directPreview]);
   const secrets = accounts.map((a) => base32Encode(a.secret));
   check("authenticator preview never carries a secret", directPreview.rows.length > 10 && !secrets.some((sec) => payload.includes(sec)), { rows: directPreview.rows.length });
@@ -362,7 +364,7 @@ export async function runAuthenticatorImportSmoke(ctx: AppContext, { url, win, c
     const before = JSON.stringify(vault.all());
     const again = addPhotos(profileId, null, [files[0]!]);
     await readAuthenticatorPhoto(profileId, again.importId, 0);
-    const second = authenticatorPreview(profileId, again.importId, vault, {});
+    const second = authenticatorPreview(profileId, again.importId, { vault }, {});
     discardAuthenticatorImport(again.importId);
     const intranetRow = second.rows.find((r) => r.issuer === "Acme Intranet");
     check(
@@ -376,6 +378,120 @@ export async function runAuthenticatorImportSmoke(ctx: AppContext, { url, win, c
     fs.rmSync(dir, { recursive: true, force: true });
   }
   await fieldMenuSmoke(ctx, url.replace(/\/$/, ""), { win, check, capture });
+  await heicKeePassSmoke(ctx, url.replace(/\/$/, ""), { win, check, capture });
+}
+
+/** The made-up secrets of the accounts in test/fixtures/heic/export-photo.heic (see test/heic.test.ts). */
+const heicConfig = (seed: number): TotpConfig => config(Uint8Array.from({ length: 20 }, (_, i) => (seed * 41 + i * 13 + 5) & 0xff));
+
+/**
+ * An iPhone photo (HEIC) in a folder, imported into a KeePass database: the folder pick finds the
+ * .HEIC and .heif photos (and skips the rest), the QR code is read in the decoder process, the
+ * account whose site and username match an entry of an unlocked database goes to that entry (the
+ * other one's entry already has its 2FA), a locked database is pointed out, and after the import the
+ * entry has the 2FA in its file (with a .bak copy) and Corvus fills its code on the site.
+ */
+async function heicKeePassSmoke(ctx: AppContext, base: string, { win, check, capture }: Omit<Helpers, "url">): Promise<void> {
+  const kp = win.profile.keepass;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-ga-heic-"));
+  const photos = path.join(dir, "photos");
+  fs.mkdirSync(photos);
+  const fixture = path.resolve(process.cwd(), "test/fixtures/heic/export-photo.heic");
+  fs.copyFileSync(fixture, path.join(photos, "IMG_3001.HEIC"));
+  fs.copyFileSync(fixture, path.join(photos, "IMG_3002.heif"));
+  fs.writeFileSync(path.join(photos, "notes.txt"), "not a photo");
+  const file = path.join(dir, "Smoke KeePass.kdbx");
+  const locked = path.join(dir, "Locked KeePass.kdbx");
+  const fast = { memoryKiB: 4096, iterations: 1, totpFields: "keepassxc" as const };
+  fs.writeFileSync(
+    file,
+    await createKdbx(
+      [
+        { title: "HEIC smoke login", username: "heic-smoke@example.com", password: "kp-heic-smoke", url: base },
+        { title: "heic.example.org", username: "heic-second@example.org", password: "kp-heic-second", url: "https://heic.example.org", totp: heicConfig(2) },
+      ],
+      "kp-heic-master",
+      fast,
+    ),
+  );
+  fs.writeFileSync(locked, await createKdbx([{ title: "Elsewhere", username: "someone@example.org", password: "kp-locked", url: "https://locked.example.org" }], "kp-locked-master", fast));
+  const showOpenDialog = dialog.showOpenDialog;
+  try {
+    kp.addSources([file, locked], "file");
+    const dbId = kp.databases().find((d) => d.path === file)?.id ?? "";
+    check("KeePass database for the HEIC import unlocks", (await kp.unlock(dbId, "kp-heic-master", null, false)).ok);
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [photos] })) as typeof dialog.showOpenDialog;
+
+    const tab = win.createTab("corvus://passwords");
+    const wc = tab.view.webContents;
+    await until(() => js<boolean>(wc, "Boolean(window.corvusInternal && document.querySelector('.page-toolbar .btn'))").then(Boolean));
+    await js(wc, `[...document.querySelectorAll('.page-toolbar .btn')].find((x) => x.textContent.includes('Google Authenticator'))?.click()`);
+    await until(() => js<boolean>(wc, "Boolean(document.querySelector('.ga-import .ga-steps'))").then(Boolean));
+    await js(wc, `[...document.querySelectorAll('.ga-import .pw-actions .btn')].find((b) => b.textContent.includes('Choose a folder')).click()`);
+    const shown = await until(() => js<boolean>(wc, "Boolean(document.querySelector('.ga-table'))").then(Boolean), 60_000);
+    const photoLines = (await js<string[]>(wc, `[...document.querySelectorAll('.ga-photo-list li')].map((li) => li.querySelector('.ga-photo-name').textContent + ': ' + li.querySelector('.ga-photo-status').textContent)`)) ?? [];
+    check(
+      "the folder pick takes HEIC and HEIF photos and reads the export code in an iPhone photo",
+      shown && photoLines.length === 2 && photoLines[0] === "IMG_3001.HEIC: QR 1 of 1: 2 accounts" && photoLines[1] === "IMG_3002.heif: QR 1 of 1: already read, ignored",
+      photoLines,
+    );
+
+    const rowOf = (issuer: string): Promise<{ what: string; checked: boolean; disabled: boolean } | null> =>
+      js(wc, `(() => { const r = [...document.querySelectorAll('.ga-row')].find((x) => x.querySelector('.ga-account strong')?.textContent === ${JSON.stringify(issuer)}); return r ? { what: r.querySelector('.ga-what').textContent, checked: r.querySelector('input[type=checkbox]').checked, disabled: r.querySelector('input[type=checkbox]').disabled } : null; })()`);
+    await typeInto(wc, ".ga-row:not(.ga-head) .ga-site.missing", base);
+    const matched = await until(async () => /Adds 2FA to the KeePass entry HEIC smoke login in database Smoke KeePass/.test((await rowOf("Corvus HEIC Smoke"))?.what ?? ""), 5000);
+    const first = await rowOf("Corvus HEIC Smoke");
+    check("an account whose site and username match a KeePass entry goes to that entry, ticked", matched && first?.checked === true, first);
+    const second = await rowOf("heic.example.org");
+    check(
+      "a KeePass entry that already has the 2FA is shown as already set",
+      /The KeePass entry heic\.example\.org in database Smoke KeePass already has this 2FA/.test(second?.what ?? "") && second?.disabled === true,
+      second,
+    );
+    const hints = (await js<string>(wc, `[...document.querySelectorAll('.ga-keepass')].map((h) => h.textContent).join(' | ')`)) ?? "";
+    check(
+      "the preview names the locked database and says which KeePass entries change, with a .bak copy",
+      /The KeePass database Locked KeePass is locked/.test(hints) && /Importing changes 1 entry in your KeePass databases/.test(hints),
+      hints,
+    );
+    for (const theme of ["light", "dark"] as const) {
+      nativeTheme.themeSource = theme;
+      await sleep(400);
+      await capture(`authenticator-import-heic-keepass-${theme}`, wc);
+    }
+    nativeTheme.themeSource = "system";
+
+    const before = fs.readFileSync(file);
+    await js(wc, `document.querySelector('.ga-foot .btn.primary').click()`);
+    const done = await until(() => js<boolean>(wc, "Boolean(document.querySelector('.ga-result'))").then(Boolean), 30_000);
+    const result = (await js<string>(wc, `document.querySelector('.ga-import .card-body').innerText`)) ?? "";
+    check("the import reports the KeePass entry that got its 2FA", done && /Added 2FA to 1 entry in KeePass\./.test(result) && !/Could not write/.test(result), result);
+    await capture("authenticator-import-heic-keepass-done", wc);
+    const opened = await openKdbx(fs.readFileSync(file), "kp-heic-master", null);
+    const written = opened.entries.find((e) => e.title === "HEIC smoke login");
+    check(
+      "the KeePass file holds the 2FA, its password unchanged, with the file as it was in .bak",
+      JSON.stringify(written?.totp) === JSON.stringify(heicConfig(1)) && written?.password === "kp-heic-smoke" && fs.readFileSync(`${file}.bak`).equals(before),
+      { totp: Boolean(written?.totp) },
+    );
+
+    const otp = win.createTab(`${base}/2fa`);
+    const ow = otp.view.webContents;
+    await until(() => !ow.isDestroyed() && ow.getURL().includes("/2fa") && !otp.loading);
+    await until(() => ctx.autofill.stateFor(win).otpAvailable);
+    const account = ctx.autofill.suggestions(win).find((m) => m.username === "heic-smoke@example.com");
+    if (account) await ctx.autofill.fillTotp(win, account.id);
+    const filled = await until(async () => (await nearbyCodes(heicConfig(1))).includes((await js<string>(ow, `document.getElementById("otp").value`)) ?? ""), 5000);
+    check("Corvus fills the 2FA code of the KeePass entry the import wrote", Boolean(account?.hasTotp && account.source === "keepass") && filled, account);
+    await capture("authenticator-import-heic-keepass-otp-filled", ow);
+    win.closeTab(otp.id);
+    win.closeTab(tab.id);
+  } finally {
+    dialog.showOpenDialog = showOpenDialog;
+    nativeTheme.themeSource = "system";
+    for (const source of kp.sources()) kp.removeSource(source.id);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -393,36 +509,30 @@ async function fieldMenuSmoke(ctx: AppContext, base: string, { win, check, captu
     vault.add({ origin, username: "Menu-Smoke@example.com", password: "", totp }).id,
     vault.add({ origin, username: "twofa-only@example.com", password: "", totp: config(fakeSecret(78)) }).id,
   ];
-  let items: MenuItemConstructorOptions[] | null = null;
-  ctx.autofill.setFieldMenuProbe((shown) => {
-    items = shown;
-  });
+  const dropdown = dropdownDriver(ctx, win);
   try {
     const tab = win.createTab(`${base}/login`);
     const wc = tab.view.webContents;
     await until(() => !wc.isDestroyed() && wc.getURL().includes("/login") && !tab.loading);
     await until(() => ctx.autofill.stateFor(win).available);
     const clickField = async (selector: string): Promise<void> => {
-      items = null;
+      const before = dropdown.token();
       const box = await js<{ x: number; y: number }>(wc, `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
       if (!box) return;
       wc.focus();
       wc.sendInputEvent({ type: "mouseDown", x: box.x, y: box.y, button: "left", clickCount: 1 });
       wc.sendInputEvent({ type: "mouseUp", x: box.x, y: box.y, button: "left", clickCount: 1 });
-      await until(() => items !== null, 5000);
+      await dropdown.opened(before);
     };
     await clickField("#u");
-    const labels = ((items ?? []) as MenuItemConstructorOptions[]).filter((i) => i.label).map((i) => i.label!);
+    const labels = dropdown.labels();
     const merged = `menu-smoke@example.com  \u00b7  ${host}`;
     check(
       "login field menu shows one item per user with the site, and marks 2FA-only accounts",
       labels.filter((l) => l.toLowerCase().startsWith("menu-smoke@")).length === 1 && labels.includes(merged) && labels.includes(`twofa-only@example.com  \u00b7  ${host}  \u00b7  2FA only`),
       labels,
     );
-    const pick = (label: string): void => {
-      const item = ((items ?? []) as MenuItemConstructorOptions[]).find((i) => i.label === label);
-      (item?.click as (() => void) | undefined)?.();
-    };
+    const pick = (label: string): boolean => dropdown.pick(label);
     pick(merged);
     const fields = (): Promise<string | null> => js<string>(wc, `document.getElementById("u").value + "/" + document.getElementById("p").value`);
     const filled = await until(async () => (await fields()) === "menu-smoke@example.com/pw-menu-smoke", 5000);
@@ -446,7 +556,6 @@ async function fieldMenuSmoke(ctx: AppContext, base: string, { win, check, captu
     win.closeTab(otp.id);
     win.closeTab(tab.id);
   } finally {
-    ctx.autofill.setFieldMenuProbe(null);
     for (const id of ids) vault.remove(id);
   }
 }

@@ -36,6 +36,7 @@ import {
 import { argStr, type ToolRunState } from "./agent-tools";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
+import { pageUrl } from "./tab-page";
 import { runWorkflowSteps, type GateDecision } from "./workflow-engine";
 
 /** Workflow tools plus the site-memory read tool: all handled by runWorkflowAgentTool. */
@@ -205,12 +206,7 @@ export interface WorkflowToolDeps {
 function currentUrl(deps: WorkflowToolDeps): string {
   const tabId = deps.tabId();
   const tab = tabId ? deps.ctx.windows.findTab(tabId)?.tab : undefined;
-  let url = "";
-  try {
-    url = tab ? (!tab.view.webContents.isDestroyed() ? tab.view.webContents.getURL() || tab.url : tab.url) : "";
-  } catch {
-    url = tab?.url ?? "";
-  }
+  const url = tab ? pageUrl(tab) : "";
   return hostKey(url) ? url : deps.siteUrl ?? "";
 }
 

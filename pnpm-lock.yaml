@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  expo-router@58.0.26:
+    hash: w4xh2f2gj4gvlhrxza6qodq65a
+    path: patches/expo-router@58.0.26.patch
   react-native-webview@14.0.1:
     hash: bes3ifh7t5re5gp3daik4wqfsy
     path: patches/react-native-webview@14.0.1.patch
@@ -92,6 +95,9 @@ importers:
       kdbxweb:
         specifier: 2.1.1
         version: 2.1.1
+      libheif-js:
+        specifier: 1.23.5
+        version: 1.23.5
       pdfjs-dist:
         specifier: 6.4.299
         version: 6.4.299
@@ -158,12 +164,15 @@ importers:
       expo-linking:
         specifier: ~58.0.14
         version: 58.0.14(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+      expo-localization:
+        specifier: ~58.0.5
+        version: 58.0.5(expo@58.0.19)(react@19.3.0)
       expo-notifications:
         specifier: ~58.1.6
         version: 58.1.6(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
       expo-router:
         specifier: ~58.0.26
-        version: 58.0.26(uu2qrcydoy3aogh7ptw6qo4oza)
+        version: 58.0.26(patch_hash=w4xh2f2gj4gvlhrxza6qodq65a)(uu2qrcydoy3aogh7ptw6qo4oza)
       expo-secure-store:
         specifier: ~58.0.2
         version: 58.0.2(expo@58.0.19)
@@ -3189,6 +3198,12 @@ packages:
       react: '*'
       react-native: '*'
 
+  expo-localization@58.0.5:
+    resolution: {integrity: sha512-2wyZl/5wn95l38AAtdaUAq2VMJWbGbgQQDEuIEkkemmsA/BZ8gS21Nq+7I2X9hDfL5Z+4hlyLVdPtDIH0vvt1A==}
+    peerDependencies:
+      expo: '*'
+      react: '*'
+
   expo-modules-autolinking@58.0.15:
     resolution: {integrity: sha512-eTeWBS2RWdp2V/LlhjI5JI/5ACMfrdOax9iBpOshDOAZHsncbAKN2fkpmvyAtvVbj1DUJ04ejINUTyDDLgo2yg==}
     hasBin: true
@@ -3810,6 +3825,10 @@ packages:
   leven@3.1.0:
     resolution: {integrity: sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==}
     engines: {node: '>=6'}
+
+  libheif-js@1.23.5:
+    resolution: {integrity: sha512-umXZPthnWZtF3iG/5mQG+AZ2V6i0UeYpo3z2CkggTEgL8dKmIIwJT6TDuAMuabXa1yTW8uJ1ZAgR+CxNTklYYw==}
+    engines: {node: '>=8.0.0'}
 
   light-my-request@6.8.0:
     resolution: {integrity: sha512-5Q8PjoSEdtGIB8fikZsTem5vgRo4F2mR6vUKTDW/H1g6MtAt8e3duQbg/QxL5yzg6BZhor2KOUm3hhWMWLTZwg==}
@@ -4667,6 +4686,9 @@ packages:
   router@2.2.0:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
+
+  rtl-detect@1.1.2:
+    resolution: {integrity: sha512-PGMBq03+TTG/p/cRB7HCLKJ1MgDIi07+QU1faSjiYRfmY5UsAttV9Hs08jDAHVwcOwmVLcSJkpwyfXszVjWfIQ==}
 
   safe-buffer@5.1.2:
     resolution: {integrity: sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==}
@@ -6254,7 +6276,7 @@ snapshots:
       ws: 8.22.0
       zod: 3.25.76
     optionalDependencies:
-      expo-router: 58.0.26(uu2qrcydoy3aogh7ptw6qo4oza)
+      expo-router: 58.0.26(patch_hash=w4xh2f2gj4gvlhrxza6qodq65a)(uu2qrcydoy3aogh7ptw6qo4oza)
       react-native: 0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0)
     transitivePeerDependencies:
       - '@expo/dom-webview'
@@ -6555,7 +6577,7 @@ snapshots:
       react: 19.3.0
     optionalDependencies:
       '@expo/metro-runtime': 58.0.15(@expo/log-box@58.0.13)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
-      expo-router: 58.0.26(uu2qrcydoy3aogh7ptw6qo4oza)
+      expo-router: 58.0.26(patch_hash=w4xh2f2gj4gvlhrxza6qodq65a)(uu2qrcydoy3aogh7ptw6qo4oza)
       react-dom: 19.3.0(react@19.3.0)
     transitivePeerDependencies:
       - supports-color
@@ -7101,9 +7123,7 @@ snapshots:
       metro-runtime: 0.87.1
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 
@@ -8519,6 +8539,12 @@ snapshots:
       - supports-color
       - typescript
 
+  expo-localization@58.0.5(expo@58.0.19)(react@19.3.0):
+    dependencies:
+      expo: 58.0.19(@babel/core@7.29.7)(@expo/dom-webview@58.0.2)(@expo/metro-runtime@58.0.15)(expo-router@58.0.26)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-webview@14.0.1(patch_hash=bes3ifh7t5re5gp3daik4wqfsy)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+      react: 19.3.0
+      rtl-detect: 1.1.2
+
   expo-modules-autolinking@58.0.15(typescript@6.0.3):
     dependencies:
       '@expo/platforms': 58.0.1
@@ -8570,7 +8596,7 @@ snapshots:
       - supports-color
       - typescript
 
-  expo-router@58.0.26(uu2qrcydoy3aogh7ptw6qo4oza):
+  expo-router@58.0.26(patch_hash=w4xh2f2gj4gvlhrxza6qodq65a)(uu2qrcydoy3aogh7ptw6qo4oza):
     dependencies:
       '@expo/log-box': 58.0.13(@expo/dom-webview@58.0.2)(expo@58.0.19)(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
       '@expo/metro-runtime': 58.0.15(@expo/log-box@58.0.13)(expo@58.0.19)(react-dom@19.3.0(react@19.3.0))(react-native@0.88.0(@babel/core@7.29.7)(@react-native/metro-config@0.88.0(@babel/core@7.29.7))(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)
@@ -9249,6 +9275,8 @@ snapshots:
   lazy-val@1.0.5: {}
 
   leven@3.1.0: {}
+
+  libheif-js@1.23.5: {}
 
   light-my-request@6.8.0:
     dependencies:
@@ -10262,6 +10290,8 @@ snapshots:
       path-to-regexp: 8.4.2
     transitivePeerDependencies:
       - supports-color
+
+  rtl-detect@1.1.2: {}
 
   safe-buffer@5.1.2: {}
 

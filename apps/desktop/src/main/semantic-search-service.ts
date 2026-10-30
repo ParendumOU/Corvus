@@ -14,6 +14,7 @@ import type { AppContext } from "./context";
 import { loadOptionalModule } from "./module-loader";
 import type { ProfileRuntime } from "./profiles";
 import { type CapturedPage, SEMANTIC_WORLD_ID, capturePageTextScript } from "./semantic-scripts";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 interface AiEngineModule {
@@ -105,8 +106,8 @@ export class SemanticSearchService {
   async capturePage(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
     if (!this.indexingEnabled() || win.isPrivate) return;
     const url = tab.url;
-    if (!isHistoryWorthy(url)) return;
-    const wc = tab.view.webContents;
+    const wc = pageOf(tab.view);
+    if (!isHistoryWorthy(url) || !wc) return;
     try {
       const captured = (await Promise.race([
         wc.executeJavaScriptInIsolatedWorld(SEMANTIC_WORLD_ID, [{ code: capturePageTextScript() }]) as Promise<CapturedPage>,

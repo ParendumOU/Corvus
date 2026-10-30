@@ -16,6 +16,7 @@ import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { cssToDip, fitShot, parseKey, type KeyPress, type Point, type ShotGeometry } from "../shared/visual-input";
 import type { AppContext } from "./context";
 import { AGENT_WORLD_ID, describeFocusedScript, describePointScript, pointerFallbackScript, rectScript, viewportInfoScript, viewportScript } from "./page-scripts";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl } from "./window";
 
 const SCRIPT_TIMEOUT_MS = 8_000;
@@ -52,8 +53,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 function target(ctx: AppContext, id: TabId): { win: BrowserWindowCtl; wc: WebContents } {
   const found = ctx.windows.findTab(id);
   if (!found) throw new Error(`Unknown tab ${id}`);
-  const wc = found.tab.view.webContents;
-  if (wc.isDestroyed()) throw new Error(`Tab ${id} is closed`);
+  const wc = pageOf(found.tab.view);
+  if (!wc) throw new Error(`Tab ${id} is closed`);
   if (!isAgentAllowedUrl(wc.getURL() || found.tab.url)) throw new Error("Agents cannot access this page");
   return { win: found.window, wc };
 }

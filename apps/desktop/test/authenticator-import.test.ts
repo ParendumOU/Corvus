@@ -255,6 +255,60 @@ describe("planImport repairs an earlier import", () => {
   });
 });
 
+/** An entry of an unlocked KeePass database as the plan sees it. */
+const entry = (id: string, origin: string, username: string, extra: Partial<PlanLogin> = {}, readOnly = false): PlanLogin =>
+  login(id, origin, username, { keepass: { db: "Personal", title: `${username} at ${new URL(origin).host}`, readOnly }, ...extra });
+
+describe("planImport with KeePass entries", () => {
+  it("adds the 2FA to a KeePass entry of the site with the account's name, ticked", () => {
+    const rows = planImport([account("a1", "GitHub", "octocat")], [entry("kp:db1:u1", "https://github.com", "OctoCat"), login("l1", "https://github.com", "someone-else")]);
+    expect(rows[0]).toMatchObject({ action: "attach", selected: true, target: "login:kp:db1:u1", login: { id: "kp:db1:u1", keepass: { db: "Personal", title: "OctoCat at github.com", readOnly: false } } });
+  });
+
+  it("keeps a built-in login first when both have the account's name", () => {
+    const rows = planImport([account("a1", "GitHub", "octocat")], [entry("kp:db1:u1", "https://github.com", "octocat", { updatedAt: 99 }), login("l1", "https://github.com", "octocat")]);
+    expect(rows[0]?.login).toEqual({ id: "l1", username: "octocat", origin: "https://github.com" });
+  });
+
+  it("uses the only KeePass entry of a site only when the site has no built-in login", () => {
+    const onlyEntry = planImport([account("a1", "Discord", "Some One#1234")], [entry("kp:db1:u1", "https://discord.com", "someone@example.com")]);
+    expect(onlyEntry[0]).toMatchObject({ action: "attach", login: { id: "kp:db1:u1" } });
+    const both = planImport([account("a1", "Discord", "Some One#1234")], [entry("kp:db1:u1", "https://discord.com", "someone@example.com"), login("l1", "https://discord.com", "other@example.com")]);
+    expect(both[0]).toMatchObject({ action: "attach", login: { id: "l1" } });
+  });
+
+  it("matches an entry by its additional URLs too", () => {
+    const rows = planImport([account("a1", "", "ops", "JBSWY3DPEHPK3PXPJBSWY3DP")], [entry("kp:db1:u1", "https://old.example.net", "ops", { alsoAt: ["https://intranet.example.org"] })], { a1: "intranet.example.org" });
+    expect(rows[0]).toMatchObject({ action: "attach", login: { id: "kp:db1:u1" } });
+  });
+
+  it("says an entry that already has the same 2FA is already set, and a different one is a conflict, off", () => {
+    const same = planImport([account("a1", "GitHub", "octocat", "AAAABBBBCCCCDDDD")], [entry("kp:db1:u1", "https://github.com", "octocat", { totp: totp("AAAABBBBCCCCDDDD") })]);
+    expect(same[0]).toMatchObject({ action: "same", siteKnown: true, selected: false, login: { id: "kp:db1:u1" } });
+    const other = planImport([account("a1", "GitHub", "octocat", "AAAABBBBCCCCDDDD")], [entry("kp:db1:u1", "https://github.com", "octocat", { totp: totp("EEEEFFFFGGGGHHHH") })]);
+    expect(other[0]).toMatchObject({ action: "replace", selected: false });
+  });
+
+  it("starts a row unticked when its database file is read-only", () => {
+    const rows = planImport([account("a1", "GitHub", "octocat")], [entry("kp:db1:u1", "https://github.com", "octocat", {}, true)]);
+    expect(rows[0]).toMatchObject({ action: "attach", selected: false, login: { keepass: { readOnly: true } } });
+    expect(rowsToImport(rows, new Set(["a1"])).map((r) => r.id)).toEqual(["a1"]);
+  });
+
+  it("never repairs or removes a KeePass entry, and removes nothing when the 2FA is already in one", () => {
+    const secret = "JBSWY3DPEHPK3PXPJBSWY3DP";
+    // A label-shaped KeePass entry holding the 2FA is not an earlier import's: it stays as it is.
+    const labelled = planImport([account("a1", "Portal Org", "portal@example.org", secret)], [entry("kp:db1:u1", "https://portal.example.org", "Portal Org - portal@example.org", { hasPassword: false, totp: totp(secret) })]);
+    expect(labelled[0]).toMatchObject({ action: "same", removes: [] });
+    // The 2FA is in a KeePass entry under the account's name and in a built-in 2FA-only login an earlier import made.
+    const both = planImport(
+      [account("a1", "Portal Org", "portal@example.org", secret)],
+      [entry("kp:db1:u1", "https://portal.example.org", "portal@example.org", { totp: totp(secret) }), twoFaOnly("old", "https://portal.example.org", "Portal Org - portal@example.org", secret)],
+    );
+    expect(both[0]).toMatchObject({ action: "same", removes: [] });
+  });
+});
+
 /** Accounts of a 12-code export like the one Google Authenticator shows for 100+ accounts. */
 function exportCodes(batchId: number, perCode: number, codes: number, seedBase: number): string[] {
   const issuers = ["Google", "GitHub", "Microsoft", "Discord", "Cloudflare", "Acme Intranet"];

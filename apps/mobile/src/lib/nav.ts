@@ -21,4 +21,5 @@ export const nav = {
   push: (...args: Parameters<typeof router.push>): void => attempt(() => router.push(...args)),
   navigate: (...args: Parameters<typeof router.navigate>): void => attempt(() => router.navigate(...args)),
   replace: (...args: Parameters<typeof router.replace>): void => attempt(() => router.replace(...args)),
+  setParams: (...args: Parameters<typeof router.setParams>): void => attempt(() => router.setParams(...args)),
 };

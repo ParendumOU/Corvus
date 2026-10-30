@@ -1,7 +1,8 @@
 /**
  * Per-profile KeePass support (keepass.json in the profile folder). Off until the person adds a
- * database file or a folder of them. Strictly read-only: databases are only ever read with
- * fs.readFile, and a directory watcher re-reads an unlocked database when its file changes.
+ * database file or a folder of them. Databases are read with fs.readFile, and a directory watcher
+ * re-reads an unlocked database when its file changes. A file is written only to add or edit an entry
+ * the person asked for, or to add the 2FA of an entry the person ticked in an import (see write()).
  *
  * Unlock takes the master password (and optional key file) once. "Keep unlocked" stores the master
  * password and key file path wrapped by the OS keychain (Electron safeStorage); never in plain text,
@@ -19,9 +20,26 @@ import path from "node:path";
 import type { KeePassDbStatus, KeePassDbView, KeePassEntrySummary, KeePassSourceKind, KeePassSourceView, KeePassUnlockResult } from "../shared/keepass-ipc";
 import { JsonFile } from "./json-file";
 import { entryFit, entryMatchScore, entrySite, type KeePassEntry } from "./keepass-entries";
-import { openKdbx, saveKdbxEntry, type EntryInput } from "./keepass-format";
+import { openKdbx, saveKdbxEntry, setKdbxTotps, type EntryInput, type EntryTotp } from "./keepass-format";
 import type { LoginCandidate, LoginProvider, LoginRecord } from "./login-sources";
 import type { SecretCipher } from "./settings-store";
+import type { TotpConfig } from "../shared/totp";
+
+/** An entry of an unlocked database as the 2FA import sees it. */
+export interface KeePassImportEntry {
+  /** The entry's login id ("kp:<database>:<uuid>"). */
+  id: string;
+  dbId: string;
+  uuid: string;
+  dbName: string;
+  title: string;
+  username: string;
+  hasPassword: boolean;
+  urls: string[];
+  totp?: TotpConfig;
+  modified: number;
+  readOnly: boolean;
+}
 
 type Listener = () => void;
 
@@ -555,6 +573,23 @@ export class KeePassStore {
    * write of a run keeps the file as it was in "<file>.bak"; the new file replaces the old in one step.
    */
   async saveEntry(dbId: string, input: EntryInput): Promise<string> {
+    let uuid = "";
+    await this.write(dbId, async (data, key) => {
+      const saved = await saveKdbxEntry(data, key.password, key.keyFile, input);
+      uuid = saved.uuid;
+      return saved.data;
+    });
+    return `${KEEPASS_ID_PREFIX}${dbId}:${uuid}`;
+  }
+
+  /** Gives entries of an unlocked database their 2FA, in one write (see saveEntry and setKdbxTotps). */
+  async setTotps(dbId: string, changes: readonly EntryTotp[]): Promise<void> {
+    if (changes.length === 0) return;
+    await this.write(dbId, (data, key) => setKdbxTotps(data, key.password, key.keyFile, changes));
+  }
+
+  /** Changes a database file: the conflict check, the .bak copy of the run's first write, the swap, the reload. */
+  private async write(dbId: string, edit: (data: Uint8Array, key: DbKey) => Promise<Uint8Array>): Promise<void> {
     const db = this.dbs.get(dbId);
     if (!db || db.status !== "unlocked" || !db.key) throw new Error(tr("Unlock the database first."));
     if ((await this.stampOf(db.path)) !== db.stamp) {
@@ -562,17 +597,46 @@ export class KeePassStore {
       throw new Error(tr("The database changed on disk since Corvus read it (another app saved it). It has been reloaded: try again."));
     }
     const data = await fs.promises.readFile(db.path);
-    const saved = await saveKdbxEntry(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), db.key.password, db.key.keyFile, input);
+    const saved = await edit(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), db.key);
     if (!this.backedUp.has(db.path)) {
       await fs.promises.copyFile(db.path, `${db.path}.bak`);
       this.backedUp.add(db.path);
     }
     const temp = `${db.path}.corvus-tmp`;
-    await fs.promises.writeFile(temp, saved.data);
+    await fs.promises.writeFile(temp, saved);
     await fs.promises.rename(temp, db.path);
     await this.load(db, db.key);
     this.emit();
-    return `${KEEPASS_ID_PREFIX}${db.id}:${saved.uuid}`;
+  }
+
+  /**
+   * The entries of the unlocked databases, as the import from an authenticator app matches them (with
+   * their 2FA, which never leaves this process). `readOnly`: Corvus cannot write the database file.
+   */
+  importEntries(): KeePassImportEntry[] {
+    return [...this.dbs.values()]
+      .filter((db) => db.status === "unlocked")
+      .flatMap((db) => {
+        let readOnly = false;
+        try {
+          fs.accessSync(db.path, fs.constants.W_OK);
+        } catch {
+          readOnly = true;
+        }
+        return db.entries.map((e) => ({
+          id: `${KEEPASS_ID_PREFIX}${db.id}:${e.uuid}`,
+          dbId: db.id,
+          uuid: e.uuid,
+          dbName: db.name,
+          title: e.title,
+          username: e.username,
+          hasPassword: e.password !== "",
+          urls: e.urls,
+          ...(e.totp ? { totp: e.totp } : {}),
+          modified: e.modified,
+          readOnly,
+        }));
+      });
   }
 
   /** Every entry of the unlocked databases, with its password (the password checkup only). */

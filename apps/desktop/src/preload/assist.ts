@@ -1,5 +1,6 @@
-// Preload for the Corvus Assist panel (corvus://assist) and the agent overlay
-// (corvus://agent-overlay). Both live in their own views, never in tabs.
+// Preload for the Corvus Assist panel (corvus://assist), the agent overlay (corvus://agent-overlay),
+// the reader and the account dropdown under a field (corvus://field-menu). All live in their own
+// views, never in tabs.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import {
   ASSIST_EVENT,
@@ -12,6 +13,7 @@ import {
   type OverlayEvent,
 } from "../shared/assist-ipc";
 import { READER_EVENT, READER_RPC, type ReaderBridge, type ReaderEventMessage } from "../shared/reader-ipc";
+import { FIELD_MENU_ACTION, FIELD_MENU_EVENT, type FieldDropdownState, type FieldMenuBridge } from "../shared/credentials-ipc";
 
 // The preload is type-checked with the Node project (no DOM lib); declare the globals it reads.
 declare const location: { protocol: string; hostname: string };
@@ -53,4 +55,16 @@ if (trusted && location.hostname === "agent-overlay") {
     dismiss: () => ipcRenderer.send(OVERLAY_DISMISS),
   };
   contextBridge.exposeInMainWorld("corvusOverlay", bridge);
+}
+
+if (trusted && location.hostname === "field-menu") {
+  const bridge: FieldMenuBridge = {
+    onState: (listener) => {
+      const handler = (_event: IpcRendererEvent, state: FieldDropdownState | null): void => listener(state);
+      ipcRenderer.on(FIELD_MENU_EVENT, handler);
+      return () => ipcRenderer.off(FIELD_MENU_EVENT, handler);
+    },
+    send: (action) => ipcRenderer.send(FIELD_MENU_ACTION, action),
+  };
+  contextBridge.exposeInMainWorld("corvusFieldMenu", bridge);
 }

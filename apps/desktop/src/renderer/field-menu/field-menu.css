@@ -1,0 +1,45 @@
+/* The account dropdown under a field: transparent around it (its view keeps room for the shadow). */
+html,
+body,
+#root {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+.fd-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 1px 6px rgba(20, 20, 40, 0.22), 0 0 0 1px var(--border-soft);
+  cursor: default;
+  user-select: none;
+}
+.fd-menu .af-list {
+  max-height: 330px;
+}
+.fd-head {
+  padding: 2px 8px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+/* The entry the arrows or the mouse are on. */
+.fd-menu .af-row.active,
+.fd-menu .af-others.active,
+.fd-menu .af-manage.active {
+  background: var(--hover);
+}
+.fd-menu .af-others.active {
+  color: var(--text);
+}
+.fd-menu .af-manage {
+  margin: 2px -6px -6px;
+  padding: 9px 14px;
+  border-radius: 0 0 12px 12px;
+}

@@ -1,12 +1,13 @@
-import { clipboard, type MenuItemConstructorOptions } from "electron";
+import { clipboard, type WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
+import { autofillSiteOf, neverSaveHostOf } from "../shared/autofill-sites";
 import { loginDomainOf, originKeyOf, type CredentialMatch } from "../shared/credentials";
-import { type AutofillBarState, type AutofillCode, type CapturedSubmit, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
+import { type AutofillBarState, type AutofillCode, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { codeToFill, totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
-import { fieldMenuItems, showMenuAt } from "./menus";
+import { FieldDropdown, pageOf } from "./field-dropdown";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -82,7 +83,8 @@ export class AutofillService {
   /** Per tab: origin -> when auto sign-in last asked. */
   private readonly autoAsked = new Map<TabId, Map<string, number>>();
   private autoApprover: AutoSignInApprover | null = null;
-  private fieldMenuProbe: ((items: MenuItemConstructorOptions[]) => void) | null = null;
+  /** Per window: the account dropdown under a field, made the first time it opens. */
+  private readonly dropdowns = new Map<BrowserWindowCtl, FieldDropdown>();
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -134,8 +136,8 @@ export class AutofillService {
   }
 
   private async run<T>(tab: TabRuntime, code: string): Promise<T | null> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed() || !isWebPage(wc.getURL())) return null;
+    const wc = pageOf(tab);
+    if (!wc || !isWebPage(wc.getURL())) return null;
     try {
       return (await withTimeout(wc.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code }]) as Promise<T>, SCRIPT_TIMEOUT_MS)) ?? null;
     } catch {
@@ -144,13 +146,15 @@ export class AutofillService {
   }
 
   private pageUrl(tab: TabRuntime): string {
-    return tab.view.webContents.isDestroyed() ? tab.url : tab.view.webContents.getURL();
+    return pageOf(tab)?.getURL() ?? tab.url;
   }
 
   /** Probes the page for a login form and a 2FA field, and tells the window when that changed. */
   private async probe(win: BrowserWindowCtl, tab: TabRuntime): Promise<Detected> {
     const result = await this.run<LoginDetection>(tab, detectLoginScript());
     const next: Detected = { login: result?.hasPassword === true, otp: result?.hasOtp === true };
+    // The tab closed meanwhile: nothing to remember for it.
+    if (!pageOf(tab)) return next;
     const before = this.detected.get(tab.id) ?? { login: false, otp: false };
     this.detected.set(tab.id, next);
     if ((next.login !== before.login || next.otp !== before.otp) && win.activeTab()?.id === tab.id) win.pushState();
@@ -180,7 +184,7 @@ export class AutofillService {
    */
   onSubmitCaptured(win: BrowserWindowCtl, tab: TabRuntime, data: CapturedSubmit): void {
     const origin = originKeyOf(data.origin);
-    if (!origin || !data.password) return;
+    if (!origin || !data.password || win.profile.siteSettings.isNeverSave(neverSaveHostOf(origin))) return;
     const existing = win.profile.credentials.findByLogin(origin, data.username);
     if (existing && existing.password === data.password) return; // already saved, unchanged
     this.pending.set(tab.id, { id: ++this.lastSaveId, origin, username: data.username, password: data.password, shown: false });
@@ -198,6 +202,7 @@ export class AutofillService {
     this.autoAsked.delete(id);
     clearTimeout(this.reprobes.get(id));
     this.reprobes.delete(id);
+    for (const dropdown of this.dropdowns.values()) if (dropdown.openOver()?.id === id) dropdown.close();
   }
 
   stateFor(win: BrowserWindowCtl): AutofillBarState {
@@ -235,23 +240,53 @@ export class AutofillService {
     return { id: save.id, host: hostOf(save.origin), username: save.username, password: save.password, savedUsernames: win.profile.credentials.usernamesAt(save.origin) };
   }
 
+  /** The page's accounts, the one filled last on its site first. */
   suggestions(win: BrowserWindowCtl): CredentialMatch[] {
     const tab = win.activeTab();
     if (!tab) return [];
-    return win.profile.logins.matchesFor(this.pageUrl(tab));
+    const url = this.pageUrl(tab);
+    return win.profile.logins.matchesFor(url, win.profile.siteSettings.lastLogin(autofillSiteOf(url)));
   }
 
-  /** Smoke tests read the field menu instead of showing it; null shows it again. */
-  setFieldMenuProbe(probe: ((items: MenuItemConstructorOptions[]) => void) | null): void {
-    this.fieldMenuProbe = probe;
+  /** Remembers the account used on the page's site, so it is offered first there next time (never from a private window). */
+  private noteUsed(win: BrowserWindowCtl, url: string, accountId: string): void {
+    if (!win.isPrivate) win.profile.siteSettings.noteLastLogin(autofillSiteOf(url), accountId);
+  }
+
+  private dropdownOf(win: BrowserWindowCtl): FieldDropdown {
+    const existing = this.dropdowns.get(win);
+    if (existing) return existing;
+    const dropdown = new FieldDropdown(win, {
+      account: (kind, id) => void (kind === "otp" ? this.fillTotp(win, id) : this.fill(win, id)),
+      manage: () => win.openSingleton("corvus://passwords/"),
+    });
+    this.dropdowns.set(win, dropdown);
+    win.win.once("closed", () => this.dropdowns.delete(win));
+    return dropdown;
+  }
+
+  /** The account dropdown of a window, once it has opened (for the smoke test). */
+  fieldDropdown(win: BrowserWindowCtl): FieldDropdown | undefined {
+    return this.dropdowns.get(win);
+  }
+
+  /** The dropdown view `sender` reported its size, or the entry the mouse is over or pressed. */
+  onDropdownAction(sender: WebContents, action: DropdownAction): void {
+    for (const dropdown of this.dropdowns.values()) if (dropdown.webContents === sender) dropdown.onAction(action);
+  }
+
+  /** The tab preload says the person typed or pasted in the field, moved the keyboard elsewhere in the page, or scrolled it. */
+  onDropdownDone(win: BrowserWindowCtl, tab: TabRuntime): void {
+    this.dropdowns.get(win)?.onPageDone(tab);
   }
 
   /**
-   * The person clicked a login field or a one-time-code field (reported by the tab preload): list the
-   * page's saved accounts in a menu right under it, as the omnibox key button does; under a code
-   * field, the accounts with a 2FA ("2FA code for ..."). Only in the active, person-driven tab, and
-   * only where the page has such a field: probed again when it was not seen yet, since a two-step
-   * sign-in shows its code field after the page loaded. Nothing is filled until the person picks.
+   * The person clicked a login field or a one-time-code field, or pressed the down arrow in it (reported
+   * by the tab preload): list the page's saved accounts in the dropdown right under it (see
+   * field-dropdown.ts), as the omnibox key button does; under a code field, the accounts with a 2FA.
+   * The page keeps the keyboard. Only in the active, person-driven tab, and only where the page has
+   * such a field: probed again when it was not seen yet, since a two-step sign-in shows its code field
+   * after the page loaded. Nothing is filled until the person picks.
    */
   async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick): Promise<void> {
     const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
@@ -260,15 +295,9 @@ export class AutofillService {
     if (!has(this.detected.get(tab.id)) && !has(await this.probe(win, tab))) return;
     const url = this.pageUrl(tab);
     const matches = this.suggestions(win).filter((m) => click.kind === "login" || m.hasTotp);
-    if (!active() || matches.length === 0) return;
-    const items = fieldMenuItems(this.ctx, win, matches, click.kind, loginDomainOf(hostOf(url)));
-    if (this.fieldMenuProbe) {
-      this.fieldMenuProbe(items);
-      return;
-    }
-    const bounds = tab.view.getBounds();
-    const zoom = tab.view.webContents.getZoomFactor();
-    showMenuAt(win, items, bounds.x + click.x * zoom, bounds.y + (click.y + click.height) * zoom);
+    const page = pageOf(tab);
+    if (!page || !active() || matches.length === 0) return;
+    this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches);
   }
 
   /**
@@ -289,6 +318,7 @@ export class AutofillService {
     const totp = plan.code ? account.totp?.record.totp : undefined;
     const code = totp ? await codeToFill(totp) : null;
     if (plan.login === "none" && !code) return;
+    this.noteUsed(win, url, account.id);
     const password = account.password?.record.password ?? "";
     // Secrets in the page: agents may not script it until it navigates (see secret-fill-guard.ts).
     this.ctx.secretFills.mark(tab.id, [password, code?.code ?? ""].filter(Boolean));
@@ -316,11 +346,21 @@ export class AutofillService {
     );
   }
 
-  /** Copies the current 2FA code of a page's account to the clipboard. */
-  async copyTotp(win: BrowserWindowCtl, id: string): Promise<void> {
+  /**
+   * Copies the current 2FA code of a page's account to the clipboard (for a page without a code field
+   * yet); false when there was nothing to copy. Corvus leaves the clipboard as it is afterwards, as
+   * for every other copy.
+   */
+  async copyTotp(win: BrowserWindowCtl, id: string): Promise<boolean> {
     const tab = win.activeTab();
-    const totp = tab ? win.profile.logins.accountFor(id, this.pageUrl(tab))?.totp?.record.totp : undefined;
-    if (totp) clipboard.writeText((await totpCode(totp)).code);
+    if (!tab) return false;
+    const url = this.pageUrl(tab);
+    const account = win.profile.logins.accountFor(id, url);
+    const totp = account?.totp?.record.totp;
+    if (!account || !totp) return false;
+    clipboard.writeText((await totpCode(totp)).code);
+    this.noteUsed(win, url, account.id);
+    return true;
   }
 
   /** The active tab's pending save, if it is still the one with this id. */
@@ -345,5 +385,17 @@ export class AutofillService {
   dismissSave(win: BrowserWindowCtl, id: number): void {
     const found = this.pendingFor(win, id);
     if (found && this.pending.delete(found.tab.id)) win.pushState();
+  }
+
+  /**
+   * "Never for this site": drops the pending save and stops offering to save logins on its exact host
+   * (another host of the same domain still asks). Settings > Passwords lists the host to take it off.
+   */
+  neverSave(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingFor(win, id);
+    if (!found) return;
+    win.profile.siteSettings.setNeverSave(neverSaveHostOf(found.save.origin), true);
+    this.pending.delete(found.tab.id);
+    win.pushState();
   }
 }

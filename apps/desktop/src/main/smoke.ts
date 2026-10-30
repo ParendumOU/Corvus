@@ -54,6 +54,7 @@ import { runExtensionSmoke } from "./smoke-extensions";
 import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
 import { fakeSearchDeps, runSearchSmoke } from "./smoke-search";
 import { runSettingsLayoutSmoke } from "./smoke-settings";
+import { waitForInternalPage, waitForPage } from "./smoke-wait";
 import { runWebscopeSmoke } from "./smoke-webscope";
 
 const PAGE = `<!doctype html><html><head><title>Smoke</title></head><body>
@@ -265,16 +266,18 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     ];
     for (const [page, selector] of pages) {
       const internal = win.createTab(`corvus://${page}`);
-      await new Promise((r) => setTimeout(r, 1500));
       const wc = internal.view.webContents;
-      const ok = await wc.executeJavaScript(`Boolean(window.corvusInternal && document.querySelector(${JSON.stringify(selector)}))`);
-      check(`page corvus://${page}`, ok === true);
+      // Each page draws once its first calls to the main process answer: seconds on a busy machine.
+      const shown = await waitForInternalPage(wc, selector);
+      check(`page corvus://${page}`, shown.ok, shown.ok ? { ms: shown.ms } : { selector, ...shown.detail });
+      // Let images and late sections settle for the screenshot.
+      await new Promise((r) => setTimeout(r, 300));
       await capture(page.split("?")[0] ?? page, wc);
     }
     await runSearchSmoke(ctx, { win, check, capture });
     const historyTab = win.createTab("corvus://history");
-    await new Promise((r) => setTimeout(r, 1000));
-    const remoteTabs = await historyTab.view.webContents.executeJavaScript("window.corvusInternal.call('sync.remoteTabs')");
+    const historyShown = await waitForPage(historyTab.view.webContents, "window.corvusInternal");
+    const remoteTabs = historyShown.ok ? await historyTab.view.webContents.executeJavaScript("window.corvusInternal.call('sync.remoteTabs')") : historyShown.detail;
     check("history sync.remoteTabs IPC", Array.isArray(remoteTabs), remoteTabs);
     await runPairingAddressSmoke(check);
     await runBuiltinSyncSmoke(ctx, url, check, capture);

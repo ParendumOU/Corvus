@@ -36,6 +36,13 @@ export const ACCEPTED_COPYLEFT = {
     reason:
       "7-Zip compiled to WebAssembly, used unmodified as a separate module to extract downloaded archives. Its RAR decoder comes from unRAR, whose code may not be used to develop a RAR (WinRAR) compatible archiver.",
   },
+  "libheif-js@1.23.5": {
+    license: "LGPL-3.0-only",
+    declared: "LGPL-3.0",
+    reason:
+      "libheif compiled to WebAssembly (with the libde265 HEVC decoder, LGPL-3.0, and the dav1d AV1 decoder, BSD-2-Clause), used unmodified as a separate module that loads only when a HEIC photo is imported.",
+    files: ["libheif-wasm/LICENSE"],
+  },
 };
 
 /** The accepted-copyleft entry for an exact package version, or null. */

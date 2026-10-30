@@ -35,6 +35,7 @@ import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared
 import { userMemoryPrompt } from "../shared/user-memory";
 import type { AppContext } from "./context";
 import type { CertErrorPolicy } from "./controller";
+import { pageOf, pageUrl } from "./tab-page";
 import type { BrowserWindowCtl } from "./window";
 import { stepToToolCall } from "../shared/flow";
 import { captureAction, isWorkflowTool, learnFromRun, noteToolResult, runWorkflowAgentTool, workflowRunContext, type WorkflowRunState } from "./workflow-agent";
@@ -171,9 +172,7 @@ export class AgentRunner {
   private activeUrl(win: BrowserWindowCtl): string | null {
     try {
       const tab = win.activeTab();
-      if (!tab) return null;
-      const wc = tab.view.webContents;
-      return !wc.isDestroyed() ? wc.getURL() || tab.url : tab.url;
+      return tab ? pageUrl(tab) : null;
     } catch {
       return null;
     }
@@ -602,8 +601,8 @@ export class AgentRunner {
     if (!this.ctx.settings.get().agent.runScreenshots || win.isPrivate || !run.tabId) return;
     const tabId = run.tabId;
     setTimeout(() => {
-      const wc = this.ctx.windows.findTab(tabId)?.tab.view.webContents;
-      if (!wc || wc.isDestroyed()) return;
+      const wc = pageOf(this.ctx.windows.findTab(tabId)?.tab.view);
+      if (!wc) return;
       void wc
         .capturePage(undefined, { stayHidden: true })
         .then((image) => {

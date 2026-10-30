@@ -1,0 +1,45 @@
+diff --git a/build/fork/NavigationContainer.js b/build/fork/NavigationContainer.js
+index e1e4b1520e985d00c3f0794d85bb773a9a081a6c..5533a37ecc8d4bcd56c3cfbeb8c06088616ba660 100644
+--- a/build/fork/NavigationContainer.js
++++ b/build/fork/NavigationContainer.js
+@@ -96,7 +96,19 @@ globalThis.REACT_NAVIGATION_DEVTOOLS = new WeakMap();
+ function InitialStateNavigationContainer({ initialState: initialStateOrPromise, linking, routeNode, containerRef, ref, ...rest }) {
+     const initialState = isThenable(initialStateOrPromise) ? _react().default.use(initialStateOrPromise) : initialStateOrPromise;
+     // Set here, not in the parent, so the ref is set once the container mounts after waiting.
+-    _react().default.useImperativeHandle(ref, ()=>containerRef.current);
++    // Android can build the app's screen again (a new root) before the old one goes: the old
++    // container going away must not clear the reference to the new one.
++    _react().default.useLayoutEffect(()=>{
++        const container = containerRef.current;
++        if (typeof ref === 'function') {
++            ref(container);
++            return ()=>ref(null);
++        }
++        if (ref) ref.current = container;
++        return ()=>{
++            if (ref && ref.current === container) ref.current = null;
++        };
++    });
+     // Add additional linking related info to the ref
+     // This will be used by the devtools
+     _react().default.useEffect(()=>{
+diff --git a/build/global-state/routingQueueContext.js b/build/global-state/routingQueueContext.js
+index 54629aaf6eb7a8fd169c94405ff167884217106f..df746fd36c94b598394b4a906d7b39012bd5e8ff 100644
+--- a/build/global-state/routingQueueContext.js
++++ b/build/global-state/routingQueueContext.js
+@@ -131,10 +131,13 @@ function ImperativeRoutingQueueBridge({ enqueue, setTransitionMode }) {
+         }
+         boundBridges++;
+         // The exported router identity must stay stable, so the bridge mutates it in place.
+-        Object.assign(_router.router, (0, _router.createImperativeRouter)(enqueue, setTransitionMode));
++        const bound = (0, _router.createImperativeRouter)(enqueue, setTransitionMode);
++        Object.assign(_router.router, bound);
+         return ()=>{
+             boundBridges--;
+-            Object.assign(_router.router, _router.unboundRouter);
++            // Android can build the app's screen again (a new root) before the old one goes: the old
++            // root going away must not unbind the router from the new one.
++            if (_router.router.push === bound.push) Object.assign(_router.router, _router.unboundRouter);
+         };
+     }, [
+         enqueue,

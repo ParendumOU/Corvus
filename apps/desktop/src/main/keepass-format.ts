@@ -94,16 +94,20 @@ function groupPath(group: Kdbxweb.KdbxGroup | undefined): string {
   return names.filter(Boolean).join(" / ");
 }
 
-/** Decrypts a database and returns its logins (Recycle Bin excluded). */
-export async function openKdbx(data: Uint8Array, password: string, keyFile: Uint8Array | null): Promise<OpenedDatabase> {
-  const kdbxweb = await loadKdbxweb();
+/** Decrypts a database file in memory. */
+async function loadDb(kdbxweb: KdbxwebModule, data: Uint8Array, password: string, keyFile: Uint8Array | null): Promise<Kdbxweb.Kdbx> {
   const credentials = await credentialsFor(kdbxweb, password, keyFile);
-  let db: Kdbxweb.Kdbx;
   try {
-    db = await kdbxweb.Kdbx.load(arrayBufferOf(data), credentials);
+    return await kdbxweb.Kdbx.load(arrayBufferOf(data), credentials);
   } catch (err) {
     throw openError(err, kdbxweb);
   }
+}
+
+/** Decrypts a database and returns its logins (Recycle Bin excluded). */
+export async function openKdbx(data: Uint8Array, password: string, keyFile: Uint8Array | null): Promise<OpenedDatabase> {
+  const kdbxweb = await loadKdbxweb();
+  const db = await loadDb(kdbxweb, data, password, keyFile);
   const recycleBin = db.meta.recycleBinEnabled !== false ? db.meta.recycleBinUuid : undefined;
   const inRecycleBin = (entry: Kdbxweb.KdbxEntry): boolean => {
     if (!recycleBin || recycleBin.empty) return false;
@@ -152,13 +156,7 @@ export async function openKdbx(data: Uint8Array, password: string, keyFile: Uint
  */
 export async function saveKdbxEntry(data: Uint8Array, password: string, keyFile: Uint8Array | null, input: EntryInput): Promise<{ data: Uint8Array; uuid: string }> {
   const kdbxweb = await loadKdbxweb();
-  const credentials = await credentialsFor(kdbxweb, password, keyFile);
-  let db: Kdbxweb.Kdbx;
-  try {
-    db = await kdbxweb.Kdbx.load(arrayBufferOf(data), credentials);
-  } catch (err) {
-    throw openError(err, kdbxweb);
-  }
+  const db = await loadDb(kdbxweb, data, password, keyFile);
   const root = db.getDefaultGroup();
   let entry: Kdbxweb.KdbxEntry | undefined;
   if (input.uuid) {
@@ -178,6 +176,46 @@ export async function saveKdbxEntry(data: Uint8Array, password: string, keyFile:
   entry.times.update();
   const saved = await db.save();
   return { data: new Uint8Array(saved), uuid: entry.uuid.id };
+}
+
+/** A 2FA for an entry of a database, by the entry's uuid. */
+export interface EntryTotp {
+  uuid: string;
+  totp: TotpConfig;
+}
+
+/**
+ * Opens a database, gives entries their 2FA (each edit keeps the previous version in the entry's
+ * history) and returns the file to write. Written as KeePassXC does, an otpauth:// link in the "otp"
+ * field named after the entry's title and username; an entry that also keeps the 2FA in KeePass 2's
+ * TimeOtp-* fields or KeePassXC's older "TOTP Seed" pair gets those changed too, so every app that
+ * opens it shows the same code.
+ */
+export async function setKdbxTotps(data: Uint8Array, password: string, keyFile: Uint8Array | null, changes: readonly EntryTotp[]): Promise<Uint8Array> {
+  const kdbxweb = await loadKdbxweb();
+  const db = await loadDb(kdbxweb, data, password, keyFile);
+  const wanted = new Map(changes.map((c) => [c.uuid, c.totp]));
+  const done = new Set<string>();
+  for (const entry of db.getDefaultGroup().allEntries()) {
+    const totp = wanted.get(entry.uuid.id);
+    if (!totp || done.has(entry.uuid.id)) continue;
+    done.add(entry.uuid.id);
+    entry.pushHistory();
+    const fields = [...entry.fields.keys()];
+    const uri = buildOtpauthUri(totp, { issuer: text(entry.fields.get("Title")), account: text(entry.fields.get("UserName")) });
+    entry.fields.set("otp", kdbxweb.ProtectedValue.fromString(uri));
+    if (fields.some((f) => f.startsWith("TimeOtp-Secret"))) {
+      for (const f of fields) if (f.startsWith("TimeOtp-Secret")) entry.fields.delete(f);
+      setTimeOtp(kdbxweb, entry, totp);
+    }
+    if (fields.includes("TOTP Seed")) {
+      entry.fields.set("TOTP Seed", kdbxweb.ProtectedValue.fromString(totp.secret));
+      entry.fields.set("TOTP Settings", `${totp.period};${totp.digits}`);
+    }
+    entry.times.update();
+  }
+  if (done.size !== wanted.size) throw new Error(tr("The entry is no longer in the database."));
+  return new Uint8Array(await db.save());
 }
 
 export interface ExportEntry {
@@ -228,6 +266,14 @@ export function vaultExportEntries(creds: Credential[]): ExportEntry[] {
 
 const TIMEOTP_ALGORITHM: Record<TotpConfig["algorithm"], string> = { SHA1: "HMAC-SHA-1", SHA256: "HMAC-SHA-256", SHA512: "HMAC-SHA-512" };
 
+/** KeePass 2.47+ 2FA fields. */
+function setTimeOtp(kdbxweb: KdbxwebModule, entry: Kdbxweb.KdbxEntry, totp: TotpConfig): void {
+  entry.fields.set("TimeOtp-Secret-Base32", kdbxweb.ProtectedValue.fromString(totp.secret));
+  entry.fields.set("TimeOtp-Algorithm", TIMEOTP_ALGORITHM[totp.algorithm]);
+  entry.fields.set("TimeOtp-Length", String(totp.digits));
+  entry.fields.set("TimeOtp-Period", String(totp.period));
+}
+
 /** Builds a new database in memory. Used by the vault export and by tests; never for user databases. */
 export async function createKdbx(entries: ExportEntry[], password: string, opts: CreateKdbxOptions = {}): Promise<Uint8Array> {
   const kdbxweb = await loadKdbxweb();
@@ -257,12 +303,7 @@ export async function createKdbx(entries: ExportEntry[], password: string, opts:
         const uri = buildOtpauthUri(item.totp, { issuer: item.title, account: item.username });
         entry.fields.set("otp", kdbxweb.ProtectedValue.fromString(uri));
       }
-      if (fields !== "keepassxc") {
-        entry.fields.set("TimeOtp-Secret-Base32", kdbxweb.ProtectedValue.fromString(item.totp.secret));
-        entry.fields.set("TimeOtp-Algorithm", TIMEOTP_ALGORITHM[item.totp.algorithm]);
-        entry.fields.set("TimeOtp-Length", String(item.totp.digits));
-        entry.fields.set("TimeOtp-Period", String(item.totp.period));
-      }
+      if (fields !== "keepassxc") setTimeOtp(kdbxweb, entry, item.totp);
     }
     entry.times.update();
   }

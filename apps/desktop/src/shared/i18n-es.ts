@@ -186,7 +186,6 @@ export const ES: Record<string, string> = {
     "Exporta tus contraseñas a un CSV en el otro navegador (en sus ajustes de contraseñas tienes la opción Exportar contraseñas) y elige el archivo aquí. El archivo contiene tus contraseñas en texto plano: bórralo cuando termines.",
   "Import a CSV…": "Importar un CSV…",
   "(no username)": "(sin usuario)",
-  "Manage passwords…": "Gestionar contraseñas…",
   "Imported {n} logins.": "Importadas {n} contraseñas.",
   "No new logins imported.": "No se importó ninguna contraseña nueva.",
   "{n} already saved.": "{n} ya estaban guardadas.",

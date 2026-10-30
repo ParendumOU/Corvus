@@ -6,6 +6,7 @@
 import type { AuthenticatorImportResult, AuthenticatorPick, AuthenticatorPreview, PhotoReport } from "./authenticator-import";
 import type { CredentialMatch, CredentialSummary, PasswordOptions } from "./credentials";
 import type { PasswordCheckupView } from "./password-health";
+import type { UiLanguage } from "./settings";
 import type { TotpCode } from "./totp";
 
 export interface RevealedCredential {
@@ -69,6 +70,10 @@ export interface CredentialsRpc {
   /** Ids (vault or KeePass) of logins that sign in automatically after a confirmation. */
   "credentials.autoSignInIds"(): string[];
   "credentials.setAutoSignIn"(id: string, on: boolean): string[];
+  /** Hosts where the save-password prompt is never offered ("Never for this site"), oldest first. */
+  "credentials.neverSaved"(): string[];
+  /** Offers to save passwords on a host again; the list as it is now. */
+  "credentials.removeNeverSaved"(host: string): string[];
   /** Breached, reused and weak saved passwords, as last checked this session (no network). */
   "credentials.checkup"(): PasswordCheckupView;
   /** Checks every saved password against known data breaches now (k-anonymity: 5 hash characters leave). */
@@ -128,12 +133,14 @@ export interface AutofillChromeRpc {
   "autofill.fillTotp"(id: string): void;
   /** Current codes of the page's accounts with a 2FA, only while the page has a one-time-code field. */
   "autofill.codes"(): AutofillCode[];
-  /** Copies the current 2FA code of a page's account to the clipboard (user click only). */
-  "autofill.copyTotp"(id: string): void;
+  /** Copies the current 2FA code of a page's account to the clipboard (user click only); false when it has none. */
+  "autofill.copyTotp"(id: string): boolean;
   /** The active tab's pending save, with its password, for the prompt opening now; the prompt counts as shown. */
   "autofill.savePending"(): PendingSaveView | null;
   "autofill.saveAccept"(edit: SaveEdit): void;
   "autofill.saveDismiss"(id: number): void;
+  /** "Never for this site": drops the pending save and never offers to save on its host again. */
+  "autofill.saveNever"(id: number): void;
   "autofill.openManager"(): void;
 }
 
@@ -163,3 +170,45 @@ export interface CapturedSubmit {
   username: string;
   password: string;
 }
+
+// ------------------------------------------------------------------ account dropdown under a field (see field-dropdown.ts)
+
+/** Main -> dropdown view: the state to draw, or null when it closed. */
+export const FIELD_MENU_EVENT = "corvus:field-menu-event";
+/** Dropdown view -> main: its size, or the entry the mouse is over or pressed. */
+export const FIELD_MENU_ACTION = "corvus:field-menu-action";
+/** Main -> tab preload: whether the dropdown is open under one of the page's fields. */
+export const AUTOFILL_DROPDOWN_CHANNEL = "corvus:autofill-dropdown";
+/**
+ * Tab preload -> main, only while the dropdown is open: the person typed or pasted in the field, the
+ * keyboard moved to another part of the page, or the page scrolled. The dropdown closes.
+ */
+export const AUTOFILL_DROPDOWN_DONE_CHANNEL = "corvus:autofill-dropdown-done";
+
+export interface FieldDropdownState {
+  /** Changes every time the dropdown opens, so a size reported for an earlier one is ignored. */
+  token: number;
+  kind: AutofillFieldKind;
+  language: UiLanguage;
+  /** The page's registrable domain, which names the section of the other hosts' accounts. */
+  domain: string;
+  /** Accounts listed first (the page's own host), and those of the domain's other hosts. */
+  first: CredentialMatch[];
+  others: CredentialMatch[];
+  othersOpen: boolean;
+  /** Width the dropdown may take (the page's width, less its margins). */
+  maxWidth: number;
+  /** The highlighted entry (see dropdownEntries), moved by the arrow keys and the mouse. */
+  highlight: number | null;
+}
+
+/** What the dropdown view's preload exposes to it (window.corvusFieldMenu). */
+export interface FieldMenuBridge {
+  onState(listener: (state: FieldDropdownState | null) => void): () => void;
+  send(action: DropdownAction): void;
+}
+
+export type DropdownAction =
+  | { type: "size"; token: number; width: number; height: number }
+  | { type: "hover"; token: number; index: number }
+  | { type: "activate"; token: number; index: number };

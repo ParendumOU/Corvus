@@ -11,6 +11,7 @@ import {
   type OverlayEvent,
 } from "../shared/assist-ipc";
 import { paths } from "./paths";
+import { pageOf } from "./tab-page";
 import { attachUiContextMenu } from "./ui-context-menu";
 
 /** Narrowest the page may get while the panel is open. */
@@ -57,7 +58,7 @@ export class AssistPanelView {
   ) {}
 
   get webContents(): WebContents | null {
-    return this.view && !this.view.webContents.isDestroyed() ? this.view.webContents : null;
+    return pageOf(this.view);
   }
 
   private ensure(): WebContentsView {
@@ -140,7 +141,7 @@ export class AgentOverlayView {
   ) {}
 
   get webContents(): WebContents | null {
-    return this.view && !this.view.webContents.isDestroyed() ? this.view.webContents : null;
+    return pageOf(this.view);
   }
 
   private ensure(): WebContentsView {

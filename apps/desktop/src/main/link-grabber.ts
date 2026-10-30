@@ -7,6 +7,7 @@ import { buildPackages, downloadLinksIn, mergePackages, type GrabbedPackage } fr
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
 import type { ProfileRuntime } from "./profiles";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl } from "./window";
 
 const CLIPBOARD_POLL_MS = 1500;
@@ -87,9 +88,10 @@ export class LinkGrabber {
   /** Grabs the download links of a tab's page; returns how many new links were added. */
   async grabTab(win: BrowserWindowCtl, tabId?: string): Promise<number> {
     const tab = tabId ? win.getTab(tabId) : win.activeTab();
-    const wc = tab?.view.webContents;
-    if (!tab || !wc || wc.isDestroyed() || !/^https?:/i.test(tab.url)) return 0;
-    const page = (await wc.executeJavaScriptInIsolatedWorld(990, [{ code: COLLECT_LINKS }])) as { links?: unknown; text?: unknown } | null;
+    const wc = pageOf(tab?.view);
+    if (!tab || !wc || !/^https?:/i.test(tab.url)) return 0;
+    // Null when the tab closes meanwhile.
+    const page = (await wc.executeJavaScriptInIsolatedWorld(990, [{ code: COLLECT_LINKS }]).catch(() => null)) as { links?: unknown; text?: unknown } | null;
     const links = Array.isArray(page?.links) ? page.links.filter((l): l is string => typeof l === "string") : [];
     return this.add(win.profile, links, tab.url, typeof page?.text === "string" ? page.text : "");
   }
@@ -100,8 +102,8 @@ export class LinkGrabber {
    */
   async grabSelection(win: BrowserWindowCtl, tabId: string): Promise<number> {
     const tab = win.getTab(tabId);
-    const wc = tab?.view.webContents;
-    if (!tab || !wc || wc.isDestroyed()) return 0;
+    const wc = pageOf(tab?.view);
+    if (!tab || !wc) return 0;
     const picked = (await wc.executeJavaScriptInIsolatedWorld(990, [{ code: COLLECT_SELECTION }]).catch(() => null)) as { links?: unknown; text?: unknown } | null;
     const text = typeof picked?.text === "string" ? picked.text : "";
     const links = Array.isArray(picked?.links) ? picked.links.filter((l): l is string => typeof l === "string") : [];

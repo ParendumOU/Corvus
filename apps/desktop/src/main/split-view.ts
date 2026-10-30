@@ -10,6 +10,7 @@ import {
   type SplitAxis,
   type SplitDividerMessage,
 } from "../shared/split";
+import { pageOf } from "./tab-page";
 
 /** Empty document; the split preload builds the divider's visuals and drag handling (axis in the hash). */
 const dividerUrl = (axis: SplitAxis): string =>
@@ -109,7 +110,7 @@ export class SplitSession {
     const geom = computeGridGeometry(content, this.paneIds.length, this.ratio, this.ratioY);
     geom.cells.forEach((cell, i) => {
       const view = views[i];
-      if (view && !view.webContents.isDestroyed()) view.setBounds(insetPage(cell));
+      if (view && pageOf(view)) view.setBounds(insetPage(cell));
     });
     const focusCell = geom.cells[Math.max(0, this.paneIds.indexOf(focusedId ?? ""))] ?? geom.cells[0];
     if (focusCell) this.frame.setBounds(focusCell);
@@ -156,7 +157,7 @@ export class SplitSession {
     for (const view of Object.values(this.dividerViews)) {
       dividers.delete(view.webContents);
       this.contentView.removeChildView(view);
-      if (!view.webContents.isDestroyed()) view.webContents.close();
+      pageOf(view)?.close();
     }
   }
 }

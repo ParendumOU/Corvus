@@ -6,7 +6,7 @@ import { DEVICES_EVERY_MS, movedAt } from '@/lib/answer-follow';
 import { notifyNew } from '@/lib/notifications';
 import { openInApp } from '@/lib/open-url';
 import type { ConversationView } from '@/lib/conversations';
-import { isUnreachable, unreachableNote } from '@/lib/reach';
+import { isUnreachable } from '@/lib/reach';
 import { RefreshStalled, SingleFlight, watchdog } from '@/lib/refresh';
 import type { ComputerTabs } from '@/lib/replica';
 import type { WatchView } from '@/lib/watches';
@@ -74,7 +74,8 @@ export interface SessionState {
   error: string | null;
   /**
    * The sync server did not answer (the computer is off, or the phone is not on its network): a calm
-   * note instead of an error. What the phone changes meanwhile waits and syncs once it answers.
+   * note instead of an error (`unreachableNote` of this address, worded when shown, so it follows the
+   * language). What the phone changes meanwhile waits and syncs once it answers.
    */
   unreachable: string | null;
 }
@@ -177,7 +178,7 @@ export function refreshSession(): Promise<void> {
     } catch (err) {
       console.warn(`[corvus] refresh failed: ${message(err)}`);
       if (isUnreachable(err)) {
-        set({ refreshed: true, refreshing: false, unreachable: unreachableNote(pairing.serverUrl) });
+        set({ refreshed: true, refreshing: false, unreachable: pairing.serverUrl });
         retryLater();
         return;
       }

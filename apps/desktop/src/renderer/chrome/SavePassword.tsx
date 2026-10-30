@@ -13,8 +13,9 @@ interface SavePasswordProps {
 
 /**
  * The save-password prompt, like Brave's: the username and password the person just submitted, both
- * editable, the password masked until the eye shows it. The password comes from the main process as
- * the prompt opens and lives only in this component's state, so it is gone once the prompt closes.
+ * editable, the password masked until the eye shows it, and "Never for this site" to stop being asked
+ * there. The password comes from the main process as the prompt opens and lives only in this
+ * component's state, so it is gone once the prompt closes.
  */
 export function SavePasswordPrompt({ takeFocus, onClose }: SavePasswordProps) {
   const api = chromeApi();
@@ -58,6 +59,10 @@ export function SavePasswordPrompt({ takeFocus, onClose }: SavePasswordProps) {
   };
   const cancel = (): void => {
     void api.call("autofill.saveDismiss", pending.id);
+    onClose(document.hasFocus());
+  };
+  const never = (): void => {
+    void api.call("autofill.saveNever", pending.id);
     onClose(document.hasFocus());
   };
   const onKeyDown = (e: KeyboardEvent<HTMLFormElement>): void => {
@@ -119,6 +124,9 @@ export function SavePasswordPrompt({ takeFocus, onClose }: SavePasswordProps) {
         </button>
       </div>
       <div className="af-actions">
+        <button type="button" className="btn ghost af-never" title={t("Never offer to save passwords on {host}", { host: pending.host })} onClick={never}>
+          {t("Never for this site")}
+        </button>
         <button ref={saveRef} type="submit" className="btn primary af-save-btn" disabled={!password}>
           {updates ? t("Update") : t("Save")}
         </button>

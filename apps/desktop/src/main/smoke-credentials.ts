@@ -294,6 +294,7 @@ interface PromptView {
   passwordIs: boolean;
   eyeLabel: string;
   button: string;
+  never: string;
   focused: boolean;
 }
 
@@ -312,6 +313,7 @@ const promptView = (win: BrowserWindowCtl, password: string): Promise<PromptView
         passwordIs: pw?.value === ${JSON.stringify(password)},
         eyeLabel: form.querySelector('.af-eye')?.getAttribute('aria-label') ?? '',
         button: form.querySelector('.af-save-btn')?.textContent ?? '',
+        never: form.querySelector('.af-never')?.textContent ?? '',
         focused: form.contains(document.activeElement),
       };
     })()`,
@@ -334,14 +336,15 @@ const typeInPrompt = (win: BrowserWindowCtl, name: string, value: string): Promi
  * this): it opens by itself once, without taking the keyboard from the page, with the submitted
  * username and the masked password, which the eye reveals; what the person edits is what gets saved
  * (an edited username can turn a new login into an update); Cancel and Escape store nothing; a click
- * elsewhere closes it but the key button still reaches it; and no password ever reaches the window
- * state the chrome UI gets. Screenshots in the light and dark themes, and in Spanish.
+ * elsewhere closes it but the key button still reaches it; "Never for this site" stops it on that host
+ * until Settings > Passwords takes the host off its "Never saved" list; and no password ever reaches
+ * the window state the chrome UI gets. Screenshots in the light and dark themes, and in Spanish.
  */
-export async function runSavePromptSmoke(ctx: AppContext, { url, win, check }: SmokeCtx): Promise<void> {
+export async function runSavePromptSmoke(ctx: AppContext, { url, win, check, capture }: SmokeCtx): Promise<void> {
   const base = url.replace(/\/$/, "");
   const origin = originKeyOf(base);
   const vault = win.profile.credentials;
-  const passwords = ["first-pass-1", "edited-pass-2", "cancel-pass-3", "new-pass-4", "other-pass-5"];
+  const passwords = ["first-pass-1", "edited-pass-2", "cancel-pass-3", "new-pass-4", "other-pass-5", "never-pass-6", "never-pass-7"];
   await chromeJs(win, "window.__saveStates = []; window.corvus.onState((s) => window.__saveStates.push(JSON.stringify(s))); true");
   const loginPage = `${base}/login-post`;
   const { tab, wc } = await openAndWait(win, loginPage, "/login-post");
@@ -362,7 +365,7 @@ export async function runSavePromptSmoke(ctx: AppContext, { url, win, check }: S
     const chromeFocused = win.chrome.webContents.isFocused();
     const opened = await submit("carol", "first-pass-1");
     const first = await promptView(win, "first-pass-1");
-    check("save prompt opens by itself after a submitted login", opened && first?.title === "Save password?" && first.host === "127.0.0.1" && first.button === "Save", first);
+    check("save prompt opens by itself after a submitted login", opened && first?.title === "Save password?" && first.host === "127.0.0.1" && first.button === "Save" && first.never === "Never for this site", first);
     check(
       "save prompt shows the submitted username and the password masked",
       first?.username === "carol" && first.passwordType === "password" && first.passwordIs && first.eyeLabel === "Show password",
@@ -490,6 +493,55 @@ export async function runSavePromptSmoke(ctx: AppContext, { url, win, check }: S
     );
     win.closeTab(other.id);
 
+    // "Never for this site": nothing is stored and the prompt no longer comes on this exact host;
+    // Settings > Passwords lists the host under "Never saved", and removing it there asks again.
+    const host = new URL(base).host;
+    const neverOpened = await submit("hank", "never-pass-6");
+    await windowShot(win, "save-password-never-light", "save-password");
+    await chromeJs(win, "document.querySelector('.af-save .af-never').click(); true");
+    const neverClosed = await chromePoll(win, PROMPT_CLOSED);
+    const listed = win.profile.siteSettings.neverSave().includes(host);
+    const askedAgain = await submit("ivy", "never-pass-7");
+    check(
+      "save prompt: Never for this site stores nothing and stops offering to save logins on that host",
+      neverOpened && neverClosed && listed && !askedAgain && !ctx.autofill.stateFor(win).canSave && !vault.findByLogin(origin, "hank") && !vault.findByLogin(origin, "ivy"),
+      { neverOpened, neverClosed, listed, askedAgain, state: ctx.autofill.stateFor(win) },
+    );
+    const settingsTab = win.createTab("corvus://settings#passwords");
+    const swc = settingsTab.view.webContents;
+    const rowsJs = `[...document.querySelectorAll(".never-saved .list-row")].map((r) => r.querySelector(".grow")?.textContent ?? "")`;
+    const shownInSettings = await poll(() => !swc.isDestroyed() && !settingsTab.loading, 60) && (await (async () => {
+      for (let i = 0; i < 40; i++) {
+        const rows = (await swc.executeJavaScript(rowsJs).catch(() => [])) as string[];
+        if (rows.includes(host)) return true;
+        await delay(150);
+      }
+      return false;
+    })());
+    await swc.executeJavaScript(`document.querySelector(".never-saved")?.scrollIntoView({ block: "center" }); true`).catch(() => null);
+    await delay(300);
+    await capture("settings-never-saved", swc);
+    await swc.executeJavaScript(`[...document.querySelectorAll(".never-saved .list-row")].find((r) => r.querySelector(".grow")?.textContent === ${JSON.stringify(host)})?.querySelector("button")?.click(); true`).catch(() => null);
+    const removed = await poll(() => !win.profile.siteSettings.neverSave().includes(host));
+    let emptyShown = false;
+    for (let i = 0; i < 40 && !emptyShown; i++) {
+      emptyShown = (await swc.executeJavaScript(`!document.querySelector(".never-saved")`).catch(() => false)) === true;
+      if (!emptyShown) await delay(150);
+    }
+    win.closeTab(settingsTab.id);
+    win.activate(tab.id);
+    await delay(300);
+    const backAgain = await submit("ivy", "never-pass-7");
+    if (backAgain) {
+      await chromeJs(win, "document.querySelector('.af-save .af-cancel').click(); true");
+      await chromePoll(win, PROMPT_CLOSED);
+    }
+    check(
+      "Settings > Passwords lists a never-saved site, and removing it there brings the save prompt back on it",
+      shownInSettings && removed && emptyShown && backAgain && !vault.findByLogin(origin, "ivy"),
+      { host, shownInSettings, removed, emptyShown, backAgain },
+    );
+
     // The password only ever reached the chrome UI through the prompt's own call, never the window state.
     const leaked = await chromeJs<boolean>(win, `window.__saveStates.some((s) => ${JSON.stringify(passwords)}.some((p) => s.includes(p)))`);
     const states = await chromeJs<number>(win, "window.__saveStates.length");
@@ -502,7 +554,7 @@ export async function runSavePromptSmoke(ctx: AppContext, { url, win, check }: S
     const spanish = await submit("carol.edited", "other-pass-5");
     const es = await promptView(win, "other-pass-5");
     await windowShot(win, "save-password-es-dark", "save-password");
-    check("save prompt in Spanish", spanish && es?.title === "¿Actualizar contraseña?" && es.button === "Actualizar" && es.eyeLabel === "Mostrar contraseña", es && { title: es.title, button: es.button, eye: es.eyeLabel });
+    check("save prompt in Spanish", spanish && es?.title === "¿Actualizar contraseña?" && es.button === "Actualizar" && es.eyeLabel === "Mostrar contraseña" && es.never === "Nunca en este sitio", es && { title: es.title, button: es.button, eye: es.eyeLabel, never: es.never });
   } finally {
     const left = ctx.autofill.stateFor(win);
     if (left.canSave) ctx.autofill.dismissSave(win, left.saveId);

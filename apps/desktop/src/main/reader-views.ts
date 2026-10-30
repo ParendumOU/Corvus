@@ -2,6 +2,7 @@ import { WebContentsView, nativeTheme, type BaseWindow, type Rectangle, type Vie
 import { pageBaseColor } from "../shared/page-base";
 import { READER_EVENT, type ReaderEventMessage, type ReaderState } from "../shared/reader-ipc";
 import { paths } from "./paths";
+import { pageOf } from "./tab-page";
 
 /** The reader view of one window: an opaque reading surface stacked over the active tab's content. */
 export class ReaderView {
@@ -18,7 +19,7 @@ export class ReaderView {
   ) {}
 
   get webContents(): WebContents | null {
-    return this.view && !this.view.webContents.isDestroyed() ? this.view.webContents : null;
+    return pageOf(this.view);
   }
 
   private ensure(): WebContentsView {

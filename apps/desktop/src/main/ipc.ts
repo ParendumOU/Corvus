@@ -135,6 +135,11 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "ui.bookmarkOverflowMenu": (w, from, x, y, icons) => showBookmarkOverflowMenu(ctx, w, num(from, "index"), num(x, "x"), num(y, "y"), menuIcons(icons)),
     "ui.bookmarkMenu": (w, id, x, y) => showBookmarkMenu(ctx, w, str(id, "bookmark"), num(x, "x"), num(y, "y")),
     "ui.focusContent": (w) => w.focusContent(),
+    "ui.keyboardElsewhere": (w) => {
+      if (w.chrome.webContents.isFocused()) return false;
+      const page = w.activeTab()?.view.webContents as WebContents | undefined;
+      return Boolean(page && !page.isDestroyed() && page.isFocused()) || w.win.isFocused();
+    },
     "tabs.create": (w, opts) => {
       const o = (opts ?? {}) as { url?: unknown; groupId?: unknown; background?: unknown };
       const url = optStr(o.url, "url") ?? "corvus://newtab/";

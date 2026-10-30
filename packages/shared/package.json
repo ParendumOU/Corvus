@@ -1,6 +1,6 @@
 {
   "name": "@corvus/shared",
-  "version": "0.32.4",
+  "version": "0.32.5",
   "license": "MPL-2.0",
   "type": "module",
   "main": "dist/index.js",

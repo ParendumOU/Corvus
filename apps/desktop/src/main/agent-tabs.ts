@@ -5,6 +5,7 @@ import { agentGroupTitle, agentTabLine } from "../shared/agent-tabs";
 import type { AppContext } from "./context";
 import type { RunTabsHandle } from "./agent-tools";
 import { CertificateError, type CertErrorPolicy } from "./controller";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl } from "./window";
 
 /**
@@ -144,8 +145,8 @@ export class RunTabs implements RunTabsHandle {
   }
 
   private isBlank(id: TabId): boolean {
-    const wc = this.ctx.windows.findTab(id)?.tab.view.webContents;
-    return Boolean(wc && !wc.isDestroyed() && isNewTabUrl(wc.getURL() || NEW_TAB_URL));
+    const wc = pageOf(this.ctx.windows.findTab(id)?.tab.view);
+    return Boolean(wc && isNewTabUrl(wc.getURL() || NEW_TAB_URL));
   }
 
   private takeBlank(): TabId | null {

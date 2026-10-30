@@ -5,11 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutofillService } from "../src/main/autofill-service";
 import type { AppContext } from "../src/main/context";
 import { CredentialVault } from "../src/main/credential-store";
+import { LoginSources, vaultProvider } from "../src/main/login-sources";
+import { SiteSettingsStore } from "../src/main/site-settings";
 import { autofillChromeHandlers } from "../src/main/ipc-credentials";
 import type { SecretCipher } from "../src/main/settings-store";
 import type { BrowserWindowCtl, TabRuntime } from "../src/main/window";
 
-vi.mock("electron", () => ({ ipcMain: { on: () => undefined, handle: () => undefined } }));
+const clipboardText = vi.hoisted(() => ({ value: "" }));
+vi.mock("electron", () => ({ ipcMain: { on: () => undefined, handle: () => undefined }, clipboard: { writeText: (text: string) => void (clipboardText.value = text) } }));
 
 const keychain: SecretCipher = {
   isEncryptionAvailable: () => true,
@@ -29,11 +32,15 @@ function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-autofill-"));
   dirs.push(dir);
   const vault = new CredentialVault(dir, keychain);
-  const tabs = new Map(["t1", "t2"].map((id) => [id, { id, agentControlled: false } as unknown as TabRuntime]));
+  const siteSettings = new SiteSettingsStore(dir);
+  const logins = new LoginSources(() => [vaultProvider(vault)]);
+  // Closed-looking views (no page): the service reads the tab's last known address instead.
+  const tabs = new Map(["t1", "t2"].map((id) => [id, { id, agentControlled: false, url: `${SITE}/login`, view: {} } as unknown as TabRuntime]));
   let active = "t1";
   const pushes = { count: 0 };
   const win = {
-    profile: { credentials: vault },
+    profile: { credentials: vault, logins, siteSettings },
+    isPrivate: false,
     activeTab: () => tabs.get(active),
     pushState: () => void pushes.count++,
   } as unknown as BrowserWindowCtl;
@@ -41,7 +48,7 @@ function setup() {
   const autofill = new AutofillService(ctx);
   ctx.autofill = autofill;
   const submit = (tabId: string, username: string, password: string): void => autofill.onSubmitCaptured(win, tabs.get(tabId)!, { origin: `${SITE}/login`, username, password });
-  return { vault, win, autofill, ctx, tabs, pushes, submit, activate: (id: string) => void (active = id) };
+  return { vault, win, autofill, ctx, tabs, pushes, submit, siteSettings, activate: (id: string) => void (active = id) };
 }
 
 describe("the save-password prompt", () => {
@@ -128,6 +135,65 @@ describe("the save-password prompt", () => {
     expect(autofill.stateFor(win).canSave).toBe(false);
     autofill.acceptSave(win, { id: current, username: "carol", password: "pw-two" });
     expect(vault.all()).toEqual([]);
+  });
+});
+
+describe("Never for this site", () => {
+  it("drops the save and stops offering to save on that exact host until it is taken off the list", () => {
+    const { vault, win, autofill, tabs, siteSettings, submit } = setup();
+    const submitAt = (origin: string, username: string): void => autofill.onSubmitCaptured(win, tabs.get("t1")!, { origin, username, password: "pw" });
+    submit("t1", "carol", "pw-one");
+    const stale = autofill.stateFor(win).saveId;
+    submit("t1", "carol", "pw-two");
+    autofill.neverSave(win, stale);
+    expect(siteSettings.neverSave()).toEqual([]);
+    autofill.neverSave(win, autofill.stateFor(win).saveId);
+    expect(siteSettings.neverSave()).toEqual(["example.com"]);
+    expect(autofill.stateFor(win)).toMatchObject({ canSave: false, savePrompt: false });
+    expect(vault.all()).toEqual([]);
+
+    // Neither a new login nor a changed one is offered there again; other hosts of the domain still ask.
+    submit("t1", "dave", "pw-three");
+    expect(autofill.stateFor(win).canSave).toBe(false);
+    submitAt("https://accounts.example.com/login", "dave");
+    expect(autofill.stateFor(win)).toMatchObject({ canSave: true, savePrompt: true });
+    autofill.dismissSave(win, autofill.stateFor(win).saveId);
+
+    siteSettings.setNeverSave("example.com", false);
+    submit("t1", "dave", "pw-four");
+    expect(autofill.stateFor(win)).toMatchObject({ canSave: true, savePrompt: true });
+  });
+
+  it("is a save prompt answer the IPC checks", () => {
+    const { win, ctx, siteSettings, submit } = setup();
+    const ipc = autofillChromeHandlers(ctx);
+    submit("t1", "carol", "pw-one");
+    for (const bad of ["1", 0, -1, 1.5, undefined]) expect(() => ipc["autofill.saveNever"](win, bad as never), String(bad)).toThrow();
+    ipc["autofill.saveNever"](win, ctx.autofill.stateFor(win).saveId);
+    expect(siteSettings.neverSave()).toEqual(["example.com"]);
+  });
+});
+
+describe("the account used last", () => {
+  const TOTP = { secret: "JBSWY3DPEHPK3PXPJBSWY3DP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+
+  it("comes first on the site after its code is copied, never noted from a private window", async () => {
+    const { vault, win, autofill } = setup();
+    const older = vault.add({ origin: "https://central.example.com", username: "info@example.com", password: "", totp: TOTP });
+    const newer = vault.add({ origin: "https://cloud.example.com", username: "cloud@example.com", password: "", totp: TOTP });
+    (vault.get(older.id) as { updatedAt: number }).updatedAt = 1;
+    expect(autofill.suggestions(win).map((m) => m.id)).toEqual([newer.id, older.id]);
+
+    (win as { isPrivate: boolean }).isPrivate = true;
+    expect(await autofill.copyTotp(win, older.id)).toBe(true);
+    expect(clipboardText.value).toMatch(/^\d{6}$/);
+    expect(autofill.suggestions(win).map((m) => m.id)).toEqual([newer.id, older.id]);
+
+    (win as { isPrivate: boolean }).isPrivate = false;
+    expect(await autofill.copyTotp(win, older.id)).toBe(true);
+    expect(autofill.suggestions(win).map((m) => m.id)).toEqual([older.id, newer.id]);
+    // A login of another site, or one without a 2FA, copies nothing.
+    expect(await autofill.copyTotp(win, "gone")).toBe(false);
   });
 });
 

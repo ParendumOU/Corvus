@@ -64,6 +64,7 @@
           "imageWidth": 120
         }
       ],
+      ["expo-localization", { "supportedLocales": { "android": ["en", "es"] } }],
       ["expo-secure-store", { "faceIDPermission": false }],
       [
         "expo-camera",
@@ -90,6 +91,7 @@
       "./plugins/with-edge-to-edge",
       "./plugins/with-splash-exit",
       "./plugins/with-system-theme",
+      "./plugins/with-restore-link",
       "./plugins/with-large-screens",
       "./plugins/with-text-focus",
       "./plugins/with-r8-rules"

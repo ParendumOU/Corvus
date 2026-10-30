@@ -287,9 +287,18 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               const input = e.target;
               requestAnimationFrame(() => selectIfFocused(input));
             }}
-            onBlur={() => {
+            onBlur={(e) => {
               setFocused(false);
               reset();
+              // Corvus's UI lost the keyboard with the caret still here. When the page (or another part of
+              // this window) took it, let go of the caret, as Chrome's address bar does: Chromium would
+              // put it back here on the next click anywhere in Corvus's UI, and the address bar would
+              // take that click (the key button's panel, the star...). Switching to another app keeps it.
+              const input = e.currentTarget;
+              if (document.activeElement !== input) return;
+              void api.call("ui.keyboardElsewhere").then((elsewhere) => {
+                if (elsewhere && document.activeElement === input && !document.hasFocus()) input.blur();
+              });
             }}
             onChange={(e) => {
               typed.current = true;

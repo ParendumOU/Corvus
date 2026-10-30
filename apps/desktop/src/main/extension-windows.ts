@@ -7,6 +7,7 @@ import type { AppContext } from "./context";
 import type { DownloadsAccess, SessionsAccess, SidePanelAccess, TabGroupAccess } from "./extension-apis";
 import type { TabCreateDetails, TabPlacement } from "./extensions";
 import type { ProfileDelegate } from "./profiles";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -255,7 +256,7 @@ export class ExtensionWindowBridge implements ProfileDelegate {
       if (!entry) return;
       open.delete(windowId);
       windowById(windowId)?.setSidePanel(null);
-      for (const view of [entry.header, entry.page]) if (!view.webContents.isDestroyed()) view.webContents.close();
+      for (const view of [entry.header, entry.page]) pageOf(view)?.close();
       for (const l of closedListeners) l(windowId, entry.extensionId);
     };
     return {
@@ -296,6 +297,10 @@ export class ExtensionWindowBridge implements ProfileDelegate {
           return { action: "deny" };
         });
         void page.webContents.loadURL(url);
+        // A panel page that closes itself (window.close()) closes the panel, as in Chrome.
+        page.webContents.once("destroyed", () => {
+          if (open.get(windowId)?.page === page) close(windowId);
+        });
         open.set(windowId, { extensionId, header, page });
         if (!hooked.has(windowId)) {
           hooked.add(windowId);

@@ -124,6 +124,16 @@ export function groupAccounts(candidates: readonly LoginCandidate[]): LoginAccou
   });
 }
 
+/**
+ * The accounts with the one filled last on the site first (named by the id of any of its logins), the
+ * others after it in their order. Menus still list the page's own host first (see splitAccounts), so
+ * the account moves to the top of its own section.
+ */
+export function lastUsedFirst(accounts: readonly LoginAccount[], loginId: string | undefined): LoginAccount[] {
+  const used = loginId ? accounts.find((a) => a.entries.some((e) => e.record.id === loginId)) : undefined;
+  return used ? [used, ...accounts.filter((a) => a !== used)] : [...accounts];
+}
+
 export function toMatch(account: LoginAccount): CredentialMatch {
   const r = account.primary.record;
   return {
@@ -151,8 +161,9 @@ export class LoginSources {
     return groupAccounts(this.providers().flatMap((p) => p.candidates(url)));
   }
 
-  matchesFor(url: string): CredentialMatch[] {
-    return this.accounts(url).map(toMatch);
+  /** What the autofill offers on a page, the account of `lastUsed` (a login id) first when given. */
+  matchesFor(url: string, lastUsed?: string): CredentialMatch[] {
+    return lastUsedFirst(this.accounts(url), lastUsed).map(toMatch);
   }
 
   /** The account an id (of any of its logins) names, only if it belongs to the page. */

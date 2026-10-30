@@ -3,9 +3,12 @@ import { clipboard, dialog, ipcMain, nativeImage, type IpcMainEvent } from "elec
 import { tr } from "./menu-i18n";
 import { isBigChange } from "../shared/backup-reminder";
 import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
+import { parseDropdownAction } from "../shared/field-dropdown";
 import {
   AUTOFILL_CAPTURE_CHANNEL,
+  AUTOFILL_DROPDOWN_DONE_CHANNEL,
   AUTOFILL_FIELD_CHANNEL,
+  FIELD_MENU_ACTION,
   type AutofillChromeRpc,
   type CapturedSubmit,
   type FieldClick,
@@ -16,7 +19,7 @@ import {
 import type { InternalPage } from "../shared/internal-urls";
 import type { KeePassExportResult, KeePassEntryInput, KeePassRpc, KeePassState } from "../shared/keepass-ipc";
 import { buildOtpauthUri, parseTotpInput, totpCode, type TotpConfig } from "../shared/totp";
-import { addPhotos, applyAuthenticatorImport, authenticatorPreview, discardAuthenticatorImport, pickPhotos, readAuthenticatorPhoto } from "./authenticator-import";
+import { addPhotos, applyAuthenticatorImport, authenticatorPreview, discardAuthenticatorImport, pickPhotos, readAuthenticatorPhoto, type ImportLogins } from "./authenticator-import";
 import type { AppContext } from "./context";
 import type { CredentialPatch } from "./credential-store";
 import { createKdbx, vaultExportEntries } from "./keepass-format";
@@ -91,6 +94,8 @@ export const CREDENTIALS_INTERNAL_PERMISSIONS: Record<keyof CredentialsRpc, read
   "credentials.agentAccess": ["passwords"],
   "credentials.autoSignInIds": ["passwords"],
   "credentials.setAutoSignIn": ["passwords"],
+  "credentials.neverSaved": ["settings"],
+  "credentials.removeNeverSaved": ["settings"],
   "credentials.checkup": ["passwords"],
   "credentials.runCheckup": ["passwords"],
 };
@@ -216,9 +221,9 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
       return files ? addPhotos(c.profile.profile.id, id, files) : null;
     },
     "credentials.authenticatorRead": (c, importId, index) => readAuthenticatorPhoto(c.profile.profile.id, str(importId, "import", 64), photoIndex(index)),
-    "credentials.authenticatorPreview": (c, importId, sites) => authenticatorPreview(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites)),
-    "credentials.authenticatorImport": (c, importId, sites, selected) => {
-      const result = applyAuthenticatorImport(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites), idList(selected));
+    "credentials.authenticatorPreview": (c, importId, sites) => authenticatorPreview(c.profile.profile.id, str(importId, "import", 64), importLogins(c.profile), siteMap(sites)),
+    "credentials.authenticatorImport": async (c, importId, sites, selected) => {
+      const result = await applyAuthenticatorImport(c.profile.profile.id, str(importId, "import", 64), importLogins(c.profile), siteMap(sites), idList(selected));
       if (isBigChange(result.attached + result.created)) c.profile.backup.noteBigChange();
       return result;
     },
@@ -233,8 +238,13 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
       if (on === true && !c.profile.logins.get(loginId)) throw new IpcError("No such login");
       return c.profile.autoSignIn.set(loginId, on === true);
     },
+    "credentials.neverSaved": (c) => c.profile.siteSettings.neverSave(),
+    "credentials.removeNeverSaved": (c, host) => c.profile.siteSettings.setNeverSave(str(host, "host", 260), false),
   };
 }
+
+/** The logins an authenticator import matches: the vault and the profile's KeePass databases. */
+const importLogins = (profile: ProfileRuntime): ImportLogins => ({ vault: profile.credentials, keepass: profile.keepass });
 
 function saveId(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) throw new IpcError("Invalid save");
@@ -259,6 +269,7 @@ export function autofillChromeHandlers(ctx: AppContext): ChromeHandlers<Autofill
     "autofill.savePending": (w) => ctx.autofill.pendingSave(w),
     "autofill.saveAccept": (w, edit) => ctx.autofill.acceptSave(w, saveEdit(edit)),
     "autofill.saveDismiss": (w, id) => ctx.autofill.dismissSave(w, saveId(id)),
+    "autofill.saveNever": (w, id) => ctx.autofill.neverSave(w, saveId(id)),
     "autofill.openManager": (w) => w.openSingleton("corvus://passwords/"),
   };
 }
@@ -284,6 +295,15 @@ export function registerAutofillCapture(ctx: AppContext): void {
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
     const click = parseFieldClick(raw);
     if (click) void ctx.autofill.onFieldClicked(found.window, found.tab, click);
+  });
+  ipcMain.on(AUTOFILL_DROPDOWN_DONE_CHANNEL, (event: IpcMainEvent) => {
+    const found = ctx.windows.byTabWebContents(event.sender);
+    if (found && event.senderFrame === event.sender.mainFrame) ctx.autofill.onDropdownDone(found.window, found.tab);
+  });
+  // From the dropdown views (their sender is checked against each window's dropdown).
+  ipcMain.on(FIELD_MENU_ACTION, (event: IpcMainEvent, raw: unknown) => {
+    const action = parseDropdownAction(raw);
+    if (action && event.senderFrame === event.sender.mainFrame) ctx.autofill.onDropdownAction(event.sender, action);
   });
 }
 

@@ -6,6 +6,8 @@ export interface AcceptedCopyleft {
   /** What the package itself declares. */
   declared: string;
   reason: string;
+  /** Licence files inside the package (not at its root) that the notices also reproduce. */
+  files?: string[];
 }
 export declare const ACCEPTED_COPYLEFT: Record<string, AcceptedCopyleft>;
 export declare function acceptedCopyleft(name: string, version: string): AcceptedCopyleft | null;

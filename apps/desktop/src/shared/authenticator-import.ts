@@ -1,8 +1,9 @@
 /**
  * Moving 2FA accounts from an authenticator app (Google Authenticator's export QR codes, or plain
- * setup QR codes) into the built-in vault: what each photo held, the accounts merged across photos
- * and exports, and the plan the preview shows (which login each account goes to). Pure and
- * unit-tested; the main process keeps the secrets and the renderer only ever sees `ImportRow`s.
+ * setup QR codes) into the built-in vault or entries of unlocked KeePass databases: what each photo
+ * held, the accounts merged across photos and exports, and the plan the preview shows (which login
+ * each account goes to). Pure and unit-tested; the main process keeps the secrets and the renderer
+ * only ever sees `ImportRow`s.
  */
 import { originKeyOf } from "./credentials";
 import { isMigrationUri, parseMigrationUri, splitAccountName, type MigrationSkipReason } from "./authenticator-migration";
@@ -117,15 +118,29 @@ export class AuthenticatorCollector {
 
 // ------------------------------------------------------------------ plan
 
-/** A vault login as the plan sees it. */
+/** Where a KeePass entry the plan can write to lives. */
+export interface KeePassPlace {
+  /** Database name (its file name without .kdbx). */
+  db: string;
+  /** The entry's title. */
+  title: string;
+  /** Corvus cannot write the database file: its rows start unticked. */
+  readOnly: boolean;
+}
+
+/** A login as the plan sees it: of the built-in vault, or an entry of an unlocked KeePass database. */
 export interface PlanLogin {
   id: string;
   origin: string;
+  /** Other origins a KeePass entry is saved for (its additional URLs). */
+  alsoAt?: string[];
   username: string;
   /** False for a login that holds only a 2FA (what an import makes when no login matched). */
   hasPassword: boolean;
   totp?: TotpConfig;
   updatedAt: number;
+  /** Set for a KeePass entry. */
+  keepass?: KeePassPlace;
 }
 
 /**
@@ -142,6 +157,8 @@ export interface RowLogin {
   id: string;
   username: string;
   origin: string;
+  /** Set when the login is a KeePass entry. */
+  keepass?: KeePassPlace;
 }
 
 /** One preview row: no secret, only labels and where the account goes. */
@@ -179,15 +196,19 @@ export const sameTotp = (a: TotpConfig, b: TotpConfig): boolean => a.secret === 
 
 const lower = (s: string): string => s.trim().toLowerCase();
 
-/** The best of several logins for one account: the exact origin first, then the newest. */
+/** Built-in vault logins before KeePass entries. */
+const builtInFirst = (a: PlanLogin, b: PlanLogin): number => Number(Boolean(a.keepass)) - Number(Boolean(b.keepass));
+
+/** The best of several logins for one account: built-in first, then the exact origin, then the newest. */
 function best(logins: PlanLogin[], origin: string): PlanLogin | undefined {
-  return [...logins].sort((a, b) => Number(b.origin === origin) - Number(a.origin === origin) || b.updatedAt - a.updatedAt)[0];
+  return [...logins].sort((a, b) => builtInFirst(a, b) || Number(b.origin === origin) - Number(a.origin === origin) || b.updatedAt - a.updatedAt)[0];
 }
 
-/** One with a password first, then the newest. */
-const keeper = (logins: PlanLogin[]): PlanLogin | undefined => [...logins].sort((a, b) => Number(b.hasPassword) - Number(a.hasPassword) || b.updatedAt - a.updatedAt)[0];
+/** Built-in first, then one with a password, then the newest. */
+const keeper = (logins: PlanLogin[]): PlanLogin | undefined =>
+  [...logins].sort((a, b) => builtInFirst(a, b) || Number(b.hasPassword) - Number(a.hasPassword) || b.updatedAt - a.updatedAt)[0];
 
-const rowLogin = (l: PlanLogin): RowLogin => ({ id: l.id, username: l.username, origin: l.origin });
+const rowLogin = (l: PlanLogin): RowLogin => ({ id: l.id, username: l.username, origin: l.origin, ...(l.keepass ? { keepass: l.keepass } : {}) });
 
 /** Rows whose import changes something; they are ticked when first shown (but conflicts). */
 const SELECTED_BY_DEFAULT: ReadonlySet<ImportAction> = new Set(["attach", "create", "move", "fix"]);
@@ -217,12 +238,13 @@ interface Placed {
 function placeKnown(a: ImportAccount, holders: PlanLogin[], bySite: ReadonlyMap<string, PlanLogin[]>): Placed {
   const name = lower(a.account);
   const named = holders.filter((l) => lower(l.username) === name);
-  const labelled = holders.filter((l) => !l.hasPassword && lower(l.username) !== name && name !== "" && lower(splitAccountName(l.username, a.issuer).account) === name);
+  // Earlier imports only ever made built-in logins: KeePass entries are never repaired or removed.
+  const labelled = holders.filter((l) => !l.keepass && !l.hasPassword && lower(l.username) !== name && name !== "" && lower(splitAccountName(l.username, a.issuer).account) === name);
   const at = (login: PlanLogin, fix = false): Placed => ({ a, siteInput: login.origin, site: login.origin, siteKnown: true, candidates: [], login, fix, labelled, holders });
   if (named.length > 0) return at(keeper(named)!);
   const old = keeper(labelled);
   if (!old) return at(keeper(holders)!);
-  const real = best((bySite.get(siteOf(old.origin)) ?? []).filter((l) => l.hasPassword && lower(l.username) === name), old.origin);
+  const real = best((bySite.get(siteOf(old.origin)) ?? []).filter((l) => !l.keepass && l.hasPassword && lower(l.username) === name), old.origin);
   return real ? { ...at(old), login: real } : at(old, true);
 }
 
@@ -235,20 +257,27 @@ function placeKnown(a: ImportAccount, holders: PlanLogin[], bySite: ReadonlyMap<
  * login that no other account claims, that login is used. Else the account becomes a new login. Only a
  * login with no password that holds the very 2FA that moves is ever removed. `sites` holds what the
  * person typed per row id.
+ *
+ * Entries of unlocked KeePass databases are logins too, but built-in logins come first: an account
+ * goes to a KeePass entry only when no built-in login of its site has its name (or, for the
+ * single-login fallback, when its site has no built-in login at all). A KeePass entry is never
+ * repaired or removed, and a row that writes to a database file Corvus cannot write starts unticked.
  */
 export function planImport(accounts: readonly ImportAccount[], logins: readonly PlanLogin[], sites: Readonly<Record<string, string>> = {}): ImportRow[] {
   const bySite = new Map<string, PlanLogin[]>();
   for (const login of logins) {
-    const key = siteOf(login.origin);
-    if (key) bySite.set(key, [...(bySite.get(key) ?? []), login]);
+    for (const key of new Set([login.origin, ...(login.alsoAt ?? [])].map(siteOf))) if (key) bySite.set(key, [...(bySite.get(key) ?? []), login]);
   }
   const placed = accounts.map((a): Placed => {
     const holders = logins.filter((l) => l.totp && sameTotp(l.totp, a.config));
     if (holders.length > 0) return placeKnown(a, holders, bySite);
     const siteInput = sites[a.id] ?? issuerSite(a.issuer);
     const site = siteToOrigin(siteInput);
-    const candidates = site ? (bySite.get(siteOf(site)) ?? []) : [];
-    const byName = lower(a.account) ? candidates.filter((l) => lower(l.username) === lower(a.account)) : [];
+    const onSite = site ? (bySite.get(siteOf(site)) ?? []) : [];
+    const builtIn = onSite.filter((l) => !l.keepass);
+    // The single-login fallback looks at KeePass entries only on a site with no built-in login.
+    const candidates = builtIn.length > 0 ? builtIn : onSite;
+    const byName = lower(a.account) ? onSite.filter((l) => lower(l.username) === lower(a.account)) : [];
     return { a, siteInput, site, siteKnown: false, candidates, login: best(byName, site), fix: false, labelled: [], holders };
   });
   const claimed = new Set(placed.flatMap((p) => [...(p.login ? [p.login.id] : []), ...p.holders.map((l) => l.id)]));
@@ -263,7 +292,7 @@ export function planImport(accounts: readonly ImportAccount[], logins: readonly 
 
   const taken = new Set<string>();
   return placed.map(({ a, siteInput, site, siteKnown, login, fix, labelled }) => {
-    const removes = login ? labelled.filter((l) => l.id !== login.id && !targets.has(l.id)) : [];
+    const removes = login && !login.keepass ? labelled.filter((l) => l.id !== login.id && !targets.has(l.id)) : [];
     const action: ImportAction = !site
       ? "needs-site"
       : !login
@@ -278,7 +307,7 @@ export function planImport(accounts: readonly ImportAccount[], logins: readonly 
                 ? "same"
                 : "attach";
     const target = login ? `login:${login.id}` : site ? `new:${site} ${lower(a.account)}` : `row:${a.id}`;
-    const selected = SELECTED_BY_DEFAULT.has(action) && !taken.has(target);
+    const selected = SELECTED_BY_DEFAULT.has(action) && !taken.has(target) && !login?.keepass?.readOnly;
     if (selected) taken.add(target);
     return {
       id: a.id,
@@ -338,13 +367,26 @@ export interface AuthenticatorPreview {
   skipped: SkippedAccount[];
   missing: MissingCodes[];
   exportCount: number;
+  /** KeePass databases that are configured but locked: their entries are not matched until unlocked. */
+  lockedDatabases: string[];
+}
+
+/** A KeePass database the import could not write to. */
+export interface KeePassWriteFailure {
+  db: string;
+  /** Entries that did not get their 2FA. */
+  entries: number;
+  error: string;
 }
 
 export interface AuthenticatorImportResult {
-  /** Logins that got the 2FA (replacements and moves included). */
+  /** Built-in logins that got the 2FA (replacements and moves included). */
   attached: number;
   /** New logins that hold only the 2FA. */
   created: number;
   /** Logins from an earlier import that were fixed in place or removed because their 2FA moved. */
   repaired: number;
+  /** KeePass entries that got the 2FA. */
+  keepass: number;
+  keepassFailed: KeePassWriteFailure[];
 }

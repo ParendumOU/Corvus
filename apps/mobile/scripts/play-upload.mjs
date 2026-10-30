@@ -3,12 +3,14 @@
 // default), through the Google Play Developer API with the service account in /secrets.
 //
 //   docker compose --profile android run --rm --no-deps --entrypoint node android \
-//     apps/mobile/scripts/play-upload.mjs [--track internal] [--notes "<text>"] [--aab <path>]
+//     apps/mobile/scripts/play-upload.mjs [--track internal|production] [--notes "<text>"] [--notes-es "<text>"] [--aab <path>]
 //
 // Defaults: the bundle out/mobile/corvus-mobile-<version>.aab built by build-android.sh, the
 // package and version from apps/mobile/app.json and package.json, the key
 // /secrets/google-play-service-account.json (PLAY_SERVICE_ACCOUNT overrides it). The service
-// account needs "Release apps to testing tracks" on the app in Play Console. Node built-ins only.
+// account needs "Release to production" (or "Release apps to testing tracks" for testing tracks) on
+// the app in Play Console. Releases go out at 100%; Google reviews them and publishes them when approved.
+// Node built-ins only.
 import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -29,7 +31,10 @@ const version = JSON.parse(readFileSync(join(mobileDir, "package.json"), "utf8")
 const packageName = app.android.package;
 const track = option("track", "internal");
 const aabPath = option("aab", join(mobileDir, "..", "..", "out", "mobile", `corvus-mobile-${version}.aab`));
-const notes = option("notes", `Corvus for mobile ${version}.`);
+/** A text option, or the contents of the file it names as @path. */
+const text = (value) => (value.startsWith("@") ? readFileSync(value.slice(1), "utf8").trim() : value);
+const notes = text(option("notes", `Corvus for mobile ${version}.`));
+const notesEs = text(option("notes-es", ""));
 const keyFile = process.env.PLAY_SERVICE_ACCOUNT || "/secrets/google-play-service-account.json";
 
 const b64url = (data) => Buffer.from(data).toString("base64url");
@@ -81,7 +86,7 @@ try {
 }
 console.log(`Uploaded versionCode ${bundle.versionCode} (sha256 ${bundle.sha256}).`);
 
-const release = { name: version, versionCodes: [String(bundle.versionCode)], releaseNotes: [{ language: "en-US", text: notes }] };
+const release = { name: version, versionCodes: [String(bundle.versionCode)], releaseNotes: [{ language: "en-US", text: notes.slice(0, 500) }, ...(notesEs ? [{ language: "es-ES", text: notesEs.slice(0, 500) }] : [])] };
 try {
   await call(token, "PUT", `${edits}/${edit.id}/tracks/${track}`, { track, releases: [{ ...release, status: "completed" }] });
   await call(token, "POST", `${edits}/${edit.id}:commit`);

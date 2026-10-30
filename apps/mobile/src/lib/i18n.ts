@@ -1,6 +1,7 @@
 /**
- * The app's language: Spanish on a phone set to Spanish, English otherwise (the texts are written in
- * English and looked up in lib/i18n-es.ts). {name} placeholders are filled from `vars`.
+ * The app's language: Spanish on a phone set to Spanish (or with Corvus's own language set to Spanish,
+ * Android 13+), English otherwise (the texts are written in English and looked up in lib/i18n-es.ts).
+ * It follows a change while the app runs (hooks/use-language.ts). {name} placeholders are filled from `vars`.
  */
 import { ES } from './i18n-es';
 
@@ -20,14 +21,25 @@ function systemLocale(): string {
 }
 
 let language: Language = languageFor(systemLocale());
+const listeners = new Set<() => void>();
 
 export function uiLanguage(): Language {
   return language;
 }
 
-/** For tests. */
+/** Changes the language (the phone's changed, hooks/use-language.ts) and tells the subscribers. */
 export function setUiLanguage(next: Language): void {
+  if (next === language) return;
   language = next;
+  for (const listener of listeners) listener();
+}
+
+/** Calls `listener` after each change of the language; returns the unsubscribe. */
+export function onLanguageChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function t(text: string, vars?: Record<string, string | number>): string {

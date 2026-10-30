@@ -37,13 +37,15 @@ describe("licenseOf", () => {
 });
 
 describe("acceptedCopyleft", () => {
-  it("only covers the exact reviewed versions: electron-chrome-extensions under GPL-3.0, 7z-wasm under LGPL", () => {
+  it("only covers the exact reviewed versions: electron-chrome-extensions under GPL-3.0, 7z-wasm and libheif-js under LGPL", () => {
     expect(acceptedCopyleft("electron-chrome-extensions", "4.9.0")?.license).toBe("GPL-3.0-only");
     expect(acceptedCopyleft("electron-chrome-extensions", "4.9.1")).toBeNull();
     expect(acceptedCopyleft("argparse", "2.0.1")).toBeNull();
     expect(acceptedCopyleft("7z-wasm", "1.2.0")?.license).toBe("LGPL-2.1-or-later");
     expect(acceptedCopyleft("7z-wasm", "1.2.1")).toBeNull();
-    expect(Object.keys(ACCEPTED_COPYLEFT)).toEqual(["electron-chrome-extensions@4.9.0", "7z-wasm@1.2.0"]);
+    expect(acceptedCopyleft("libheif-js", "1.23.5")?.license).toBe("LGPL-3.0-only");
+    expect(acceptedCopyleft("libheif-js", "1.23.6")).toBeNull();
+    expect(Object.keys(ACCEPTED_COPYLEFT)).toEqual(["electron-chrome-extensions@4.9.0", "7z-wasm@1.2.0", "libheif-js@1.23.5"]);
     expect(SOURCE_URL).toBe("https://github.com/ParendumOU/Corvus");
   });
 });

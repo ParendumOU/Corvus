@@ -1,8 +1,6 @@
 import { Menu, app, clipboard, nativeImage, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { BAR_FOLDER_ID, childrenOf, folderUrls } from "../shared/bookmark-tree";
-import { accountDetails, LABEL_SEPARATOR, middleEllipsis, splitAccounts, type CredentialMatch } from "../shared/credentials";
-import type { AutofillFieldKind } from "../shared/credentials-ipc";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
@@ -12,6 +10,7 @@ import { editBookmark, openBookmarkFolder } from "./bookmark-actions";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
+import { pageOf, pageUrl } from "./tab-page";
 
 /** One item per container of the profile (with "No container" first when `none` is given). */
 function containerItems(win: BrowserWindowCtl, open: (containerId: string | null) => void, opts: { none?: boolean; except?: string | null } = {}): MenuItemConstructorOptions[] {
@@ -97,7 +96,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
       { label: tr("Downloads"), accelerator: process.platform === "darwin" ? "Cmd+Shift+J" : "Ctrl+J", click: () => win.openSingleton("corvus://downloads/") },
       { label: tr("Extensions"), click: () => win.openSingleton("corvus://extensions/") },
       { type: "separator" },
-      { label: tr("Reader mode"), accelerator: `${mod}+Shift+R`, enabled: /^https?:/.test(active?.view.webContents.getURL() ?? ""), click: () => ctx.reader.toggle(win) },
+      { label: tr("Reader mode"), accelerator: `${mod}+Shift+R`, enabled: active ? /^https?:/.test(pageUrl(active)) : false, click: () => ctx.reader.toggle(win) },
       { label: tr("Reading list"), click: () => win.openSingleton("corvus://reading/") },
       { label: tr("Passwords"), click: () => win.openSingleton("corvus://passwords/") },
       { label: tr("Corvus Assist"), accelerator: `${mod}+Shift+A`, click: () => win.runCommand({ type: "toggle-assist" }) },
@@ -124,14 +123,14 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
       { type: "separator" },
       { label: tr("Find…"), accelerator: `${mod}+F`, enabled: Boolean(active), click: () => win.runCommand({ type: "find" }) },
       {
-        label: tr("Zoom ({percent}%)", { percent: active ? Math.round(active.view.webContents.getZoomFactor() * 100) : 100 }),
+        label: tr("Zoom ({percent}%)", { percent: Math.round((pageOf(active?.view)?.getZoomFactor() ?? 1) * 100) }),
         submenu: [
           { label: tr("Zoom in"), accelerator: `${mod}+Plus`, click: () => zoom(1) },
           { label: tr("Zoom out"), accelerator: `${mod}+-`, click: () => zoom(-1) },
           { label: tr("Reset"), accelerator: `${mod}+0`, click: () => zoom(0) },
         ],
       },
-      { label: tr("Print…"), enabled: Boolean(active), click: () => active?.view.webContents.print() },
+      { label: tr("Print…"), enabled: Boolean(active), click: () => pageOf(active?.view)?.print() },
       { label: tr("Developer tools"), accelerator: "F12", enabled: Boolean(active), click: () => win.runCommand({ type: "devtools" }) },
       { type: "separator" },
       { label: tr("Settings"), click: () => win.openSingleton("corvus://settings/") },
@@ -264,8 +263,11 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       },
       { label: pinned ? tr("Unpin") : tr("Pin"), click: () => win.pin(tabId, !pinned) },
       {
-        label: tab.view.webContents.isAudioMuted() ? tr("Unmute site") : tr("Mute site"),
-        click: () => tab.view.webContents.setAudioMuted(!tab.view.webContents.isAudioMuted()),
+        label: pageOf(tab.view)?.isAudioMuted() ? tr("Unmute site") : tr("Mute site"),
+        click: () => {
+          const page = pageOf(tab.view);
+          page?.setAudioMuted(!page.isAudioMuted());
+        },
       },
       {
         label: tr("Watch this page for changes"),
@@ -381,40 +383,6 @@ export function showBookmarkMenu(ctx: AppContext, win: BrowserWindowCtl, bookmar
   );
 }
 
-/** Longest username or site a field menu shows in full (native menus do not cut labels themselves). */
-const MENU_LABEL_MAX = 40;
-
-/**
- * The saved accounts of a page, for the menu under the field the person clicked; picking one fills
- * it. Under a login field each shows the username, the site its password is saved for, its KeePass
- * database (a sublabel on macOS, the only system that shows one) and "2FA only" when it has no
- * password; under a one-time-code field, "2FA code for" the username, and the site. The accounts of
- * the page's own host come first, those of the domain's other hosts in a submenu (see splitAccounts).
- */
-export function fieldMenuItems(ctx: AppContext, win: BrowserWindowCtl, matches: CredentialMatch[], kind: AutofillFieldKind, domain: string): MenuItemConstructorOptions[] {
-  const mac = process.platform === "darwin";
-  const item = (m: CredentialMatch): MenuItemConstructorOptions => {
-    const user = middleEllipsis(m.username || tr("(no username)"), MENU_LABEL_MAX);
-    const details = accountDetails(m, kind === "otp" ? "" : tr("2FA only"), { source: !mac }).map((d) => middleEllipsis(d, MENU_LABEL_MAX));
-    return {
-      label: [kind === "otp" ? `${tr("2FA code for")} ${user}` : user, ...details].join(LABEL_SEPARATOR),
-      ...(mac && m.source === "keepass" ? { sublabel: m.sourceName || "KeePass" } : {}),
-      click: () => void (kind === "otp" ? ctx.autofill.fillTotp(win, m.id) : ctx.autofill.fill(win, m.id)),
-    };
-  };
-  const { first, others } = splitAccounts(matches);
-  return [
-    ...first.map(item),
-    ...(others.length > 0 ? [{ label: tr("Other {domain} accounts", { domain }), submenu: others.map(item) }] : []),
-    { type: "separator" },
-    { label: tr("Manage passwords…"), click: () => win.openSingleton("corvus://passwords/") },
-  ];
-}
-
-export function showMenuAt(win: BrowserWindowCtl, template: MenuItemConstructorOptions[], x: number, y: number): void {
-  popup(win, template, x, y);
-}
-
 const isWebUrl = (url: string): boolean => /^https?:/i.test(url);
 
 export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab: TabRuntime, params: Electron.ContextMenuParams, offsetY: number): void {
@@ -435,10 +403,10 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
 
   if (params.misspelledWord && params.isEditable) {
     for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
-      items.push({ label: suggestion, click: () => wc.replaceMisspelling(suggestion) });
+      items.push({ label: suggestion, click: () => pageOf(tab.view)?.replaceMisspelling(suggestion) });
     }
     if (params.dictionarySuggestions.length === 0) items.push({ label: tr("No spelling suggestions"), enabled: false });
-    items.push({ label: tr("Add to dictionary"), click: () => wc.session.addWordToSpellCheckerDictionary(params.misspelledWord) });
+    items.push({ label: tr("Add to dictionary"), click: () => pageOf(tab.view)?.session.addWordToSpellCheckerDictionary(params.misspelledWord) });
     sep();
   }
   if (params.linkURL) {
@@ -461,7 +429,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       {
         label: tr("Add link to download queue"),
         enabled: isWebUrl(link) && !tab.agentControlled,
-        click: () => void ctx.grabber.queueLinks(win, [link], wc.getURL(), params.linkText),
+        click: () => void ctx.grabber.queueLinks(win, [link], pageUrl(tab), params.linkText),
       },
       { label: tr("Copy link address"), click: () => clipboard.writeText(link) },
       { label: tr("Send link to your phone…"), enabled: /^https?:/i.test(link), click: () => void win.shareToPhone(link, params.linkText.trim() || link) },
@@ -474,7 +442,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
     items.push(
       { label: tr("Open image in new tab"), click: () => openInTab(src) },
       { label: tr("Save image as…"), enabled: /^(https?|data|blob):/i.test(src), click: () => ctx.downloads.saveAs(wc, src) },
-      { label: tr("Copy image"), click: () => wc.copyImageAt(params.x, params.y) },
+      { label: tr("Copy image"), click: () => pageOf(tab.view)?.copyImageAt(params.x, params.y) },
       { label: tr("Copy image address"), click: () => clipboard.writeText(src) },
     );
     sep();
@@ -537,17 +505,17 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   if (!params.linkURL && !params.isEditable && !selection && params.mediaType === "none") {
     const history = wc.navigationHistory;
     items.push(
-      { label: tr("Back"), enabled: history.canGoBack(), click: () => history.goBack() },
-      { label: tr("Forward"), enabled: history.canGoForward(), click: () => history.goForward() },
-      { label: tr("Reload"), click: () => wc.reload() },
+      { label: tr("Back"), enabled: history.canGoBack(), click: () => pageOf(tab.view)?.navigationHistory.goBack() },
+      { label: tr("Forward"), enabled: history.canGoForward(), click: () => pageOf(tab.view)?.navigationHistory.goForward() },
+      { label: tr("Reload"), click: () => pageOf(tab.view)?.reload() },
       { type: "separator" },
       { label: tr("Find…"), accelerator: `${mod}+F`, click: () => win.runCommand({ type: "find" }) },
-      { label: tr("Print…"), click: () => wc.print() },
+      { label: tr("Print…"), click: () => pageOf(tab.view)?.print() },
       { type: "separator" },
       { label: tr("Reader mode"), accelerator: `${mod}+Shift+R`, enabled: /^https?:/.test(wc.getURL()), click: () => ctx.reader.toggle(win) },
       { label: tr("Summarize this page"), enabled: /^https?:/.test(wc.getURL()), click: () => ctx.assist.runPage(win, tab, "summarize") },
       { label: tr("Translate this page"), enabled: /^https?:/.test(wc.getURL()), click: () => void ctx.translate.translate(win, tab) },
-      { label: tr("Watch this page for changes"), enabled: /^https?:/.test(wc.getURL()), click: () => ctx.monitor.watchTab(win, { url: wc.getURL(), title: tab.title, ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}) }) },
+      { label: tr("Watch this page for changes"), enabled: /^https?:/.test(wc.getURL()), click: () => ctx.monitor.watchTab(win, { url: pageUrl(tab), title: tab.title, ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}) }) },
     );
     sep();
   }
@@ -557,7 +525,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
     items.push({ label: tr("Hide this element…"), click: () => void ctx.adblock.pickElement(win, tab, { x: params.x / zoom, y: params.y / zoom }) });
     sep();
   }
-  const inspect: MenuItemConstructorOptions = { label: tr("Inspect"), click: () => wc.inspectElement(params.x, params.y) };
+  const inspect: MenuItemConstructorOptions = { label: tr("Inspect"), click: () => pageOf(tab.view)?.inspectElement(params.x, params.y) };
   const extensionItems = win.profile.extensions.getContextMenuItems(wc, params);
   if (extensionItems.length > 0) {
     const menu = Menu.buildFromTemplate(items);

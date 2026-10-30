@@ -9,6 +9,8 @@ import * as SystemUI from 'expo-system-ui';
 import { useEffect, useMemo } from 'react';
 
 import { FeedbackHost } from '@/components/feedback';
+import { useAppLanguage } from '@/hooks/use-language';
+import { useRouteMemory } from '@/hooks/use-route-memory';
 import { openReceived } from '@/hooks/use-session';
 import { useScheme, useTheme } from '@/hooks/use-theme';
 import { t } from '@/lib/i18n';
@@ -17,9 +19,14 @@ import { nav } from '@/lib/nav';
 
 SplashScreen.preventAutoHideAsync();
 
+// A screen opened from a link, or brought back after Android ended the app, has the tabs under it.
+export const unstable_settings = { anchor: '(tabs)' };
+
 export default function RootLayout() {
   const scheme = useScheme();
   const theme = useTheme();
+  const language = useAppLanguage();
+  useRouteMemory();
   useEffect(() => {
     void SplashScreen.hideAsync();
   }, []);
@@ -46,6 +53,16 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={navigation}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+      {/* Every screen is drawn again in a new language; the navigation state stays where it is. */}
+      <Screens key={language} />
+    </ThemeProvider>
+  );
+}
+
+function Screens() {
+  const theme = useTheme();
+  return (
+    <>
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: theme.background },
@@ -69,6 +86,6 @@ export default function RootLayout() {
         <Stack.Screen name="licenses" options={{ title: t('Third-party licences') }} />
       </Stack>
       <FeedbackHost />
-    </ThemeProvider>
+    </>
   );
 }

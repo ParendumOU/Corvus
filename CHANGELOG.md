@@ -7,6 +7,26 @@
 - The address bar never shows the lock for such a site (the iPhone did): it says **Not secure** in red, with a warning sign on iPhone, and the site panel says the certificate is not valid.
 - Android: tapping a link to such a site did nothing (the page stayed as it was, with no word of why); it now shows that page too.
 - Android: a page that failed to open (an invalid certificate, no connection, an unknown address) is no longer added to your history, on the phone and on your synced computers.
+- **Android: changing Corvus's language shows at once.** Settings → Apps → Corvus → Language now lists English and Spanish (Android 13 and later), and Corvus switches every screen, the tab bar and the titles to the new language right away, on the screen you are on, instead of only after closing and opening it again.
+- **Android: Corvus comes back to the screen you were on** when Android rebuilds it (after closing it in the background to free memory, or after a change of font or display size): the tab, chat, browser or settings page you had open, with the tab you came from under it, instead of Home. After more than 30 minutes away it starts on Home as before (the browser keeps its tabs), and closing Corvus from the recent apps still starts it on Home.
+- Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
+- Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
+
+## v0.32.5
+
+### Browser
+- **Import from Google Authenticator reads iPhone photos (HEIC).** Photos saved in the iPhone camera's default format (.heic or .heif) can be chosen one by one or in a folder, like PNG and JPEG ones; before, Corvus said it could not open them. They are read on this computer, like the others, and a HEIC photo saved with a .jpg name is read too.
+- **Import from Google Authenticator adds the 2FA to your KeePass entries too.** When an account's site and username match an entry of an unlocked KeePass database, the preview says "Adds 2FA to the KeePass entry X in database Y". Importing writes the 2FA into that entry the way KeePassXC does (and into KeePass 2's own 2FA fields when the entry has them), keeps a .bak copy of the database file before its first change, and Corvus then fills the code on the site. An entry that already has the same 2FA is shown as already set. When a login saved in Corvus also matches, the Corvus login still comes first.
+- Nothing is written to a KeePass file unless its row is ticked. Rows of a database file Corvus cannot write (read-only) start unticked, the preview names any locked database so you can unlock it first, and if a database is locked or changes before you import, Corvus asks you to check the list again instead of putting the 2FA somewhere else.
+- **Closing a tab or a window stops what Corvus was doing for it**: a summary or a translation being written for that page ends at once, instead of going on (and using your AI provider) for a page that is gone. Closing a window also ends an AI agent's request to do something in one of its tabs, as Cancel, as closing the tab already did.
+- An AI agent working in a tab you close is told that the tab was closed, instead of getting an internal error.
+- An extension's side panel closes when its page closes itself, as in Chrome.
+- **Copying a 2FA code from the padlock list now says so.** On a page without a code field yet, the 2FA button of an account copies its current code: the button now turns into "Copied" for a moment and the list then closes by itself (before, the list just closed and you could not tell whether anything was copied). As with every other copy in Corvus, the clipboard is left as it is afterwards.
+- **"2FA only" is no longer cut off** in the list behind the padlock (it was in Spanish): it is now a small tag right after the username, always shown in full, and the 2FA button is narrower ("2FA code" over the current code, "Fill 2FA code" when you point at it).
+- **On a site with several accounts, the one you used last comes first**: in the list behind the padlock and in the menu under a field, for example on the code step of a two-step sign-in where several accounts have a 2FA. The others are still listed below it, and accounts saved for the page's own address still lead their section. Corvus remembers which account it filled last on each site on this computer only (no passwords or codes), and not from private windows.
+- **"Never for this site" in the save-password prompt**: it closes the prompt without saving and Corvus stops offering to save passwords on that address (only that one: other addresses of the same site still ask). Settings, Passwords, **Never saved** lists those sites, and **Remove** makes Corvus ask there again. The list belongs to the profile and stays on this computer.
+- **The padlock list opens with a click even right after you typed in the address bar.** If you clicked into the page while the address bar still had the cursor, a click on the padlock (or the star, the reader or translate buttons) put the cursor back in the address bar instead, and the list did not open. The address bar now lets go of the cursor as soon as the page takes the keyboard, as in Chrome; switching to another app and back still keeps it.
+- **The accounts under a sign-in field no longer take the keyboard.** Clicking a username, password or 2FA code field still lists the site's accounts right under it, but the field keeps the keyboard, so you can type, paste with Ctrl+V or select the text as usual (before, the list was a system menu that captured the keyboard until it closed). Typing or pasting, Escape, Tab or a click elsewhere closes it; the down arrow opens it from the field and moves through it, and Enter fills the highlighted account. It looks like the list behind the padlock: the username over its site, a "2FA only" tag, and the other addresses' accounts folded away.
 
 ## v0.32.4
 
@@ -658,11 +678,11 @@ The first open-source release of Corvus (MPL-2.0). Installers and automatic upda
 
 ## v0.1.1
 
-- **Command bar (Ctrl/Cmd+K)**: a fast action palette (open tabs, history, bookmarks, settings, web search, internal pages) and an in-browser AI agent — type a task and Claude carries it out in a tab using the browser tools, with the live activity overlay, a step log, pause, and an approval prompt before risky actions (forms, logins, payments). Provider-agnostic agent loop (Anthropic API or local Claude Code), with step and token caps.
+- **Command bar (Ctrl/Cmd+K)**: a fast action palette (open tabs, history, bookmarks, settings, web search, internal pages) and an in-browser AI agent - type a task and Claude carries it out in a tab using the browser tools, with the live activity overlay, a step log, pause, and an approval prompt before risky actions (forms, logins, payments). Provider-agnostic agent loop (Anthropic API or local Claude Code), with step and token caps.
 - **Reader mode + AI reading suite**: distraction-free reader (fonts, width, light/sepia/dark), Key points / TL;DR / Simplify / ELI5 / Translate with section citations, read-aloud, and a save-as-note library (corvus://reading) with Markdown export.
 - **Vertical tabs, workspaces and page monitoring**: an Arc-style tab sidebar, named workspaces, and "Watch this page" with AI-summarised change alerts (corvus://watches).
 
-## v0.1.0 — first preview
+## v0.1.0: first preview
 
 The first end-to-end build of Corvus, an AI-native browser that is also an MCP server.
 

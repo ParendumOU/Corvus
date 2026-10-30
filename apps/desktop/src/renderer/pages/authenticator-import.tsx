@@ -13,6 +13,7 @@ const importable = (row: ImportRow): boolean => IMPORTABLE_ACTIONS.has(row.actio
 const accounts = (n: number): string => (n === 1 ? t("1 account") : t("{n} accounts", { n }));
 const photos = (n: number): string => (n === 1 ? t("1 photo") : t("{n} photos", { n }));
 const logins = (n: number): string => (n === 1 ? t("1 login") : t("{n} logins", { n }));
+const entries = (n: number): string => (n === 1 ? t("1 entry") : t("{n} entries", { n }));
 
 function photoText(report: PhotoReport, exportCount: number): string {
   const s = report.status;
@@ -28,7 +29,7 @@ function photoText(report: PhotoReport, exportCount: number): string {
     case "none":
       return t("No QR code found. Take the photo again, closer and without glare.");
     case "unreadable":
-      return t("Could not open this image. Use PNG or JPEG photos.");
+      return t("Could not open this image. Use PNG, JPEG or HEIC photos.");
     case "too-large":
       return t("This image is too large (over 64 MB).");
     case "not-2fa":
@@ -57,6 +58,13 @@ const SKIP_REASON: Record<SkippedAccount["reason"], string> = {
 function actionText(row: ImportRow): string {
   const user = row.login?.username || t("(no username)");
   const site = row.login ? hostOf(row.login.origin) : "";
+  const kp = row.login?.keepass;
+  if (kp) {
+    const vars = { entry: kp.title || user, db: kp.db };
+    if (row.action === "replace") return t("Replaces the different 2FA of the KeePass entry {entry} in database {db}", vars);
+    if (row.action === "same") return t("The KeePass entry {entry} in database {db} already has this 2FA", vars);
+    return t("Adds 2FA to the KeePass entry {entry} in database {db}", vars);
+  }
   switch (row.action) {
     case "attach":
       return t("Adds 2FA to your login {user} on {site}", { user, site });
@@ -175,7 +183,7 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
     setImportId(picked.importId);
     setNames(picked.names);
     if (picked.added === 0) {
-      setError(picked.names.length === 0 ? t("There are no PNG or JPEG photos in that folder.") : t("Those photos are already in this import."));
+      setError(picked.names.length === 0 ? t("There are no PNG, JPEG or HEIC photos in that folder.") : t("Those photos are already in this import."));
       return;
     }
     setStage("reading");
@@ -201,12 +209,15 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
     setStage("preview");
   };
 
-  // Typing a site re-plans where the rows go (debounced).
+  // Typing a site re-plans where the rows go (debounced), and so does a change of the logins
+  // (a KeePass database unlocked or locked, a login saved elsewhere).
+  const [loginsSeq, setLoginsSeq] = useState(0);
+  useEffect(() => api.onEvent((e) => (e.type === "keepass-changed" || e.type === "credentials-changed") && setLoginsSeq((n) => n + 1)), [api]);
   useEffect(() => {
     if (stage !== "preview" || !importId) return;
     const timer = setTimeout(() => void loadPreview(importId, sites), 250);
     return () => clearTimeout(timer);
-  }, [sites, stage, importId, loadPreview]);
+  }, [sites, stage, importId, loadPreview, loginsSeq]);
 
   const rows = preview?.rows ?? [];
   const exportCount = preview?.exportCount ?? 0;
@@ -227,6 +238,7 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
     );
   }, [rows, filter, query, sites]);
   const chosen = rows.filter((r) => selected.has(r.id) && importable(r));
+  const keepassChosen = chosen.filter((r) => r.login?.keepass).length;
 
   const toggle = (row: ImportRow, on: boolean): void =>
     setSelected((current) => {
@@ -260,6 +272,8 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
       onImported();
     } catch (err) {
       setError(errorMessage(err));
+      // The list may be out of date (a KeePass database locked meanwhile): show where the rows go now.
+      await loadPreview(importId, sites).catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -321,6 +335,13 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
                 <IconCamera size={13} /> {t("Add photos")}
               </button>
             </div>
+            {preview.lockedDatabases.length > 0 && (
+              <div className="pw-hint ga-keepass">
+                {preview.lockedDatabases.length === 1
+                  ? t("The KeePass database {name} is locked: unlock it in the KeePass section to add 2FA to its entries too.", { name: preview.lockedDatabases[0]! })
+                  : t("The KeePass databases {names} are locked: unlock them in the KeePass section to add 2FA to their entries too.", { names: preview.lockedDatabases.join(", ") })}
+              </div>
+            )}
             {preview.missing.length > 0 && (
               <div className="pw-warn">
                 <IconWarning size={13} /> {preview.missing.map((m) => missingText(m, exportCount)).join(" ")}{" "}
@@ -387,6 +408,7 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
                       <span className="ga-what">
                         {actionText(row)}
                         {row.action === "replace" && <span className="ga-note">{t("It already has a different 2FA code: tick the box to replace it.")}</span>}
+                        {row.login?.keepass?.readOnly && importable(row) && <span className="ga-note">{t("The database file is read-only, so Corvus cannot write to it. Make it writable to add the 2FA there.")}</span>}
                         {removesNote(row) && <span className="ga-note">{removesNote(row)}</span>}
                         {(shared.get(row.target) ?? 0) > 1 && importable(row) && <span className="ga-note">{t("Another account here goes to the same login: only one of them can be imported.")}</span>}
                       </span>
@@ -411,6 +433,11 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
             )}
 
             <div className="pw-warn">{t("Keeping a 2FA secret next to the password turns two factors into one: anyone who can open this vault gets both. Use a separate authenticator for your most important accounts.")}</div>
+            {keepassChosen > 0 && (
+              <div className="pw-hint ga-keepass">
+                {t("Importing changes {entries} in your KeePass databases. Corvus keeps a copy of each database file (.bak) before its first change.", { entries: entries(keepassChosen) })}
+              </div>
+            )}
             {error && <div className="pw-error">{error}</div>}
             <div className="pw-actions ga-foot">
               <button className="btn primary" disabled={busy || chosen.length === 0} onClick={() => void runImport()}>
@@ -424,9 +451,15 @@ export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose
         {stage === "done" && result && (
           <>
             <div className="ga-result">
-              <strong>{t("Added 2FA to {logins}, created {created}.", { logins: logins(result.attached), created: result.created })}</strong>
-              {result.repaired > 0 && <span> {result.repaired === 1 ? t("Repaired 1 login from an earlier import.") : t("Repaired {n} logins from an earlier import.", { n: result.repaired })}</span>}
+              {(result.attached + result.created > 0 || result.keepass === 0) && <strong>{t("Added 2FA to {logins}, created {created}.", { logins: logins(result.attached), created: result.created })} </strong>}
+              {result.keepass > 0 && <strong>{t("Added 2FA to {entries} in KeePass.", { entries: entries(result.keepass) })} </strong>}
+              {result.repaired > 0 && <span>{result.repaired === 1 ? t("Repaired 1 login from an earlier import.") : t("Repaired {n} logins from an earlier import.", { n: result.repaired })}</span>}
             </div>
+            {result.keepassFailed.map((f) => (
+              <div key={f.db} className="pw-error">
+                {t("Could not write the KeePass database {db}, so the 2FA was not added to {entries}: {error}", { db: f.db, entries: entries(f.entries), error: f.error })}
+              </div>
+            ))}
             <div className="pw-warn ga-delete">
               <IconWarning size={14} />{" "}
               {t("Now delete the photos: they hold every 2FA secret. Delete them from this computer, from your phone's gallery (and its recently deleted folder), and from any cloud photo backup such as Google Photos or iCloud.")}{" "}

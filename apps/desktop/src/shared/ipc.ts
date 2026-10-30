@@ -146,6 +146,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "ui.bookmarkOverflowMenu"(from: number, x: number, y: number, icons?: Record<string, string>): void;
   "ui.bookmarkMenu"(bookmarkId: string, x: number, y: number): void;
   "ui.focusContent"(): void;
+  /** Another part of this window (its page, a side panel) holds the keyboard, not Corvus's UI and not another app. */
+  "ui.keyboardElsewhere"(): boolean;
   "tabs.create"(opts?: { url?: string; groupId?: GroupId; background?: boolean }): TabId;
   "tabs.close"(tabId: TabId): void;
   "tabs.activate"(tabId: TabId): void;

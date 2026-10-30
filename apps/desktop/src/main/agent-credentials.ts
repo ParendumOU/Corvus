@@ -18,6 +18,7 @@ import { askNativeApproval } from "./approval-dialog";
 import { AUTOFILL_WORLD_ID, fillLoginByRefScript, fillOtpByRefScript, type FillOutcome } from "./credential-scripts";
 import type { AppContext } from "./context";
 import type { LoginRecord } from "./login-sources";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -117,8 +118,8 @@ export class AgentCredentialService {
   private locate(tabId: TabId): { window: BrowserWindowCtl; tab: TabRuntime; wc: WebContents; url: string } | null {
     const found = this.ctx.windows.findTab(tabId);
     if (!found) return null;
-    const wc = found.tab.view.webContents;
-    if (wc.isDestroyed()) return null;
+    const wc = pageOf(found.tab.view);
+    if (!wc) return null;
     const url = wc.getURL() || found.tab.url;
     if (!/^https?:\/\//i.test(url) || !isAgentAllowedUrl(url)) return null;
     return { ...found, wc, url };

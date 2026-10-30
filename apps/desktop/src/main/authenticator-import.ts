@@ -10,7 +10,6 @@ import path from "node:path";
 import { dialog, nativeImage, utilityProcess, type UtilityProcess } from "electron";
 import {
   AuthenticatorCollector,
-  photoScales,
   planImport,
   rowsToImport,
   sameTotp,
@@ -23,42 +22,79 @@ import {
   type PlanLogin,
 } from "../shared/authenticator-import";
 import type { CredentialVault } from "./credential-store";
+import { parseEntryUrl } from "./keepass-entries";
+import type { EntryTotp } from "./keepass-format";
+import { KEEPASS_ID_PREFIX, type KeePassStore } from "./keepass-store";
 import { tr } from "./menu-i18n";
 import { paths } from "./paths";
-import { decodeQrBitmap, invertBitmap, type QrEffort } from "./qr-decode";
+import { isHeif, readHeifQr } from "./heic";
+import { decodeQrBitmap, scanPhoto, type QrEffort } from "./qr-decode";
 import type { BrowserWindowCtl } from "./window";
 
-const PHOTO_EXTENSIONS = ["png", "jpg", "jpeg"];
+const PHOTO_EXTENSIONS = ["png", "jpg", "jpeg", "heic", "heif"];
 const MAX_PHOTOS = 100;
 const MAX_PHOTO_BYTES = 64 * 1024 * 1024;
 /** An import left open this long is dropped, with its secrets. */
 const SESSION_IDLE_MS = 30 * 60_000;
 const DECODE_TIMEOUT_MS = 60_000;
+/** A HEIC photo is decoded and scanned at every size in one go. */
+const HEIF_TIMEOUT_MS = 120_000;
 /** Photos of a screen: blur, glare and tilt are worth more retries than a screenshot. */
 const PHOTO_EFFORT: QrEffort = { effort: 4, timeLimit: 3000 };
 
-/** Finds QR codes in bitmaps, one at a time, in a utility process; in this process if it cannot run. */
+type HeifFound = { text: string } | { status: "unreadable" | "none" };
+
+/** What the decoder process answers: the text found (or null), or for a HEIC photo why there is none. */
+interface WorkerReply {
+  id: number;
+  text?: string | null;
+  status?: string;
+}
+
+/**
+ * Finds QR codes in bitmaps, and in HEIC photos (decoded there too), one at a time, in a utility
+ * process; in this process if it cannot run.
+ */
 class QrDecoder {
   private child: UtilityProcess | null = null;
   private ready: Promise<void> | null = null;
   private broken = false;
   private nextId = 1;
-  private readonly pending = new Map<number, { resolve: (text: string | null) => void; reject: (err: Error) => void }>();
+  private readonly pending = new Map<number, { resolve: (reply: WorkerReply) => void; reject: (err: Error) => void }>();
 
   async decode(data: Buffer, width: number, height: number): Promise<string | null> {
     if (!this.broken) {
       try {
-        return await this.inChild(data, width, height);
+        const reply = await this.inChild({ kind: "bitmap", data, width, height, effort: PHOTO_EFFORT }, DECODE_TIMEOUT_MS);
+        return typeof reply.text === "string" ? reply.text : null;
       } catch (err) {
-        this.broken = true;
-        this.close();
-        console.warn(`[corvus] QR decoder process unavailable, decoding in the main process: ${(err as Error).message}`);
+        this.giveUp(err as Error);
       }
     }
     return decodeQrBitmap(data, width, height, "BGRA", PHOTO_EFFORT).catch(() => null);
   }
 
-  private async inChild(data: Buffer, width: number, height: number): Promise<string | null> {
+  async decodeHeif(file: string): Promise<HeifFound> {
+    if (!this.broken) {
+      try {
+        const reply = await this.inChild({ kind: "heif", file, effort: PHOTO_EFFORT }, HEIF_TIMEOUT_MS);
+        if (typeof reply.text === "string") return { text: reply.text };
+        return { status: reply.status === "none" ? "none" : "unreadable" };
+      } catch (err) {
+        this.giveUp(err as Error);
+      }
+    }
+    const bytes = await fs.promises.readFile(file).catch(() => null);
+    return bytes ? readHeifQr(bytes, PHOTO_EFFORT) : { status: "unreadable" };
+  }
+
+  private giveUp(err: Error): void {
+    this.broken = true;
+    this.close();
+    console.warn(`[corvus] QR decoder process unavailable, decoding in the main process: ${err.message}`);
+  }
+
+  private async inChild(request: Record<string, unknown>, timeoutMs: number): Promise<WorkerReply> {
     const child = this.start();
     await this.ready;
     const id = this.nextId++;
@@ -66,18 +102,18 @@ class QrDecoder {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error("timed out"));
-      }, DECODE_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(id, {
-        resolve: (text) => {
+        resolve: (reply) => {
           clearTimeout(timer);
-          resolve(text);
+          resolve(reply);
         },
         reject: (err) => {
           clearTimeout(timer);
           reject(err);
         },
       });
-      child.postMessage({ id, data, width, height, effort: PHOTO_EFFORT });
+      child.postMessage({ id, ...request });
     });
   }
 
@@ -89,10 +125,10 @@ class QrDecoder {
       child.once("exit", (code) => reject(new Error(`exited with code ${code}`)));
     });
     this.ready.catch(() => {});
-    child.on("message", (msg: { id: number; text: string | null }) => {
+    child.on("message", (msg: WorkerReply) => {
       const waiting = this.pending.get(msg.id);
       this.pending.delete(msg.id);
-      waiting?.resolve(typeof msg.text === "string" ? msg.text : null);
+      waiting?.resolve(msg);
     });
     child.once("exit", (code) => {
       if (this.child === child) this.child = null;
@@ -109,28 +145,45 @@ class QrDecoder {
   }
 }
 
+/** The first bytes of a file (empty when it cannot be read). */
+async function fileHead(file: string): Promise<Uint8Array> {
+  const handle = await fs.promises.open(file, "r").catch(() => null);
+  if (!handle) return new Uint8Array();
+  try {
+    const head = Buffer.alloc(64);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    return head.subarray(0, bytesRead);
+  } catch {
+    return new Uint8Array();
+  } finally {
+    await handle.close();
+  }
+}
+
 /** The text of the QR code in a photo, trying a few sizes; or why there is none. */
-async function readPhotoQr(file: string, decode: (data: Buffer, width: number, height: number) => Promise<string | null>): Promise<{ text: string } | { status: PhotoStatus }> {
+async function readPhotoQr(file: string, decoder: QrDecoder): Promise<{ text: string } | { status: PhotoStatus }> {
   const stat = await fs.promises.stat(file).catch(() => null);
   if (!stat?.isFile()) return { status: { kind: "unreadable" } };
   if (stat.size > MAX_PHOTO_BYTES) return { status: { kind: "too-large" } };
+  // By content, not name: a HEIC photo saved as .jpg is read too.
+  if (isHeif(await fileHead(file))) {
+    const found = await decoder.decodeHeif(file);
+    return "text" in found ? found : { status: { kind: found.status } };
+  }
   const image = nativeImage.createFromPath(file);
   if (image.isEmpty()) return { status: { kind: "unreadable" } };
   const { width, height } = image.getSize();
   const long = Math.max(width, height);
-  const sizes = photoScales(long);
-  // Dark on light at every size, then light on dark (a code shown in a dark theme) at the likeliest two.
-  const tries = [...sizes.map((size) => ({ size, invert: false })), ...sizes.slice(0, 2).map((size) => ({ size, invert: true }))];
-  for (const { size, invert } of tries) {
-    const scaled = size === long ? image : image.resize(width >= height ? { width: size, quality: "good" } : { height: size, quality: "good" });
-    const { width: w, height: h } = scaled.getSize();
-    const bitmap = scaled.toBitmap();
-    if (bitmap.length !== w * h * 4) continue;
-    if (invert) invertBitmap(bitmap);
-    const text = await decode(bitmap, w, h);
-    if (text) return { text };
-  }
-  return { status: { kind: "none" } };
+  const text = await scanPhoto(
+    long,
+    (size) => {
+      const scaled = size === long ? image : image.resize(width >= height ? { width: size, quality: "good" } : { height: size, quality: "good" });
+      const { width: w, height: h } = scaled.getSize();
+      return { data: scaled.toBitmap(), width: w, height: h };
+    },
+    (bitmap) => decoder.decode(bitmap.data as Buffer, bitmap.width, bitmap.height),
+  );
+  return text ? { text } : { status: { kind: "none" } };
 }
 
 interface Session {
@@ -139,6 +192,8 @@ interface Session {
   reports: Array<PhotoReport | undefined>;
   collector: AuthenticatorCollector;
   decoder: QrDecoder;
+  /** Where each row went in the last preview the page got (row id to target). */
+  shown?: Map<string, string>;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -204,21 +259,54 @@ export async function readAuthenticatorPhoto(profileId: string, importId: string
   if (file === undefined) throw new Error("No such photo");
   const known = current.reports[index];
   if (known) return known;
-  const found = await readPhotoQr(file, (data, w, h) => current.decoder.decode(data, w, h));
+  const found = await readPhotoQr(file, current.decoder);
   const report: PhotoReport = { name: path.basename(file), status: "text" in found ? current.collector.add(found.text) : found.status };
   current.reports[index] = report;
   if (current.reports.filter(Boolean).length === current.files.length) current.decoder.close();
   return report;
 }
 
-/** The vault's logins as the plan needs them (with their 2FA, which never leaves this process). */
-function planLogins(vault: CredentialVault): PlanLogin[] {
-  return vault.all().map((c) => ({ id: c.id, origin: c.origin, username: c.username, hasPassword: c.password !== "", updatedAt: c.updatedAt, ...(c.totp ? { totp: c.totp } : {}) }));
+/** Where an import finds logins and writes 2FA: the built-in vault and the profile's KeePass databases. */
+export interface ImportLogins {
+  vault: CredentialVault;
+  keepass?: Pick<KeePassStore, "importEntries" | "setTotps" | "databases">;
 }
 
-export function authenticatorPreview(profileId: string, importId: string, vault: CredentialVault, sites: Record<string, string>): AuthenticatorPreview {
-  const { collector } = session(profileId, importId);
-  return { rows: planImport(collector.accounts, planLogins(vault), sites), skipped: collector.skipped, missing: collector.missing(), exportCount: collector.exportCount };
+/** A KeePass entry URL as an origin ("example.com" is https), or null when it is not a site. */
+function entryOrigin(url: string): string | null {
+  const parsed = parseEntryUrl(url);
+  return parsed ? `${parsed.scheme ?? "https:"}//${parsed.host}${parsed.port ? `:${parsed.port}` : ""}` : null;
+}
+
+/** Every login the plan can use (with their 2FA, which never leaves this process). Entries with no site are left out. */
+function planLogins({ vault, keepass }: ImportLogins): PlanLogin[] {
+  const builtIn = vault.all().map((c): PlanLogin => ({ id: c.id, origin: c.origin, username: c.username, hasPassword: c.password !== "", updatedAt: c.updatedAt, ...(c.totp ? { totp: c.totp } : {}) }));
+  const entries = (keepass?.importEntries() ?? []).flatMap((e): PlanLogin[] => {
+    const origins = [...new Set(e.urls.map(entryOrigin).filter((o): o is string => o !== null))];
+    if (origins.length === 0) return [];
+    return [
+      {
+        id: e.id,
+        origin: origins[0]!,
+        ...(origins.length > 1 ? { alsoAt: origins.slice(1) } : {}),
+        username: e.username,
+        hasPassword: e.hasPassword,
+        updatedAt: e.modified,
+        ...(e.totp ? { totp: e.totp } : {}),
+        keepass: { db: e.dbName, title: e.title, readOnly: e.readOnly },
+      },
+    ];
+  });
+  return [...builtIn, ...entries];
+}
+
+export function authenticatorPreview(profileId: string, importId: string, logins: ImportLogins, sites: Record<string, string>): AuthenticatorPreview {
+  const current = session(profileId, importId);
+  const { collector } = current;
+  const rows = planImport(collector.accounts, planLogins(logins), sites);
+  current.shown = new Map(rows.map((r) => [r.id, r.target]));
+  const lockedDatabases = (logins.keepass?.databases() ?? []).filter((d) => d.status === "locked").map((d) => d.name);
+  return { rows, skipped: collector.skipped, missing: collector.missing(), exportCount: collector.exportCount, lockedDatabases };
 }
 
 /**
@@ -226,24 +314,53 @@ export function authenticatorPreview(profileId: string, importId: string, vault:
  * hold only the 2FA, and logins an earlier import made for a 2FA alone are fixed or removed. The plan
  * is made again here from the stored accounts, so the page only ever sends row ids and the sites typed
  * for them. A login is only removed while it still has no password and holds the secret that moved.
- * Ends the session.
+ * Ends the session, unless a chosen row would now go elsewhere than the preview said.
  */
-export function applyAuthenticatorImport(profileId: string, importId: string, vault: CredentialVault, sites: Record<string, string>, selected: string[]): AuthenticatorImportResult {
-  const { collector } = session(profileId, importId);
-  const result = importAccounts(vault, collector.accounts, sites, selected);
+export async function applyAuthenticatorImport(profileId: string, importId: string, logins: ImportLogins, sites: Record<string, string>, selected: string[]): Promise<AuthenticatorImportResult> {
+  const { collector, shown } = session(profileId, importId);
+  const result = await importAccounts(logins, collector.accounts, sites, selected, shown);
   discardAuthenticatorImport(importId);
   return result;
 }
 
-/** Writes the chosen rows of the plan for these accounts to the vault (see applyAuthenticatorImport). */
-export function importAccounts(vault: CredentialVault, list: readonly ImportAccount[], sites: Record<string, string>, selected: string[]): AuthenticatorImportResult {
+/**
+ * Writes the chosen rows of the plan for these accounts (see applyAuthenticatorImport): the vault in
+ * one batch, then each KeePass database in one write (with its .bak copy and conflict check). A
+ * database that cannot be written is reported, the rest is imported. `shown` (row id to target, as
+ * the preview showed them) makes the import refuse, before writing anything, when a chosen row now
+ * goes to or away from a KeePass entry other than the one shown: a database was locked, unlocked or
+ * changed meanwhile, and a KeePass file is only ever written for the row the person saw and ticked.
+ */
+export async function importAccounts(
+  logins: ImportLogins,
+  list: readonly ImportAccount[],
+  sites: Record<string, string>,
+  selected: string[],
+  shown?: ReadonlyMap<string, string>,
+): Promise<AuthenticatorImportResult> {
+  const { vault, keepass } = logins;
   const accounts = new Map(list.map((a) => [a.id, a]));
-  const rows = rowsToImport(planImport(list, planLogins(vault), sites), new Set(selected));
+  const rows = rowsToImport(planImport(list, planLogins(logins), sites), new Set(selected));
+  const inKeePass = (target: string | undefined): boolean => target?.startsWith(`login:${KEEPASS_ID_PREFIX}`) === true;
+  if (shown && rows.some((r) => shown.get(r.id) !== r.target && (inKeePass(shown.get(r.id)) || inKeePass(r.target)))) {
+    throw new Error(tr("Some accounts would now go to a different login than the list shows (a KeePass database was locked or changed). Check the list and import again."));
+  }
   const targets = new Set(rows.flatMap((r) => (r.login ? [r.login.id] : [])));
-  const result: AuthenticatorImportResult = { attached: 0, created: 0, repaired: 0 };
+  const entries = new Map((keepass?.importEntries() ?? []).map((e) => [e.id, e]));
+  const perDb = new Map<string, { name: string; changes: EntryTotp[] }>();
+  const result: AuthenticatorImportResult = { attached: 0, created: 0, repaired: 0, keepass: 0, keepassFailed: [] };
   vault.batch(() => {
     for (const row of rows) {
       const account = accounts.get(row.id)!;
+      const entry = row.login?.keepass ? entries.get(row.login.id) : undefined;
+      if (entry) {
+        if (entry.totp && sameTotp(entry.totp, account.config)) continue;
+        const db = perDb.get(entry.dbId) ?? { name: entry.dbName, changes: [] };
+        db.changes.push({ uuid: entry.uuid, totp: account.config });
+        perDb.set(entry.dbId, db);
+        continue;
+      }
+      if (row.login?.keepass) continue;
       if (row.action === "fix" && row.login) {
         vault.update(row.login.id, { username: account.account });
         result.repaired++;
@@ -268,6 +385,14 @@ export function importAccounts(vault: CredentialVault, list: readonly ImportAcco
     }
   });
   vault.flush();
+  for (const [dbId, { name, changes }] of perDb) {
+    try {
+      await keepass!.setTotps(dbId, changes);
+      result.keepass += changes.length;
+    } catch (err) {
+      result.keepassFailed.push({ db: name, entries: changes.length, error: (err as Error).message });
+    }
+  }
   return result;
 }
 

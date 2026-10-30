@@ -3,6 +3,7 @@ import { isAnnotatableUrl } from "../shared/annotations";
 import { ANNOTATION_APPLY_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
 import type { AppContext } from "./context";
 import type { ProfileRuntime } from "./profiles";
+import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 /**
@@ -42,8 +43,8 @@ export class AnnotationService {
   }
 
   private applyTo(profile: ProfileRuntime, tab: TabRuntime): void {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return;
+    const wc = pageOf(tab.view);
+    if (!wc) return;
     const url = wc.getURL();
     if (!isAnnotatableUrl(url)) return;
     const scrollToId = this.pendingScroll.get(tab.id);

@@ -27,6 +27,7 @@ import { splitSentences } from "../shared/reading";
 import type { ReaderTheme, ReaderFontFamily } from "../shared/settings";
 import { GRAB_MAX_CHARS, grabPageHtmlScript, readerProbeScript, READER_WORLD_ID, type GrabbedPage, type ReaderProbe } from "./reader-scripts";
 import { ReaderView } from "./reader-views";
+import { pageOf } from "./tab-page";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -118,25 +119,29 @@ export class ReaderService {
 
   /** Runs the readerable probe on a freshly loaded web page; updates the omnibox button. */
   async probe(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed() || !isWebPage(wc.getURL())) {
+    const wc = pageOf(tab.view);
+    if (!wc || !isWebPage(wc.getURL())) {
       if (this.readerable.get(tab.id)) {
         this.readerable.set(tab.id, false);
         win.pushState();
       }
       return;
     }
+    let readerable = false;
     try {
       const probe = (await withTimeout(
         wc.executeJavaScriptInIsolatedWorld(READER_WORLD_ID, [{ code: readerProbeScript() }]) as Promise<ReaderProbe>,
         SCRIPT_TIMEOUT_MS,
       )) ?? { readerable: false, title: "", lang: "" };
-      const before = this.readerable.get(tab.id);
-      this.readerable.set(tab.id, probe.readerable === true);
-      if (before !== probe.readerable) win.pushState();
+      readerable = probe.readerable === true;
     } catch {
-      this.readerable.set(tab.id, false);
+      // The page did not answer: not readerable.
     }
+    // The tab closed meanwhile: nothing of it is kept.
+    if (!win.hasTab(tab.id)) return;
+    const before = this.readerable.get(tab.id);
+    this.readerable.set(tab.id, readerable);
+    if (before !== readerable) win.pushState();
   }
 
   isReaderable(tab: TabRuntime): boolean {
@@ -235,8 +240,8 @@ export class ReaderService {
   }
 
   private async openFor(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed() || !isWebPage(wc.getURL())) return;
+    const wc = pageOf(tab.view);
+    if (!wc || !isWebPage(wc.getURL())) return;
     const entry = this.entry(tab.id);
     this.onForTab.add(tab.id);
     const view = this.view(win);
@@ -256,11 +261,12 @@ export class ReaderService {
     entry.messages = [];
     this.refresh(win);
     try {
-      const grabbed = (await withTimeout(
+      const page = await withTimeout(
         wc.executeJavaScriptInIsolatedWorld(READER_WORLD_ID, [{ code: grabPageHtmlScript() }]) as Promise<GrabbedPage>,
         SCRIPT_TIMEOUT_MS,
-      )) ?? { html: "", url: wc.getURL(), base: wc.getURL() };
-      if (!this.onForTab.has(tab.id)) return; // closed while extracting
+      );
+      if (!this.onForTab.has(tab.id) || wc.isDestroyed()) return; // closed while extracting
+      const grabbed = page ?? { html: "", url: wc.getURL(), base: wc.getURL() };
       const article = grabbed.html.length < GRAB_MAX_CHARS + 1 ? extractArticle(grabbed.html, grabbed.url, grabbed.base) : null;
       if (!article) {
         entry.error = "This page doesn't have an article Corvus can show in reader mode.";

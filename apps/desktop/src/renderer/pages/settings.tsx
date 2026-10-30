@@ -717,7 +717,50 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
       >
         <Toggle label={t("Remind me to back up my passwords")} checked={pw.backupReminder} onChange={(v) => update({ passwords: { backupReminder: v } })} />
       </Row>
+      <NeverSavedSites />
     </Section>
+  );
+}
+
+/** Sites where the save-password prompt was answered "Never for this site" (this profile's), each removable. */
+function NeverSavedSites() {
+  const api = internalApi();
+  const [hosts, setHosts] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const run = (p: Promise<string[]>): void => {
+    setError(null);
+    p.then((list) => setHosts([...list].sort())).catch((e: unknown) => setError(errorMessage(e)));
+  };
+  // Read again when the page is shown, so a site added from the prompt meanwhile is listed.
+  useEffect(() => {
+    const load = (): void => {
+      if (document.visibilityState === "visible") run(api.call("credentials.neverSaved"));
+    };
+    load();
+    document.addEventListener("visibilitychange", load);
+    return () => document.removeEventListener("visibilitychange", load);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api]);
+  return (
+    <>
+      <Row label={t("Never saved")} hint={t("Sites where you chose “Never for this site” when Corvus offered to save a password. Remove one to be asked there again.")}>
+        {hosts && hosts.length === 0 && <span className="muted">{t("None")}</span>}
+      </Row>
+      {hosts && hosts.length > 0 && (
+        <div className="list never-saved" style={{ borderTop: "1px solid var(--border-soft)" }}>
+          {hosts.map((host) => (
+            <div key={host} className="list-row">
+              <span className="grow">{host}</span>
+              <button className="btn small ghost danger" title={t("Remove")} onClick={() => run(api.call("credentials.removeNeverSaved", host))}>
+                <IconTrash size={13} />
+                {t("Remove")}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <div className="notice error">{error}</div>}
+    </>
   );
 }
 

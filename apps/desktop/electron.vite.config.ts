@@ -35,7 +35,7 @@ const shared = {
   "@corvus/webscope": resolve(import.meta.dirname, "../../packages/webscope/src/index.ts"),
 };
 
-const pages = ["chrome", "newtab", "search", "settings", "bookmarks", "history", "extensions", "downloads", "assist", "agent-overlay", "webscope", "watches", "schedules", "reader", "reading", "passwords", "pdf", "find", "crash", "cert-error", "devices", "agent-runs", "flows", "welcome", "annotations", "site-profiles"];
+const pages = ["chrome", "newtab", "search", "settings", "bookmarks", "history", "extensions", "downloads", "assist", "agent-overlay", "webscope", "watches", "schedules", "reader", "reading", "passwords", "pdf", "find", "crash", "cert-error", "devices", "agent-runs", "flows", "welcome", "annotations", "site-profiles", "field-menu"];
 
 export default defineConfig({
   main: {

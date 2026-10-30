@@ -6,7 +6,7 @@ import { accountDetails, loginDomainOf, loginFit, middleEllipsis, splitAccounts,
 import type { TotpConfig } from "../src/shared/totp";
 import { CredentialVault } from "../src/main/credential-store";
 import { entryFit } from "../src/main/keepass-entries";
-import { LoginSources, vaultProvider, type LoginProvider, type LoginRecord } from "../src/main/login-sources";
+import { lastUsedFirst, LoginSources, vaultProvider, type LoginProvider, type LoginRecord } from "../src/main/login-sources";
 import type { SecretCipher } from "../src/main/settings-store";
 
 const keychain: SecretCipher = {
@@ -209,6 +209,26 @@ describe("the page's own host first", () => {
     const { first, others } = splitAccounts(matches);
     expect(first.map((m) => m.id)).toEqual([own]);
     expect(others.map((m) => m.id)).toEqual([home, central]);
+  });
+
+  it("offers the account used last on the site first, the others below it in their order", () => {
+    const v = vault();
+    const admin = add(v, "https://edge.example.com", "admin", "pw-edge", 5);
+    const adminTotp = add(v, "https://example.com", "admin", "", 1, TOTP);
+    const info = add(v, "https://central.example.com", "info@example.com", "", 3, TOTP2);
+    const cloud = add(v, "https://cloud.example.com", "cloud@example.com", "", 9, TOTP);
+    const logins = new LoginSources(() => [vaultProvider(v)]);
+    const page = "https://verify.example.com/2fa";
+    expect(logins.matchesFor(page).map((m) => m.id)).toEqual([cloud, admin, info]);
+    expect(logins.matchesFor(page, info).map((m) => m.id)).toEqual([info, cloud, admin]);
+    // Any login of the account names it (here the 2FA-only one merged into admin's account).
+    expect(logins.matchesFor(page, adminTotp).map((m) => m.id)).toEqual([admin, cloud, info]);
+    // A login that is gone, or of another site, changes nothing.
+    expect(logins.matchesFor(page, "gone").map((m) => m.id)).toEqual([cloud, admin, info]);
+    expect(lastUsedFirst([], info)).toEqual([]);
+    // On a host with its own account, that account still leads its section; the last used leads the others.
+    const onEdge = logins.matchesFor("https://edge.example.com/login", info);
+    expect(splitAccounts(onEdge)).toEqual({ first: [expect.objectContaining({ id: admin })], others: [expect.objectContaining({ id: info }), expect.objectContaining({ id: cloud })] });
   });
 
   it("lists the domain's accounts first when the page's own host has none", () => {
