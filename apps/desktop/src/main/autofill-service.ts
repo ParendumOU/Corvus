@@ -1,12 +1,12 @@
-import type { MenuItemConstructorOptions } from "electron";
+import { clipboard, type MenuItemConstructorOptions } from "electron";
 import type { TabId } from "@corvus/shared";
-import type { CredentialMatch } from "../shared/credentials";
-import { originKeyOf } from "../shared/credentials";
-import { type AutofillBarState, type CapturedSubmit, EMPTY_AUTOFILL, type LoginFieldBox, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
-import { totpCode } from "../shared/totp";
+import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
+import { loginDomainOf, originKeyOf, type CredentialMatch } from "../shared/credentials";
+import { type AutofillBarState, type AutofillCode, type CapturedSubmit, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
+import { codeToFill, totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
-import { loginFieldMenuItems, showMenuAt } from "./menus";
+import { fieldMenuItems, showMenuAt } from "./menus";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -36,6 +36,8 @@ interface Detected {
   login: boolean;
   otp: boolean;
 }
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function isWebPage(url: string): boolean {
   return /^https?:\/\//i.test(url);
@@ -128,7 +130,7 @@ export class AutofillService {
     const current = win.profile.logins.forPage(login.id, this.pageUrl(tab));
     if (!current) return;
     this.ctx.secretFills.mark(tab.id, [current.password]);
-    await this.run<boolean>(tab, fillLoginScript(current.username, current.password, true));
+    await this.run<boolean>(tab, fillLoginScript(current.username, current.password, { submit: true }));
   }
 
   private async run<T>(tab: TabRuntime, code: string): Promise<T | null> {
@@ -145,14 +147,19 @@ export class AutofillService {
     return tab.view.webContents.isDestroyed() ? tab.url : tab.view.webContents.getURL();
   }
 
-  /** A page finished loading: probe it for a login form or 2FA field so the omnibox can offer autofill. */
-  async onPageLoad(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
+  /** Probes the page for a login form and a 2FA field, and tells the window when that changed. */
+  private async probe(win: BrowserWindowCtl, tab: TabRuntime): Promise<Detected> {
     const result = await this.run<LoginDetection>(tab, detectLoginScript());
     const next: Detected = { login: result?.hasPassword === true, otp: result?.hasOtp === true };
     const before = this.detected.get(tab.id) ?? { login: false, otp: false };
     this.detected.set(tab.id, next);
     if ((next.login !== before.login || next.otp !== before.otp) && win.activeTab()?.id === tab.id) win.pushState();
-    if (next.login) await this.maybeAutoSignIn(win, tab);
+    return next;
+  }
+
+  /** A page finished loading: probe it for a login form or 2FA field so the omnibox can offer autofill. */
+  async onPageLoad(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
+    if ((await this.probe(win, tab)).login) await this.maybeAutoSignIn(win, tab);
   }
 
   /** Same-document navigation (SPA route change): the next step's fields render shortly after. */
@@ -234,54 +241,86 @@ export class AutofillService {
     return win.profile.logins.matchesFor(this.pageUrl(tab));
   }
 
-  /** Smoke tests read the login field menu instead of showing it; null shows it again. */
+  /** Smoke tests read the field menu instead of showing it; null shows it again. */
   setFieldMenuProbe(probe: ((items: MenuItemConstructorOptions[]) => void) | null): void {
     this.fieldMenuProbe = probe;
   }
 
   /**
-   * The person clicked a login field (reported by the tab preload): list the page's saved accounts in
-   * a menu right under the field, as the omnibox key button does. Only in the active, person-driven
-   * tab of a page where a login form was detected.
+   * The person clicked a login field or a one-time-code field (reported by the tab preload): list the
+   * page's saved accounts in a menu right under it, as the omnibox key button does; under a code
+   * field, the accounts with a 2FA ("2FA code for ..."). Only in the active, person-driven tab, and
+   * only where the page has such a field: probed again when it was not seen yet, since a two-step
+   * sign-in shows its code field after the page loaded. Nothing is filled until the person picks.
    */
-  onLoginFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, box: LoginFieldBox): void {
-    if (tab.agentControlled || win.activeTab()?.id !== tab.id || !this.detected.get(tab.id)?.login) return;
-    const matches = this.suggestions(win);
-    if (matches.length === 0) return;
-    const items = loginFieldMenuItems(this.ctx, win, matches);
+  async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick): Promise<void> {
+    const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
+    const has = (d: Detected | undefined): boolean => Boolean(click.kind === "otp" ? d?.otp : d?.login);
+    if (!active()) return;
+    if (!has(this.detected.get(tab.id)) && !has(await this.probe(win, tab))) return;
+    const url = this.pageUrl(tab);
+    const matches = this.suggestions(win).filter((m) => click.kind === "login" || m.hasTotp);
+    if (!active() || matches.length === 0) return;
+    const items = fieldMenuItems(this.ctx, win, matches, click.kind, loginDomainOf(hostOf(url)));
     if (this.fieldMenuProbe) {
       this.fieldMenuProbe(items);
       return;
     }
     const bounds = tab.view.getBounds();
     const zoom = tab.view.webContents.getZoomFactor();
-    showMenuAt(win, items, bounds.x + box.x * zoom, bounds.y + (box.y + box.height) * zoom);
+    showMenuAt(win, items, bounds.x + click.x * zoom, bounds.y + (click.y + click.height) * zoom);
   }
 
   /**
-   * Fills an account of the page (by the id of any of its logins): its username, and its password
-   * when it has one (a 2FA-only account leaves the password field alone).
+   * Fills an account of the page (by the id of any of its logins) as planAccountFill says: picked for
+   * the login, its username and password (a 2FA-only account leaves the password field alone) and,
+   * when the page asks for one, its current 2FA code, in one action; picked for the code, the code and
+   * whatever login fields are still empty. A code about to expire is replaced by the next one, filled
+   * the moment it takes over (the login fields do not wait for it).
    */
-  async fill(win: BrowserWindowCtl, id: string): Promise<void> {
+  async fill(win: BrowserWindowCtl, id: string, pick: AccountPick = "account"): Promise<void> {
     const tab = win.activeTab();
     if (!tab) return;
-    const account = win.profile.logins.accountFor(id, this.pageUrl(tab));
+    const url = this.pageUrl(tab);
+    const account = win.profile.logins.accountFor(id, url);
     if (!account) return;
+    const page = await this.run<LoginDetection>(tab, detectLoginScript());
+    const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, { login: page?.hasPassword === true, otp: page?.hasOtp === true });
+    const totp = plan.code ? account.totp?.record.totp : undefined;
+    const code = totp ? await codeToFill(totp) : null;
+    if (plan.login === "none" && !code) return;
     const password = account.password?.record.password ?? "";
     // Secrets in the page: agents may not script it until it navigates (see secret-fill-guard.ts).
-    this.ctx.secretFills.mark(tab.id, password ? [password] : []);
-    await this.run<boolean>(tab, fillLoginScript(account.username, password));
+    this.ctx.secretFills.mark(tab.id, [password, code?.code ?? ""].filter(Boolean));
+    if (plan.login !== "none") await this.run<boolean>(tab, fillLoginScript(account.username, password, { keepTyped: plan.login === "empty" }));
+    if (!code) return;
+    if (code.waitMs > 0) await delay(code.waitMs);
+    if (this.pageUrl(tab) === url) await this.run<number>(tab, fillOtpScript(code.code));
   }
 
-  /** Fills the current 2FA code of a page's account into the page's one-time-code field. */
-  async fillTotp(win: BrowserWindowCtl, id: string): Promise<void> {
+  /** Fills the current 2FA code of a page's account, and its login where those fields are empty. */
+  fillTotp(win: BrowserWindowCtl, id: string): Promise<void> {
+    return this.fill(win, id, "code");
+  }
+
+  /** The current codes of the active page's accounts with a 2FA, only while the page has a code field. */
+  async codes(win: BrowserWindowCtl): Promise<AutofillCode[]> {
     const tab = win.activeTab();
-    if (!tab) return;
-    const totp = win.profile.logins.accountFor(id, this.pageUrl(tab))?.totp?.record.totp;
-    if (!totp) return;
-    const { code } = await totpCode(totp);
-    this.ctx.secretFills.mark(tab.id, [code]);
-    await this.run<number>(tab, fillOtpScript(code));
+    if (!tab || !this.detected.get(tab.id)?.otp) return [];
+    const accounts = win.profile.logins.accounts(this.pageUrl(tab)).flatMap((a) => (a.totp?.record.totp ? [{ id: a.id, totp: a.totp.record.totp }] : []));
+    return Promise.all(
+      accounts.map(async ({ id, totp }) => {
+        const { code, expiresAt } = await totpCode(totp);
+        return { id, code, expiresAt };
+      }),
+    );
+  }
+
+  /** Copies the current 2FA code of a page's account to the clipboard. */
+  async copyTotp(win: BrowserWindowCtl, id: string): Promise<void> {
+    const tab = win.activeTab();
+    const totp = tab ? win.profile.logins.accountFor(id, this.pageUrl(tab))?.totp?.record.totp : undefined;
+    if (totp) clipboard.writeText((await totpCode(totp)).code);
   }
 
   /** The active tab's pending save, if it is still the one with this id. */

@@ -118,6 +118,20 @@ export async function totpCode(config: TotpConfig, now = Date.now()): Promise<To
   return { code, period: config.period, expiresAt: (step + 1) * config.period * 1000 };
 }
 
+/** A code filled with less time than this left could expire before the person submits it. */
+export const MIN_FILL_LIFE_MS = 3000;
+
+/**
+ * The code to fill into a page at `now`, and how long to wait before filling it: the current code,
+ * or, when it has under 3 s left, the next one, to fill the moment it takes over.
+ */
+export async function codeToFill(config: TotpConfig, now = Date.now()): Promise<{ code: string; waitMs: number }> {
+  const current = await totpCode(config, now);
+  const left = current.expiresAt - now;
+  if (left >= MIN_FILL_LIFE_MS) return { code: current.code, waitMs: 0 };
+  return { code: (await totpCode(config, current.expiresAt)).code, waitMs: left };
+}
+
 /** Groups a code for reading: "123 456", "1234 5678", "123 4567". */
 export function formatTotpCode(code: string): string {
   if (code.length < 6) return code;

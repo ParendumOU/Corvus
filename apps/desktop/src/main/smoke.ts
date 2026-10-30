@@ -35,6 +35,7 @@ import { runSiteMemorySmoke } from "./smoke-site-memory";
 import { runSyncLearnedSmoke } from "./smoke-sync-learned";
 import { runBuiltinSyncSmoke } from "./smoke-builtin-sync";
 import { runCredentialsSmoke, runSavePromptSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
+import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { narrowLayout, narrowWindow, runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
@@ -95,6 +96,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
   const server = http.createServer((req, res) => {
     if (serveBrowserSmokeRoute(req, res)) return;
     if (serveCredentialsSmokeRoute(req, res)) return;
+    if (serveOtpFillSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
     if (serveMediaSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
@@ -226,6 +228,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=otpfill: only the checks of filling the 2FA code with the login (field menus, key panel).
+    if (process.env.CORVUS_SMOKE_ONLY === "otpfill") {
+      await runOtpFillSmoke(ctx, { url, win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=backup: only the backup reminder and Back up now checks.
     if (process.env.CORVUS_SMOKE_ONLY === "backup") {
       await runBackupSmoke(ctx, { win, check, capture });
@@ -317,6 +324,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runPdfSmoke(ctx, { win, check, capture });
     await runCredentialsSmoke(ctx, { url, win, check, capture });
     await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
+    await runOtpFillSmoke(ctx, { url, win, check, capture });
     await runBackupSmoke(ctx, { win, check, capture });
     await runAnnotationsSmoke(ctx, { url, win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });

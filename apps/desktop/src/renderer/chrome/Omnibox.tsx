@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { accountDetails, LABEL_SEPARATOR, type CredentialMatch } from "../../shared/credentials";
+import type { CredentialMatch } from "../../shared/credentials";
 import type { AutofillBarState } from "../../shared/credentials-ipc";
 import { GROUP_COLOR_HEX, type TabView } from "../../shared/ipc";
 import { isNewTabUrl } from "../../shared/internal-urls";
@@ -7,10 +7,11 @@ import { displayUrl, searchQueryOf } from "../../shared/omnibox";
 import type { Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
 import { languageName, type TranslateBarState } from "../../shared/translate";
-import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
+import { CorvusMark, IconBook, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
 import { SavePasswordPrompt } from "./SavePassword";
+import { AutofillPanel } from "./AutofillPanel";
 
 import { t } from "../common/i18n";
 export interface OmniboxHandle {
@@ -181,18 +182,6 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       setAutofillOpen(false);
       if (refocusPage) void api.call("ui.focusContent");
     };
-
-    const fill = (id: string): void => {
-      void api.call("autofill.fill", id);
-      setAutofillOpen(false);
-    };
-    const fillTotp = (id: string): void => {
-      void api.call("autofill.fillTotp", id);
-      setAutofillOpen(false);
-    };
-    const otpMatches = autofill.otpAvailable ? matches.filter((m) => m.hasTotp) : [];
-    const loginMatches = autofill.matchCount > 0 ? matches : [];
-    const details = (m: CredentialMatch): string => accountDetails(m, t("2FA only")).join(LABEL_SEPARATOR);
 
     useEffect(() => {
       if (!focused) setValue(displayUrl(url));
@@ -390,33 +379,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
         )}
         {autofillOpen && <div className="omni-panel-backdrop" onMouseDown={() => closeAutofill(true)} />}
         {autofillOpen && autofill.canSave && <SavePasswordPrompt key={autofill.saveId} takeFocus={saveFocus} onClose={closeAutofill} />}
-        {autofillOpen && !autofill.canSave && (
-          <div className="omni-autofill-panel">
-            <div className="af-list">
-              {otpMatches.length === 0 && loginMatches.length === 0 ? (
-                <div className="af-empty">{t("No saved logins for this site.")}</div>
-              ) : (
-                <>
-                  {otpMatches.map((m) => (
-                    <button key={`otp-${m.id}`} className="af-item af-otp" onMouseDown={(e) => { e.preventDefault(); fillTotp(m.id); }}>
-                      <IconClock size={14} />
-                      <span>{t("2FA code for")}{" "}{m.username || t("(no username)")}</span>
-                      {details(m) && <span className="af-source">{details(m)}</span>}
-                    </button>
-                  ))}
-                  {loginMatches.map((m) => (
-                    <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
-                      <IconLock size={14} />
-                      <span>{m.username || t("(no username)")}</span>
-                      {details(m) && <span className="af-source">{details(m)}</span>}
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-            <button className="af-manage" onMouseDown={(e) => { e.preventDefault(); void api.call("autofill.openManager"); setAutofillOpen(false); }}>{t("Manage passwords")}</button>
-          </div>
-        )}
+        {autofillOpen && !autofill.canSave && <AutofillPanel autofill={autofill} matches={matches} url={url} onDone={() => setAutofillOpen(false)} />}
       </div>
     );
   },

@@ -157,20 +157,20 @@ function CheckupCard({ view, onRun }: { view: PasswordCheckupView | null; onRun:
   );
 }
 
-function lastBackupText(at: number): string {
+/** When the last backup was made ("" while it is loading). */
+function lastBackupText(at: number | null | undefined): string {
+  if (at === undefined) return "";
+  if (at === null) return t("Never backed up");
   const days = daysSince(at, Date.now());
   return days === 0 ? t("Last backup: today") : days === 1 ? t("Last backup: yesterday") : t("Last backup: {n} days ago", { n: days });
 }
 
-/** "Back up now", with when the last backup was made under it. */
+/** "Back up now", with when the last backup was made as its tooltip (the header's buttons stay one row). */
 function BackupButton({ lastBackupAt, onClick }: { lastBackupAt: number | null | undefined; onClick: () => void }) {
   return (
-    <div className="pw-backup">
-      <button className="btn" onClick={onClick}>
-        <IconDownload size={14} /> {t("Back up now")}
-      </button>
-      {lastBackupAt !== undefined && <span className="pw-backup-when">{lastBackupAt === null ? t("Never backed up") : lastBackupText(lastBackupAt)}</span>}
-    </div>
+    <button className="btn" title={lastBackupText(lastBackupAt) || undefined} onClick={onClick}>
+      <IconDownload size={14} /> {t("Back up now")}
+    </button>
   );
 }
 
@@ -548,6 +548,7 @@ function PasswordsPage() {
         <div className="card pw-backup-card" id="backup">
           <div className="card-head">
             <h2>{t("Back up your passwords and 2FA codes")}</h2>
+            {lastBackupAt !== undefined && <p className="pw-backup-when">{lastBackupText(lastBackupAt)}</p>}
             <p className="muted">{t("Corvus writes every saved login, with its 2FA, to a new KeePass file (.kdbx) protected by a master password you choose, and never overwrites a file. Keep it somewhere other than this computer, such as a USB drive or a cloud folder: KeePassXC, KeePass and Corvus can open it.")}</p>
           </div>
           <div className="card-body padded">

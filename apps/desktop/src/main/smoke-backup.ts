@@ -30,6 +30,66 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 10_000)
 
 const js = <T>(wc: WebContents, expr: string): Promise<T | null> => (wc.isDestroyed() ? Promise.resolve(null) : (wc.executeJavaScript(expr, true) as Promise<T>).catch(() => null));
 
+interface HeaderAudit {
+  /** Every button of the header shares the height and, row by row, the top of the others. */
+  aligned: boolean;
+  /** Something is shown under Back up now. */
+  caption: boolean;
+  /** Back up now's tooltip. */
+  title: string;
+  boxes: Array<{ label: string; top: number; height: number }>;
+}
+
+/** The Passwords page header's buttons, as laid out now. */
+const HEADER_AUDIT = `(() => {
+  const buttons = [...document.querySelectorAll(".page-toolbar .btn")].filter((b) => b.getBoundingClientRect().width > 0);
+  const boxes = buttons.map((b) => { const r = b.getBoundingClientRect(); return { label: b.textContent.trim(), top: Math.round(r.top), height: Math.round(r.height) }; });
+  const sameHeight = boxes.every((b) => Math.abs(b.height - boxes[0].height) <= 1);
+  const rowsAligned = boxes.every((a) => boxes.every((b) => Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) > a.height || Math.abs(a.top - b.top) <= 1));
+  const backup = buttons.find((b) => /Back up now|Hacer copia ahora/.test(b.textContent));
+  const loose = [...document.querySelectorAll(".page-toolbar *")].some((el) => !el.closest(".btn") && !el.matches("input") && el.children.length === 0 && el.textContent.trim() && el.getBoundingClientRect().width > 0);
+  return { aligned: buttons.length >= 3 && sameHeight && rowsAligned, caption: loose, title: backup ? backup.title : "", boxes };
+})()`;
+
+/**
+ * The Passwords page header: Back up now, Import from Google Authenticator and Add in one row of
+ * buttons of the same height, nothing under Back up now, and when the last backup was in its tooltip.
+ * English and Spanish, wide and 480 px wide, light and dark.
+ */
+async function headerSmoke(ctx: AppContext, win: BrowserWindowCtl, wc: WebContents, { check, capture }: Omit<Helpers, "win">): Promise<void> {
+  const tab = win.activeTab();
+  if (!tab || tab.view.webContents !== wc) return;
+  const bounds = tab.view.getBounds();
+  const audits: Record<string, HeaderAudit | null> = {};
+  try {
+    for (const language of ["en", "es"] as const) {
+      ctx.settings.update({ appearance: { language } });
+      wc.reload();
+      await until(() => js<boolean>(wc, `document.querySelectorAll(".page-toolbar .btn").length >= 3`).then(Boolean));
+      await sleep(600);
+      for (const width of ["wide", "480"] as const) {
+        if (width === "480") tab.view.setBounds({ ...bounds, width: 480 });
+        await sleep(500);
+        audits[`${language}-${width}`] = await js<HeaderAudit>(wc, HEADER_AUDIT);
+        for (const theme of ["light", "dark"] as const) {
+          nativeTheme.themeSource = theme;
+          await sleep(400);
+          await capture(`passwords-header-${language}-${width}-${theme}`, wc);
+        }
+        tab.view.setBounds(bounds);
+      }
+    }
+  } finally {
+    nativeTheme.themeSource = "system";
+    tab.view.setBounds(bounds);
+    ctx.settings.update({ appearance: { language: "en" } });
+    wc.reload();
+  }
+  const titles = { en: "Last backup: today", es: "Última copia: hoy" };
+  const good = Object.entries(audits).every(([key, a]) => a !== null && a.aligned && !a.caption && a.title === titles[key.slice(0, 2) as "en" | "es"]);
+  check("Passwords header: the buttons line up, nothing under Back up now, the last backup is its tooltip (EN/ES, wide/480 px)", good, audits);
+}
+
 /**
  * The backup reminder and Back up now: the bar shows when a backup is due, Later and Don't remind me
  * are kept, a big change makes it due at once, and a backup from the Passwords page (the KeePass
@@ -145,6 +205,7 @@ export async function runBackupSmoke(ctx: AppContext, { win, check, capture }: H
       { exported, entries: db?.entries.length, withTotp },
     );
     await capture("backup-done", wc);
+    await headerSmoke(ctx, win, wc, { check, capture });
     profile.backup.noteBigChange();
     profile.backup.recordBackup();
     await remind();

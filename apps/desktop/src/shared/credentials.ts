@@ -59,6 +59,8 @@ export interface CredentialMatch {
   source: CredentialSource;
   /** KeePass database name for KeePass logins. */
   sourceName?: string;
+  /** "exact": a login of the account is saved for the page's own host; "domain": only for other hosts of its domain. */
+  fit: "exact" | "domain";
 }
 
 /** Between the parts of an account's label in menus. */
@@ -66,11 +68,29 @@ export const LABEL_SEPARATOR = "  \u00b7  ";
 
 /**
  * What a menu shows next to an account's username: the site its password is saved for, its KeePass
- * database (unless the menu has a line of its own for it) and `twoFaOnly` when it has no password.
+ * database (unless the menu has a line of its own for it) and `twoFaOnly` when it has no password
+ * ("" to leave that out).
  */
 export function accountDetails(m: CredentialMatch, twoFaOnly: string, opts: { source?: boolean } = {}): string[] {
   const source = m.source === "keepass" && opts.source !== false ? [m.sourceName ? `KeePass: ${m.sourceName}` : "KeePass"] : [];
-  return [...(m.site ? [m.site] : []), ...source, ...(m.hasPassword ? [] : [twoFaOnly])];
+  return [...(m.site ? [m.site] : []), ...source, ...(m.hasPassword || !twoFaOnly ? [] : [twoFaOnly])];
+}
+
+/**
+ * The accounts a page's menus list first, and the ones they keep apart ("Other example.com
+ * accounts"): those saved for the page's own host come first, and the accounts of the domain's other
+ * hosts wait in their own section; when the page's host has none, the domain's accounts come first.
+ */
+export function splitAccounts<T extends Pick<CredentialMatch, "fit">>(matches: readonly T[]): { first: T[]; others: T[] } {
+  const first = matches.filter((m) => m.fit === "exact");
+  return first.length > 0 ? { first, others: matches.filter((m) => m.fit !== "exact") } : { first: [...matches], others: [] };
+}
+
+/** A label cut to `max` characters in the middle, so both ends of a long e-mail address stay readable. */
+export function middleEllipsis(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.ceil((max - 1) / 2);
+  return `${text.slice(0, head)}\u2026${text.slice(text.length - (max - 1 - head))}`;
 }
 
 /**

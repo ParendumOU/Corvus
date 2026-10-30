@@ -139,7 +139,7 @@ describe("KeePassStore", () => {
 
     const logins = new LoginSources(() => [kp.provider()]);
     const matches = logins.matchesFor("https://example.com/login");
-    expect(matches).toEqual([{ id: `kp:${id}:${matches[0]!.id.split(":")[2]}`, username: "alice", site: "example.com", hasPassword: true, hasTotp: true, source: "keepass", sourceName: "Personal" }]);
+    expect(matches).toEqual([{ id: `kp:${id}:${matches[0]!.id.split(":")[2]}`, username: "alice", site: "example.com", hasPassword: true, hasTotp: true, source: "keepass", sourceName: "Personal", fit: "exact" }]);
     expect(logins.matchesFor("https://www.shop.test/")[0]?.username).toBe("bob");
     expect(logins.matchesFor("https://other.test/")).toEqual([]);
     expect(logins.get(matches[0]!.id)?.password).toBe("kp-pass-1");

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { accountDetails, loginDomainOf, loginFit, type CredentialMatch } from "../src/shared/credentials";
+import { accountDetails, loginDomainOf, loginFit, middleEllipsis, splitAccounts, type CredentialMatch } from "../src/shared/credentials";
 import type { TotpConfig } from "../src/shared/totp";
 import { CredentialVault } from "../src/main/credential-store";
 import { entryFit } from "../src/main/keepass-entries";
@@ -99,7 +99,7 @@ describe("LoginSources accounts", () => {
     expect(account).toMatchObject({ id: real, username: "info@example.com" });
     expect(account!.password?.record.password).toBe("pw-real");
     expect(account!.totp?.record.id).toBe(only);
-    expect(logins.matchesFor("https://central.example.com/")).toEqual([{ id: real, username: "info@example.com", site: "central.example.com", hasPassword: true, hasTotp: true, source: "corvus" }]);
+    expect(logins.matchesFor("https://central.example.com/")).toEqual([{ id: real, username: "info@example.com", site: "central.example.com", hasPassword: true, hasTotp: true, source: "corvus", fit: "exact" }]);
     // Either login's id names the account; never on another site.
     expect(logins.accountFor(only, "https://central.example.com/")?.id).toBe(real);
     expect(logins.accountFor(real, "https://example.org/")).toBeUndefined();
@@ -110,7 +110,7 @@ describe("LoginSources accounts", () => {
     const v = vault();
     const only = add(v, "https://central.example.com", "info@example.com", "", 1, TOTP);
     expect(new LoginSources(() => [vaultProvider(v)]).matchesFor("https://central.example.com/")).toEqual([
-      { id: only, username: "info@example.com", site: "central.example.com", hasPassword: false, hasTotp: true, source: "corvus" },
+      { id: only, username: "info@example.com", site: "central.example.com", hasPassword: false, hasTotp: true, source: "corvus", fit: "exact" },
     ]);
   });
 
@@ -165,7 +165,7 @@ describe("LoginSources accounts", () => {
       { id: "kp:db:2", username: "ops", password: "kp-ops", urls: ["https://other.example.org"] },
     ]);
     const logins = new LoginSources(() => [vaultProvider(v), kp]);
-    expect(logins.matchesFor("https://central.example.com/")).toEqual([{ id: "kp:db:1", username: "INFO@example.com", site: "example.com", hasPassword: true, hasTotp: true, source: "keepass", sourceName: "Work" }]);
+    expect(logins.matchesFor("https://central.example.com/")).toEqual([{ id: "kp:db:1", username: "INFO@example.com", site: "example.com", hasPassword: true, hasTotp: true, source: "keepass", sourceName: "Work", fit: "exact" }]);
     const account = logins.accountFor(only, "https://central.example.com/")!;
     expect([account.password?.record.password, account.totp?.record.id]).toEqual(["kp-pw", only]);
   });
@@ -182,12 +182,56 @@ describe("LoginSources accounts", () => {
 });
 
 describe("accountDetails", () => {
-  const match = (extra: Partial<CredentialMatch>): CredentialMatch => ({ id: "x", username: "info@example.com", site: "central.example.com", hasPassword: true, hasTotp: false, source: "corvus", ...extra });
+  const match = (extra: Partial<CredentialMatch>): CredentialMatch => ({ id: "x", username: "info@example.com", site: "central.example.com", hasPassword: true, hasTotp: false, source: "corvus", fit: "exact", ...extra });
 
   it("shows the site, the KeePass database and 2FA only", () => {
     expect(accountDetails(match({}), "2FA only")).toEqual(["central.example.com"]);
     expect(accountDetails(match({ hasPassword: false, hasTotp: true }), "Solo 2FA")).toEqual(["central.example.com", "Solo 2FA"]);
     expect(accountDetails(match({ source: "keepass", sourceName: "Work" }), "2FA only")).toEqual(["central.example.com", "KeePass: Work"]);
     expect(accountDetails(match({ source: "keepass", sourceName: "Work" }), "2FA only", { source: false })).toEqual(["central.example.com"]);
+  });
+});
+
+describe("the page's own host first", () => {
+  it("tells accounts of the page's own host from those of the domain's other hosts", () => {
+    const v = vault();
+    const own = add(v, "https://edge.example.com", "admin", "pw-edge", 1);
+    // A 2FA saved on another host of the domain still joins the page's own account.
+    add(v, "https://example.com", "ADMIN", "", 2, TOTP);
+    const central = add(v, "https://central.example.com", "info@example.com", "", 3, TOTP2);
+    const home = add(v, "https://home.example.com", "home", "pw-home", 4);
+    const matches = new LoginSources(() => [vaultProvider(v)]).matchesFor("https://edge.example.com/login");
+    expect(matches.map((m) => [m.id, m.fit, m.hasTotp])).toEqual([
+      [own, "exact", true],
+      [home, "domain", false],
+      [central, "domain", true],
+    ]);
+    const { first, others } = splitAccounts(matches);
+    expect(first.map((m) => m.id)).toEqual([own]);
+    expect(others.map((m) => m.id)).toEqual([home, central]);
+  });
+
+  it("lists the domain's accounts first when the page's own host has none", () => {
+    const domainOnly = [{ id: "a", fit: "domain" as const }, { id: "b", fit: "domain" as const }];
+    expect(splitAccounts(domainOnly)).toEqual({ first: domainOnly, others: [] });
+    expect(splitAccounts([])).toEqual({ first: [], others: [] });
+  });
+});
+
+describe("menu labels", () => {
+  const match = (extra: Partial<CredentialMatch>): CredentialMatch => ({ id: "x", username: "info@example.com", site: "central.example.com", hasPassword: false, hasTotp: true, source: "corvus", fit: "exact", ...extra });
+
+  it("leaves 2FA only out when the menu is about the code", () => {
+    expect(accountDetails(match({}), "")).toEqual(["central.example.com"]);
+  });
+
+  it("cuts long labels in the middle, keeping both ends", () => {
+    const long = "x7q2k9m4zr8vt3wn5bpl-generated-account@example.com";
+    const cut = middleEllipsis(long, 32);
+    expect(cut).toHaveLength(32);
+    expect(cut.startsWith("x7q2k9m4zr8vt3wn")).toBe(true);
+    expect(cut.endsWith("unt@example.com")).toBe(true);
+    expect(cut).toContain("\u2026");
+    expect(middleEllipsis("short@example.com", 32)).toBe("short@example.com");
   });
 });

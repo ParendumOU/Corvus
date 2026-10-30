@@ -74,7 +74,8 @@ installUserAgents();
 // and a stand-in YouTube watch page (video features key on youtube.com).
 if (process.env.CORVUS_SMOKE_TEST === "1") {
   // corvus-smoke.dev is HSTS-preloaded (all of .dev is), for the certificate error checks.
-  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP corvus-smoke.dev 127.0.0.1, MAP www.youtube.com 127.0.0.1");
+  // Hosts under corvus-smoke.test stand in for the subdomains of one site (logins shared across them).
+  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP *.corvus-smoke.test 127.0.0.1, MAP corvus-smoke.dev 127.0.0.1, MAP www.youtube.com 127.0.0.1");
   // Dictation records from a fake microphone (a beep) instead of the machine's.
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
 }

@@ -113,11 +113,23 @@ export interface SaveEdit {
   password: string;
 }
 
+/** The current 2FA code of one of the page's accounts (by its id), for the key panel. */
+export interface AutofillCode {
+  id: string;
+  code: string;
+  /** Epoch milliseconds at which the next code takes over. */
+  expiresAt: number;
+}
+
 export interface AutofillChromeRpc {
   "autofill.suggestions"(): CredentialMatch[];
   "autofill.fill"(id: string): void;
   /** Fills the current 2FA code of a login into the page's one-time-code field (user click only). */
   "autofill.fillTotp"(id: string): void;
+  /** Current codes of the page's accounts with a 2FA, only while the page has a one-time-code field. */
+  "autofill.codes"(): AutofillCode[];
+  /** Copies the current 2FA code of a page's account to the clipboard (user click only). */
+  "autofill.copyTotp"(id: string): void;
   /** The active tab's pending save, with its password, for the prompt opening now; the prompt counts as shown. */
   "autofill.savePending"(): PendingSaveView | null;
   "autofill.saveAccept"(edit: SaveEdit): void;
@@ -129,12 +141,17 @@ export interface AutofillChromeRpc {
 export const AUTOFILL_CAPTURE_CHANNEL = "corvus:autofill-captured";
 
 /**
- * One-way channel: the tab preload reports a click in a login field (its box in CSS pixels of the
- * page's viewport, nothing else) so the main process can list the saved logins under it.
+ * One-way channel: the tab preload reports a click in a login field or a one-time-code field (which
+ * kind, and its box in CSS pixels of the page's viewport, nothing else) so the main process can list
+ * the saved accounts under it.
  */
 export const AUTOFILL_FIELD_CHANNEL = "corvus:autofill-field";
 
-export interface LoginFieldBox {
+/** A username or password field ("login"), or a field for a 2FA code ("otp"). */
+export type AutofillFieldKind = "login" | "otp";
+
+export interface FieldClick {
+  kind: AutofillFieldKind;
   x: number;
   y: number;
   width: number;

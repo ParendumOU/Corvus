@@ -1,7 +1,8 @@
 import { Menu, app, clipboard, nativeImage, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { BAR_FOLDER_ID, childrenOf, folderUrls } from "../shared/bookmark-tree";
-import { accountDetails, LABEL_SEPARATOR, type CredentialMatch } from "../shared/credentials";
+import { accountDetails, LABEL_SEPARATOR, middleEllipsis, splitAccounts, type CredentialMatch } from "../shared/credentials";
+import type { AutofillFieldKind } from "../shared/credentials-ipc";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
@@ -380,22 +381,31 @@ export function showBookmarkMenu(ctx: AppContext, win: BrowserWindowCtl, bookmar
   );
 }
 
+/** Longest username or site a field menu shows in full (native menus do not cut labels themselves). */
+const MENU_LABEL_MAX = 40;
+
 /**
- * The saved accounts of a page, for the menu under the login field the person clicked; picking one
- * fills it. Each shows the username, the site its password is saved for, its KeePass database (a
- * sublabel on macOS, the only system that shows one) and "2FA only" when it has no password.
+ * The saved accounts of a page, for the menu under the field the person clicked; picking one fills
+ * it. Under a login field each shows the username, the site its password is saved for, its KeePass
+ * database (a sublabel on macOS, the only system that shows one) and "2FA only" when it has no
+ * password; under a one-time-code field, "2FA code for" the username, and the site. The accounts of
+ * the page's own host come first, those of the domain's other hosts in a submenu (see splitAccounts).
  */
-export function loginFieldMenuItems(ctx: AppContext, win: BrowserWindowCtl, matches: CredentialMatch[]): MenuItemConstructorOptions[] {
+export function fieldMenuItems(ctx: AppContext, win: BrowserWindowCtl, matches: CredentialMatch[], kind: AutofillFieldKind, domain: string): MenuItemConstructorOptions[] {
   const mac = process.platform === "darwin";
+  const item = (m: CredentialMatch): MenuItemConstructorOptions => {
+    const user = middleEllipsis(m.username || tr("(no username)"), MENU_LABEL_MAX);
+    const details = accountDetails(m, kind === "otp" ? "" : tr("2FA only"), { source: !mac }).map((d) => middleEllipsis(d, MENU_LABEL_MAX));
+    return {
+      label: [kind === "otp" ? `${tr("2FA code for")} ${user}` : user, ...details].join(LABEL_SEPARATOR),
+      ...(mac && m.source === "keepass" ? { sublabel: m.sourceName || "KeePass" } : {}),
+      click: () => void (kind === "otp" ? ctx.autofill.fillTotp(win, m.id) : ctx.autofill.fill(win, m.id)),
+    };
+  };
+  const { first, others } = splitAccounts(matches);
   return [
-    ...matches.map((m): MenuItemConstructorOptions => {
-      const label = [m.username || tr("(no username)"), ...accountDetails(m, tr("2FA only"), { source: !mac })].join(LABEL_SEPARATOR);
-      return {
-        label,
-        ...(mac && m.source === "keepass" ? { sublabel: m.sourceName || "KeePass" } : {}),
-        click: () => void ctx.autofill.fill(win, m.id),
-      };
-    }),
+    ...first.map(item),
+    ...(others.length > 0 ? [{ label: tr("Other {domain} accounts", { domain }), submenu: others.map(item) }] : []),
     { type: "separator" },
     { label: tr("Manage passwords…"), click: () => win.openSingleton("corvus://passwords/") },
   ];

@@ -134,6 +134,7 @@ export function toMatch(account: LoginAccount): CredentialMatch {
     hasTotp: Boolean(account.totp),
     source: r.source,
     ...(r.sourceName ? { sourceName: r.sourceName } : {}),
+    fit: account.entries.some((e) => e.fit === "exact") ? "exact" : "domain",
   };
 }
 

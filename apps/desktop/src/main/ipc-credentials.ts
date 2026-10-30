@@ -8,7 +8,7 @@ import {
   AUTOFILL_FIELD_CHANNEL,
   type AutofillChromeRpc,
   type CapturedSubmit,
-  type LoginFieldBox,
+  type FieldClick,
   type SaveEdit,
   type CredentialsRpc,
   type TotpQrImport,
@@ -254,6 +254,8 @@ export function autofillChromeHandlers(ctx: AppContext): ChromeHandlers<Autofill
     "autofill.suggestions": (w) => ctx.autofill.suggestions(w),
     "autofill.fill": (w, id) => ctx.autofill.fill(w, str(id, "id", 128)),
     "autofill.fillTotp": (w, id) => ctx.autofill.fillTotp(w, str(id, "id", 128)),
+    "autofill.codes": (w) => ctx.autofill.codes(w),
+    "autofill.copyTotp": (w, id) => ctx.autofill.copyTotp(w, str(id, "id", 128)),
     "autofill.savePending": (w) => ctx.autofill.pendingSave(w),
     "autofill.saveAccept": (w, edit) => ctx.autofill.acceptSave(w, saveEdit(edit)),
     "autofill.saveDismiss": (w, id) => ctx.autofill.dismissSave(w, saveId(id)),
@@ -280,19 +282,19 @@ export function registerAutofillCapture(ctx: AppContext): void {
   ipcMain.on(AUTOFILL_FIELD_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byTabWebContents(event.sender);
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
-    const box = parseFieldBox(raw);
-    if (box) ctx.autofill.onLoginFieldClicked(found.window, found.tab, box);
+    const click = parseFieldClick(raw);
+    if (click) void ctx.autofill.onFieldClicked(found.window, found.tab, click);
   });
 }
 
 const MAX_COORD = 100_000;
 
-function parseFieldBox(raw: unknown): LoginFieldBox | null {
+function parseFieldClick(raw: unknown): FieldClick | null {
   if (typeof raw !== "object" || raw === null) return null;
   const v = raw as Record<string, unknown>;
   const num = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= MAX_COORD;
-  if (!num(v.x) || !num(v.y) || !num(v.width) || !num(v.height)) return null;
-  return { x: v.x, y: v.y, width: v.width, height: v.height };
+  if ((v.kind !== "login" && v.kind !== "otp") || !num(v.x) || !num(v.y) || !num(v.width) || !num(v.height)) return null;
+  return { kind: v.kind, x: v.x, y: v.y, width: v.width, height: v.height };
 }
 
 // ------------------------------------------------------------------------- KeePass

@@ -2,12 +2,14 @@
  * Isolated-world scripts for autofill. They run in their own world (shared DOM, separate JS globals)
  * so page scripts cannot read Corvus' logic or the values it writes before the page does. Kept as
  * plain strings so the bundler cannot rewrite them. They share one login-form finder and one
- * one-time-code field finder.
+ * one-time-code field finder, whose field test is the source of shared/otp-field.ts's self-contained
+ * functions (the tab preload runs the same functions to tell which kind of field was clicked).
  *
  * Secret values (passwords, 2FA codes) are embedded in the script text only for the fill call itself
  * and are never logged. Fields Corvus fills with a secret are marked `data-corvus-secret` so the
  * agent's page snapshot never reports their value; agent fills also mask them on screen.
  */
+import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 
 /** Separate from the agent (1717), reader (1721) and assist worlds. */
 export const AUTOFILL_WORLD_ID = 1723;
@@ -76,27 +78,17 @@ const FIND_LOGIN = `
 `;
 
 /**
- * One-time-code fields: autocomplete="one-time-code", or a text/number/tel input whose name, id,
- * placeholder, aria-label or label reads like a 2FA code (card and other codes excluded), or a row
- * of 6 to 8 single-character boxes. Returns the input(s) to fill, in order, or null.
+ * One-time-code fields, as shared/otp-field.ts decides (its functions' source is embedded here), or a
+ * row of 6 to 8 single-character boxes. Returns the input(s) to fill, in order, or null.
  */
 const FIND_OTP = `
-  const OTP_HINT = /(one[-_ ]?time|\\botp\\b|totp|2fa|\\bmfa\\b|two[-_ ]?(factor|step)|verification[-_ ]?code|verify[-_ ]?code|auth(entication|enticator)?[-_ ]?code|security[-_ ]?code|login[-_ ]?code|sign[-_ ]?in[-_ ]?code|passcode)/i;
-  const NOT_OTP = /(card|cvv|cvc|csc|credit|zip|postal|promo|coupon|voucher|gift|captcha|phone|e-?mail|user|search|referral|invite)/i;
-  const hintOf = (el) => [el.name, el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"), el.labels && el.labels[0] ? el.labels[0].innerText : ""].join(" ");
+  const otpFieldFacts = ${String(otpFieldFacts)};
+  const isOtpFacts = ${String(isOtpFacts)};
   const autoOtp = (el) => (el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/).includes("one-time-code");
   const typeOf = (el) => (el.getAttribute("type") || "text").toLowerCase();
   const otpCapable = (el) => el.tagName === "INPUT" && ["text", "tel", "number", "password"].includes(typeOf(el));
-  const isOtpField = (el) => {
-    if (!otpCapable(el)) return false;
-    if (autoOtp(el)) return true;
-    if (typeOf(el) === "password") return false;
-    const hint = hintOf(el);
-    if (NOT_OTP.test(hint)) return false;
-    if (OTP_HINT.test(hint)) return true;
-    const numeric = (el.getAttribute("inputmode") || "").toLowerCase() === "numeric" || typeOf(el) === "number";
-    return numeric && el.maxLength >= 6 && el.maxLength <= 8 && /code/i.test(hint);
-  };
+  // A password field is a code field only when marked so: no need to read its facts.
+  const isOtpField = (el) => otpCapable(el) && (typeOf(el) !== "password" || autoOtp(el)) && isOtpFacts(otpFieldFacts(el));
   const usableInput = (el) => el && otpCapable(el) && !el.disabled && !el.readOnly && isVisible(el);
   const commonAncestor = (els, depth) => {
     let node = els[0].parentElement;
@@ -164,17 +156,21 @@ export function detectLoginScript(): string {
 /**
  * Fills the detected username and password through the native setters, firing input/change events.
  * An empty password (a login that holds only a 2FA) leaves the password field as it is. With `submit`
- * (auto sign-in, after the person confirmed), also submits the login form.
+ * (auto sign-in, after the person confirmed), also submits the login form; with `keepTyped`, fields
+ * that already hold something are left alone.
  */
-export function fillLoginScript(username: string, password: string, submit = false): string {
+export function fillLoginScript(username: string, password: string, opts: { submit?: boolean; keepTyped?: boolean } = {}): string {
   return `(() => {${PRELUDE}
   const login = findLogin();
   if (!login || !login.pass) return false;
-  if (login.user && ${JSON.stringify(username)}) setValue(login.user, ${JSON.stringify(username)});
+  const free = (el) => !${opts.keepTyped ? "true" : "false"} || !el.value;
+  if (login.user && ${JSON.stringify(username)} && free(login.user)) setValue(login.user, ${JSON.stringify(username)});
   if (!${JSON.stringify(password)}) return Boolean(login.user);
-  setValue(login.pass, ${JSON.stringify(password)});
-  markSecret(login.pass, false);
-  if (${submit ? "true" : "false"}) {
+  if (free(login.pass)) {
+    setValue(login.pass, ${JSON.stringify(password)});
+    markSecret(login.pass, false);
+  }
+  if (${opts.submit ? "true" : "false"}) {
     const form = login.pass.form;
     const button = (form || document).querySelector("button[type=submit], input[type=submit], button:not([type])");
     if (form && typeof form.requestSubmit === "function") form.requestSubmit(button && button.form === form ? button : undefined);
@@ -185,7 +181,7 @@ export function fillLoginScript(username: string, password: string, submit = fal
 })()`;
 }
 
-/** Fills the page's one-time-code field (user click from the omnibox). Returns the fields written. */
+/** Fills the page's one-time-code field (the person's pick). Returns the fields written. */
 export function fillOtpScript(code: string): string {
   return `(() => {${PRELUDE}
   const fields = findOtp();

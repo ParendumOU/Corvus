@@ -113,6 +113,8 @@ export const ES_UI: Record<string, string> = {
   "1 tab": "1 pestaña",
   "2FA (optional)": "2FA (opcional)",
   "2FA code for": "Código 2FA de",
+  "2FA code": "Código 2FA",
+  "Other {domain} accounts": "Otras cuentas de {domain}",
   "2xx": "2xx",
   "3xx": "3xx",
   "4xx": "4xx",

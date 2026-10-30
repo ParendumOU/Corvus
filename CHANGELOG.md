@@ -8,6 +8,18 @@
 - Android: tapping a link to such a site did nothing (the page stayed as it was, with no word of why); it now shows that page too.
 - Android: a page that failed to open (an invalid certificate, no connection, an unknown address) is no longer added to your history, on the phone and on your synced computers.
 
+## v0.32.4
+
+### Browser
+- **Picking your account fills the 2FA code too.** On a sign-in page that asks for username, password and a verification code in one form, choosing the account (in the menu under a field or in the list behind the padlock in the address bar) fills all three at once when the account has a 2FA. If the current code has less than 3 seconds left, Corvus fills the next one the moment it starts.
+- **Clicking a verification code field opens its own menu**: "2FA code for" each account of the site that has a 2FA. Picking one fills the code, and the username and password too when those fields are still empty (what you typed stays).
+- On two-step sign-ins, where the code is asked on a page after the password, clicking the code field offers the site's account with a 2FA, even when the field shows up after the page loaded. Nothing is filled until you pick it.
+- **Corvus recognizes more verification code fields**: fields whose label is not tied to the field, with a "1 2 3 4 5 6" or "123 456" placeholder, help text about an authenticator app, or a Spanish label such as "Código de verificación". Before, on such a page Corvus did not offer the 2FA code at all.
+- **Accounts saved for the page's own address come first.** Accounts of the site's other addresses (other subdomains) wait in a folded "Other example.com accounts" section in the list behind the padlock, and in a submenu under a field; when the page's address has no account of its own, they are listed directly. A password and a 2FA of the same user saved on different addresses are still one account.
+- **The list behind the padlock in the address bar was redesigned**: a fixed width that never runs past the window, one row per account with the username in bold over its site (cut short with "..." when long, the full text when you point at it), and for an account with a 2FA a **Fill 2FA code** button that shows the current code when the page has a code field (it copies the code otherwise).
+- Very long usernames and sites are cut in the middle in the menu under a field, so the menu stays readable.
+- **The Passwords page header lines up**: "Back up now" has no caption under it any more and sits level with "Import from Google Authenticator" and "Add". When the last backup was is now its tooltip, and the backup form says it too.
+
 ## v0.32.3
 
 ### Browser
