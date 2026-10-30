@@ -4,6 +4,11 @@ import { isFaviconUrl } from "./favicon";
 
 export interface HistoryRecord extends HistoryEntry {
   faviconUrl?: string;
+  /**
+   * The browser a page is only known from ("chrome", "firefox"), read live from its history: such
+   * an entry stays on this computer (sync leaves it out) until Corvus itself visits the page.
+   */
+  source?: string;
 }
 
 export const MAX_HISTORY_ENTRIES = 20_000;
@@ -17,11 +22,13 @@ export function recordVisit(
 ): HistoryRecord[] {
   const existing = list.find((e) => e.url === visit.url);
   if (existing) {
+    // A page known only from another browser becomes Corvus's own, without that browser's visits.
+    const { source, ...own } = existing;
     const updated: HistoryRecord = {
-      ...existing,
+      ...own,
       title: visit.title || existing.title,
       visitedAt: now,
-      visitCount: existing.visitCount + 1,
+      visitCount: source ? 1 : existing.visitCount + 1,
     };
     return [updated, ...list.filter((e) => e.id !== existing.id)];
   }
@@ -77,9 +84,12 @@ export function faviconsFromHistory(list: readonly HistoryRecord[], urls: readon
   return out;
 }
 
-/** Keep the `max` most recently visited entries. */
+/**
+ * Keep the `max` most recently visited entries. Pages known only from another browser go first, so
+ * they never push Corvus's own (and synced) history out.
+ */
 export function prune(list: HistoryRecord[], max: number): HistoryRecord[] {
-  return [...list].sort((a, b) => b.visitedAt - a.visitedAt).slice(0, max);
+  return [...list].sort((a, b) => Number(Boolean(a.source)) - Number(Boolean(b.source)) || b.visitedAt - a.visitedAt).slice(0, max);
 }
 
 function matches(entry: HistoryRecord, terms: string[]): boolean {
@@ -194,7 +204,9 @@ export function applySyncedHistory(
       changed = byUrl.delete(url) || changed;
       continue;
     }
-    const current = existing ? toSyncedHistory(existing) : null;
+    // A page known only from another browser takes the synced version as it is: nothing of that
+    // browser's visits is merged into what syncs.
+    const current = existing && !existing.source ? toSyncedHistory(existing) : null;
     const merged = current ? mergeHistory(current, entry) : entry;
     if (current && sameEntry(merged, current)) continue;
     byUrl.set(url, { id: existing?.id ?? newId(), ...merged, url });
@@ -203,6 +215,54 @@ export function applySyncedHistory(
   if (!changed) return list;
   const next = [...byUrl.values()];
   return next.length > max ? prune(next, max) : next;
+}
+
+/**
+ * Adds pages read live from another browser's history, marked with `source`. A page Corvus already
+ * has as its own is left as it is (it is suggested already, and its synced visits stay Corvus's); a
+ * page known only from other browsers takes the later visit and the larger count, so reading the
+ * same visits again changes nothing. Returns `list` itself when nothing changed.
+ */
+export function applyLiveHistory(
+  list: HistoryRecord[],
+  source: string,
+  entries: readonly SyncedHistoryEntry[],
+  newId: () => string,
+  max = MAX_HISTORY_ENTRIES,
+): { list: HistoryRecord[]; added: number } {
+  const byUrl = new Map(list.map((e) => [e.url, e]));
+  let added = 0;
+  let changed = false;
+  for (const entry of entries) {
+    const existing = byUrl.get(entry.url);
+    if (existing && !existing.source) continue;
+    if (!existing) {
+      byUrl.set(entry.url, { id: newId(), url: entry.url, title: entry.title, visitedAt: entry.visitedAt, visitCount: entry.visitCount, source });
+      added++;
+      changed = true;
+      continue;
+    }
+    const later = entry.visitedAt >= existing.visitedAt;
+    const next: HistoryRecord = {
+      ...existing,
+      title: later && entry.title ? entry.title : existing.title,
+      visitedAt: Math.max(existing.visitedAt, entry.visitedAt),
+      visitCount: Math.max(existing.visitCount, entry.visitCount),
+    };
+    if (next.title === existing.title && next.visitedAt === existing.visitedAt && next.visitCount === existing.visitCount) continue;
+    byUrl.set(entry.url, next);
+    changed = true;
+  }
+  if (!changed) return { list, added: 0 };
+  const next = [...byUrl.values()];
+  return { list: next.length > max ? prune(next, max) : next, added };
+}
+
+/** How many pages each browser brought live (entries Corvus has not visited itself). */
+export function liveSourceCounts(list: readonly HistoryRecord[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const e of list) if (e.source) counts[e.source] = (counts[e.source] ?? 0) + 1;
+  return counts;
 }
 
 /** Most visited sites for the new tab page, one per host. */

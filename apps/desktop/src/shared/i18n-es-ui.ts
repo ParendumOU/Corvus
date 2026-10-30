@@ -548,6 +548,7 @@ export const ES_UI: Record<string, string> = {
   "Forward (Alt+Right)": "Adelante (Alt+Derecha)",
   "Forward edited": "Reenviar editada",
   "from": "desde",
+  "From {browser}": "De {browser}",
   "From agent run": "De una ejecución del agente",
   "From agent runs": "De ejecuciones del agente",
   "From cache, no tokens used": "Desde la caché, sin gastar tokens",
@@ -1754,4 +1755,25 @@ export const ES_UI: Record<string, string> = {
   "You chose to go on to this site despite its certificate, for this session.": "Elegiste entrar en este sitio a pesar de su certificado, para esta sesión.",
   "Turn on warnings again": "Volver a activar las advertencias",
   "Continued past an invalid certificate for {host} ({code})": "Continuó pese a un certificado no válido en {host} ({code})",
+  // Links that open another app (main/external-apps.ts).
+  "This page": "Esta página",
+  "Open {app}?": "¿Abrir {app}?",
+  "Open this {scheme}: link?": "¿Abrir este enlace {scheme}:?",
+  "{site} wants to open this application.": "{site} quiere abrir esta aplicación.",
+  "An AI agent is driving this tab. Corvus opens apps only when you say so.": "Un agente de IA controla esta pestaña. Corvus solo abre aplicaciones cuando tú lo dices.",
+  "Always allow {site} to open links of this type in the associated app": "Permitir siempre que {site} abra este tipo de enlaces en la aplicación asociada",
+  "Open {app}": "Abrir {app}",
+  "Open link": "Abrir enlace",
+  "App blocked": "Aplicación bloqueada",
+  "Corvus stopped {site} from opening an app by itself": "Corvus impidió que {site} abriera una aplicación por su cuenta",
+  "Pages can open an app only right after you click or type in them. Open it now if you expected it.":
+    "Las páginas solo pueden abrir una aplicación justo después de que hagas clic o escribas en ellas. Ábrela ahora si la esperabas.",
+  // Sites that ask for a username and password (main/http-auth.ts).
+  "The site says: {realm}": "El sitio dice: {realm}",
+  "Your connection to this site is not private: the username and password are sent unencrypted.": "Tu conexión con este sitio no es privada: el usuario y la contraseña se envían sin cifrar.",
+  "{host} asks for a username and password": "{host} pide un usuario y una contraseña",
+  "This site asks for a username and password": "Este sitio pide un usuario y una contraseña",
+  "An AI agent is driving this tab. Agents cannot sign in here: you do.": "Un agente de IA controla esta pestaña. Los agentes no pueden iniciar sesión aquí: lo haces tú.",
+  "Sign in…": "Iniciar sesión…",
+  "Saved in Corvus": "Guardado en Corvus",
 };

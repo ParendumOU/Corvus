@@ -1,0 +1,50 @@
+/* Live history from other browsers (Settings, next to Import) */
+.live-sources {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 20px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.live-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.live-source + .live-source {
+  border-top: 1px solid var(--border-soft, var(--border));
+}
+.live-source.off {
+  opacity: 0.6;
+  cursor: default;
+}
+.live-source .grow {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.live-source-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.live-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-status.bad {
+  color: var(--danger);
+}
+.live-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-privacy {
+  margin: 4px 20px 14px;
+}

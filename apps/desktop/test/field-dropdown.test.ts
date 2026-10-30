@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CredentialMatch } from "../src/shared/credentials";
-import { dropdownEntries, dropdownLabel, dropdownLines, dropdownTwoFaOnly, moveHighlight, parseDropdownAction } from "../src/shared/field-dropdown";
+import { DROPDOWN_GAP, dropdownAccounts, dropdownBounds, dropdownEntries, dropdownLabel, dropdownLines, dropdownMayOpen, dropdownStays, dropdownTwoFaOnly, moveHighlight, parseDropdownAction } from "../src/shared/field-dropdown";
 import { translate } from "../src/shared/i18n-es";
 
 const match = (id: string, extra: Partial<CredentialMatch> = {}): CredentialMatch => ({ id, username: `${id}@example.com`, site: "central.example.com", hasPassword: true, hasTotp: false, source: "corvus", fit: "exact", ...extra });
@@ -47,6 +47,66 @@ describe("the field dropdown's rows", () => {
     expect(user).toHaveLength(40);
     expect(user.startsWith("x7q2k9m4zr8vt3wn5bpl")).toBe(true);
     expect(user.endsWith("account@example.com")).toBe(true);
+  });
+});
+
+describe("where the field dropdown goes", () => {
+  // The page's area in the window (under the toolbar), and a 360 x 150 dropdown.
+  const area = { x: 0, y: 112, width: 1280, height: 700 };
+  const size = { width: 360, height: 150 };
+  const field = (x: number, y: number) => ({ x, y, width: 300, height: 30 });
+
+  it("goes right under the field, its left edge on the field's", () => {
+    expect(dropdownBounds(field(100, 200), size, area)).toEqual({ x: 100, y: 230 + DROPDOWN_GAP, width: 360, height: 150 });
+  });
+
+  it("stays inside the page's area: moved left at its right edge, never left of it (a sidebar of vertical tabs)", () => {
+    expect(dropdownBounds(field(1100, 200), size, area).x).toBe(1280 - 360);
+    expect(dropdownBounds(field(150, 200), size, { ...area, x: 240, width: 1040 }).x).toBe(240);
+  });
+
+  it("goes over the field when there is no room below and there is above", () => {
+    expect(dropdownBounds(field(100, 700), size, area)).toEqual({ x: 100, y: 700 - 150 - DROPDOWN_GAP, width: 360, height: 150 });
+  });
+
+  it("stays under the field, cut to the page's area, when there is room neither below nor above", () => {
+    expect(dropdownBounds(field(100, 200), { width: 360, height: 900 }, area)).toEqual({ x: 100, y: 232, width: 360, height: 812 - 232 });
+  });
+
+  it("is never wider than the page's area", () => {
+    expect(dropdownBounds(field(0, 200), size, { ...area, width: 300 })).toMatchObject({ x: 0, width: 300 });
+  });
+});
+
+describe("when the field dropdown closes", () => {
+  const bounds = { x: 0, y: 112, width: 1280, height: 700 };
+
+  it("stays only while its page is the active tab's, shown, where it was when it opened", () => {
+    expect(dropdownStays({ active: true, visible: true, bounds: { ...bounds } }, bounds)).toBe(true);
+    // Another tab (a click on the strip, an agent), the page hidden, or moved: a split view, the sidebar, the Assist panel.
+    expect(dropdownStays({ active: false, visible: true, bounds }, bounds)).toBe(false);
+    expect(dropdownStays({ active: true, visible: false, bounds }, bounds)).toBe(false);
+    expect(dropdownStays({ active: true, visible: true, bounds: { ...bounds, width: 640 } }, bounds)).toBe(false);
+    expect(dropdownStays({ active: true, visible: true, bounds: { ...bounds, x: 240, width: 1040 } }, bounds)).toBe(false);
+    expect(dropdownStays({ active: true, visible: true, bounds: { ...bounds, y: 140, height: 672 } }, bounds)).toBe(false);
+  });
+});
+
+describe("which accounts the field dropdown offers", () => {
+  const password = match("pw");
+  const twoFa = match("totp", { hasTotp: true });
+
+  it("lists all of the page's accounts under a login field, those with a 2FA under a code field", () => {
+    expect(dropdownAccounts("login", [password, twoFa])).toEqual([password, twoFa]);
+    expect(dropdownAccounts("otp", [password, twoFa])).toEqual([twoFa]);
+  });
+
+  it("can open (its view is loaded ahead) only on a page with such a field and accounts for it", () => {
+    expect(dropdownMayOpen({ login: true, otp: false }, [password])).toBe(true);
+    expect(dropdownMayOpen({ login: false, otp: true }, [twoFa])).toBe(true);
+    expect(dropdownMayOpen({ login: false, otp: true }, [password])).toBe(false);
+    expect(dropdownMayOpen({ login: true, otp: true }, [])).toBe(false);
+    expect(dropdownMayOpen({ login: false, otp: false }, [password, twoFa])).toBe(false);
   });
 });
 

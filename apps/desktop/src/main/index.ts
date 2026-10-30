@@ -18,6 +18,8 @@ import { AgentCredentialService } from "./agent-credentials";
 import { SpendApprovalService } from "./spend-approvals";
 import { UserActionService } from "./user-actions";
 import { CertErrorService } from "./cert-errors";
+import { ExternalAppService } from "./external-apps";
+import { HttpAuthService } from "./http-auth";
 import { Controller } from "./controller";
 import { KeePassService } from "./keepass-service";
 import { PasswordCheckupService } from "./password-checkup";
@@ -28,6 +30,7 @@ import { DefaultBrowser } from "./default-browser";
 import { DownloadManager } from "./downloads";
 import { DownloadQueue } from "./download-queue";
 import { BrowserImport } from "./browser-import";
+import { LiveHistoryService } from "./live-history";
 import { LinkGrabber } from "./link-grabber";
 import { ExtensionWindowBridge } from "./extension-windows";
 import { registerIpc } from "./ipc";
@@ -76,6 +79,9 @@ if (process.env.CORVUS_SMOKE_TEST === "1") {
   // corvus-smoke.dev is HSTS-preloaded (all of .dev is), for the certificate error checks.
   // Hosts under corvus-smoke.test stand in for the subdomains of one site (logins shared across them).
   app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP *.corvus-smoke.test 127.0.0.1, MAP corvus-smoke.dev 127.0.0.1, MAP www.youtube.com 127.0.0.1");
+  // The external apps checks' site (smoke-external-apps.ts) counts as a public one for Chromium's
+  // local network access rules, like a government portal that talks to Autofirma on 127.0.0.1.
+  app.commandLine.appendSwitch("ip-address-space-overrides", "127.0.0.1:47851=public");
   // Dictation records from a fake microphone (a beep) instead of the machine's.
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
 }
@@ -208,6 +214,10 @@ async function main(): Promise<void> {
   ctx.controller = new Controller(ctx);
   ctx.certErrors = new CertErrorService();
   ctx.certErrors.install();
+  ctx.externalApps = new ExternalAppService(ctx);
+  ctx.externalApps.install();
+  ctx.httpAuth = new HttpAuthService(ctx);
+  ctx.httpAuth.install();
   ctx.agentRunner = new AgentRunner(ctx);
   ctx.agentCredentials = new AgentCredentialService(ctx);
   ctx.spendApprovals = new SpendApprovalService(ctx);
@@ -247,6 +257,7 @@ async function main(): Promise<void> {
   ctx.grabber = new LinkGrabber(ctx);
   ctx.queue = new DownloadQueue(ctx);
   ctx.browserImport = new BrowserImport();
+  ctx.liveHistory = new LiveHistoryService(ctx);
   ctx.defaultBrowser = new DefaultBrowser(ctx);
   ctx.backupReminder = new BackupReminder(ctx);
   ctx.sessionRestore = new SessionRestore(ctx, userData);
@@ -286,6 +297,7 @@ async function main(): Promise<void> {
   profiles.onCreated((runtime) => ctx.scheduledAgents.attach(runtime));
   profiles.onCreated((runtime) => ctx.flows.attach(runtime));
   profiles.onCreated((runtime) => ctx.keepass.attach(runtime));
+  profiles.onCreated((runtime) => ctx.liveHistory.attach(runtime));
   profiles.onCreated((runtime) =>
     runtime.agentRuns.onChange(() => {
       for (const win of ctx.windows.forProfile(runtime.profile.id)) win.notifyInternalPages({ type: "agent-runs-changed" }, ["agent-runs"]);
@@ -338,6 +350,7 @@ async function main(): Promise<void> {
     ctx.newtab.flush();
     ctx.scheduledAgents.stop();
     ctx.flows.stop();
+    ctx.liveHistory.stop();
     void ctx.mcp.stop();
   });
 
@@ -363,6 +376,7 @@ async function main(): Promise<void> {
   ctx.telegram.start();
   ctx.grabber.start();
   ctx.tabSleeper.start();
+  ctx.liveHistory.start();
   ctx.updater.startupCheck();
 
   // The smoke test and the marketing capture are chunks of their own: normal starts never load them.

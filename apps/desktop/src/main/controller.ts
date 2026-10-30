@@ -240,7 +240,24 @@ export class Controller implements BrowserController {
     if (!isAgentAllowedUrl(wc.getURL() || found.tab.url)) throw new AgentError("Agents cannot access this page");
     const dialog = dialogs === "block" ? this.dialogs.pending(wc) : null;
     if (dialog) throw dialogBlocked(dialog);
+    this.personGate(wc);
     return { ...found, wc };
+  }
+
+  /** A question only the person answers is open over the tab (a site's sign-in, opening an app): the agent is told so. */
+  private personGate(wc: WebContents): void {
+    const step = this.ctx.httpAuth.personStep(wc) ?? this.ctx.externalApps.personStep(wc);
+    if (step) throw new AgentError(step);
+  }
+
+  /** Waits for the tab's load, or until the site asks the person to sign in (which holds the load). */
+  private async loaded(wc: WebContents | null): Promise<void> {
+    if (!wc) return;
+    let stop = (): void => undefined;
+    const asked = new Promise<void>((resolve) => (stop = this.ctx.httpAuth.onAsked(wc, resolve)));
+    await Promise.race([waitForLoad(wc), asked]);
+    stop();
+    if (!wc.isDestroyed()) this.personGate(wc);
   }
 
   private touch(window: BrowserWindowCtl, id: TabId): void {
@@ -286,7 +303,7 @@ export class Controller implements BrowserController {
     const tab = window.createTab(target, { activate: opts.background !== true, agent: opts.agent ?? true, ...(groupId ? { groupId } : {}) });
     this.logs.watch(tab.view.webContents);
     this.dialogs.watch(tab.view.webContents);
-    await waitForLoad(tab.view.webContents);
+    await this.loaded(tab.view.webContents);
     await this.certGate(window, tab, certs);
     return window.toTab(tab);
   }
@@ -310,7 +327,7 @@ export class Controller implements BrowserController {
     await this.ctx.agents.beforeAction(window, id, page, { kind: "navigate", url: target });
     if (!window.hasTab(id)) throw tabClosed(id);
     window.loadUrl(id, target);
-    await waitForLoad(pageOf(tab.view));
+    await this.loaded(pageOf(tab.view));
     await this.certGate(window, tab, certs);
     return window.toTab(tab);
   }

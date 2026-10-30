@@ -188,6 +188,16 @@ export function firefoxTime(value: number | bigint): number {
   return Math.round((typeof value === "bigint" ? Number(value) : value) / 1000);
 }
 
+/** A time (ms since 1970) as Chromium stores it, to compare with its columns in a query. */
+export function toChromiumTime(ms: number): bigint {
+  return (BigInt(Math.round(ms)) + 11_644_473_600_000n) * 1000n;
+}
+
+/** A time (ms since 1970) as Firefox stores it. */
+export function toFirefoxTime(ms: number): bigint {
+  return BigInt(Math.round(ms)) * 1000n;
+}
+
 /** One row of Firefox's moz_bookmarks joined with moz_places (type 1 = bookmark, 2 = folder). */
 export interface FirefoxBookmarkRow {
   id: number;

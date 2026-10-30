@@ -310,10 +310,10 @@ export function hostFromUrl(url: string): string | null {
   }
 }
 
-/** Loopback / `.localhost` hosts are never blocked. */
+/** Loopback hosts (this computer: `localhost`, 127.x.x.x, ::1) are never blocked: apps such as Autofirma serve pages there. */
 export function isLoopbackHost(host: string): boolean {
   const h = host.toLowerCase().replace(/\.$/, "");
-  return h === "localhost" || h.endsWith(".localhost") || h === "127.0.0.1" || h === "::1" || h === "[::1]";
+  return h === "localhost" || h.endsWith(".localhost") || /^127(?:\.\d{1,3}){3}$/.test(h) || h === "::1" || h === "[::1]";
 }
 
 /** Request destinations Corvus must never block regardless of filters: corvus://, loopback, non-web. */

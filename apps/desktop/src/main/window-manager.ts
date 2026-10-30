@@ -9,6 +9,7 @@ import { BrowserWindowCtl, type TabRuntime } from "./window";
 export class WindowManager implements PermissionHost {
   private windows: BrowserWindowCtl[] = [];
   private lastFocused: BrowserWindowCtl | null = null;
+  private readonly focusListeners = new Set<(win: BrowserWindowCtl) => void>();
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -80,6 +81,16 @@ export class WindowManager implements PermissionHost {
 
   noteFocus(win: BrowserWindowCtl): void {
     this.lastFocused = win;
+    for (const listener of this.focusListeners) listener(win);
+  }
+
+  /**
+   * Called each time a window gets focus. Corvus's windows are BaseWindows, for which Electron
+   * sends no app-level "browser-window-focus".
+   */
+  onFocus(listener: (win: BrowserWindowCtl) => void): () => void {
+    this.focusListeners.add(listener);
+    return () => this.focusListeners.delete(listener);
   }
 
   focused(): BrowserWindowCtl | undefined {
@@ -131,5 +142,9 @@ export class WindowManager implements PermissionHost {
 
   promptsChanged(wc: WebContents): void {
     this.byTabWebContents(wc)?.window.pushState();
+  }
+
+  openExternal(wc: WebContents, url: string, requestingUrl: string): void {
+    void this.ctx.externalApps.request(wc, url, requestingUrl);
   }
 }

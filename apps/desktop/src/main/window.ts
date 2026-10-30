@@ -33,6 +33,7 @@ import {
 } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
 import { siteSearchUrl } from "../shared/site-search";
+import { linkKind } from "../shared/external-apps";
 import { pageBaseColor } from "../shared/page-base";
 import { homePageUrl } from "../shared/settings";
 import { commandForInput, type BrowserCommand } from "../shared/shortcuts";
@@ -382,6 +383,7 @@ export class BrowserWindowCtl {
     }
     this.ctx.assist.layout(this, { x: width - side, y: top, width: side, height: content.height }, content);
     this.ctx.reader.layout(this, content);
+    this.ctx.autofill.onWindowLayout(this);
   }
 
   relayout(): void {
@@ -1108,6 +1110,10 @@ export class BrowserWindowCtl {
     });
     wc.setWindowOpenHandler(({ url, disposition }) => {
       if (isInternalUrl(url) && !isInternalUrl(wc.getURL())) return { action: "deny" };
+      // A link to another app (target=_blank, window.open) opens no tab: Corvus asks to open the app.
+      const kind = linkKind(url);
+      if (kind === "external") void this.ctx.externalApps.request(wc, url, wc.getURL());
+      if (kind === "external" || kind === "denied") return { action: "deny" };
       // Pages opened by an agent-driven tab stay agent-driven (badge, permission and download rules).
       // So do pages opened from a container tab: they share its cookies.
       const container = tab.containerId ? { containerId: tab.containerId } : {};

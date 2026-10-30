@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Zoom
+Exec=true %u
+NoDisplay=true
+MimeType=x-scheme-handler/zoommtg;

@@ -7,6 +7,7 @@
  */
 import type { HistoryFilter } from "./history-ops";
 import type { ImportKind, ImportResult, ImportScan } from "./browser-import";
+import type { LiveHistoryPatch, LiveHistoryView } from "./live-history";
 import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, PhoneServerAddress, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
@@ -137,8 +138,11 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "ui.tabMenu"(tabId: TabId, x: number, y: number): void;
   "ui.groupMenu"(groupId: GroupId, x: number, y: number): void;
   "ui.bookmarkFolderMenu"(folderId: string, x: number, y: number): void;
-  /** The person answered the window's dialog (WindowState.dialog); `values`: what its fields hold. */
-  "dialog.answer"(id: string, button: number, checked: boolean, value: string, values?: string[]): void;
+  /**
+   * The person answered the window's dialog (WindowState.dialog); `values`: what its fields hold;
+   * `choice`: the ready answer picked instead of a button.
+   */
+  "dialog.answer"(id: string, button: number, checked: boolean, value: string, values?: string[], choice?: number): void;
   /**
    * The bar's bookmarks from index `from` on, which do not fit in the bar. `icons`: each one's icon
    * as the bar draws it (bookmark id to a 32px PNG data: URL, shown at 16px).
@@ -630,6 +634,12 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "import.passwordCsv"(): PasswordImportResult;
   /** Install an extension found in another browser from the Chrome Web Store (the user confirms). */
   "import.installExtension"(id: string): ExtensionInfo | null;
+  /** Live history from other browsers in this profile: on or off, the browser profiles it can follow, and what each brought. */
+  "liveHistory.view"(): LiveHistoryView;
+  /** Turns it on or off or changes the followed browser profiles, then reads them. */
+  "liveHistory.set"(patch: LiveHistoryPatch): LiveHistoryView;
+  /** Removes every page this profile knows only from one browser (by its mark, "chrome"). */
+  "liveHistory.forget"(mark: string): LiveHistoryView;
   /** Search shortcuts of this profile ("yt cats" in the address bar). */
   "siteSearch.list"(): SiteSearch[];
   /** Add a shortcut, or change the one with the same keyword. */

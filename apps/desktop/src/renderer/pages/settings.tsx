@@ -25,6 +25,7 @@ import {
   StartupSection,
 } from "./settings-browser";
 import { ConnectionsSection } from "./settings-connections";
+import { LiveHistorySection } from "./settings-live-history";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 import "./settings.css";
@@ -1622,6 +1623,7 @@ function SettingsPage() {
           <PhoneSection view={view} update={update} />
           <DownloadsSection view={view} update={update} setView={setView} />
           <ImportSection />
+          <LiveHistorySection />
           <PasswordsSection view={view} update={update} />
           <SitePermissionsSection />
           <AdblockSection />

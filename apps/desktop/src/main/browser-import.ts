@@ -15,6 +15,7 @@ import {
   importableHistory,
   isChromiumProfileDir,
   webStoreExtension,
+  type BrowserInfo,
   type DataRoots,
   type FirefoxBookmarkRow,
   type ImportExtension,
@@ -30,6 +31,8 @@ import { chromiumSiteSearches, cleanSiteSearches, firefoxKeyword, firefoxSearchE
 import type { ProfileRuntime } from "./profiles";
 
 type Family = ImportSource["family"];
+/** A browser profile found on disk: its folder name, the name the browser shows, and its full path. */
+export type LocatedProfile = Omit<ImportProfile, "counts" | "extensions">;
 
 function exists(p: string): boolean {
   try {
@@ -81,7 +84,7 @@ function readError(err: unknown, browser: string): string {
  * Reads a browser's SQLite database from a private copy (with its write-ahead log), so a running
  * browser's open file is never touched and Corvus never writes to another browser's data.
  */
-async function withDatabase<T>(file: string, read: (db: DatabaseSync) => T): Promise<T> {
+export async function withDatabase<T>(file: string, read: (db: DatabaseSync) => T): Promise<T> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "corvus-import-"));
   try {
     // Copied without blocking: a browser's history can be hundreds of megabytes.
@@ -155,18 +158,26 @@ export class BrowserImport {
   /** Every installed browser with at least one profile, and what each profile holds. */
   async scan(): Promise<ImportScan> {
     const sources: ImportSource[] = [];
-    for (const loc of browserLocations(this.roots())) {
-      if (!exists(loc.dir) || sources.some((s) => s.id === loc.id)) continue;
-      const profiles = loc.family === "chromium" ? this.chromiumProfiles(loc.dir, loc.singleProfile === true, loc.name) : this.firefoxProfiles(loc.dir);
-      if (profiles.length === 0) continue;
+    for (const loc of this.locate()) {
       const counted: ImportProfile[] = [];
-      for (const p of profiles) counted.push({ ...p, counts: await this.counts(loc.family, p.path), extensions: this.extensions(loc.family, p.path) });
-      sources.push({ id: loc.id, name: loc.name, family: loc.family, profiles: counted });
+      for (const p of loc.profiles) counted.push({ ...p, counts: await this.counts(loc.family, p.path), extensions: this.extensions(loc.family, p.path) });
+      sources.push({ ...loc, profiles: counted });
     }
     return { sources };
   }
 
-  private chromiumProfiles(dir: string, single: boolean, browser: string): Array<Omit<ImportProfile, "counts" | "extensions">> {
+  /** Every installed browser with at least one profile, and the profiles' folders: no file is opened. */
+  locate(): Array<BrowserInfo & { profiles: LocatedProfile[] }> {
+    const found: Array<BrowserInfo & { profiles: LocatedProfile[] }> = [];
+    for (const loc of browserLocations(this.roots())) {
+      if (!exists(loc.dir) || found.some((s) => s.id === loc.id)) continue;
+      const profiles = loc.family === "chromium" ? this.chromiumProfiles(loc.dir, loc.singleProfile === true, loc.name) : this.firefoxProfiles(loc.dir);
+      if (profiles.length > 0) found.push({ id: loc.id, name: loc.name, family: loc.family, profiles });
+    }
+    return found;
+  }
+
+  private chromiumProfiles(dir: string, single: boolean, browser: string): LocatedProfile[] {
     if (single) return hasChromiumBookmarks(dir) || exists(path.join(dir, "History")) ? [{ dir: "", name: browser, path: dir, isDefault: true }] : [];
     let found: string[] = [];
     try {
@@ -177,7 +188,7 @@ export class BrowserImport {
     return chromiumProfiles(readText(path.join(dir, "Local State")), found).map((p) => ({ ...p, path: path.join(dir, p.dir) }));
   }
 
-  private firefoxProfiles(dir: string): Array<Omit<ImportProfile, "counts" | "extensions">> {
+  private firefoxProfiles(dir: string): LocatedProfile[] {
     const ini = readText(path.join(dir, "profiles.ini"));
     if (!ini) return [];
     return firefoxProfiles(ini)

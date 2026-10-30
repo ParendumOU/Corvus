@@ -9,6 +9,8 @@ export interface Suggestion {
   url: string;
   /** Text shown in the secondary column (usually the URL). */
   detail?: string;
+  /** The browser a history page is only known from ("chrome"), read live from its history. */
+  source?: string;
 }
 
 const DAY = 86_400_000;
@@ -37,7 +39,7 @@ function score(input: string, title: string, url: string, visitCount: number, vi
 
 export function buildSuggestions(
   rawInput: string,
-  history: readonly HistoryEntry[],
+  history: ReadonlyArray<HistoryEntry & { source?: string }>,
   bookmarks: readonly Bookmark[],
   now: number,
   shortcuts: readonly SiteSearch[] = [],
@@ -69,7 +71,7 @@ export function buildSuggestions(
   }
   for (const h of history) {
     offer(
-      { kind: "history", title: h.title || h.url, url: h.url, detail: strip(h.url) },
+      { kind: "history", title: h.title || h.url, url: h.url, detail: strip(h.url), ...(h.source ? { source: h.source } : {}) },
       score(lower, h.title, h.url, h.visitCount, h.visitedAt, false, now),
     );
   }

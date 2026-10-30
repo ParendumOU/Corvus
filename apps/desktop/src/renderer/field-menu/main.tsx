@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { FieldDropdownState, FieldMenuBridge } from "../../shared/credentials-ipc";
-import { DROPDOWN_MARGIN, dropdownEntries, dropdownLabel, dropdownLines, dropdownTwoFaOnly } from "../../shared/field-dropdown";
+import { dropdownEntries, dropdownLabel, dropdownLines, dropdownTwoFaOnly } from "../../shared/field-dropdown";
 import { setUiLanguage, t } from "../common/i18n";
 import { IconChevronDown, IconChevronRight, IconClock, IconLock } from "../common/icons";
 import "../common/theme.css";
@@ -32,12 +32,12 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
     [bridge],
   );
 
-  // The view takes the dropdown's size (with room for its shadow), for each state drawn.
+  // The view takes the dropdown's size (it is exactly its box), for each state drawn.
   useLayoutEffect(() => {
     const el = menu.current;
     if (!state || !el) return;
     const r = el.getBoundingClientRect();
-    bridge.send({ type: "size", token: state.token, width: Math.ceil(r.width) + 2 * DROPDOWN_MARGIN, height: Math.ceil(r.height) + 2 * DROPDOWN_MARGIN });
+    bridge.send({ type: "size", token: state.token, width: Math.ceil(r.width), height: Math.ceil(r.height) });
   }, [bridge, state]);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
   });
 
   return (
-    <div className="fd-menu" ref={menu} role="listbox" aria-label={state.kind === "otp" ? t("2FA code") : t("Passwords")} style={{ width: state.maxWidth, margin: DROPDOWN_MARGIN }}>
+    <div className="fd-menu" ref={menu} role="listbox" aria-label={state.kind === "otp" ? t("2FA code") : t("Passwords")} style={{ width: state.maxWidth }}>
       {state.kind === "otp" && <div className="fd-head">{t("2FA code")}</div>}
       <div className="af-list">
         {entries.slice(0, manage).map((entry, index) => {

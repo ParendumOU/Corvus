@@ -46,11 +46,13 @@ import { runCookieConsentSmoke } from "./smoke-cookie-consent";
 import { runGrabberSmoke } from "./smoke-grabber";
 import { runDefaultBrowserSmoke } from "./smoke-default-browser";
 import { runBrowserImportSmoke } from "./smoke-browser-import";
+import { runLiveHistorySmoke } from "./smoke-live-history";
 import { runDownloadAiSmoke } from "./smoke-download-ai";
 import { runProfileTransferSmoke } from "./smoke-profile-transfer";
 import { runPdfSmoke } from "./smoke-pdf";
 import { runReaderSmoke } from "./smoke-reader";
 import { runExtensionSmoke } from "./smoke-extensions";
+import { runExternalAppsSmoke } from "./smoke-external-apps";
 import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
 import { fakeSearchDeps, runSearchSmoke } from "./smoke-search";
 import { runSettingsLayoutSmoke } from "./smoke-settings";
@@ -239,6 +241,16 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runBackupSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=livehistory: only the Live history from other browsers checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "livehistory") {
+      await runLiveHistorySmoke(ctx, { win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=externalapps: only the checks of links to other apps (Autofirma), HTTP sign-in and local network access, in both languages and themes, with screenshots.
+    if (process.env.CORVUS_SMOKE_ONLY === "externalapps") {
+      await runExternalAppsSmoke(ctx, { win, check, capture }, true);
+      return;
+    }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
     if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
@@ -298,6 +310,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runSleepSmoke(ctx, { url, win, check });
     await runMediaSmoke(ctx, { url, win, check, capture });
     await runCertErrorSmoke(ctx, { win, check });
+    await runExternalAppsSmoke(ctx, { win, check, capture }, false);
     await runTabCloseSmoke(ctx, { win, check, capture });
     await runUserActionSmoke(ctx, { win, check, capture });
 
@@ -321,6 +334,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runCookieConsentSmoke(ctx, { win, check, capture });
     await runDefaultBrowserSmoke(ctx, { win, check, capture });
     await runBrowserImportSmoke(ctx, { win, check, capture });
+    await runLiveHistorySmoke(ctx, { win, check, capture });
     await runDownloadAiSmoke(ctx, { win, check, capture });
     await runProfileTransferSmoke(ctx, { win, check, capture });
     await runReaderSmoke(ctx, { win, check, capture });

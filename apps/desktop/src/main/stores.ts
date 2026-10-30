@@ -20,8 +20,10 @@ import {
   type NewNode,
 } from "../shared/bookmark-tree";
 import {
+  applyLiveHistory,
   applySyncedHistory,
   faviconsFromHistory,
+  liveSourceCounts,
   queryHistory,
   recordVisit,
   historyMatching, removeEntries,
@@ -294,6 +296,32 @@ export class HistoryStore {
       this.changes.emit();
     }
     return entries.length;
+  }
+
+  /**
+   * Adds pages read live from another browser's history (applyLiveHistory); returns how many are
+   * new. They stay on this computer, so sync is not told about them.
+   */
+  mergeLive(source: string, entries: readonly SyncedHistoryEntry[]): number {
+    if (entries.length === 0) return 0;
+    const before = this.file.get();
+    const { list, added } = applyLiveHistory(before, source, entries, () => crypto.randomUUID());
+    if (list !== before) this.file.set(list);
+    return added;
+  }
+
+  /** Removes every page known only from one browser ("Forget visits from Chrome"); returns how many. */
+  forgetSource(source: string): number {
+    const urls = this.file.get().filter((e) => e.source === source).map((e) => e.url);
+    if (urls.length === 0) return 0;
+    this.file.set(this.file.get().filter((e) => e.source !== source));
+    for (const l of this.removeListeners) l(urls);
+    return urls.length;
+  }
+
+  /** Pages known only from each browser read live. */
+  liveCounts(): Record<string, number> {
+    return liveSourceCounts(this.file.get());
   }
 
   top(limit: number): HistoryRecord[] {

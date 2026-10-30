@@ -69,7 +69,7 @@ export function PermissionPrompt({ prompt, anchor }: { prompt: PermissionPromptV
         {prompt.kinds.map((kind) => (
           <li key={kind}>
             <PermissionIcon kind={kind} />
-            <span>{PERMISSION_LABELS[kind].prompt}</span>
+            <span>{t(PERMISSION_LABELS[kind].prompt)}</span>
           </li>
         ))}
       </ul>
@@ -174,7 +174,7 @@ export function SiteInfoPopover({ anchor, onClose }: { anchor: Anchor; onClose: 
             <li key={p.kind}>
               <PermissionIcon kind={p.kind} />
               <span className="grow">
-                {PERMISSION_LABELS[p.kind].title}
+                {t(PERMISSION_LABELS[p.kind].title)}
                 {p.temporary && <span className="muted small">{" "}{t("· this page only")}</span>}
               </span>
               <select

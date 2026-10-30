@@ -1,6 +1,5 @@
 import path from "node:path";
 import {
-  listSitePermissions,
   resetSitePermissions,
   reviveSitePermissions,
   setSitePermission,
@@ -9,6 +8,7 @@ import {
   type SitePermissionEntry,
   type SitePermissionMap,
 } from "../shared/permissions";
+import { forgetSiteApps, isAppAllowed, listSiteSettings, reviveExternalApps, setAppAllowed, type ExternalAppMap } from "../shared/external-apps";
 import { reviveZoomMap, setZoom, zoomFor, type ZoomMap } from "../shared/zoom";
 import { addNeverSave, noteLastLogin, reviveLastLogins, reviveNeverSave, type LastLogins } from "../shared/autofill-sites";
 import { JsonFile } from "./json-file";
@@ -21,6 +21,8 @@ interface SiteSettingsFile {
   lastLogins: LastLogins;
   /** Hosts where the save-password prompt is never offered ("Never for this site"). */
   neverSave: string[];
+  /** Per site, the schemes of links it may open in another app without asking. */
+  externalApps: ExternalAppMap;
 }
 
 function revive(raw: unknown): SiteSettingsFile {
@@ -31,19 +33,21 @@ function revive(raw: unknown): SiteSettingsFile {
     zoom: reviveZoomMap(data.zoom),
     lastLogins: reviveLastLogins(data.lastLogins),
     neverSave: reviveNeverSave(data.neverSave),
+    externalApps: reviveExternalApps(data.externalApps),
   };
 }
 
 /**
- * Per-profile, per-site settings: remembered permission decisions, zoom levels and what the autofill
- * remembers (the account filled last, the sites never to offer saving on). Local to this device.
+ * Per-profile, per-site settings: remembered permission decisions, the apps a site may open without
+ * asking, zoom levels and what the autofill remembers (the account filled last, the sites never to
+ * offer saving on). Local to this device.
  */
 export class SiteSettingsStore {
   private readonly file: JsonFile<SiteSettingsFile>;
   private readonly listeners = new Set<() => void>();
 
   constructor(dir: string) {
-    this.file = JsonFile.load(path.join(dir, "site-settings.json"), () => ({ version: 1, permissions: {}, zoom: {}, lastLogins: {}, neverSave: [] }), revive, 300);
+    this.file = JsonFile.load(path.join(dir, "site-settings.json"), () => ({ version: 1, permissions: {}, zoom: {}, lastLogins: {}, neverSave: [], externalApps: {} }), revive, 300);
   }
 
   onChange(listener: () => void): () => void {
@@ -64,8 +68,10 @@ export class SiteSettingsStore {
     return { ...this.file.get().permissions[origin] };
   }
 
+  /** Every site with a remembered permission or an app it may open, for Settings. */
   listPermissions(): SitePermissionEntry[] {
-    return listSitePermissions(this.file.get().permissions);
+    const { permissions, externalApps } = this.file.get();
+    return listSiteSettings(permissions, externalApps);
   }
 
   setPermission(origin: string, kind: PermissionKind, decision: PermissionDecision | null): void {
@@ -77,7 +83,19 @@ export class SiteSettingsStore {
   resetPermissions(origin: string): void {
     const current = this.file.get();
     const permissions = resetSitePermissions(current.permissions, origin);
-    if (permissions !== current.permissions) this.commit({ ...current, permissions }, true);
+    const externalApps = forgetSiteApps(current.externalApps, origin);
+    if (permissions !== current.permissions || externalApps !== current.externalApps) this.commit({ ...current, permissions, externalApps }, true);
+  }
+
+  /** Whether the site may open links of `scheme` in their app without asking ("Always allow"). */
+  externalAppAllowed(origin: string, scheme: string): boolean {
+    return isAppAllowed(this.file.get().externalApps, origin, scheme);
+  }
+
+  setExternalAppAllowed(origin: string, scheme: string, allowed: boolean): void {
+    const current = this.file.get();
+    const externalApps = setAppAllowed(current.externalApps, origin, scheme, allowed);
+    if (externalApps !== current.externalApps) this.commit({ ...current, externalApps }, true);
   }
 
   zoom(key: string | null): number {

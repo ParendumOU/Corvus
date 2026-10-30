@@ -334,6 +334,10 @@ export class ExtensionWindowBridge implements ProfileDelegate {
     this.ctx.windows.promptsChanged(wc);
   }
 
+  openExternal(wc: WebContents, url: string, requestingUrl: string): void {
+    this.ctx.windows.openExternal(wc, url, requestingUrl);
+  }
+
   extensionsChanged(profileId: string): void {
     for (const win of this.ctx.windows.forProfile(profileId)) {
       win.sendCommand({ type: "extensions-changed" });

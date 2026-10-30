@@ -16,6 +16,8 @@ export const PERMISSION_KINDS = [
   "display-capture",
   "fullscreen",
   "clipboard-write",
+  "loopback-network",
+  "local-network",
 ] as const;
 export type PermissionKind = (typeof PERMISSION_KINDS)[number];
 export type PermissionDecision = "allow" | "block";
@@ -33,6 +35,8 @@ export const PERMISSION_LABELS: Record<PermissionKind, { title: string; prompt: 
   "display-capture": { title: "Screen capture", prompt: "See your screen" },
   fullscreen: { title: "Full screen", prompt: "Use full screen" },
   "clipboard-write": { title: "Clipboard write", prompt: "Write to the clipboard" },
+  "loopback-network": { title: "Apps on this device", prompt: "Access other apps and services on this device" },
+  "local-network": { title: "Local network", prompt: "Look for and connect to any device on your local network" },
 };
 
 /** Granted without a prompt, from any origin. */
@@ -86,6 +90,13 @@ export function kindsForPermission(permission: string, mediaTypes?: readonly str
       return ["display-capture"];
     case "fullscreen":
       return ["fullscreen"];
+    // Local network access: a site reaching a server on this computer (127.0.0.1) or a device of the
+    // local network. "local-network-access" is Chromium's name from before it split the two.
+    case "loopback-network":
+      return ["loopback-network"];
+    case "local-network":
+    case "local-network-access":
+      return ["local-network"];
     default:
       return [];
   }
@@ -211,6 +222,8 @@ export type SitePermissionMap = Record<string, Partial<Record<PermissionKind, Pe
 export interface SitePermissionEntry {
   origin: string;
   permissions: Partial<Record<PermissionKind, PermissionDecision>>;
+  /** Schemes of links the site may open in another app without asking (see external-apps.ts). */
+  externalApps?: string[];
 }
 
 export function setSitePermission(

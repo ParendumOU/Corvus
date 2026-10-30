@@ -202,6 +202,8 @@ describe("loopback / never-blocked", () => {
     expect(isLoopbackHost("localhost")).toBe(true);
     expect(isLoopbackHost("foo.localhost")).toBe(true);
     expect(isLoopbackHost("127.0.0.1")).toBe(true);
+    expect(isLoopbackHost("127.10.0.2")).toBe(true);
+    expect(isLoopbackHost("127.example.com")).toBe(false);
     expect(isLoopbackHost("example.com")).toBe(false);
   });
   it("never blocks requests to corvus://, loopback and non-web schemes", () => {

@@ -189,6 +189,8 @@ export interface BrowserInternalRpc {
   "sitePermissions.list"(): SitePermissionEntry[];
   "sitePermissions.set"(origin: string, kind: PermissionKind, decision: PermissionDecision | null): SitePermissionEntry[];
   "sitePermissions.reset"(origin: string): SitePermissionEntry[];
+  /** Stops a site from opening links of `scheme` in their app without asking ("Always allow" undone). */
+  "sitePermissions.forgetExternalApp"(origin: string, scheme: string): SitePermissionEntry[];
 }
 
 export type BrowserInternalEvent = { type: "downloads-changed" } | { type: "site-permissions-changed" };

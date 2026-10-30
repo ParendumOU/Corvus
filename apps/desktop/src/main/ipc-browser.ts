@@ -122,6 +122,7 @@ export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, read
   "sitePermissions.list": ["settings"],
   "sitePermissions.set": ["settings"],
   "sitePermissions.reset": ["settings"],
+  "sitePermissions.forgetExternalApp": ["settings"],
 };
 
 export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserInternalRpc, InternalCallContext> {
@@ -189,6 +190,10 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
     },
     "sitePermissions.reset": (c, o) => {
       c.profile.siteSettings.resetPermissions(origin(o));
+      return c.profile.siteSettings.listPermissions();
+    },
+    "sitePermissions.forgetExternalApp": (c, o, s) => {
+      c.profile.siteSettings.setExternalAppAllowed(origin(o), str(s, "scheme", 64), false);
       return c.profile.siteSettings.listPermissions();
     },
   };

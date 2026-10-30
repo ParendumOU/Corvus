@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Autofirma
+Exec=true %u
+NoDisplay=true
+MimeType=x-scheme-handler/afirma;

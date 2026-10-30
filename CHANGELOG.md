@@ -12,6 +12,26 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.32.6
+
+### Browser
+- **Links that open an app on your computer work, as in Chrome.** A link to Autofirma (afirma://), Zoom, Microsoft Teams, Steam, e-mail (mailto:) or any other app now asks **Open <app>?**, with the app's name and icon, the site that asks, and **Always allow <site> to open links of this type in the associated app**. Before, Corvus silently ignored them, so signing with Autofirma on government sites failed while it worked in Chrome and Brave.
+- A page can open an app only right after you click or type in it, as in Chrome. When it tries again by itself, a quiet bar says Corvus stopped it, with a button to open the app anyway. Private windows ask every time and remember nothing, and kinds of links that have been used to run code on Windows (ms-msdt:, search-ms: and similar) are never opened.
+- Sites you allowed to open an app are listed in Settings > Site permissions as **Open external apps**, where you can take each one back.
+- **Sites that ask for a username and password open again.** A router's or a device's panel, or an intranet, protected with HTTP sign-in (Basic, Digest or NTLM) now shows a **Sign in** dialog with the site, the name it gives to the protected area, and a warning when the password would travel unencrypted. Your saved logins for the site (in Corvus or KeePass) are offered with one click, the password field has a button to show what you type, and after a sign-in you typed yourself Corvus offers to save it. Cancel leaves the site's own error page and a wrong password asks again. Before, Corvus never asked and the page stayed on the error.
+- A question from a tab you are not looking at (opening an app, signing in to a site) waits in a bar in its window instead of switching tabs; its button takes you to the tab and asks there.
+- AI agents never open apps or answer a site's sign-in by themselves: Corvus asks you and tells the agent to hand the step to you. A login you allowed for agents is still used for the sign-in, after you approve it.
+- **Access other apps and services on this device**: when a site asks for local network access (to talk to an app such as Autofirma on 127.0.0.1, or to a device on your network), Corvus asks with Allow and Block, remembered per site, instead of refusing without a word. Corvus's current engine does not ask for it yet, so those requests keep working as before, and the ad blocker never blocks addresses on this computer (now every 127.x.x.x address).
+- Permission prompts and the site information panel now name each permission in Spanish too.
+- **The account list under a sign-in or 2FA code field closes whenever its page leaves the screen or moves**: another tab (picked on the tab strip, or switched to by an AI agent or a link from another app), a split view, resizing the sidebar, opening or closing the Assist panel, minimizing or hiding the window, or switching to another app. Before, it could stay open over another page when the keyboard did not move.
+- **The first account list in a window shows at once.** Corvus now prepares it, hidden, as soon as a page of the window has a sign-in or code field with saved accounts, instead of loading it on the first click. Windows without such a page prepare nothing.
+- **A click right next to the account list reaches the page.** The clear band kept around it for its shadow took those clicks; the list now ends at its edge, which is a thin border instead of a shadow.
+- Closing a window now frees the memory of its account list, which kept running until Corvus quit.
+- **Live history from other browsers.** Turn it on in Settings, next to Import from another browser, and pick the Chrome, Edge, Brave, Opera, Vivaldi or Firefox profiles to follow: a page you open there shows up in Corvus's history and address bar suggestions (by its address and by words of its title) as soon as you switch to Corvus, without importing again. Off by default.
+- Those browsers save their history every few seconds, so a page you just opened can take a few seconds to appear. Corvus reads their files only when they changed, from a copy, and never changes them; with nothing new it does no work at all.
+- These pages stay on this computer: they are not synced to your other devices. A small badge in the suggestions and on the History page shows which browser each one came from, and **Forget visits from Chrome** (or the browser concerned) removes them all. A page you also open in Corvus becomes Corvus's own, like any other.
+- When Corvus's history is full, pages from other browsers make room first, so they never push out your own.
+
 ## v0.32.5
 
 ### Browser

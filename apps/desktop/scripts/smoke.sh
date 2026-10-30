@@ -10,6 +10,9 @@ if [ -z "$DISPLAY" ]; then
   sleep 1
 fi
 export CORVUS_SMOKE_TEST=1
+# Apps registered for afirma: and zoommtg: links, as on a desktop with Autofirma and Zoom installed
+# (read once at start, through GIO, so they must be in place before Electron starts).
+export XDG_DATA_DIRS="$PWD/test/fixtures/xdg:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export CORVUS_USER_DATA="${CORVUS_USER_DATA:-$(mktemp -d)}"
 OUT="${CORVUS_SMOKE_OUT:-$PWD/out/smoke}"
 LOG="$(mktemp)"

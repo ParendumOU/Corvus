@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { dialog } from "electron";
 import { cancelAnswer, fieldValues, toneOf, type DialogAnswer, type DialogSpec, type DialogView } from "../shared/dialog";
-import type { DialogInfo } from "@corvus/shared";
+import type { DialogInfo, TabId } from "@corvus/shared";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
@@ -68,6 +68,25 @@ export class DialogService {
     });
   }
 
+  /**
+   * Asks about one tab without switching tabs on the person: as the modal when the tab is the one on
+   * screen; otherwise first as a bar in its window (`bar`: what it says and its action button), and as
+   * the modal once the person picks that action, which brings the tab to the front. Dismissing the
+   * bar answers as cancelled.
+   */
+  async askAboutTab(win: BrowserWindowCtl, tabId: TabId, bar: { message: string; detail?: string; action: string }, spec: DialogSpec, signal?: AbortSignal): Promise<DialogAnswer> {
+    if (win.activeTab()?.id !== tabId) {
+      const first = await this.ask(
+        { tone: spec.tone, title: spec.title, message: bar.message, ...(bar.detail ? { detail: bar.detail } : {}), buttons: [tr("Cancel"), bar.action], defaultId: 1, cancelId: 0, bar: true, tabId },
+        win,
+        signal,
+      );
+      if (first.button !== 1 || signal?.aborted || !win.hasTab(tabId)) return cancelAnswer(spec);
+      win.activate(tabId);
+    }
+    return this.ask(spec, win, signal);
+  }
+
   /** The person answered in the window (or closed it: Escape picks the cancel button). */
   answer(win: BrowserWindowCtl, id: string, answer: Partial<DialogAnswer>): void {
     const pending = this.queues.get(win)?.find((p) => p.view.id === id);
@@ -78,11 +97,14 @@ export class DialogService {
       const v = typed[i];
       return typeof v === "string" ? v.slice(0, 10_000) : f.value;
     });
+    const choice = answer.choice;
+    const picked = typeof choice === "number" && Number.isInteger(choice) && choice >= 0 && choice < (pending.view.choices?.length ?? 0);
     this.settle(win, id, {
       button,
       checked: answer.checked === true,
       value: typeof answer.value === "string" ? answer.value.slice(0, 10_000) : "",
       ...(values ? { values } : {}),
+      ...(picked ? { choice } : {}),
     });
   }
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cachedFaviconUrl, faviconSrcToShow } from "../../shared/favicon";
+import { liveSourceName } from "../../shared/live-history";
 import { t } from "./i18n";
 import { CorvusMark, IconGlobe } from "./icons";
 
@@ -30,6 +31,28 @@ export function LetterIcon({ text, size = 16 }: { text: string; size?: number })
   return (
     <span className="letter-icon" style={{ width: size, height: size, fontSize: size * 0.6, background: color }} aria-hidden="true">
       {letter}
+    </span>
+  );
+}
+
+const SOURCE_TILES: Record<string, { letter: string; color: string }> = {
+  chrome: { letter: "C", color: "#1a73e8" },
+  edge: { letter: "E", color: "#0a7bd1" },
+  brave: { letter: "B", color: "#e2401c" },
+  vivaldi: { letter: "V", color: "#d63a3a" },
+  opera: { letter: "O", color: "#d6132a" },
+  "opera-gx": { letter: "O", color: "#c2185b" },
+  chromium: { letter: "C", color: "#3c6fd6" },
+  firefox: { letter: "F", color: "#d35400" },
+};
+
+/** The browser a history page came from (live history from other browsers): a small round tile with its initial. */
+export function SourceBadge({ source, size = 14 }: { source: string; size?: number }) {
+  const tile = SOURCE_TILES[source] ?? { letter: source.slice(0, 1).toUpperCase(), color: "#5f6368" };
+  const label = t("From {browser}", { browser: liveSourceName(source) });
+  return (
+    <span className="source-badge" role="img" title={label} aria-label={label} data-source={source} style={{ width: size, height: size, fontSize: Math.round(size * 0.62), background: tile.color }}>
+      {tile.letter}
     </span>
   );
 }

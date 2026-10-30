@@ -1,12 +1,14 @@
 import type { PermissionKind } from "../../shared/permissions";
 import {
   IconActivity,
+  IconApps,
   IconBell,
   IconCamera,
   IconClipboard,
   IconExpand,
   IconLocation,
   IconMic,
+  IconNetwork,
   IconPiano,
   IconPointer,
   IconScreen,
@@ -36,6 +38,10 @@ export function PermissionIcon({ kind, size = 16 }: { kind: PermissionKind; size
       return <IconScreen size={size} />;
     case "fullscreen":
       return <IconExpand size={size} />;
+    case "loopback-network":
+      return <IconApps size={size} />;
+    case "local-network":
+      return <IconNetwork size={size} />;
   }
 }
 

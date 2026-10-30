@@ -87,7 +87,7 @@ describe("UI language", () => {
   it("has Spanish page titles and permission names", () => {
     const titles = htmlTitles();
     expect(titles.length).toBeGreaterThan(20);
-    const permissions = Object.values(PERMISSION_LABELS).map((p) => p.title);
+    const permissions = Object.values(PERMISSION_LABELS).flatMap((p) => [p.title, p.prompt]);
     expect([...titles, ...permissions].filter((text) => !(text in ES))).toEqual([]);
   });
 
@@ -115,7 +115,10 @@ describe("UI language", () => {
   it("has no Spanish strings left behind by removed texts", () => {
     const used = new Set([...RENDERER.flatMap(tLiterals), ...MAIN.flatMap(trLiterals), ...tLiterals(STEP_LABELS), ...menuLabels()]);
     for (const title of htmlTitles()) used.add(title);
-    for (const p of Object.values(PERMISSION_LABELS)) used.add(p.title);
+    for (const p of Object.values(PERMISSION_LABELS)) {
+      used.add(p.title);
+      used.add(p.prompt);
+    }
     expect(Object.keys(ES).filter((key) => !used.has(key))).toEqual([]);
   });
 });

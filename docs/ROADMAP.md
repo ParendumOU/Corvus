@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file is the one list of what is left to do; what shipped, release by release, is in [CHANGELOG.md](../CHANGELOG.md).
 
-Last updated: 2026-10-30 · current release: **v0.32.5** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.10.0** (Android preview)
+Last updated: 2026-10-30 · current release: **v0.32.6** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.10.0** (Android preview)
 
 ---
 
@@ -11,7 +11,6 @@ Last updated: 2026-10-30 · current release: **v0.32.5** (Windows + Linux unsign
 In order. Each item is one branch (`feat|fix/<name>`), validated and merged on its own.
 
 1. **Corvus for mobile 0.11.0** once Apple and Google approve 0.10.0 (the release script now publishes to both stores by itself): ships what is already on main: the certificate error page (no Proceed on the phone; Android link, back and reload fixes; failed loads kept out of history), Android language change without a restart (Settings > Apps > Corvus > Language) and coming back to the same screen after Android rebuilds or stops the app. Check the certificate page and the language on a real iPhone through TestFlight.
-2. **Field dropdown polish**: it stays open after a tab switch that does not move the keyboard; the first one in a window waits a moment for its view to load.
 
 ## Waiting on the owner or on the stores
 
@@ -28,6 +27,7 @@ In order. Each item is one branch (`feat|fix/<name>`), validated and merged on i
 - **Next Expo upgrade**: redo the expo-router patch (patches/expo-router@58.0.26.patch, the router binding after Android rebuilds the screen) and recheck Google Play's edge-to-edge warning (today it comes from library calls; the bitmap warning is a false positive).
 - **Demo sync chain**: Spanish sample content for reviewers who use the app in Spanish.
 - **Import from Google Authenticator**: AVIF photos (the decoder already reads them); a KeePass file blocked only by its access rights shows as writable until the write fails.
+- **Live history**: "Also sync them to my other devices", an opt-in second toggle under Settings > Live history from other browsers so pages read from other browsers sync like Corvus's own (today they stay on this computer).
 - **Parked**: WebScope active checks (opt-in), to revisit from another angle; Chrome extensions' declarativeNetRequest at scale, only if an extension needs it.
 
 ## Open decisions (owner)

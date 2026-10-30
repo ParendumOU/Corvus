@@ -20,6 +20,8 @@ export interface PermissionHost {
   tabFor(wc: WebContents): { agent: boolean } | undefined;
   /** The pending prompt of a tab changed: the window should re-render its state. */
   promptsChanged(wc: WebContents): void;
+  /** A page asks to open a link in another app (see external-apps.ts). */
+  openExternal(wc: WebContents, url: string, requestingUrl: string): void;
 }
 
 type Resolver = (allowed: boolean, sourceId?: string) => void;
@@ -54,12 +56,7 @@ export class PermissionManager {
   ) {}
 
   install(session: Session): void {
-    session.setPermissionRequestHandler((wc, permission, callback, details) => {
-      const mediaTypes = "mediaTypes" in details ? details.mediaTypes : undefined;
-      const origin = originOf(details.requestingUrl);
-      const topOrigin = details.isMainFrame || !wc || wc.isDestroyed() ? origin : originOf(wc.getURL()) || origin;
-      this.request(wc, origin, topOrigin, kindsForPermission(permission, mediaTypes), (allowed) => callback(allowed));
-    });
+    session.setPermissionRequestHandler((wc, permission, callback, details) => this.handleRequest(wc, permission, callback, details));
     session.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
       const mediaTypes =
         permission === "media" ? (details.mediaType === "video" || details.mediaType === "audio" ? [details.mediaType] : ["video", "audio"]) : undefined;
@@ -99,6 +96,21 @@ export class PermissionManager {
         })
         .catch(deny);
     });
+  }
+
+  /**
+   * A page's permission request, as Electron hands it over. A link to another app ("openExternal") is
+   * never granted here: Corvus opens it itself once the person says so (see external-apps.ts).
+   */
+  handleRequest(wc: WebContents, permission: string, callback: (granted: boolean) => void, details: Electron.PermissionRequest & { mediaTypes?: string[]; externalURL?: string }): void {
+    if (permission === "openExternal") {
+      callback(false);
+      if (details.externalURL) this.host.openExternal(wc, details.externalURL, details.requestingUrl);
+      return;
+    }
+    const origin = originOf(details.requestingUrl);
+    const topOrigin = details.isMainFrame || wc.isDestroyed() ? origin : originOf(wc.getURL()) || origin;
+    this.request(wc, origin, topOrigin, kindsForPermission(permission, details.mediaTypes), (allowed) => callback(allowed));
   }
 
   private decide(wc: WebContents | null | undefined, origin: string, topOrigin: string, kinds: PermissionKind[]): Verdict {

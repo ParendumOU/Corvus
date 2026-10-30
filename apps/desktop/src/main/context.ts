@@ -8,12 +8,15 @@ import type { TranslateService } from "./translate-service";
 import type { TabSleeper } from "./tab-sleeper";
 import type { AutofillService } from "./autofill-service";
 import type { CertErrorService } from "./cert-errors";
+import type { ExternalAppService } from "./external-apps";
+import type { HttpAuthService } from "./http-auth";
 import type { Controller } from "./controller";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
 import type { BackupReminder } from "./backup-reminder";
 import type { DefaultBrowser } from "./default-browser";
 import type { BrowserImport } from "./browser-import";
+import type { LiveHistoryService } from "./live-history";
 import type { DownloadQueue } from "./download-queue";
 import type { LinkGrabber } from "./link-grabber";
 import type { FlowService } from "./flow-service";
@@ -56,6 +59,10 @@ export interface AppContext {
   controller: Controller;
   /** Pages whose certificate fails: the interstitial, and certificates accepted for this session. */
   certErrors: CertErrorService;
+  /** Links that open another app on this computer ("Open <app>?"). */
+  externalApps: ExternalAppService;
+  /** Sites that ask for a username and password (HTTP sign-in dialog). */
+  httpAuth: HttpAuthService;
   mcp: McpService;
   sync: SyncService;
   updater: UpdateService;
@@ -70,6 +77,8 @@ export interface AppContext {
   queue: DownloadQueue;
   /** Bookmarks and history from the other browsers installed here. */
   browserImport: BrowserImport;
+  /** History read live from the other browsers a profile follows (local only). */
+  liveHistory: LiveHistoryService;
   sessionRestore: SessionRestore;
   assist: AssistService;
   /** Page translation from the address bar. */

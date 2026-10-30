@@ -9,7 +9,7 @@ import type { SettingsPatch, SettingsView, StartupMode } from "../../shared/sett
 import type { SiteSearch } from "../../shared/site-search";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
-import { IconTrash } from "../common/icons";
+import { IconExternal, IconTrash } from "../common/icons";
 import { PermissionIcon, displayOrigin } from "../common/permission-icon";
 import { Toggle } from "../common/ui";
 import "./settings-browser.css";
@@ -335,6 +335,19 @@ export function SitePermissionsSection() {
               <span className="grow">{t(PERMISSION_LABELS[kind].title)}</span>
               <span className={`pill ${decision === "allow" ? "ok" : "bad"}`}>{decision === "allow" ? t("Allowed") : t("Blocked")}</span>
               <button className="btn small ghost" title={t("Revoke")} onClick={() => run(api.call("sitePermissions.set", entry.origin, kind, null))}>
+                {t("Revoke")}
+              </button>
+            </div>
+          ))}
+          {entry.externalApps?.map((scheme) => (
+            <div key={`app:${scheme}`} className="site-entry-row" data-external-app={scheme}>
+              <IconExternal size={15} />
+              <span className="grow">
+                {t("Open external apps")}
+                <span className="muted small">{" · "}{t("{scheme}: links", { scheme })}</span>
+              </span>
+              <span className="pill ok">{t("Allowed")}</span>
+              <button className="btn small ghost" title={t("Revoke")} onClick={() => run(api.call("sitePermissions.forgetExternalApp", entry.origin, scheme))}>
                 {t("Revoke")}
               </button>
             </div>

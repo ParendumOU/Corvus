@@ -1,4 +1,4 @@
-/* The account dropdown under a field: transparent around it (its view keeps room for the shadow). */
+/* The account dropdown under a field. Its view is exactly its box (the page around it keeps its clicks), so its edge is drawn inside. */
 html,
 body,
 #root {
@@ -14,9 +14,10 @@ body,
   flex-direction: column;
   gap: 2px;
   padding: 6px;
+  border: 1px solid var(--border);
   border-radius: 12px;
+  overflow: hidden;
   background: var(--surface);
-  box-shadow: 0 1px 6px rgba(20, 20, 40, 0.22), 0 0 0 1px var(--border-soft);
   cursor: default;
   user-select: none;
 }
@@ -41,5 +42,4 @@ body,
 .fd-menu .af-manage {
   margin: 2px -6px -6px;
   padding: 9px 14px;
-  border-radius: 0 0 12px 12px;
 }

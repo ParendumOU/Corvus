@@ -37,6 +37,21 @@ describe("permission kinds", () => {
     expect(kindsForPermission("usb")).toEqual([]);
     expect(kindsForPermission("openExternal")).toEqual([]);
   });
+
+  it("maps Chromium's local network access names (this computer, the local network, and the older single name)", () => {
+    expect(kindsForPermission("loopback-network")).toEqual(["loopback-network"]);
+    expect(kindsForPermission("local-network")).toEqual(["local-network"]);
+    expect(kindsForPermission("local-network-access")).toEqual(["local-network"]);
+  });
+
+  it("asks a secure site for local network access, remembers the answer, and never grants it to http or frames of other sites", () => {
+    expect(decidePermission(query(["loopback-network"]))).toEqual({ action: "prompt", kinds: ["loopback-network"] });
+    expect(decidePermission(query(["loopback-network"], {}, { "loopback-network": { persistent: "allow" } }))).toEqual({ action: "allow" });
+    expect(decidePermission(query(["local-network"], {}, { "local-network": { persistent: "block" } }))).toMatchObject({ reason: "blocked" });
+    expect(decidePermission(query(["loopback-network"], { origin: "http://portal.example", topOrigin: "http://portal.example" }))).toMatchObject({ reason: "insecure" });
+    expect(decidePermission(query(["loopback-network"], { origin: "https://ads.example" }))).toMatchObject({ reason: "embedded" });
+    expect(reviveSitePermissions({ [SITE]: { "loopback-network": "allow", "local-network": "block" } })).toEqual({ [SITE]: { "loopback-network": "allow", "local-network": "block" } });
+  });
 });
 
 describe("origins", () => {

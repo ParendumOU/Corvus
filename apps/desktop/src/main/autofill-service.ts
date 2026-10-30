@@ -4,6 +4,7 @@ import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
 import { autofillSiteOf, neverSaveHostOf } from "../shared/autofill-sites";
 import { loginDomainOf, originKeyOf, type CredentialMatch } from "../shared/credentials";
 import { type AutofillBarState, type AutofillCode, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
+import { dropdownAccounts, dropdownMayOpen } from "../shared/field-dropdown";
 import { codeToFill, totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
@@ -83,7 +84,7 @@ export class AutofillService {
   /** Per tab: origin -> when auto sign-in last asked. */
   private readonly autoAsked = new Map<TabId, Map<string, number>>();
   private autoApprover: AutoSignInApprover | null = null;
-  /** Per window: the account dropdown under a field, made the first time it opens. */
+  /** Per window: the account dropdown under a field, made once a page of the window can show it. */
   private readonly dropdowns = new Map<BrowserWindowCtl, FieldDropdown>();
 
   constructor(private readonly ctx: AppContext) {}
@@ -158,6 +159,7 @@ export class AutofillService {
     const before = this.detected.get(tab.id) ?? { login: false, otp: false };
     this.detected.set(tab.id, next);
     if ((next.login !== before.login || next.otp !== before.otp) && win.activeTab()?.id === tab.id) win.pushState();
+    this.warmDropdown(win, tab, next);
     return next;
   }
 
@@ -261,13 +263,30 @@ export class AutofillService {
       manage: () => win.openSingleton("corvus://passwords/"),
     });
     this.dropdowns.set(win, dropdown);
-    win.win.once("closed", () => this.dropdowns.delete(win));
+    win.win.once("closed", () => {
+      this.dropdowns.delete(win);
+      dropdown.dispose();
+    });
     return dropdown;
   }
 
-  /** The account dropdown of a window, once it has opened (for the smoke test). */
+  /** The account dropdown of a window, once a page of it could show one (for the smoke test). */
   fieldDropdown(win: BrowserWindowCtl): FieldDropdown | undefined {
     return this.dropdowns.get(win);
+  }
+
+  /** The window laid out its views again: its dropdown closes when its page was hidden or moved. */
+  onWindowLayout(win: BrowserWindowCtl): void {
+    this.dropdowns.get(win)?.onLayout();
+  }
+
+  /**
+   * A page found a login or code field: when the person has accounts for it, the window's dropdown
+   * loads ahead (hidden), so it shows at once on the first click. Never for an agent's tab.
+   */
+  private warmDropdown(win: BrowserWindowCtl, tab: TabRuntime, fields: Detected): void {
+    if ((!fields.login && !fields.otp) || tab.agentControlled || win.isDisposed() || this.dropdowns.get(win)?.webContents) return;
+    if (dropdownMayOpen(fields, win.profile.logins.matchesFor(this.pageUrl(tab)))) this.dropdownOf(win).warm();
   }
 
   /** The dropdown view `sender` reported its size, or the entry the mouse is over or pressed. */
@@ -294,7 +313,7 @@ export class AutofillService {
     if (!active()) return;
     if (!has(this.detected.get(tab.id)) && !has(await this.probe(win, tab))) return;
     const url = this.pageUrl(tab);
-    const matches = this.suggestions(win).filter((m) => click.kind === "login" || m.hasTotp);
+    const matches = dropdownAccounts(click.kind, this.suggestions(win));
     const page = pageOf(tab);
     if (!page || !active() || matches.length === 0) return;
     this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches);

@@ -124,12 +124,13 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "ui.connectionMenu": (w, x, y) => showConnectionMenu(w, num(x, "x"), num(y, "y")),
     "ui.tabMenu": (w, id, x, y) => showTabMenu(ctx, w, str(id, "tab"), num(x, "x"), num(y, "y")),
     "ui.groupMenu": (w, id, x, y) => showGroupMenu(w, str(id, "group"), num(x, "x"), num(y, "y")),
-    "dialog.answer": (w, id, button, checked, value, values) =>
+    "dialog.answer": (w, id, button, checked, value, values, choice) =>
       ctx.dialogs.answer(w, str(id, "dialog", 64), {
         button: num(button, "button"),
         checked: checked === true,
         value: typeof value === "string" ? value : "",
-        ...(values === undefined ? {} : { values: strArray(values, "values") }),
+        ...(values === undefined || values === null ? {} : { values: strArray(values, "values") }),
+        ...(choice === undefined ? {} : { choice: num(choice, "choice") }),
       }),
     "ui.bookmarkFolderMenu": (w, id, x, y) => showBookmarkFolderMenu(ctx, w, str(id, "folder"), num(x, "x"), num(y, "y")),
     "ui.bookmarkOverflowMenu": (w, from, x, y, icons) => showBookmarkOverflowMenu(ctx, w, num(from, "index"), num(x, "x"), num(y, "y"), menuIcons(icons)),
@@ -415,6 +416,9 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "import.run": ["settings", "welcome"],
   "import.passwordCsv": ["settings", "welcome"],
   "import.installExtension": ["settings", "welcome"],
+  "liveHistory.view": ["settings"],
+  "liveHistory.set": ["settings"],
+  "liveHistory.forget": ["settings"],
   "siteSearch.list": ["settings"],
   "siteSearch.save": ["settings"],
   "siteSearch.remove": ["settings"],
@@ -934,6 +938,15 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       if (!EXTENSION_ID_RE.test(extensionId)) throw new IpcError("Invalid extension id");
       return c.profile.extensions.installFromStore(extensionId, c.window?.win ?? null);
     },
+    "liveHistory.view": (c) => ctx.liveHistory.view(c.profile),
+    "liveHistory.set": (c, patch) => {
+      const p = (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>;
+      return ctx.liveHistory.set(c.profile, {
+        ...(typeof p.enabled === "boolean" ? { enabled: p.enabled } : {}),
+        ...(p.sources !== undefined ? { sources: strArray(p.sources, "sources").map((s) => str(s, "source", 1100)) } : {}),
+      });
+    },
+    "liveHistory.forget": (c, mark) => ctx.liveHistory.forget(c.profile, str(mark, "browser", 64)),
     "siteSearch.list": (c) => c.profile.siteSearch.list(),
     "siteSearch.save": (c, shortcut) => c.profile.siteSearch.save(shortcut),
     "siteSearch.remove": (c, keyword) => c.profile.siteSearch.remove(str(keyword, "keyword", 64)),

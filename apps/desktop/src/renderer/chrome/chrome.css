@@ -690,6 +690,9 @@ body,
   text-overflow: ellipsis;
   font-size: 13px;
 }
+.omni-suggestions .source-badge {
+  margin-left: auto;
+}
 
 /* ---------------------------------------------------------------- autofill */
 

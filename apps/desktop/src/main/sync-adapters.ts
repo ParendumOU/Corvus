@@ -70,10 +70,13 @@ export function bookmarksAdapter(store: BookmarkStore): SyncAdapter<Bookmark> {
   };
 }
 
-/** History records are keyed by URL, so visits to the same page on two devices merge into one. */
+/**
+ * History records are keyed by URL, so visits to the same page on two devices merge into one. Pages
+ * known only from another browser's live history stay on this computer.
+ */
 export function historyAdapter(store: HistoryStore): SyncAdapter<SyncedHistoryEntry> {
   return {
-    list: () => store.all().map((e) => ({ id: e.url, payload: toSyncedHistory(e) })),
+    list: () => store.all().flatMap((e) => (e.source ? [] : [{ id: e.url, payload: toSyncedHistory(e) }])),
     apply: (items) => {
       const changes: Array<{ url: string; entry: SyncedHistoryEntry | null }> = [];
       for (const item of items) {

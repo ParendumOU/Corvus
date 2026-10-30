@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { HistoryFilter, HistoryRecord } from "../../shared/history-ops";
+import { liveSourceName } from "../../shared/live-history";
 import { internalApi } from "../common/api";
 import { IconTrash } from "../common/icons";
 import { Modal } from "../common/modal";
-import { Favicon, dayLabel, formatTime, hostOf } from "../common/ui";
+import { Favicon, SourceBadge, dayLabel, formatTime, hostOf } from "../common/ui";
 import { RemoteTabs } from "./remote-tabs";
 import { PageShell, mount } from "./shell";
 
@@ -208,6 +209,12 @@ function HistoryPage() {
                       <div className="sub">
                         {hostOf(e.url)}
                         {e.visitCount > 1 ? t(" · {visitCount} visits", { visitCount: e.visitCount }) : ""}
+                        {e.source && (
+                          <span className="history-source">
+                            {" · "}
+                            <SourceBadge source={e.source} size={12} /> {t("From {browser}", { browser: liveSourceName(e.source) })}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="actions">

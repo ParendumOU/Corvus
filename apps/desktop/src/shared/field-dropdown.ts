@@ -7,8 +7,8 @@
 import { accountDetails, LABEL_SEPARATOR, middleEllipsis, type CredentialMatch } from "./credentials";
 import type { AutofillFieldKind, DropdownAction, FieldDropdownState } from "./credentials-ipc";
 
-/** Room kept around the dropdown inside its view, for its shadow. */
-export const DROPDOWN_MARGIN = 8;
+/** Space between the field and the dropdown. */
+export const DROPDOWN_GAP = 2;
 /** Width of the dropdown itself (narrower when the page is). */
 export const DROPDOWN_WIDTH = 360;
 /** Longest username or site a row shows in full; longer ones are cut in the middle. */
@@ -32,6 +32,47 @@ export function moveHighlight(current: number | null, delta: 1 | -1, count: numb
   if (count <= 0) return null;
   if (current === null || current < 0 || current >= count) return delta > 0 ? 0 : count - 1;
   return (current + delta + count) % count;
+}
+
+/** A box in the window, in pixels. */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where the dropdown's view goes in the window (the view is exactly the dropdown's box, so the page
+ * around it keeps its clicks): right under the field, or over it when there is no room below and
+ * there is above; inside the page's area, cut to it when taller or wider.
+ */
+export function dropdownBounds(field: Box, size: { width: number; height: number }, area: Box): Box {
+  const below = field.y + field.height + DROPDOWN_GAP;
+  const above = field.y - size.height - DROPDOWN_GAP;
+  const y = Math.max(area.y, below + size.height <= area.y + area.height || above < area.y ? below : above);
+  const x = Math.max(area.x, Math.min(field.x, area.x + area.width - size.width));
+  return { x, y, width: Math.min(size.width, area.width), height: Math.min(size.height, Math.max(0, area.y + area.height - y)) };
+}
+
+/**
+ * Whether the open dropdown stays as the window lays out its views again: only while the page it
+ * opened over is the active tab's, shown, where it was. A tab switch, a split view, the sidebar or
+ * the Assist panel close it, even when the keyboard stays where it was.
+ */
+export function dropdownStays(page: { active: boolean; visible: boolean; bounds: Box }, openedOver: Box): boolean {
+  const b = page.bounds;
+  return page.active && page.visible && b.x === openedOver.x && b.y === openedOver.y && b.width === openedOver.width && b.height === openedOver.height;
+}
+
+/** The accounts the dropdown lists under a field: all of the page's under a login field, those with a 2FA under a code field. */
+export function dropdownAccounts(kind: AutofillFieldKind, matches: CredentialMatch[]): CredentialMatch[] {
+  return kind === "login" ? matches : matches.filter((m) => m.hasTotp);
+}
+
+/** Whether a page with these fields and saved accounts can show the dropdown (its window then loads the dropdown's view ahead). */
+export function dropdownMayOpen(fields: { login: boolean; otp: boolean }, matches: CredentialMatch[]): boolean {
+  return (fields.login && dropdownAccounts("login", matches).length > 0) || (fields.otp && dropdownAccounts("otp", matches).length > 0);
 }
 
 /** The words a row needs, in the UI's language: t("…") in the dropdown, tr("…") in the main process. */

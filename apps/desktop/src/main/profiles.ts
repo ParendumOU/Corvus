@@ -15,6 +15,7 @@ import { containerChoice, type ConnectionChoice } from "../shared/connections";
 import { ConnectionStore, applyConnection, webrtcPolicy } from "./connections";
 import { registerCommandApis, registerDownloadApis, registerExtensionApis, registerSessionApis, registerSidePanelApis, registerTabGroupApis } from "./extension-apis";
 import { KeePassStore } from "./keepass-store";
+import { LiveHistoryStore } from "./live-history-store";
 import { LoginSources, vaultProvider } from "./login-sources";
 import { PermissionManager, type PermissionHost } from "./permissions";
 import { AgentRunStore } from "./agent-run-store";
@@ -83,6 +84,8 @@ export class ProfileRuntime {
   readonly session: Session;
   readonly bookmarks: BookmarkStore;
   readonly history: HistoryStore;
+  /** "Live history from other browsers": which browser profiles feed the history, and where each is. */
+  readonly liveHistory: LiveHistoryStore;
   readonly workspaces: WorkspaceStore;
   /** Search shortcuts typed in the address bar ("yt cats"). */
   readonly siteSearch: SiteSearchStore;
@@ -150,6 +153,7 @@ export class ProfileRuntime {
     this.permissions.install(this.session);
     this.bookmarks = new BookmarkStore(dataDir);
     this.history = new HistoryStore(dataDir);
+    this.liveHistory = new LiveHistoryStore(dataDir);
     this.workspaces = new WorkspaceStore(dataDir);
     this.siteSearch = new SiteSearchStore(dataDir);
     this.reading = new ReadingStore(dataDir);
@@ -344,6 +348,7 @@ export class ProfileRuntime {
     this.semanticIndex.flush();
     this.credentials.flush();
     this.keepass.flush();
+    this.liveHistory.flush();
     this.autoSignIn.flush();
     this.backup.flush();
     this.siteSettings.flush();

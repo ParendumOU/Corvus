@@ -8,7 +8,7 @@ import type { Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
 import { languageName, type TranslateBarState } from "../../shared/translate";
 import { CorvusMark, IconBook, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
-import { Favicon } from "../common/ui";
+import { Favicon, SourceBadge } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
 import { SavePasswordPrompt } from "./SavePassword";
 import { AutofillPanel } from "./AutofillPanel";
@@ -382,6 +382,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
                 </span>
                 <span className="sugg-title">{s.title}</span>
                 {s.detail && <span className="sugg-detail">— {s.detail}</span>}
+                {s.source && <SourceBadge source={s.source} />}
               </li>
             ))}
           </ul>

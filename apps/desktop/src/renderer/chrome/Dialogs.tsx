@@ -3,10 +3,10 @@ import "./dialogs.css";
 import type { DialogView } from "../../shared/dialog";
 import { chromeApi } from "../common/api";
 import { t } from "../common/i18n";
-import { IconShield, IconSparkle } from "../common/icons";
+import { IconEye, IconEyeOff, IconLock, IconShield, IconSparkle } from "../common/icons";
 
-function answer(view: DialogView, button: number, checked: boolean, value: string, values?: string[]): void {
-  void chromeApi().call("dialog.answer", view.id, button, checked, value, values);
+function answer(view: DialogView, button: number, checked: boolean, value: string, values?: string[], choice?: number): void {
+  void chromeApi().call("dialog.answer", view.id, button, checked, value, values, choice);
 }
 
 /** Buttons in order; the default one is the primary, a destructive one is red. */
@@ -39,6 +39,7 @@ export function DialogModal({ view }: { view: DialogView }) {
   const [value, setValue] = useState(view.input?.value ?? "");
   const [values, setValues] = useState(() => view.fields?.map((f) => f.value) ?? []);
   const [missing, setMissing] = useState<number | null>(null);
+  const [revealed, setRevealed] = useState<number[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const fields = useRef<Array<HTMLInputElement | null>>([]);
   // The view is a new object on every state push: focus once per dialog, not on each push.
@@ -114,26 +115,63 @@ export function DialogModal({ view }: { view: DialogView }) {
             onChange={(e) => setValue(e.target.value)}
           />
         )}
+        {view.choices?.length ? (
+          <div className="dialog-choices" role="list">
+            {view.choices.map((choice, i) => (
+              <button
+                key={i}
+                type="button"
+                role="listitem"
+                className="dialog-choice"
+                data-dialog-choice={i}
+                onClick={() => answer(view, view.defaultId, checked, value, view.fields ? values : undefined, i)}
+              >
+                <IconLock size={15} />
+                <span className="dialog-choice-label">{choice.label}</span>
+                {choice.detail ? <span className="dialog-choice-detail">{choice.detail}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {view.fields?.map((field, i) => (
           <label key={i} className="dialog-field">
             <span className="dialog-field-label">{field.label}</span>
-            <input
-              ref={(el) => {
-                fields.current[i] = el;
-              }}
-              className="input"
-              value={values[i] ?? ""}
-              placeholder={field.placeholder}
-              spellCheck={false}
-              data-dialog-field={i}
-              aria-invalid={missing === i || undefined}
-              onChange={(e) => {
-                const next = [...values];
-                next[i] = e.target.value;
-                setValues(next);
-                if (missing === i) setMissing(null);
-              }}
-            />
+            <span className={field.secret ? "dialog-secret" : "dialog-plain"}>
+              <input
+                ref={(el) => {
+                  fields.current[i] = el;
+                }}
+                className="input"
+                type={field.secret && !revealed.includes(i) ? "password" : "text"}
+                value={values[i] ?? ""}
+                placeholder={field.placeholder}
+                spellCheck={false}
+                autoComplete="off"
+                data-dialog-field={i}
+                aria-invalid={missing === i || undefined}
+                onChange={(e) => {
+                  const next = [...values];
+                  next[i] = e.target.value;
+                  setValues(next);
+                  if (missing === i) setMissing(null);
+                }}
+              />
+              {field.secret ? (
+                <button
+                  type="button"
+                  className="icon-btn dialog-eye"
+                  data-dialog-reveal={i}
+                  aria-label={revealed.includes(i) ? t("Hide password") : t("Show password")}
+                  title={revealed.includes(i) ? t("Hide password") : t("Show password")}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setRevealed((r) => (r.includes(i) ? r.filter((x) => x !== i) : [...r, i]));
+                  }}
+                >
+                  {revealed.includes(i) ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                </button>
+              ) : null}
+            </span>
             {missing === i && field.required ? (
               <span className="dialog-field-error" role="alert">
                 {field.required}

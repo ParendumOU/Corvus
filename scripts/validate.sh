@@ -5,7 +5,8 @@
 #
 #   docker compose run --rm dev sh scripts/validate.sh
 #
-# CORVUS_SMOKE_TIMEOUT (default 600) caps the smoke run, as for `pnpm test:smoke`.
+# CORVUS_SMOKE_TIMEOUT (default 900) caps the smoke run, as for `pnpm test:smoke`: it only catches a
+# hung run (a full one takes about 10 minutes next to the type checks and unit tests).
 set -u
 cd "$(dirname "$0")/.." || exit 1
 t0=$(date +%s)
@@ -30,7 +31,7 @@ stamp "built"
 logs=$(mktemp -d)
 (pnpm -r typecheck >"$logs/typecheck.log" 2>&1; echo $? >"$logs/typecheck.rc") &
 (pnpm -r test >"$logs/test.log" 2>&1; echo $? >"$logs/test.rc") &
-(cd apps/desktop && CORVUS_SMOKE_TIMEOUT="${CORVUS_SMOKE_TIMEOUT:-600}" pnpm test:smoke >"$logs/smoke.log" 2>&1; echo $? >"$logs/smoke.rc") &
+(cd apps/desktop && CORVUS_SMOKE_TIMEOUT="${CORVUS_SMOKE_TIMEOUT:-900}" pnpm test:smoke >"$logs/smoke.log" 2>&1; echo $? >"$logs/smoke.rc") &
 wait
 stamp "checks done"
 

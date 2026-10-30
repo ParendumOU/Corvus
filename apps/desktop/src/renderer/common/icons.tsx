@@ -263,6 +263,27 @@ export const IconScreen = (p: IconProps) => (
     <path d="M8 20h8M12 16v4" />
   </Svg>
 );
+export const IconApps = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </Svg>
+);
+export const IconNetwork = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="9" y="2" width="6" height="6" rx="1" />
+    <rect x="2" y="16" width="6" height="6" rx="1" />
+    <rect x="16" y="16" width="6" height="6" rx="1" />
+    <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8" />
+  </Svg>
+);
+export const IconExternal = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </Svg>
+);
 export const IconExpand = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />

@@ -17,6 +17,8 @@ export interface DialogField {
    * open (the cancel button still closes it).
    */
   required?: string;
+  /** Typed text is hidden (a password), with a button to show it. */
+  secret?: boolean;
 }
 
 export interface DialogSpec {
@@ -37,6 +39,11 @@ export interface DialogSpec {
   input?: { value: string; placeholder?: string };
   /** Labelled fields, answered in `values` in the same order; Enter presses the default button. */
   fields?: DialogField[];
+  /**
+   * Ready answers listed above the fields (the saved logins of a site): picking one answers the
+   * dialog with its index in `choice`, without pressing a button.
+   */
+  choices?: DialogChoice[];
   /** A data: URL picture (an extension's icon). */
   icon?: string;
   /** The page that asks, shown so the person knows a page and not Corvus is asking. */
@@ -50,6 +57,12 @@ export interface DialogSpec {
   tabId?: TabId;
 }
 
+/** One of a dialog's ready answers: what it is, and where it comes from. */
+export interface DialogChoice {
+  label: string;
+  detail?: string;
+}
+
 export interface DialogView extends DialogSpec {
   id: string;
 }
@@ -60,6 +73,8 @@ export interface DialogAnswer {
   value: string;
   /** What the `fields` hold, in their order (only for a dialog with fields). */
   values?: string[];
+  /** The ready answer picked (an index into `choices`), instead of a button. */
+  choice?: number;
 }
 
 /** What a dialog's fields hold when nothing was typed in them. */

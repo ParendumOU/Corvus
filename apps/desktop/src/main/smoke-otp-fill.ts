@@ -1,12 +1,14 @@
+import fs from "node:fs";
 import type http from "node:http";
-import { clipboard, nativeTheme, type WebContents } from "electron";
+import { app, clipboard, nativeTheme, webContents, type WebContents } from "electron";
 import { dropdownEntries, dropdownLabel } from "../shared/field-dropdown";
+import { NEW_TAB_URL } from "../shared/internal-urls";
 import { base32Encode, totpCode, type TotpConfig } from "../shared/totp";
 import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 import { windowShot } from "./smoke-cert-errors";
 import { narrowWindow } from "./smoke-pairing";
-import type { BrowserWindowCtl } from "./window";
+import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 interface Helpers {
   /** The smoke server; its pages are also served for every host under corvus-smoke.test. */
@@ -190,6 +192,9 @@ export async function runOtpFillSmoke(ctx: AppContext, { url, win, check }: Help
 
     // The dropdown leaves the keyboard in the field: real clicks, Ctrl+V, the arrows, Enter and Escape.
     await dropdownKeysSmoke(ctx, win, { check, tab, wc, dropdown, clickField, clear, allThree });
+    // It closes when its page leaves the screen or moves, takes no clicks around it, and shows at once in a new window.
+    await clear();
+    await dropdownPlaceSmoke(ctx, win, { check, tab, wc, dropdown, clickField, page: (sub) => `${at(sub)}/otp-one-form` });
 
     // The omnibox key panel: one row per account, the page's own first, the rest folded away.
     await clear();
@@ -599,4 +604,181 @@ async function dropdownKeysSmoke(
   }
   ctx.settings.update({ appearance: { language: "en" } });
   nativeTheme.themeSource = "system";
+}
+
+/** Whether a point (window coordinates) is in a box. */
+const contains = (b: { x: number; y: number; width: number; height: number }, p: { x: number; y: number }): boolean => p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+
+/**
+ * The memory of the renderer process of a dropdown's view (KB): its working set, and on Linux its
+ * proportional and private share (what it costs on top of the shared libraries), plus how many other
+ * web views share that process.
+ */
+function fieldMenuMemory(menu: WebContents | null): { pid: number; workingSetKB: number; pssKB: number; privateKB: number; sharedWith: number } | null {
+  if (!menu || menu.isDestroyed()) return null;
+  const pid = menu.getOSProcessId();
+  const metric = app.getAppMetrics().find((m) => m.pid === pid);
+  let rollup = "";
+  try {
+    rollup = fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
+  } catch {
+    // not Linux, or not readable
+  }
+  const kb = (key: string): number => Number(new RegExp(`^${key}:\\s+(\\d+) kB`, "m").exec(rollup)?.[1] ?? -1);
+  const sharedWith = webContents.getAllWebContents().filter((w) => w !== menu && !w.isDestroyed() && w.getOSProcessId() === pid).length;
+  return { pid, workingSetKB: metric?.memory.workingSetSize ?? -1, pssKB: kb("Pss"), privateKB: metric?.memory.privateBytes ?? kb("Private_Clean") + kb("Private_Dirty"), sharedWith };
+}
+
+/**
+ * The dropdown goes when its page leaves the screen or moves, even when the keyboard stays where it
+ * was: a real click on another tab in the strip, a tab activated from elsewhere (an agent, a link from
+ * another app) before its page loaded, the page tiled in a split view, another window taking the
+ * keyboard. Its view is exactly its box, so a click right next to it (where its clear margin was)
+ * reaches the page. A new window loads no dropdown view until a login form with saved accounts shows
+ * up in it, then loads it ahead (hidden), so the first one shows at once; closing the window frees it.
+ */
+async function dropdownPlaceSmoke(
+  ctx: AppContext,
+  win: BrowserWindowCtl,
+  {
+    check,
+    tab,
+    wc,
+    dropdown,
+    clickField,
+    page,
+  }: {
+    check: Helpers["check"];
+    tab: TabRuntime;
+    wc: WebContents;
+    dropdown: ReturnType<typeof dropdownDriver>;
+    clickField: (page: WebContents, selector: string) => Promise<void>;
+    /** The one-form sign-in page on a host of the smoke domain. */
+    page: (sub: string) => string;
+  },
+): Promise<void> {
+  const loaded = (t: TabRuntime): Promise<boolean> => until(() => !t.view.webContents.isDestroyed() && t.view.webContents.getURL().includes("/otp-one-form") && !t.loading);
+  const press = (target: WebContents, p: { x: number; y: number }): void => {
+    for (const type of ["mouseDown", "mouseUp"] as const) target.sendInputEvent({ type, x: p.x, y: p.y, button: "left", clickCount: 1 });
+  };
+
+  // Another tab, picked with a real click on the tab strip (the page had the keyboard). First in the
+  // strip, so it is on screen however many tabs the window has.
+  const other = win.createTab(page("home"), { activate: false, index: 0 });
+  await loaded(other);
+  await clickField(wc, "#u");
+  const openBefore = Boolean(dropdown.state());
+  const strip = await chromeJs<{ x: number; y: number }>(win, `(() => { const r = document.querySelector('[data-tab-id="${other.id}"]')?.getBoundingClientRect(); return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } : null; })()`);
+  if (strip) press(win.chrome.webContents, strip);
+  const switched = await until(() => win.activeTab()?.id === other.id, 3000);
+  const closedBySwitch = await until(() => !dropdown.state(), 2000);
+  check("field dropdown: a real click on another tab in the strip closes it", openBefore && Boolean(strip) && switched && closedBySwitch, { openBefore, strip, switched, closedBySwitch });
+  win.activate(tab.id);
+
+  // A tab activated from elsewhere before its page loaded (the keyboard may stay on the page it left).
+  const lazy = win.createTab(page("cloud"), { activate: false, lazy: true });
+  await clickField(wc, "#u");
+  const openLazy = Boolean(dropdown.state());
+  win.activate(lazy.id);
+  const keyboardStayed = wc.isFocused();
+  const closedByActivate = await until(() => !dropdown.state(), 2000);
+  check("field dropdown: a tab activated from elsewhere (an agent, a link from another app) closes it, also before that tab's page loaded", openLazy && closedByActivate, { openLazy, keyboardStayed, closedByActivate });
+  win.activate(tab.id);
+  win.closeTab(lazy.id);
+
+  // The page tiled in a split view: it moves, the keyboard stays in the field.
+  await clickField(wc, "#u");
+  const openSplit = Boolean(dropdown.state());
+  win.enterSplit(tab.id, other.id);
+  const closedBySplit = await until(() => !dropdown.state(), 2000);
+  check("field dropdown: tiling its page in a split view (the page moves, the keyboard stays) closes it", openSplit && closedBySplit, { openSplit, closedBySplit, pageFocused: wc.isFocused() });
+  win.exitSplit();
+  win.closeTab(other.id);
+  win.activate(tab.id);
+  await sleep(300);
+
+  // The page moved down (the toolbar grew, as when the bookmarks bar shows), the keyboard still in the field.
+  await clickField(wc, "#u");
+  const openMoved = Boolean(dropdown.state());
+  const top = tab.view.getBounds().y;
+  win.setChromeHeight(top + 40);
+  const closedByMove = await until(() => !dropdown.state(), 2000);
+  const keyboardKept = wc.isFocused();
+  win.setChromeHeight(top);
+  check("field dropdown: its page moving while the field keeps the keyboard (the toolbar grew) closes it", openMoved && closedByMove && keyboardKept, { openMoved, closedByMove, keyboardKept });
+  await sleep(300);
+
+  // Its view is exactly its box: right next to it (where the clear margin for its shadow was) is the page.
+  await clickField(wc, "#u");
+  const menu = ctx.autofill.fieldDropdown(win);
+  const view = menu?.bounds() ?? null;
+  const menuWc = menu?.webContents ?? null;
+  const box = menuWc ? await js<{ x: number; y: number; width: number; height: number }>(menuWc, `(() => { const r = document.querySelector(".fd-menu").getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; })()`) : null;
+  const area = tab.view.getBounds();
+  const exact = Boolean(view && box && box.x === 0 && box.y === 0 && Math.abs(view.width - box.width) <= 1 && Math.abs(view.height - box.height) <= 1);
+  const left = view && box ? { x: view.x + box.x - 4, y: Math.round(view.y + box.y + box.height / 2) } : null;
+  const under = view && box ? { x: view.x + box.x + 20, y: Math.round(view.y + box.y + box.height + 4) } : null;
+  const onPage = (p: { x: number; y: number } | null): boolean => Boolean(p && view && !contains(view, p) && contains(area, p));
+  await js(wc, `window.__marginHit = null; document.addEventListener("mousedown", (e) => { window.__marginHit = e.target.tagName; }, { capture: true, once: true }); true`);
+  if (left) press(wc, { x: left.x - area.x, y: left.y - area.y });
+  const hit = await until(async () => Boolean(await js<string>(wc, `window.__marginHit`)), 2000);
+  const closedByClick = await until(() => !dropdown.state(), 2000);
+  check(
+    "field dropdown: its view is exactly its box, so a click right next to it (where its clear margin was) reaches the page and closes it",
+    exact && onPage(left) && onPage(under) && hit && closedByClick,
+    { view, box, area, left, under, hit, closedByClick },
+  );
+
+  // Another window: it takes the keyboard (the first window's dropdown closes) and loads no dropdown
+  // view until a login form with saved accounts shows up in it.
+  await clickField(wc, "#u");
+  const openInFirst = Boolean(dropdown.state());
+  const firstMemory = fieldMenuMemory(ctx.autofill.fieldDropdown(win)?.webContents ?? null);
+  const w2 = ctx.windows.open(win.profile.profile.id, [NEW_TAB_URL]);
+  const closedByWindow = await until(() => !dropdown.state(), 3000);
+  check("field dropdown: another window taking the keyboard closes it", openInFirst && closedByWindow, { openInFirst, closedByWindow });
+  await sleep(1500);
+  const noneBefore = !ctx.autofill.fieldDropdown(w2)?.webContents;
+  const t2 = w2.createTab(page("edge"));
+  const wc2 = t2.view.webContents;
+  // The dropdown's page takes the keyboard as it loads: never from the page (it loads out of the window).
+  let pageBlurs = 0;
+  wc2.on("blur", () => pageBlurs++);
+  await loaded(t2);
+  await until(() => ctx.autofill.stateFor(w2).matchCount > 0, 5000);
+  const menu2 = (): WebContents | null => ctx.autofill.fieldDropdown(w2)?.webContents ?? null;
+  const warm = await until(() => {
+    const m = menu2();
+    return Boolean(m && !m.isLoading() && m.getURL() === "corvus://field-menu/");
+  }, 5000);
+  await sleep(300);
+  const keyboardOnPage = wc2.isFocused() && !menu2()?.isFocused();
+  check("field dropdown: its view loading ahead (hidden) never takes the keyboard from the page", warm && keyboardOnPage && pageBlurs === 0, { warm, keyboardOnPage, pageBlurs });
+  const memory = fieldMenuMemory(menu2());
+  const field = await js<{ x: number; y: number }>(wc2, `(() => { const r = document.getElementById("u").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+  wc2.focus();
+  const d2 = dropdownDriver(ctx, w2);
+  const pressedAt = Date.now();
+  if (field) press(wc2, field);
+  let shownMs = -1;
+  while (Date.now() - pressedAt < 5000) {
+    if (d2.state() && ctx.autofill.fieldDropdown(w2)?.bounds()) {
+      shownMs = Date.now() - pressedAt;
+      break;
+    }
+    await sleep(5);
+  }
+  check(
+    "field dropdown: a new window loads its view ahead (hidden) once a login form with saved accounts shows up, none before, and its first dropdown shows at once",
+    noneBefore && warm && shownMs >= 0 && shownMs < 1000,
+    { noneBefore, warm, shownMs, memory, firstMemory },
+  );
+  await windowShot(w2, "field-dropdown-new-window", "otp-fill");
+  const menuOf2 = menu2();
+  w2.win.close();
+  const freed = await until(() => Boolean(menuOf2?.isDestroyed()), 3000);
+  check("field dropdown: closing a window frees its dropdown's view", Boolean(menuOf2) && freed, { freed });
+  win.win.focus();
+  win.activate(tab.id);
+  await sleep(300);
 }
