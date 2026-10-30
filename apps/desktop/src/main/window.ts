@@ -4,6 +4,7 @@ import { hostFromUrl, isYouTubeHost } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError, type CertBlockReason } from "../shared/cert-errors";
+import { downloadTabStep, downloadedByAgent, hasOwnPage } from "../shared/download-trust";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
@@ -112,6 +113,8 @@ export interface DockedPanel {
 const SIDEBAR_COLLAPSED_WIDTH = 52;
 /** Isolated world that checks whether a page has typed text before its tab sleeps. */
 const SLEEP_CHECK_WORLD_ID = 1999;
+/** Input in a tab this soon after an agent acted on it may be the agent's own (see BrowserWindowCtl.downloadByAgent). */
+const AGENT_INPUT_GRACE_MS = 2000;
 
 export interface TabRuntime {
   id: TabId;
@@ -147,6 +150,12 @@ export interface TabRuntime {
   autoPip?: boolean;
   /** The pages its current navigation went through (redirects), for the icons of bookmarks that lead elsewhere. */
   redirects?: RedirectChain;
+  /** The address of the page it shows, once one committed (`url` runs ahead to an address that is loading). */
+  committedUrl?: string;
+  /** The person's last click or key press in it, not counting input while an agent acts (epoch ms). */
+  personInputAt?: number;
+  /** The last time an agent acted on it (epoch ms). */
+  agentActedAt?: number;
 }
 
 export interface OpenTabOptions {
@@ -929,8 +938,13 @@ export class BrowserWindowCtl {
     // A click or key press in a tab an agent works in: the person takes over (see AgentRunner).
     wc.on("input-event", (_event, input) => {
       this.ctx.agentRunner.personInput(this, tab.id, input.type);
-      // Where the page goes next is the person's doing, not a redirect.
-      if (isPersonInput(input.type)) redirects.interrupt();
+      if (isPersonInput(input.type)) {
+        // Where the page goes next is the person's doing, not a redirect.
+        redirects.interrupt();
+        // So is a download it starts, unless an agent is acting (its own input looks the same).
+        const now = Date.now();
+        if (!this.ctx.agents.acting() && now - (tab.agentActedAt ?? 0) > AGENT_INPUT_GRACE_MS) tab.personInputAt = now;
+      }
     });
     followSignInUserAgent(wc, this.profile.userAgents);
     wc.on("did-start-loading", () => {
@@ -957,9 +971,13 @@ export class BrowserWindowCtl {
       tab.committed = true;
       this.applyPageBase(tab, url);
       // The recovery page is loaded over a crashed tab; keep the tab's real URL and crashed flag.
-      if (internalPageOf(url) === "crash") return;
+      if (internalPageOf(url) === "crash") {
+        tab.committedUrl = tab.url;
+        return;
+      }
       // So is the certificate error page over the page that failed.
       if (internalPageOf(url) === "cert-error") {
+        tab.committedUrl = tab.url;
         this.tidyCertHistory(wc, tab.certError?.url);
         return;
       }
@@ -973,6 +991,7 @@ export class BrowserWindowCtl {
       }
       const previous = tab.url;
       tab.url = url;
+      tab.committedUrl = url;
       tab.crashed = false;
       // Until the new page reports its icon: the site's current one, else the last one history knows.
       if (!keepsFavicon(previous, url)) tab.faviconUrl = this.profile.history.faviconsFor([url]).get(url);
@@ -997,6 +1016,7 @@ export class BrowserWindowCtl {
     wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
       if (!isMainFrame) return;
       tab.url = url;
+      tab.committedUrl = url;
       this.ctx.autofill.onInPageNavigation(this, tab);
       if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, tab.title);
       push();
@@ -1258,7 +1278,8 @@ export class BrowserWindowCtl {
     return { paneIds: [...s.panes], focusedTabId: shown ? this.strip.activeId : null, ratio: s.ratio, ratioY: s.ratioY, shown };
   }
 
-  closeTab(id: TabId): void {
+  /** `remember: false` leaves it out of Recently closed (a tab that only ever held a download). */
+  closeTab(id: TabId, opts: { remember?: boolean } = {}): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
     // Closing a pane of a split leaves the other panes tiled; with one left, the split ends and the
@@ -1271,7 +1292,7 @@ export class BrowserWindowCtl {
       if (this.strip.activeId === id && survivor) this.strip = activateTab(this.strip, survivor);
     }
     const entry = this.strip.tabs.find((t) => t.id === id);
-    if (!isNewTabUrl(tab.url)) {
+    if (opts.remember !== false && !isNewTabUrl(tab.url)) {
       this.closedTabs = pushClosed(this.closedTabs, {
         id: nextId("c"),
         closedAt: Date.now(),
@@ -1752,11 +1773,55 @@ export class BrowserWindowCtl {
     return this.strip.tabs.map((t) => t.id);
   }
 
+  /** An agent acts on the tab: it is agent-driven from now on, and what it starts next is the agent's. */
   markAgent(id: TabId): void {
     const tab = this.tabs.get(id);
-    if (tab && !tab.agentControlled) {
+    if (!tab) return;
+    tab.agentActedAt = Date.now();
+    if (!tab.agentControlled) {
       tab.agentControlled = true;
       this.pushState();
+    }
+  }
+
+  /** Whether a download from this tab is an AI agent's doing rather than the person's (see downloadedByAgent). */
+  downloadByAgent(id: TabId): boolean {
+    const tab = this.tabs.get(id);
+    if (!tab) return false;
+    const openerId = this.openerOf(id);
+    return downloadedByAgent(tab, hasOwnPage(tab.committedUrl), openerId ? this.tabs.get(openerId) : undefined);
+  }
+
+  /**
+   * A navigation in this tab turned into a download. A tab opened only for the file (a link to it in
+   * a new tab, window.open) closes, and the tab it came from is shown again when it was the one on
+   * screen; a tab with a page keeps it, and its address bar goes back to that page's address.
+   */
+  afterDownload(id: TabId): void {
+    const tab = this.tabs.get(id);
+    if (!tab || this.disposed) return;
+    const openerId = this.openerOf(id);
+    const step = downloadTabStep({
+      url: tab.url,
+      ...(tab.committedUrl !== undefined ? { pageUrl: tab.committedUrl } : {}),
+      active: this.strip.activeId === id,
+      ...(openerId && this.tabs.has(openerId) ? { openerId } : {}),
+      onlyTab: this.tabs.size === 1,
+    });
+    switch (step.kind) {
+      case "close":
+        if (step.activate) this.strip = activateTab(this.strip, step.activate);
+        this.closeTab(id, { remember: false });
+        break;
+      case "new-tab":
+        this.loadUrl(id, NEW_TAB_URL);
+        break;
+      case "restore":
+        tab.url = step.url;
+        this.pushState();
+        break;
+      case "keep":
+        break;
     }
   }
 

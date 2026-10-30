@@ -41,6 +41,7 @@ import type { WebContents } from "electron";
 import { OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { certAgentError } from "../shared/cert-errors";
 import { isExecutableFilename, uniqueFilename } from "../shared/downloads";
+import { hasOwnPage } from "../shared/download-trust";
 import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
 import { resolveMcpAccessLevel } from "../shared/settings";
@@ -300,10 +301,15 @@ export class Controller implements BrowserController {
     const target = this.agentUrl(url);
     const window = (opts.groupId ? this.ctx.windows.regular().find((w) => w.hasGroup(opts.groupId as GroupId)) : undefined) ?? this.ctx.windows.target();
     const groupId = opts.groupId && window.hasGroup(opts.groupId) ? opts.groupId : undefined;
-    const tab = window.createTab(target, { activate: opts.background !== true, agent: opts.agent ?? true, ...(groupId ? { groupId } : {}) });
+    const agent = opts.agent ?? true;
+    const tab = window.createTab(target, { activate: opts.background !== true, agent, ...(groupId ? { groupId } : {}) });
+    if (agent) window.markAgent(tab.id);
     this.logs.watch(tab.view.webContents);
     this.dialogs.watch(tab.view.webContents);
     await this.loaded(tab.view.webContents);
+    // An address that downloads a file closes the tab it opened in (see BrowserWindowCtl.afterDownload).
+    if (!hasOwnPage(tab.committedUrl)) await new Promise((r) => setTimeout(r, 100));
+    if (!window.hasTab(tab.id)) throw new AgentError(`${target} is a file, not a page: it went to the downloads list and its tab closed`);
     await this.certGate(window, tab, certs);
     return window.toTab(tab);
   }

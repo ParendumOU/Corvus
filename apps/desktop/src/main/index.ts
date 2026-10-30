@@ -341,6 +341,7 @@ async function main(): Promise<void> {
     ctx.sync.stop();
     ctx.sessionRestore.quitting();
     ctx.downloads.flush();
+    ctx.downloads.dropHeld();
     ctx.grabber.stop();
     ctx.queue.flush();
     profiles.flush();

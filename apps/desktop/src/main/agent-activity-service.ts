@@ -37,6 +37,12 @@ const POINTER_TRAVEL_MS = 480;
 const OVERLAY_HOLD_MS = 2200;
 /** The toolbar shows the agent as active this long after the last action. */
 const ACTIVE_MS = 4000;
+/** An agent's input can land a moment after its tool call ended. */
+const QUIET_AFTER_CALL_MS = 500;
+/** A call that never reported its result stops counting after this long. */
+const STALE_CALL_MS = 5 * 60_000;
+
+const callKey = (event: { client: string; tool: string; at: number }): string => `${event.client}|${event.tool}|${event.at}`;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -52,6 +58,9 @@ export class AgentActivityService {
   private readonly listeners = new Set<() => void>();
   private notifyTimer: NodeJS.Timeout | null = null;
   private lastClient = "AI agent";
+  /** Tool calls under way (callKey -> start), so input in a page can be told from the agent's own. */
+  private readonly inFlight = new Map<string, number>();
+  private quietUntil = 0;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -86,12 +95,15 @@ export class AgentActivityService {
 
   /** MCP onToolCall hook. Throws while paused, which fails the tool call. */
   toolCall(event: { client: string; tool: string; args: unknown; at: number }): void {
+    this.inFlight.set(callKey(event), event.at);
     this.dispatch({ type: "call", id: crypto.randomUUID(), client: event.client, tool: event.tool, args: event.args, at: event.at });
     assertAgentsRunning(this.state);
     this.lastClient = event.client;
   }
 
   toolResult(event: McpToolResultEvent): void {
+    this.inFlight.delete(callKey(event));
+    this.quietUntil = Date.now() + QUIET_AFTER_CALL_MS;
     this.dispatch({ type: "result", ...event });
   }
 
@@ -112,6 +124,13 @@ export class AgentActivityService {
 
   clear(): void {
     this.dispatch({ type: "clear" });
+  }
+
+  /** An agent's tool call is under way or just ended: input arriving now may be the agent's own. */
+  acting(): boolean {
+    const now = Date.now();
+    for (const [key, at] of this.inFlight) if (now - at > STALE_CALL_MS) this.inFlight.delete(key);
+    return this.inFlight.size > 0 || now < this.quietUntil;
   }
 
   isActive(win: BrowserWindowCtl): boolean {

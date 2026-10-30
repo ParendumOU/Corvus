@@ -48,6 +48,7 @@ import { runDefaultBrowserSmoke } from "./smoke-default-browser";
 import { runBrowserImportSmoke } from "./smoke-browser-import";
 import { runLiveHistorySmoke } from "./smoke-live-history";
 import { runDownloadAiSmoke } from "./smoke-download-ai";
+import { runDownloadsSmoke } from "./smoke-downloads";
 import { runProfileTransferSmoke } from "./smoke-profile-transfer";
 import { runPdfSmoke } from "./smoke-pdf";
 import { runReaderSmoke } from "./smoke-reader";
@@ -246,6 +247,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runLiveHistorySmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=downloads: only the download checks (tabs a download leaves, warnings that learn, trusted types).
+    if (process.env.CORVUS_SMOKE_ONLY === "downloads") {
+      await runDownloadsSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=externalapps: only the checks of links to other apps (Autofirma), HTTP sign-in and local network access, in both languages and themes, with screenshots.
     if (process.env.CORVUS_SMOKE_ONLY === "externalapps") {
       await runExternalAppsSmoke(ctx, { win, check, capture }, true);
@@ -301,6 +307,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     check("no IPC bridge on web content", leaked === "undefined/undefined", leaked);
 
     await runBrowserSmoke(ctx, { url, agentTabId: tab.id, win, check, capture });
+    await runDownloadsSmoke(ctx, { win, check, capture });
     await runSplitSmoke(ctx, { url, win, check, capture });
     await runUxSmoke(ctx, { url, win, check, capture });
     await runSignInSmoke(ctx, { url, win, check });

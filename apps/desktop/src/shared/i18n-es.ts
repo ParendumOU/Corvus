@@ -167,8 +167,6 @@ export const ES: Record<string, string> = {
     "Las ventanas, pestañas y grupos de pestañas se guardan continuamente, así que también vuelven tras un cierre inesperado.",
   "Continue where you left off": "Seguir donde lo dejaste",
   "Open the New Tab page": "Abrir la página de nueva pestaña",
-  "Programs requested by AI-agent tabs are always held back until you keep them.":
-    "Los programas que piden las pestañas de agentes de IA siempre quedan retenidos hasta que decides conservarlos.",
   Location: "Ubicación",
   "Change…": "Cambiar…",
   "Use default": "Usar la predeterminada",

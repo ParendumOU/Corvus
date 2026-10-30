@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { GroupColor } from "@corvus/shared";
 import { CONTAINER_COLORS, type Container } from "../../shared/containers";
+import { DANGEROUS_TYPE_GROUPS, type DangerousTypeGroupId, type TrustedType } from "../../shared/download-trust";
 import type { DefaultBrowserView, MakeDefaultResult } from "../../shared/browser-ipc";
 import type { TelegramStatus } from "../../shared/phone-share";
 import { GROUP_COLOR_HEX } from "../../shared/ipc";
@@ -244,7 +245,7 @@ export function DownloadsSection({ view, update, setView }: Props & { setView: (
   const [passwords, setPasswords] = useState(saved);
   useEffect(() => setPasswords(saved), [saved]);
   return (
-    <Section id="downloads" title={t("Downloads")} description={t("Programs requested by AI-agent tabs are always held back until you keep them.")}>
+    <Section id="downloads" title={t("Downloads")} description={t("Programs wait for you to keep them: ones you download unless you trust their type, and ones an AI agent or an extension asks for always.")}>
       <Row label={t("Location")} hint={d.directory ? undefined : t("Your system Downloads folder.")}>
         <code className="mono">{d.directory || t("Downloads")}</code>
         <button
@@ -292,7 +293,92 @@ export function DownloadsSection({ view, update, setView }: Props & { setView: (
         />
       </Row>
       {error && <div className="notice error">{error}</div>}
+      <TrustedTypes />
     </Section>
+  );
+}
+
+/** Why each kind of program is risky (settings: the file types Corvus warns about). */
+const warnedKinds = (): Record<DangerousTypeGroupId, { label: string; why: string }> => ({
+  windows: { label: t("Windows programs and installers"), why: t("They run as programs on Windows.") },
+  scripts: { label: t("Scripts"), why: t("They run commands on your computer when opened.") },
+  java: { label: t("Java programs"), why: t("They run as programs where Java is installed.") },
+  system: { label: t("System files and shortcuts"), why: t("They change system settings or start other programs.") },
+  "mac-linux": { label: t("Mac and Linux apps"), why: t("They install or run programs on macOS or Linux.") },
+  android: { label: t("Android apps"), why: t("They install apps on Android devices.") },
+});
+
+/** The file types the person trusts (kept without a warning), and the ones Corvus warns about. */
+function TrustedTypes() {
+  const api = internalApi();
+  const [list, setList] = useState<TrustedType[] | null>(null);
+  const [draft, setDraft] = useState({ ext: "", site: "" });
+  const kinds = warnedKinds();
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => void api.call("downloads.trustedTypes").then(setList), [api]);
+  const run = (p: Promise<TrustedType[]>, after?: () => void): void => {
+    setError(null);
+    p.then((l) => {
+      setList(l);
+      after?.();
+    }).catch((e: unknown) => setError(errorMessage(e)));
+  };
+  const add = (): void => {
+    if (draft.ext.trim()) run(api.call("downloads.trustType", draft.ext, draft.site), () => setDraft({ ext: "", site: "" }));
+  };
+  const field = (key: keyof typeof draft) => ({
+    value: draft[key],
+    onChange: (e: { target: { value: string } }) => setDraft({ ...draft, [key]: e.target.value }),
+    onKeyDown: (e: { key: string }) => e.key === "Enter" && add(),
+  });
+  return (
+    <>
+      <Row
+        label={t("File types you trust")}
+        hint={t("Corvus keeps these without asking. Tick “Always keep” when it warns about a file to add one; after you keep a type twice, that box comes ticked. AI agents and extensions still need your OK for every program, whatever this list says.")}
+      />
+      {list && list.length === 0 && (
+        <div className="stack">
+          <span className="muted small">{t("None yet: Corvus asks before keeping any program.")}</span>
+        </div>
+      )}
+      {list && list.length > 0 && (
+        <div className="list" data-trusted-types>
+          {list.map((x) => (
+            <div key={`${x.ext}|${x.site}`} className="list-row trusted-type-row" data-trusted-type={`${x.ext}|${x.site}`}>
+              <code className="trusted-type-ext">.{x.ext}</code>
+              <span className="grow">{x.site ? t("from {site}", { site: x.site }) : t("from any site")}</span>
+              <button className="btn small ghost danger" onClick={() => run(api.call("downloads.untrustType", x.ext, x.site))}>
+                <IconTrash size={13} />
+                {t("Remove")}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="stack">
+        <div className="trusted-type-new" data-trusted-type-new>
+          <input className="input ext" placeholder={t("Type, like .jar")} aria-label={t("File type")} maxLength={20} {...field("ext")} />
+          <input className="input" placeholder={t("Site, or empty for any site")} aria-label={t("Site")} maxLength={200} {...field("site")} />
+          <button className="btn small" disabled={!draft.ext.trim()} onClick={add}>
+            {t("Add")}
+          </button>
+        </div>
+        {error && <div className="notice error">{error}</div>}
+      </div>
+      <Row label={t("File types Corvus warns about")} hint={t("Files that run code when opened. Corvus downloads them in the background under a temporary name and asks before keeping one, unless you trust its type.")} />
+      <div className="stack">
+        <ul className="warned-types" data-warned-types>
+          {DANGEROUS_TYPE_GROUPS.map((g) => (
+            <li key={g.id}>
+              <strong>{kinds[g.id].label}</strong>
+              <span className="muted"> {kinds[g.id].why}</span>
+              <div className="mono small muted">{g.extensions.map((e) => `.${e}`).join(" ")}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }
 

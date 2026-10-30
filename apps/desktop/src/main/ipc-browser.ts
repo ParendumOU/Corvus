@@ -1,6 +1,7 @@
 import { clipboard, dialog, type WebContents, shell } from "electron";
 import type { BrowserChromeRpc, BrowserInternalRpc, PermissionResponse } from "../shared/browser-ipc";
 import { isDownloadAction } from "../shared/downloads";
+import type { TrustScope } from "../shared/download-trust";
 import type { InternalPage } from "../shared/internal-urls";
 import { isPermissionKind, originOf, type PermissionDecision, type PermissionKind } from "../shared/permissions";
 import type { AppContext } from "./context";
@@ -46,6 +47,10 @@ const action = (value: unknown) => {
   if (!isDownloadAction(value)) throw new IpcError("Invalid download action");
   return value;
 };
+const always = (value: unknown): TrustScope | null => {
+  if (value === null || value === "site" || value === "any") return value;
+  throw new IpcError("Invalid choice");
+};
 
 export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRpc, BrowserWindowCtl> {
   return {
@@ -66,6 +71,7 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
       if (tab) w.zoomTab(tab, delta);
     },
     "downloads.action": (w, id, a) => ctx.downloads.act(w.profile, str(id, "download"), action(a)),
+    "downloads.keep": (w, id, scope) => ctx.downloads.keep(w.profile, str(id, "download"), always(scope)),
     "downloads.openPage": (w) => {
       ctx.downloads.markSeen(w.profile);
       w.openSingleton("corvus://downloads/");
@@ -98,6 +104,10 @@ export function browserChromeHandlers(ctx: AppContext): Handlers<BrowserChromeRp
 export const BROWSER_INTERNAL_PERMISSIONS: Record<keyof BrowserInternalRpc, readonly InternalPage[]> = {
   "downloads.list": ["downloads"],
   "downloads.act": ["downloads"],
+  "downloads.keep": ["downloads"],
+  "downloads.trustedTypes": ["settings"],
+  "downloads.trustType": ["settings"],
+  "downloads.untrustType": ["settings"],
   "downloads.clear": ["downloads"],
   "downloads.chooseDirectory": ["settings"],
   "grabber.list": ["downloads"],
@@ -129,6 +139,10 @@ export function browserInternalHandlers(ctx: AppContext): Handlers<BrowserIntern
   return {
     "downloads.list": (c) => ctx.downloads.list(c.profile),
     "downloads.act": (c, id, a) => ctx.downloads.act(c.profile, str(id, "download"), action(a)),
+    "downloads.keep": (c, id, scope) => ctx.downloads.keep(c.profile, str(id, "download"), always(scope)),
+    "downloads.trustedTypes": (c) => ctx.downloads.trustedTypes(c.profile),
+    "downloads.trustType": (c, ext, site) => ctx.downloads.addTrustedType(c.profile, str(ext, "file type", 40), str(site, "site", 2048)),
+    "downloads.untrustType": (c, ext, site) => ctx.downloads.removeTrustedType(c.profile, str(ext, "file type", 40), str(site, "site", 2048)),
     "downloads.clear": (c) => ctx.downloads.clear(c.profile),
     "grabber.list": (c) => ctx.grabber.list(c.profile),
     "grabber.addText": (c, text, name) => ctx.grabber.addText(c.profile, str(text, "text", 200_000), "pasted", typeof name === "string" ? name.slice(0, 200) : ""),

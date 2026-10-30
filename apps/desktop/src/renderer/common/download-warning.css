@@ -1,0 +1,40 @@
+.dl-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.dl-warning-text {
+  font-size: 12px;
+  color: var(--danger);
+}
+.dl-always {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dl-always label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.dl-scope {
+  font: inherit;
+  color: inherit;
+  max-width: 100%;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+}
+.dl-scope:disabled {
+  opacity: 0.6;
+}
+.dl-warning-actions {
+  display: flex;
+  gap: 6px;
+}

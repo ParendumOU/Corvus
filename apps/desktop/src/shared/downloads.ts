@@ -1,5 +1,7 @@
 /** Download list model, file naming and executable detection. Pure and unit tested. */
 
+import { fileExtension, isDangerousExtension, type TrustScope } from "./download-trust";
+
 export type DownloadState = "progressing" | "paused" | "completed" | "cancelled" | "interrupted" | "blocked";
 
 export interface DownloadRecord {
@@ -21,6 +23,19 @@ export interface DownloadRecord {
   /** From a private window: listed while it is open, never saved. */
   ephemeral?: boolean;
   canResume: boolean;
+  /** A program the person downloaded (state "blocked"): it waits under a temporary name for Keep or Discard. */
+  warning?: DownloadWarning;
+}
+
+export interface DownloadWarning {
+  ext: string;
+  /** Where it comes from ("" when the address has no site). */
+  site: string;
+  /** "Always keep" starts ticked: the person kept this type before (see keepSuggestion). */
+  ticked: boolean;
+  scope: TrustScope;
+  /** Offer "Always keep" (not in private windows, which keep nothing). */
+  canRemember: boolean;
 }
 
 export const DOWNLOAD_ACTIONS = ["pause", "resume", "cancel", "open", "show", "remove", "keep", "discard", "retry"] as const;
@@ -30,19 +45,9 @@ export function isDownloadAction(value: unknown): value is DownloadAction {
   return typeof value === "string" && (DOWNLOAD_ACTIONS as readonly string[]).includes(value);
 }
 
-const EXECUTABLE_EXTENSIONS = new Set([
-  "exe", "msi", "msix", "msixbundle", "appx", "appxbundle", "bat", "cmd", "com", "scr", "pif", "cpl", "hta",
-  "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "lnk", "reg", "jar", "dll", "sys", "inf",
-  "application", "gadget", "msp", "mst", "sh", "bash", "zsh", "run", "bin", "command", "app", "dmg",
-  "pkg", "mpkg", "deb", "rpm", "appimage", "snap", "flatpakref", "apk", "xapk", "py", "pyw", "pl", "rb",
-]);
-
-/** Files that run code when opened. Agent tabs need explicit user confirmation to download them. */
+/** Files that run code when opened: agents never get them without the person, and the person is warned. */
 export function isExecutableFilename(name: string): boolean {
-  const base = name.trim().toLowerCase().replace(/[.\s]+$/, "");
-  const dot = base.lastIndexOf(".");
-  if (dot <= 0 && !base.startsWith(".")) return false;
-  return EXECUTABLE_EXTENSIONS.has(base.slice(dot + 1));
+  return isDangerousExtension(fileExtension(name));
 }
 
 /** "report.pdf" -> "report (1).pdf" -> "report (2).pdf"... until `taken` says it is free. */
@@ -161,6 +166,7 @@ export function downloadStatus(record: DownloadRecord): string {
     case "interrupted":
       return "Failed";
     case "blocked":
+      if (record.warning) return `.${record.warning.ext} files can harm your computer`;
       return record.extensionId ? "Blocked: an extension tried to download a program" : "Blocked: an AI agent tried to download a program";
   }
 }

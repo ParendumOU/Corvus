@@ -93,3 +93,36 @@
   flex: 2 1 260px;
   min-width: 0;
 }
+
+.trusted-type-row {
+  align-items: center;
+  gap: 10px;
+}
+.trusted-type-ext {
+  min-width: 64px;
+  font-size: 12px;
+}
+.trusted-type-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.trusted-type-new .input {
+  flex: 2 1 200px;
+  width: auto;
+}
+.trusted-type-new .input.ext {
+  flex: 0 1 120px;
+}
+.warned-types {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.warned-types .mono {
+  margin-top: 2px;
+  word-spacing: 4px;
+}

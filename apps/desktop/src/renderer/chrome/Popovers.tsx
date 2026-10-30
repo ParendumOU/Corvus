@@ -7,6 +7,7 @@ import type { WatchBarState } from "../../shared/watch-ipc";
 import type { WorkspaceView } from "../../shared/workspace-ipc";
 import type { PhoneShare } from "../../shared/phone-share";
 import { chromeApi } from "../common/api";
+import { ProgramWarning } from "../common/download-warning";
 import {
   IconAgent,
   IconBell,
@@ -269,13 +270,16 @@ function DownloadRow({ d }: { d: DownloadRecord }) {
         <button className="dl-name" disabled={d.state !== "completed"} title={d.savePath || d.url} onClick={() => act("open")}>
           {d.filename}
         </button>
-        <div className="dl-status">{downloadStatus(d)}</div>
+        {!d.warning && <div className="dl-status">{downloadStatus(d)}</div>}
         {(d.state === "progressing" || d.state === "paused") && (
           <div className="dl-bar">
             <span style={{ width: progress === null ? "100%" : `${Math.round(progress * 100)}%` }} className={progress === null ? "indeterminate" : ""} />
           </div>
         )}
-        {d.state === "blocked" && (
+        {d.state === "blocked" && d.warning && (
+          <ProgramWarning warning={d.warning} onKeep={(always) => void api.call("downloads.keep", d.id, always)} onDiscard={() => act("discard")} />
+        )}
+        {d.state === "blocked" && !d.warning && (
           <div className="dl-confirm">
             <button className="btn small danger" onClick={() => act("discard")}>{t("Discard")}</button>
             <button className="btn small" onClick={() => act("keep")}>{t("Keep anyway")}</button>

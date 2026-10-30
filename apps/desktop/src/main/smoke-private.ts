@@ -48,8 +48,8 @@ export async function runPrivateSmoke(ctx: AppContext, h: PrivateSmokeHelpers): 
       res.writeHead(200, { "Content-Type": "text/html", "Set-Cookie": "corvus_private=1; Path=/" }).end("<!doctype html><title>Private set</title><p id='c'></p><script>c.textContent=document.cookie</script>");
       return;
     }
-    if (route === "/dl/private.bin") {
-      res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": 'attachment; filename="private-smoke.bin"' }).end("private download\n");
+    if (route === "/dl/private.dat") {
+      res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": 'attachment; filename="private-smoke.dat"' }).end("private download\n");
       return;
     }
     res.writeHead(200, { "Content-Type": "text/html" }).end("<!doctype html><title>Cookie check</title><p id='c'></p><script>c.textContent=document.cookie || 'none'</script>");
@@ -108,13 +108,13 @@ export async function runPrivateSmoke(ctx: AppContext, h: PrivateSmokeHelpers): 
 
     // A download from a private window is listed, never written to downloads.json.
     const dir = ctx.downloads.directory();
-    inPrivate.view.webContents.downloadURL(`${base}/dl/private.bin`);
-    const record = await waitFor(() => ctx.downloads.list(runtime).find((d) => d.url.endsWith("/dl/private.bin") && d.state === "completed"), 10_000);
+    inPrivate.view.webContents.downloadURL(`${base}/dl/private.dat`);
+    const record = await waitFor(() => ctx.downloads.list(runtime).find((d) => d.url.endsWith("/dl/private.dat") && d.state === "completed"), 10_000);
     ctx.downloads.flush();
     const saved = fs.readFileSync(path.join(runtime.dataDir, "downloads.json"), "utf8");
     check(
       "private window: its downloads are listed while it is open and never saved",
-      record?.ephemeral === true && !saved.includes("/dl/private.bin") && fs.existsSync(record.savePath),
+      record?.ephemeral === true && !saved.includes("/dl/private.dat") && fs.existsSync(record.savePath),
       { record, dir },
     );
 
@@ -122,7 +122,7 @@ export async function runPrivateSmoke(ctx: AppContext, h: PrivateSmokeHelpers): 
     pw.close();
     await waitFor(() => !ctx.windows.all().includes(pw!), 5000);
     await sleep(500);
-    const listedAfter = ctx.downloads.list(runtime).some((d) => d.url.endsWith("/dl/private.bin"));
+    const listedAfter = ctx.downloads.list(runtime).some((d) => d.url.endsWith("/dl/private.dat"));
     pw = ctx.windows.openPrivate(runtime.profile.id, [`${base}/check`]);
     const fresh = await cookieOf(pw.activeTab()!.view.webContents);
     check("private window: closing the last one wipes its cookies and downloads list", fresh === "none" && !listedAfter, { fresh, listedAfter });

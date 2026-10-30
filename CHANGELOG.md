@@ -12,6 +12,15 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.32.7
+
+### Browser
+- **Downloads no longer leave an empty tab.** A link to a file that opens in a new tab (a link that opens a new tab, a page's pop-up, a middle click, Open link in new tab) downloads in the background: that tab closes by itself and the page you were on stays in front, in AI agents' tab groups too.
+- A file downloaded from the page you are on, or a file's address typed in the address bar, leaves the address bar on that page's address instead of the file's.
+- **Programs you download wait for your OK, and Corvus learns which ones you trust.** A .exe, .msi, .jar, a script or another kind of program downloads in the background under a temporary name, and the downloads bubble asks you to Keep or Discard it. Tick **Always keep .jar files** (from that site, or from any site) and Corvus stops asking for that type; after you keep a type twice, that box comes ticked, but nothing is trusted until you click Keep.
+- **Settings → Downloads** lists the file types you trust, where you can remove or add one, and every kind of file Corvus warns about, with why. These choices stay on this computer, and private windows remember none.
+- Fixed: a program you downloaded yourself in an AI agent's tab group was held back as if the agent had asked for it ("an AI agent tried to download a program"). Programs an AI agent or an extension asks for still always wait for you, whatever types you trust.
+
 ## v0.32.6
 
 ### Browser

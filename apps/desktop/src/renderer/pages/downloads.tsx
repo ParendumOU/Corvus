@@ -6,7 +6,9 @@ import {
   type DownloadAction,
   type DownloadRecord,
 } from "../../shared/downloads";
+import type { TrustScope } from "../../shared/download-trust";
 import { errorMessage, internalApi } from "../common/api";
+import { ProgramWarning } from "../common/download-warning";
 import { IconAgent, IconClose, IconFile, IconFolder, IconPause, IconPlay, IconReload, IconTrash, IconWarning } from "../common/icons";
 import { dayLabel, formatTime, hostOf } from "../common/ui";
 import { GrabberView } from "./downloads-grabber";
@@ -78,13 +80,12 @@ function DownloadsList({ tabs }: { tabs: ReactNode }) {
     });
   }, [api, load]);
 
-  const act = (id: string, action: DownloadAction): void => {
+  const run = (call: Promise<void>): void => {
     setError(null);
-    api
-      .call("downloads.act", id, action)
-      .then(load)
-      .catch((e: unknown) => setError(errorMessage(e)));
+    call.then(load).catch((e: unknown) => setError(errorMessage(e)));
   };
+  const act = (id: string, action: DownloadAction): void => run(api.call("downloads.act", id, action));
+  const keep = (id: string, always: TrustScope | null): void => run(api.call("downloads.keep", id, always));
 
   const q = query.trim().toLowerCase();
   const shown = (list ?? []).filter((d) => !q || d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q));
@@ -120,7 +121,7 @@ function DownloadsList({ tabs }: { tabs: ReactNode }) {
             <div className="day-head">{g.day}</div>
             <div className="list">
               {g.items.map((d) => (
-                <DownloadItemRow key={d.id} d={d} act={act} />
+                <DownloadItemRow key={d.id} d={d} act={act} keep={keep} />
               ))}
             </div>
           </div>
@@ -130,7 +131,7 @@ function DownloadsList({ tabs }: { tabs: ReactNode }) {
   );
 }
 
-function DownloadItemRow({ d, act }: { d: DownloadRecord; act: (id: string, action: DownloadAction) => void }) {
+function DownloadItemRow({ d, act, keep }: { d: DownloadRecord; act: (id: string, action: DownloadAction) => void; keep: (id: string, always: TrustScope | null) => void }) {
   const progress = downloadProgress(d);
   const running = d.state === "progressing" || d.state === "paused";
   return (
@@ -151,8 +152,7 @@ function DownloadItemRow({ d, act }: { d: DownloadRecord; act: (id: string, acti
           <a href={d.url} title={d.url}>
             {hostOf(d.url) || d.url.slice(0, 80)}
           </a>
-          {" · "}
-          {downloadStatus(d)}
+          {d.warning ? null : <>{" · "}{downloadStatus(d)}</>}
           {d.agent && (
             <span className="pill agent-pill" title={t("Started from a tab driven by an AI agent")}>
               <IconAgent size={11} />{" "}{t("AI agent")}</span>
@@ -163,7 +163,8 @@ function DownloadItemRow({ d, act }: { d: DownloadRecord; act: (id: string, acti
             <span style={{ width: progress === null ? "35%" : `${Math.round(progress * 100)}%` }} />
           </div>
         )}
-        {d.state === "blocked" && (
+        {d.state === "blocked" && d.warning && <ProgramWarning warning={d.warning} onKeep={(always) => keep(d.id, always)} onDiscard={() => act(d.id, "discard")} />}
+        {d.state === "blocked" && !d.warning && (
           <div className="inline" style={{ marginTop: 8 }}>
             <span className="muted small">{t("This file can run code on your computer. Keep it only if you trust the site.")}</span>
             <button className="btn small danger" onClick={() => act(d.id, "discard")}>{t("Discard")}</button>

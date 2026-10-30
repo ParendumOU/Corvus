@@ -4,6 +4,7 @@
  */
 import type { DialogView } from "./dialog";
 import type { DownloadAction, DownloadRecord } from "./downloads";
+import type { TrustScope, TrustedType } from "./download-trust";
 import type { QueueAction, QueueView } from "./download-queue";
 import type { GrabbedPackage } from "./link-grabber";
 import type { PermissionDecision, PermissionKind, SitePermissionEntry } from "./permissions";
@@ -130,6 +131,8 @@ export interface BrowserChromeRpc {
   "find.close"(): void;
   "zoom.step"(delta: 1 | -1 | 0): void;
   "downloads.action"(id: string, action: DownloadAction): void;
+  /** Keep a held download; for a program the person downloaded, `always` also trusts its type from its site or any site. */
+  "downloads.keep"(id: string, always: TrustScope | null): void;
   "downloads.openPage"(): void;
   /** The bubble was opened: finished downloads stop showing the check on the toolbar button. */
   "downloads.markSeen"(): void;
@@ -152,8 +155,13 @@ export interface BrowserChromeRpc {
 export interface BrowserInternalRpc {
   "downloads.list"(): DownloadRecord[];
   "downloads.act"(id: string, action: DownloadAction): void;
+  "downloads.keep"(id: string, always: TrustScope | null): void;
   "downloads.clear"(): void;
   "downloads.chooseDirectory"(): SettingsView | null;
+  /** Settings: file types kept without a warning (site "" = from any site). */
+  "downloads.trustedTypes"(): TrustedType[];
+  "downloads.trustType"(ext: string, site: string): TrustedType[];
+  "downloads.untrustType"(ext: string, site: string): TrustedType[];
   "grabber.list"(): GrabbedPackage[];
   /** Adds the download links in pasted text; returns how many were new. */
   /** `name`: all the links as one package of that name (its folder in Downloads). */
