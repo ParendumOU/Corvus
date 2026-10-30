@@ -44,6 +44,25 @@ describe("CredentialVault", () => {
     expect(vault.list("github")[0]?.hasNotes).toBe(true);
   });
 
+  it("applies a batch of changes with one change event, and stores them", () => {
+    const dir = tmp();
+    const vault = new CredentialVault(dir, keychain);
+    const first = vault.add({ origin: "https://github.com", username: "octocat", password: "pw" });
+    let events = 0;
+    vault.changes.on(() => events++);
+    const totp = { secret: "JBSWY3DPEHPK3PXPJBSWY3DP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+    vault.batch(() => {
+      vault.update(first.id, { totp });
+      for (let i = 0; i < 50; i++) vault.add({ origin: "https://example.com", username: `user${i}`, password: "", totp });
+    });
+    expect(events).toBe(1);
+    vault.flush();
+    const reopened = new CredentialVault(dir, keychain);
+    expect(reopened.all()).toHaveLength(51);
+    expect(reopened.get(first.id)?.totp).toEqual(totp);
+    expect(reopened.all().filter((c) => c.password === "" && c.totp?.secret === totp.secret)).toHaveLength(50);
+  });
+
   it("keeps no plaintext secret at rest and reloads", () => {
     const dir = tmp();
     const vault = new CredentialVault(dir, keychain);

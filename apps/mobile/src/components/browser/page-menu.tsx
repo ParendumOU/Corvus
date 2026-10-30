@@ -161,6 +161,7 @@ function bannerLine(banner: ConsentPageState | null): string {
 export function SitePanel({
   open,
   url,
+  certError,
   blocked,
   canBlock,
   blockingOn,
@@ -173,6 +174,8 @@ export function SitePanel({
 }: {
   open: boolean;
   url: string;
+  /** The page did not open because its certificate is not valid. */
+  certError: boolean;
   blocked: number;
   canBlock: boolean;
   /** Blocking is on in Settings. */
@@ -186,7 +189,7 @@ export function SitePanel({
   onClose: () => void;
 }) {
   const theme = useTheme();
-  const secure = isSecure(url);
+  const secure = isSecure(url) && !certError;
   return (
     <Sheet
       open={open}
@@ -201,9 +204,9 @@ export function SitePanel({
         </View>
       }>
       <SheetRow
-        icon={secure ? 'lock' : 'unlock'}
+        icon={certError ? 'warning' : secure ? 'lock' : 'unlock'}
         label={secure ? t('Connection is secure') : t('Connection is not secure')}
-        detail={secure ? t('What you send to this site is encrypted on the way.') : t('Do not type passwords or card numbers here.')}
+        detail={certError ? t('The certificate of this site is not valid, so Corvus did not open it.') : secure ? t('What you send to this site is encrypted on the way.') : t('Do not type passwords or card numbers here.')}
         testID="site-connection"
       />
       {canBlock ? (

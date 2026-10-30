@@ -3,6 +3,7 @@
  * the autofill controls in the browser chrome (ChromeRpc). Passwords only ever leave the main process
  * on an explicit reveal/fill call; the page shows masked summaries until the user asks.
  */
+import type { AuthenticatorImportResult, AuthenticatorPick, AuthenticatorPreview, PhotoReport } from "./authenticator-import";
 import type { CredentialMatch, CredentialSummary, PasswordOptions } from "./credentials";
 import type { PasswordCheckupView } from "./password-health";
 import type { TotpCode } from "./totp";
@@ -51,6 +52,16 @@ export interface CredentialsRpc {
   "credentials.copyTotp"(id: string): void;
   /** Picks an image file and decodes a 2FA setup QR code from it, locally. Null when cancelled. */
   "credentials.importTotpQr"(): TotpQrImport;
+  /** Chooses photos of authenticator QR codes (or a folder of them) for a new import, or adds them to one. Null when cancelled. */
+  "credentials.authenticatorPick"(importId: string | null, kind: "files" | "folder"): AuthenticatorPick | null;
+  /** Reads one photo of an import, locally: what its QR code held. */
+  "credentials.authenticatorRead"(importId: string, index: number): PhotoReport;
+  /** The accounts found so far and where each would go, with the sites typed per row id (no secrets). */
+  "credentials.authenticatorPreview"(importId: string, sites: Record<string, string>): AuthenticatorPreview;
+  /** Imports the selected rows into the vault and ends the import. */
+  "credentials.authenticatorImport"(importId: string, sites: Record<string, string>, selected: string[]): AuthenticatorImportResult;
+  /** Ends an import without importing; its accounts are forgotten. */
+  "credentials.authenticatorDiscard"(importId: string): void;
   /** The global "Let AI agents use logins you opt in" setting (off by default). */
   "credentials.agentAccess"(): boolean;
   /** Ids (vault or KeePass) of logins that sign in automatically after a confirmation. */
@@ -71,21 +82,44 @@ export interface AutofillBarState {
   otpAvailable: boolean;
   /** Submitted credentials are waiting for the user's choice to save/update. */
   canSave: boolean;
-  /** Host of the pending save, shown in the prompt. */
-  saveHost: string;
-  /** The pending save would update an existing login rather than create one. */
-  saveUpdates: boolean;
+  /** Identifies the pending save (0 when none): the save prompt belongs to one submitted login. */
+  saveId: number;
+  /** The save prompt was never shown for the pending save: it opens by itself, once. */
+  savePrompt: boolean;
 }
 
-export const EMPTY_AUTOFILL: AutofillBarState = { available: false, matchCount: 0, otpAvailable: false, canSave: false, saveHost: "", saveUpdates: false };
+export const EMPTY_AUTOFILL: AutofillBarState = { available: false, matchCount: 0, otpAvailable: false, canSave: false, saveId: 0, savePrompt: false };
+
+/**
+ * The pending save as the save prompt shows it. It carries the submitted password, so it is never part
+ * of the window state: the prompt fetches it as it opens and drops it as it closes.
+ */
+export interface PendingSaveView {
+  id: number;
+  host: string;
+  username: string;
+  password: string;
+  /** Usernames already saved for the site (no passwords): saving under one of them updates that login. */
+  savedUsernames: string[];
+}
+
+/** What the person saves from the prompt: the submitted login, possibly edited. */
+export interface SaveEdit {
+  /** The pending save the prompt was opened for: a save that is no longer pending is not stored. */
+  id: number;
+  username: string;
+  password: string;
+}
 
 export interface AutofillChromeRpc {
   "autofill.suggestions"(): CredentialMatch[];
   "autofill.fill"(id: string): void;
   /** Fills the current 2FA code of a login into the page's one-time-code field (user click only). */
   "autofill.fillTotp"(id: string): void;
-  "autofill.saveAccept"(): void;
-  "autofill.saveDismiss"(): void;
+  /** The active tab's pending save, with its password, for the prompt opening now; the prompt counts as shown. */
+  "autofill.savePending"(): PendingSaveView | null;
+  "autofill.saveAccept"(edit: SaveEdit): void;
+  "autofill.saveDismiss"(id: number): void;
   "autofill.openManager"(): void;
 }
 

@@ -50,6 +50,8 @@ export default defineConfig({
           "adblock-parser": resolve(import.meta.dirname, "src/main/adblock-parser.ts"),
           // So does the archive extractor (7-Zip).
           "archive-worker": resolve(import.meta.dirname, "src/main/archive-worker.ts"),
+          // And the QR decoder for photos of authenticator export codes.
+          "qr-worker": resolve(import.meta.dirname, "src/main/qr-worker.ts"),
           // And the sync server built into Corvus (the same code as services/sync-server).
           "sync-server-worker": resolve(import.meta.dirname, "src/main/sync-server-worker.ts"),
         },

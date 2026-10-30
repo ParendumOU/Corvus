@@ -108,11 +108,14 @@ export class PageDialogs {
       });
       for (const waiter of [...(this.waiters.get(wc) ?? [])]) waiter(dialog);
     });
-    // Chromium cancels dialogs on navigation and when the tab closes: withdraw Corvus's dialog too.
-    emitter.on("-cancel-dialogs", () => {
+    // Chromium cancels dialogs on navigation: withdraw Corvus's dialog too. A closed tab gets no
+    // "-cancel-dialogs", so its dialog goes when its page does.
+    const cancel = (): void => {
       this.open.get(wc)?.withdraw();
       this.open.delete(wc);
-    });
+    };
+    emitter.on("-cancel-dialogs", cancel);
+    wc.once("destroyed", cancel);
     // A new page may ask again.
     wc.on("did-navigate", () => this.silenced.delete(wc));
   }

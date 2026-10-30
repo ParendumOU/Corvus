@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file tracks what has shipped and where it goes next.
 
-Last updated: 2026-10-29 · current release: **v0.32.1** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.10.0** (Android preview)
+Last updated: 2026-10-30 · current release: **v0.32.2** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.10.0** (Android preview)
 
 ---
 
@@ -29,6 +29,7 @@ Built across five parallel subagent waves; each merged only on green unit tests 
 - [x] **MCP automation tools**: `run_flow`, cookies, `fill_fields`, `download` (Full level, gated)
 - [x] **Split view** — tile two live tabs, draggable divider, focus routing
 - [x] **2FA codes (TOTP)**: RFC 6238 codes on saved logins (otpauth link, QR image decoded locally or base32 secret), live code on `corvus://passwords`, one-time-code autofill on click, and `fill_totp` / `fill_login` for agents only on opted-in logins after an approval prompt
+- [x] **Import from Google Authenticator**: photos of its export QR codes (otpauth-migration) read locally, many at once and off the main thread; preview with login matching, conflicts and editable sites; 2FA attached to matching logins or saved as 2FA-only logins
 - [x] **KeePass (read-only)**: KDBX 3.1/4 files or folders, key files, keep unlocked via the OS keychain, idle auto-lock, re-read on change; autofill, 2FA and agent sign-in from KeePass; export the built-in vault to a new `.kdbx`; opt-in auto sign-in that asks first
 
 ---

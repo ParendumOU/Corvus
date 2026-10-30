@@ -10,6 +10,7 @@ import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
+import { fallbackWindowState } from "../shared/window-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
 import { matchesPattern, routeFor } from "../shared/connections";
 import {
@@ -186,6 +187,12 @@ function hostOf(url: string): string {
   }
 }
 
+/** A view's page, or null once it is closed (Electron then drops it from the view: `webContents` is undefined). */
+function pageOf(view: WebContentsView): WebContents | null {
+  const wc = view.webContents as WebContents | undefined;
+  return wc && !wc.isDestroyed() ? wc : null;
+}
+
 /** One browser window: a chrome UI view on top of one WebContentsView per tab. */
 export class BrowserWindowCtl {
   readonly id = nextId("w");
@@ -206,6 +213,9 @@ export class BrowserWindowCtl {
   /** The active split (two tiled panes), or null in the normal single-tab mode. */
   private splitSession: SplitSession | null = null;
   private stateTimer: NodeJS.Timeout | null = null;
+  /** The last state the chrome UI got, and why the newest one could not be built (see sendState). */
+  private lastState: WindowState | null = null;
+  private stateError: string | null = null;
   private chromeReady = false;
   private disposed = false;
   private readonly startMaximized: boolean;
@@ -512,6 +522,7 @@ export class BrowserWindowCtl {
 
   state(): WindowState {
     const active = this.activeTab();
+    const page = active ? pageOf(active.view) : null;
     const settings = this.ctx.settings.get();
     return {
       windowId: this.id,
@@ -537,15 +548,15 @@ export class BrowserWindowCtl {
       sidebarWidth: settings.appearance.sidebarWidth,
       sidebarCollapsed: settings.appearance.sidebarCollapsed,
       watches: this.ctx.monitor.barState(this.profile),
-      permissionPrompt: active ? this.profile.permissions.promptFor(active.view.webContents) : null,
+      permissionPrompt: page ? this.profile.permissions.promptFor(page) : null,
       dialog: this.ctx.dialogs.current(this),
       dialogBars: this.ctx.dialogs.bars(this),
       find: active?.find ? { ...active.find } : null,
-      zoomPercent: active && !active.view.webContents.isDestroyed() ? zoomPercent(active.view.webContents.getZoomFactor()) : 100,
+      zoomPercent: page ? zoomPercent(page.getZoomFactor()) : 100,
       downloads: this.ctx.downloads.summary(this.profile),
       copiedLinks: this.ctx.grabber.copiedLinks(),
       defaultBrowserOffer: this.ctx.defaultBrowser.offerFor(this),
-      adblock: this.profile.adblock.barState(active && !active.view.webContents.isDestroyed() ? active.view.webContents : null),
+      adblock: this.profile.adblock.barState(page),
       readerable: active ? this.ctx.reader.isReaderable(active) : false,
       translate: this.ctx.translate.barState(active),
       readerActive: this.ctx.reader.isActive(this),
@@ -604,24 +615,35 @@ export class BrowserWindowCtl {
   private tabView(id: TabId): TabView | null {
     const tab = this.tabs.get(id);
     const entry = this.strip.tabs.find((t) => t.id === id);
-    if (!tab || !entry || tab.view.webContents.isDestroyed()) return null;
-    const history = tab.view.webContents.navigationHistory;
-    const pid = tab.pendingUrl ? 0 : tab.view.webContents.getOSProcessId();
+    const wc = tab && pageOf(tab.view);
+    if (!tab || !entry || !wc) return null;
+    const history = wc.navigationHistory;
+    const pid = tab.pendingUrl ? 0 : wc.getOSProcessId();
     const memoryKB = pid ? this.processMemory.get(pid) : undefined;
     const container = tab.containerId ? this.profile.containers.get(tab.containerId) : undefined;
     const certError = this.certErrorOf(tab);
     return {
-      ...this.toTab(tab),
+      ...this.basicTabView(tab),
       ...(container ? { container } : {}),
       ...(certError ? { certError } : {}),
       ...(this.splitSession?.has(tab.id) ? { inSplit: true } : {}),
       canGoBack: history.canGoBack(),
       canGoForward: history.canGoForward(),
-      webContentsId: tab.view.webContents.id,
+      webContentsId: wc.id,
+      ...(memoryKB ? { memoryKB } : {}),
+    };
+  }
+
+  /** A tab as the strip shows it, from what the window keeps of it (nothing is asked of its page). */
+  private basicTabView(tab: TabRuntime): TabView {
+    return {
+      ...this.toTab(tab),
+      canGoBack: false,
+      canGoForward: false,
+      webContentsId: -1,
       crashed: tab.crashed,
       audible: tab.audible,
       ...(tab.asleep ? { sleeping: true } : {}),
-      ...(memoryKB ? { memoryKB } : {}),
     };
   }
 
@@ -670,12 +692,42 @@ export class BrowserWindowCtl {
   private flushState(): void {
     if (this.disposed) return;
     this.ctx.sessionRestore.markDirty();
+    if (this.chromeReady && !this.chrome.webContents.isDestroyed()) {
+      this.sendState();
+      this.ctx.assist.refresh(this);
+      this.ctx.reader.refresh(this);
+    }
+    // After the chrome UI: an extension listener that throws must not hold its state back.
     this.profile.extensions.windowChanged(this.win.id);
-    if (!this.chromeReady || this.chrome.webContents.isDestroyed()) return;
-    const message: ChromeEventMessage = { kind: "state", state: this.state() };
-    this.chrome.webContents.send(CHROME_EVENT, message);
-    this.ctx.assist.refresh(this);
-    this.ctx.reader.refresh(this);
+  }
+
+  /**
+   * Sends the window's state to the chrome UI. Should building or sending it throw (a tab or a
+   * service in a state nobody planned for), the error is logged and the chrome UI still gets the
+   * window's tabs and active tab, over the last state it got: the strip and the address bar never
+   * stay frozen on an old state while the window goes on underneath.
+   */
+  private sendState(): void {
+    const send = (state: WindowState): void => {
+      const message: ChromeEventMessage = { kind: "state", state };
+      this.chrome.webContents.send(CHROME_EVENT, message);
+      this.lastState = state;
+    };
+    try {
+      send(this.state());
+      this.stateError = null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Logged once, not on every state while the failure lasts.
+      if (message !== this.stateError) this.ctx.crashReporter.record("window-state-failed", { message, stack: err instanceof Error ? err.stack : undefined });
+      this.stateError = message;
+      if (!this.lastState) return;
+      const tabs = this.strip.tabs.flatMap((entry) => {
+        const tab = this.tabs.get(entry.id);
+        return tab ? [this.basicTabView(tab)] : [];
+      });
+      send(fallbackWindowState(this.lastState, { tabs, groups: this.strip.groups, activeTabId: this.strip.activeId }));
+    }
   }
 
   sendCommand(command: ChromeCommand): void {
@@ -998,6 +1050,12 @@ export class BrowserWindowCtl {
       }, UNRESPONSIVE_GRACE_MS);
     });
     wc.on("responsive", () => this.clearUnresponsive(tab));
+    // A page that closes itself (window.close()) takes its webContents along and Electron drops it
+    // from the view: the tab closes too, as in Chrome, rather than staying on without a page.
+    const view = tab.view;
+    wc.once("destroyed", () => {
+      if (!this.disposed && this.tabs.get(tab.id) === tab && tab.view === view) this.closeTab(tab.id);
+    });
     wc.on("focus", () => this.onTabFocus(tab));
     wc.on("audio-state-changed", (event) => {
       tab.audible = event.audible;
@@ -1222,7 +1280,8 @@ export class BrowserWindowCtl {
       });
     }
     this.clearUnresponsive(tab);
-    if (!tab.view.webContents.isDestroyed()) this.profile.adblock.forgetTab(tab.view.webContents.id);
+    const page = pageOf(tab.view);
+    if (page) this.profile.adblock.forgetTab(page.id);
     this.ctx.reader.forgetTab(id);
     this.ctx.translate.forget(id);
     this.ctx.autofill.forgetTab(id);
@@ -1239,7 +1298,7 @@ export class BrowserWindowCtl {
     this.shownTabIds = this.shownTabIds.filter((t) => t !== id);
     if (this.activeShown === id) this.activeShown = null;
     this.win.contentView.removeChildView(tab.view);
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+    page?.close();
     if (this.tabs.size === 0) {
       this.win.close();
       return;
@@ -1527,9 +1586,10 @@ export class BrowserWindowCtl {
 
   /** The proxy a tab goes through (its profile's, its container's, or a site rule's), if any. */
   private connectionBadge(tab: TabRuntime | undefined): ConnectionBadge | null {
-    if (!tab || tab.view.webContents.isDestroyed()) return null;
+    const wc = tab && pageOf(tab.view);
+    if (!tab || !wc) return null;
     const config = this.profile.connections.config();
-    const base = this.profile.choiceFor(tab.view.webContents.session);
+    const base = this.profile.choiceFor(wc.session);
     let host = "";
     try {
       host = new URL(tab.url).hostname;
@@ -2205,7 +2265,7 @@ export class BrowserWindowCtl {
     for (const cleanup of this.cleanups) cleanup();
     for (const tab of this.tabs.values()) {
       this.clearUnresponsive(tab);
-      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+      pageOf(tab.view)?.close();
     }
     this.tabs.clear();
     this.ctx.assist.disposeWindow(this);

@@ -110,6 +110,8 @@ export class CredentialVault {
   private readonly persisted: boolean;
   /** Fires on any local or remote change (drives the sync scheduler and page refreshes). */
   readonly changes = new Emitter();
+  private batchDepth = 0;
+  private batchDirty = false;
 
   constructor(dir: string, private readonly cipher: SecretCipher) {
     this.file = JsonFile.load(path.join(dir, "credentials.json"), emptyFile, reviveFile, 0);
@@ -163,6 +165,30 @@ export class CredentialVault {
     this.changes.emit();
   }
 
+  /** Writes and announces a local change, once per batch. */
+  private changed(): void {
+    if (this.batchDepth > 0) {
+      this.batchDirty = true;
+      return;
+    }
+    this.write();
+    this.emit();
+  }
+
+  /** Runs several changes as one: a single write and a single change event (bulk imports). */
+  batch<T>(fn: () => T): T {
+    this.batchDepth++;
+    try {
+      return fn();
+    } finally {
+      if (--this.batchDepth === 0 && this.batchDirty) {
+        this.batchDirty = false;
+        this.write();
+        this.emit();
+      }
+    }
+  }
+
   list(query = ""): CredentialSummary[] {
     return searchCredentials([...this.cache.values()].map(credentialSummary), query);
   }
@@ -188,6 +214,11 @@ export class CredentialVault {
     return this.all().find((c) => c.origin === origin && c.username === username);
   }
 
+  /** Usernames of the logins saved for exactly this origin (no passwords). */
+  usernamesAt(origin: string): string[] {
+    return this.all().filter((c) => c.origin === origin).map((c) => c.username);
+  }
+
   add(input: CredentialInput): Credential {
     const origin = originKeyOf(input.origin) || input.origin.trim();
     if (!origin) throw new Error("A valid site is required");
@@ -203,8 +234,7 @@ export class CredentialVault {
       updatedAt: now,
     };
     this.cache.set(cred.id, cred);
-    this.write();
-    this.emit();
+    this.changed();
     return cred;
   }
 
@@ -229,8 +259,7 @@ export class CredentialVault {
     };
     if (!(notes && notes.trim())) delete next.notes;
     this.cache.set(id, next);
-    this.write();
-    this.emit();
+    this.changed();
     return next;
   }
 
@@ -248,8 +277,7 @@ export class CredentialVault {
 
   remove(id: string): void {
     if (!this.cache.delete(id)) return;
-    this.write();
-    this.emit();
+    this.changed();
   }
 
   /** Apply changes from sync (keyed by credential id), then flush so the engine never loses a write. */

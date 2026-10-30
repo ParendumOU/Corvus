@@ -1,7 +1,7 @@
 import type { TabId } from "@corvus/shared";
 import type { CredentialMatch } from "../shared/credentials";
 import { originKeyOf } from "../shared/credentials";
-import { type AutofillBarState, type CapturedSubmit, EMPTY_AUTOFILL, type LoginFieldBox } from "../shared/credentials-ipc";
+import { type AutofillBarState, type CapturedSubmit, EMPTY_AUTOFILL, type LoginFieldBox, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
@@ -23,10 +23,12 @@ export interface AutoSignInRequest {
 export type AutoSignInApprover = (win: BrowserWindowCtl, request: AutoSignInRequest) => Promise<{ approved: boolean; stopOffering: boolean }>;
 
 interface PendingSave {
+  id: number;
   origin: string;
   username: string;
   password: string;
-  updates: boolean;
+  /** The save prompt was shown once: it no longer opens by itself (the key button still reaches it). */
+  shown: boolean;
 }
 
 interface Detected {
@@ -72,6 +74,7 @@ function hostOf(origin: string): string {
 export class AutofillService {
   private readonly detected = new Map<TabId, Detected>();
   private readonly pending = new Map<TabId, PendingSave>();
+  private lastSaveId = 0;
   private readonly reprobes = new Map<TabId, NodeJS.Timeout>();
   /** Per tab: origin -> when auto sign-in last asked. */
   private readonly autoAsked = new Map<TabId, Map<string, number>>();
@@ -171,7 +174,7 @@ export class AutofillService {
     if (!origin || !data.password) return;
     const existing = win.profile.credentials.findByLogin(origin, data.username);
     if (existing && existing.password === data.password) return; // already saved, unchanged
-    this.pending.set(tab.id, { origin, username: data.username, password: data.password, updates: Boolean(existing) });
+    this.pending.set(tab.id, { id: ++this.lastSaveId, origin, username: data.username, password: data.password, shown: false });
     if (win.activeTab()?.id === tab.id) win.pushState();
   }
 
@@ -201,9 +204,26 @@ export class AutofillService {
       matchCount,
       otpAvailable,
       canSave: Boolean(save),
-      saveHost: save ? hostOf(save.origin) : "",
-      saveUpdates: save?.updates ?? false,
+      saveId: save?.id ?? 0,
+      // Never over an agent at work: its tab keeps the key button only.
+      savePrompt: Boolean(save && !save.shown && !tab.agentControlled),
     };
+  }
+
+  /**
+   * The save prompt is opening in the active tab: what was submitted, to show (and edit) in it, and the
+   * usernames already saved for the site. Only for the active tab of the asking window; the prompt now
+   * counts as shown, so it does not open by itself again for this save.
+   */
+  pendingSave(win: BrowserWindowCtl): PendingSaveView | null {
+    const tab = win.activeTab();
+    const save = tab ? this.pending.get(tab.id) : undefined;
+    if (!save) return null;
+    if (!save.shown) {
+      save.shown = true;
+      win.pushState();
+    }
+    return { id: save.id, host: hostOf(save.origin), username: save.username, password: save.password, savedUsernames: win.profile.credentials.usernamesAt(save.origin) };
   }
 
   suggestions(win: BrowserWindowCtl): CredentialMatch[] {
@@ -247,17 +267,27 @@ export class AutofillService {
     await this.run<number>(tab, fillOtpScript(code));
   }
 
-  acceptSave(win: BrowserWindowCtl): void {
+  /** The active tab's pending save, if it is still the one with this id. */
+  private pendingFor(win: BrowserWindowCtl, id: number): { tab: TabRuntime; save: PendingSave } | null {
     const tab = win.activeTab();
     const save = tab ? this.pending.get(tab.id) : undefined;
-    if (!tab || !save) return;
-    win.profile.credentials.saveOnSubmit(save.origin, save.username, save.password);
-    this.pending.delete(tab.id);
+    return tab && save?.id === id ? { tab, save } : null;
+  }
+
+  /**
+   * Saves the pending login with what the prompt holds, which the person may have edited: a username
+   * already saved for the site updates that login's password, any other adds a new login.
+   */
+  acceptSave(win: BrowserWindowCtl, edit: SaveEdit): void {
+    const found = this.pendingFor(win, edit.id);
+    if (!found || !edit.password) return;
+    win.profile.credentials.saveOnSubmit(found.save.origin, edit.username, edit.password);
+    this.pending.delete(found.tab.id);
     win.pushState();
   }
 
-  dismissSave(win: BrowserWindowCtl): void {
-    const tab = win.activeTab();
-    if (tab && this.pending.delete(tab.id)) win.pushState();
+  dismissSave(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingFor(win, id);
+    if (found && this.pending.delete(found.tab.id)) win.pushState();
   }
 }

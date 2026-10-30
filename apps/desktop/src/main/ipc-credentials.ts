@@ -8,12 +8,14 @@ import {
   type AutofillChromeRpc,
   type CapturedSubmit,
   type LoginFieldBox,
+  type SaveEdit,
   type CredentialsRpc,
   type TotpQrImport,
 } from "../shared/credentials-ipc";
 import type { InternalPage } from "../shared/internal-urls";
 import type { KeePassExportResult, KeePassEntryInput, KeePassRpc, KeePassState } from "../shared/keepass-ipc";
 import { buildOtpauthUri, parseTotpInput, totpCode, type TotpConfig } from "../shared/totp";
+import { addPhotos, applyAuthenticatorImport, authenticatorPreview, discardAuthenticatorImport, pickPhotos, readAuthenticatorPhoto } from "./authenticator-import";
 import type { AppContext } from "./context";
 import type { CredentialPatch } from "./credential-store";
 import { createKdbx, vaultExportEntries } from "./keepass-format";
@@ -79,6 +81,11 @@ export const CREDENTIALS_INTERNAL_PERMISSIONS: Record<keyof CredentialsRpc, read
   "credentials.totpCode": ["passwords"],
   "credentials.copyTotp": ["passwords"],
   "credentials.importTotpQr": ["passwords"],
+  "credentials.authenticatorPick": ["passwords"],
+  "credentials.authenticatorRead": ["passwords"],
+  "credentials.authenticatorPreview": ["passwords"],
+  "credentials.authenticatorImport": ["passwords"],
+  "credentials.authenticatorDiscard": ["passwords"],
   "credentials.agentAccess": ["passwords"],
   "credentials.autoSignInIds": ["passwords"],
   "credentials.setAutoSignIn": ["passwords"],
@@ -98,6 +105,26 @@ export async function decodeTotpQrFile(file: string): Promise<TotpQrImport> {
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
+}
+
+const MAX_IMPORT_ROWS = 5000;
+
+function photoIndex(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new IpcError("Invalid photo");
+  return value;
+}
+
+/** Sites typed per preview row id. */
+function siteMap(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new IpcError("Invalid sites");
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > MAX_IMPORT_ROWS) throw new IpcError("Invalid sites");
+  return Object.fromEntries(entries.map(([id, site]) => [str(id, "row", 64), str(site, "site", MAX_FIELD)]));
+}
+
+function idList(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > MAX_IMPORT_ROWS) throw new IpcError("Invalid selection");
+  return value.map((id) => str(id, "row", 64));
 }
 
 /** Lets the person pick an image, then decodes the QR code in it. Null when the dialog is cancelled. */
@@ -181,6 +208,16 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
       clipboard.writeText((await totpCode(config)).code);
     },
     "credentials.importTotpQr": (c) => importTotpQr(c.window),
+    "credentials.authenticatorPick": async (c, importId, kind) => {
+      const id = importId === null || importId === undefined ? null : str(importId, "import", 64);
+      const files = await pickPhotos(c.window, kind === "folder" ? "folder" : "files");
+      return files ? addPhotos(c.profile.profile.id, id, files) : null;
+    },
+    "credentials.authenticatorRead": (c, importId, index) => readAuthenticatorPhoto(c.profile.profile.id, str(importId, "import", 64), photoIndex(index)),
+    "credentials.authenticatorPreview": (c, importId, sites) => authenticatorPreview(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites)),
+    "credentials.authenticatorImport": (c, importId, sites, selected) =>
+      applyAuthenticatorImport(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites), idList(selected)),
+    "credentials.authenticatorDiscard": (_c, importId) => discardAuthenticatorImport(str(importId, "import", 64)),
     "credentials.agentAccess": () => ctx.settings.get().passwords.agentAccess,
     "credentials.autoSignInIds": (c) => [...c.profile.autoSignIn.ids()],
     "credentials.checkup": (c) => ctx.passwordCheckup.view(c.profile),
@@ -193,13 +230,27 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
   };
 }
 
+function saveId(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) throw new IpcError("Invalid save");
+  return value;
+}
+
+/** The login the person saves from the save prompt: the pending save's id, a username and a password. */
+function saveEdit(value: unknown): SaveEdit {
+  const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  const password = str(v.password, "password", MAX_FIELD);
+  if (!password) throw new IpcError("Enter a password to save");
+  return { id: saveId(v.id), username: str(v.username, "username", MAX_FIELD), password };
+}
+
 export function autofillChromeHandlers(ctx: AppContext): ChromeHandlers<AutofillChromeRpc> {
   return {
     "autofill.suggestions": (w) => ctx.autofill.suggestions(w),
     "autofill.fill": (w, id) => ctx.autofill.fill(w, str(id, "id", 128)),
     "autofill.fillTotp": (w, id) => ctx.autofill.fillTotp(w, str(id, "id", 128)),
-    "autofill.saveAccept": (w) => ctx.autofill.acceptSave(w),
-    "autofill.saveDismiss": (w) => ctx.autofill.dismissSave(w),
+    "autofill.savePending": (w) => ctx.autofill.pendingSave(w),
+    "autofill.saveAccept": (w, edit) => ctx.autofill.acceptSave(w, saveEdit(edit)),
+    "autofill.saveDismiss": (w, id) => ctx.autofill.dismissSave(w, saveId(id)),
     "autofill.openManager": (w) => w.openSingleton("corvus://passwords/"),
   };
 }

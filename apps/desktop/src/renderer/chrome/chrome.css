@@ -629,14 +629,89 @@ body,
   flex-direction: column;
   gap: 4px;
 }
-.af-title {
-  padding: 4px 6px 8px;
-  font-size: 13px;
+/* The save-password prompt: a small form, like Brave's. */
+.omni-autofill-panel.af-save {
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  padding: 14px 14px 0;
+  gap: 0;
 }
-.af-row {
+.af-save-head {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.af-save-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.af-save-heading {
+  min-width: 0;
+}
+.af-save-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.af-save-host {
+  color: var(--text-2);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.af-label {
+  margin: 0 0 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.af-input {
+  width: 100%;
+  height: 32px;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+.af-password {
+  position: relative;
+}
+.af-password .af-input {
+  padding-right: 38px;
+}
+.af-eye {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-2);
+}
+.af-eye:hover {
+  color: var(--text);
+}
+.af-actions {
+  display: flex;
+  justify-content: flex-end;
   gap: 8px;
-  padding: 0 6px 4px;
+  margin: 2px 0 10px;
+}
+.af-actions .btn {
+  min-width: 76px;
+  height: 30px;
+  font-size: 13px;
+  justify-content: center;
+}
+.af-save .af-manage {
+  margin: 4px -14px 0;
+  padding: 10px 14px;
+  border-radius: 0 0 12px 12px;
 }
 .af-item {
   display: flex;

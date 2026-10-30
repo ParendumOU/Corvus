@@ -9,6 +9,7 @@ import { originKeyOf } from "../shared/credentials";
 import { totpCode, type TotpConfig } from "../shared/totp";
 import type { AppContext } from "./context";
 import { decodeTotpQrFile, exportVaultToKdbx } from "./ipc-credentials";
+import { windowShot } from "./smoke-cert-errors";
 import { createKdbx, openKdbx } from "./keepass-format";
 import { AI_REDACTED_BODY } from "@corvus/webscope";
 import type { BrowserWindowCtl } from "./window";
@@ -203,7 +204,8 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   const canSave = await poll(() => ctx.autofill.stateFor(win).canSave);
   check("autofill offers to save a submitted login", canSave, ctx.autofill.stateFor(win));
 
-  ctx.autofill.acceptSave(win);
+  const submitted = ctx.autofill.pendingSave(win);
+  if (submitted) ctx.autofill.acceptSave(win, submitted);
   const saved = await poll(() => vault.get(seeded.id)?.password === "rotated-pw");
   check("autofill save updates the stored password", saved, vault.get(seeded.id)?.password);
 
@@ -253,6 +255,256 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await agentTotpSmoke(ctx, base, vaultTarget, { url, win, check, capture });
   await autoSignInSmoke(ctx, base, seeded.id, { url, win, check, capture });
   await keepassSmoke(ctx, base, { url, win, check, capture });
+  await runSavePromptSmoke(ctx, { url, win, check, capture });
+}
+
+/** Types a login into the smoke login page and submits it, as a person would. */
+async function submitLogin(wc: WebContents, username: string, password: string): Promise<void> {
+  await wc.executeJavaScript(`(() => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    for (const [id, value] of [["u", ${JSON.stringify(username)}], ["p", ${JSON.stringify(password)}]]) {
+      const input = document.getElementById(id);
+      set.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    document.querySelector("form").requestSubmit();
+    return true;
+  })()`);
+}
+
+const chromeJs = <T>(win: BrowserWindowCtl, expr: string): Promise<T | null> => (win.chrome.webContents.executeJavaScript(expr) as Promise<T>).catch(() => null);
+
+async function chromePoll(win: BrowserWindowCtl, expr: string, tries = 40): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    if ((await chromeJs<boolean>(win, expr)) === true) return true;
+    await delay(150);
+  }
+  return false;
+}
+
+const PROMPT_OPEN = "Boolean(document.querySelector('.af-save'))";
+const PROMPT_CLOSED = "!document.querySelector('.af-save')";
+
+/** What the save prompt shows, read from the chrome UI (whether the password matches, never the password). */
+interface PromptView {
+  title: string;
+  host: string;
+  username: string;
+  passwordType: string;
+  passwordIs: boolean;
+  eyeLabel: string;
+  button: string;
+  focused: boolean;
+}
+
+const promptView = (win: BrowserWindowCtl, password: string): Promise<PromptView | null> =>
+  chromeJs<PromptView>(
+    win,
+    `(() => {
+      const form = document.querySelector('.af-save');
+      if (!form) return null;
+      const pw = form.querySelector('input[name=password]');
+      return {
+        title: form.querySelector('.af-save-title')?.textContent ?? '',
+        host: form.querySelector('.af-save-host')?.textContent ?? '',
+        username: form.querySelector('input[name=username]')?.value ?? '',
+        passwordType: pw?.type ?? '',
+        passwordIs: pw?.value === ${JSON.stringify(password)},
+        eyeLabel: form.querySelector('.af-eye')?.getAttribute('aria-label') ?? '',
+        button: form.querySelector('.af-save-btn')?.textContent ?? '',
+        focused: form.contains(document.activeElement),
+      };
+    })()`,
+  );
+
+/** Types into a field of the save prompt the way React sees typing. */
+const typeInPrompt = (win: BrowserWindowCtl, name: string, value: string): Promise<unknown> =>
+  chromeJs(
+    win,
+    `(() => {
+      const input = document.querySelector('.af-save input[name=${name}]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(value)});
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    })()`,
+  );
+
+/**
+ * The save-password prompt after a person submits a login (CORVUS_SMOKE_ONLY=passwords runs only
+ * this): it opens by itself once, without taking the keyboard from the page, with the submitted
+ * username and the masked password, which the eye reveals; what the person edits is what gets saved
+ * (an edited username can turn a new login into an update); Cancel and Escape store nothing; a click
+ * elsewhere closes it but the key button still reaches it; and no password ever reaches the window
+ * state the chrome UI gets. Screenshots in the light and dark themes, and in Spanish.
+ */
+export async function runSavePromptSmoke(ctx: AppContext, { url, win, check }: SmokeCtx): Promise<void> {
+  const base = url.replace(/\/$/, "");
+  const origin = originKeyOf(base);
+  const vault = win.profile.credentials;
+  const passwords = ["first-pass-1", "edited-pass-2", "cancel-pass-3", "new-pass-4", "other-pass-5"];
+  await chromeJs(win, "window.__saveStates = []; window.corvus.onState((s) => window.__saveStates.push(JSON.stringify(s))); true");
+  const loginPage = `${base}/login-post`;
+  const { tab, wc } = await openAndWait(win, loginPage, "/login-post");
+  const submit = async (username: string, password: string): Promise<boolean> => {
+    if (!wc.getURL().includes("/login-post")) {
+      win.loadUrl(tab.id, loginPage);
+      await poll(() => wc.getURL().includes("/login-post") && !tab.loading);
+      await delay(150);
+    }
+    await submitLogin(wc, username, password);
+    return chromePoll(win, PROMPT_OPEN);
+  };
+  const { theme: themeBefore, language: languageBefore } = ctx.settings.get().appearance;
+  ctx.settings.update({ appearance: { theme: "light", language: "en" } });
+  try {
+    // A new login: the prompt opens by itself and leaves the keyboard where it was.
+    const pageFocused = wc.isFocused();
+    const chromeFocused = win.chrome.webContents.isFocused();
+    const opened = await submit("carol", "first-pass-1");
+    const first = await promptView(win, "first-pass-1");
+    check("save prompt opens by itself after a submitted login", opened && first?.title === "Save password?" && first.host === "127.0.0.1" && first.button === "Save", first);
+    check(
+      "save prompt shows the submitted username and the password masked",
+      first?.username === "carol" && first.passwordType === "password" && first.passwordIs && first.eyeLabel === "Show password",
+      first,
+    );
+    const focus = { pageBefore: pageFocused, pageAfter: wc.isFocused(), chromeBefore: chromeFocused, chromeAfter: win.chrome.webContents.isFocused(), inPrompt: first?.focused };
+    check("save prompt opened by itself leaves the keyboard on the page", first?.focused === false && focus.pageAfter === focus.pageBefore && focus.chromeAfter === focus.chromeBefore, focus);
+    check("save prompt opens once per save (shown, it does not open by itself again)", ctx.autofill.stateFor(win).savePrompt === false, ctx.autofill.stateFor(win));
+    for (const theme of ["light", "dark"] as const) {
+      ctx.settings.update({ appearance: { theme } });
+      await delay(400);
+      await windowShot(win, `save-password-${theme}`, "save-password");
+    }
+    ctx.settings.update({ appearance: { theme: "light" } });
+
+    // The eye shows the password and hides it again.
+    await chromeJs(win, "document.querySelector('.af-save .af-eye').click(); true");
+    await delay(100);
+    const shown = await promptView(win, "first-pass-1");
+    await windowShot(win, "save-password-revealed-light", "save-password");
+    await chromeJs(win, "document.querySelector('.af-save .af-eye').click(); true");
+    await delay(100);
+    const hidden = await promptView(win, "first-pass-1");
+    check(
+      "save prompt: the eye reveals the password and hides it again",
+      shown?.passwordType === "text" && shown.passwordIs && shown.eyeLabel === "Hide password" && hidden?.passwordType === "password" && hidden.eyeLabel === "Show password",
+      { shown: shown && { type: shown.passwordType, label: shown.eyeLabel }, hidden: hidden && { type: hidden.passwordType, label: hidden.eyeLabel } },
+    );
+
+    // Edited username and password are what gets saved.
+    await typeInPrompt(win, "username", "carol.edited");
+    await typeInPrompt(win, "password", "edited-pass-2");
+    await chromeJs(win, "document.querySelector('.af-save .af-save-btn').click(); true");
+    const saved = await poll(() => vault.findByLogin(origin, "carol.edited")?.password === "edited-pass-2");
+    const closed = await chromePoll(win, PROMPT_CLOSED);
+    check(
+      "save prompt stores the edited username and password",
+      saved && closed && !vault.findByLogin(origin, "carol") && !ctx.autofill.stateFor(win).canSave,
+      { saved, closed, unedited: Boolean(vault.findByLogin(origin, "carol")), state: ctx.autofill.stateFor(win) },
+    );
+
+    // Cancel stores nothing and drops the save.
+    const loginsBefore = vault.usernamesAt(origin).length;
+    const cancelOpened = await submit("dave", "cancel-pass-3");
+    await chromeJs(win, "document.querySelector('.af-save .af-cancel').click(); true");
+    const cancelClosed = await chromePoll(win, PROMPT_CLOSED);
+    check(
+      "save prompt: Cancel stores nothing and dismisses the save",
+      cancelOpened && cancelClosed && !vault.findByLogin(origin, "dave") && vault.usernamesAt(origin).length === loginsBefore && !ctx.autofill.stateFor(win).canSave,
+      { cancelOpened, cancelClosed, state: ctx.autofill.stateFor(win) },
+    );
+
+    // The person clicks into the prompt and types over the username, on the spot. The address bar had
+    // the caret last (it was left by a click on the page): the click must not put it back there and
+    // close the prompt. A username that is already saved turns the new login into an update; Enter saves.
+    win.focusOmnibox();
+    await delay(150);
+    win.focusContent();
+    await delay(150);
+    const updateOpened = await submit("frank", "new-pass-4");
+    const asNew = await promptView(win, "new-pass-4");
+    const field = await chromeJs<{ x: number; y: number }>(
+      win,
+      "(() => { const r = document.querySelector('.af-save input[name=username]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()",
+    );
+    const chromeWc = win.chrome.webContents;
+    chromeWc.focus(); // a click on Corvus's UI focuses its view first, as on screen
+    await delay(100);
+    if (field) for (const type of ["mouseDown", "mouseUp"] as const) chromeWc.sendInputEvent({ type, x: field.x, y: field.y, button: "left", clickCount: 1 });
+    await delay(150);
+    const clickedIn = await promptView(win, "new-pass-4");
+    chromeWc.selectAll();
+    await chromeWc.insertText("carol.edited");
+    await delay(100);
+    const asUpdate = await promptView(win, "new-pass-4");
+    for (const type of ["keyDown", "char", "keyUp"] as const) chromeWc.sendInputEvent({ type, keyCode: type === "char" ? "\r" : "Enter" });
+    const updated = await poll(() => vault.findByLogin(origin, "carol.edited")?.password === "new-pass-4");
+    check(
+      "save prompt: a click into it edits the username there (the address bar does not take the click)",
+      updateOpened && asNew?.title === "Save password?" && clickedIn?.focused === true && asUpdate?.username === "carol.edited",
+      { updateOpened, asNew: asNew?.title, clickedIn: clickedIn?.focused, typed: asUpdate?.username },
+    );
+    check(
+      "save prompt: an edited username that is already saved updates that login (Enter saves)",
+      asUpdate?.title === "Update password?" && asUpdate.button === "Update" && updated && !vault.findByLogin(origin, "frank") && vault.usernamesAt(origin).length === loginsBefore,
+      { asUpdate: asUpdate && { title: asUpdate.title, button: asUpdate.button }, updated, logins: vault.usernamesAt(origin).length },
+    );
+    const enterClosed = await chromePoll(win, PROMPT_CLOSED);
+    const backToPage = await poll(() => wc.isFocused());
+    check("save prompt: once saved from the keyboard, the keyboard goes back to the page", enterClosed && backToPage, { enterClosed, backToPage });
+
+    // A click elsewhere closes it; it does not open by itself again (state pushes, tab switches), and
+    // the key button still reaches it, with the keyboard; Escape then cancels.
+    await submit("gina", "other-pass-5");
+    await chromeJs(win, "document.querySelector('.omni-panel-backdrop').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); true");
+    const away = await chromePoll(win, PROMPT_CLOSED);
+    win.pushState();
+    const other = win.createTab(`${base}/`);
+    await delay(400);
+    win.activate(tab.id);
+    await delay(600);
+    const stayedClosed = (await chromeJs<boolean>(win, PROMPT_CLOSED)) === true;
+    const stillPending = ctx.autofill.stateFor(win);
+    check(
+      "save prompt: a click elsewhere closes it and it stays closed, the save still pending behind the key button",
+      away && stayedClosed && stillPending.canSave && !stillPending.savePrompt && (await chromeJs<boolean>(win, "Boolean(document.querySelector('.omni-autofill.save'))")) === true,
+      { away, stayedClosed, state: stillPending },
+    );
+    await chromeJs(win, "document.querySelector('.omni-autofill.save').click(); true");
+    const reopened = await chromePoll(win, PROMPT_OPEN);
+    await delay(150);
+    const again = await promptView(win, "other-pass-5");
+    await chromeJs(win, "document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); true");
+    const escaped = await chromePoll(win, PROMPT_CLOSED);
+    check(
+      "save prompt: the key button opens it again with the keyboard, and Escape cancels",
+      reopened && again?.username === "gina" && again.passwordIs && again.focused && escaped && !ctx.autofill.stateFor(win).canSave && !vault.findByLogin(origin, "gina"),
+      { reopened, focused: again?.focused, escaped, state: ctx.autofill.stateFor(win) },
+    );
+    win.closeTab(other.id);
+
+    // The password only ever reached the chrome UI through the prompt's own call, never the window state.
+    const leaked = await chromeJs<boolean>(win, `window.__saveStates.some((s) => ${JSON.stringify(passwords)}.some((p) => s.includes(p)))`);
+    const states = await chromeJs<number>(win, "window.__saveStates.length");
+    check("save prompt: no submitted password is in the window state", leaked === false && (states ?? 0) > 0, { leaked, states });
+
+    // In Spanish.
+    ctx.settings.update({ appearance: { language: "es", theme: "dark" } });
+    win.chrome.webContents.reload();
+    await chromePoll(win, "Boolean(document.querySelector('.omni-input'))");
+    const spanish = await submit("carol.edited", "other-pass-5");
+    const es = await promptView(win, "other-pass-5");
+    await windowShot(win, "save-password-es-dark", "save-password");
+    check("save prompt in Spanish", spanish && es?.title === "¿Actualizar contraseña?" && es.button === "Actualizar" && es.eyeLabel === "Mostrar contraseña", es && { title: es.title, button: es.button, eye: es.eyeLabel });
+  } finally {
+    const left = ctx.autofill.stateFor(win);
+    if (left.canSave) ctx.autofill.dismissSave(win, left.saveId);
+    win.closeTab(tab.id);
+    ctx.settings.update({ appearance: { theme: themeBefore, language: languageBefore } });
+    win.chrome.webContents.reload();
+    await chromePoll(win, "Boolean(document.querySelector('.omni-input'))");
+  }
 }
 
 /**

@@ -13,7 +13,19 @@ import type { BrowserTab } from '@/lib/tabs';
  * The web build (automated checks only) has no WebView: the tab's page is a card that opens it in a
  * new browser tab, so the browser's own screens can still be checked.
  */
-export function WebPage({ tab, request, visible }: { tab: BrowserTab; request: LoadRequest | undefined; visible: boolean; userAgent: string | undefined; gpc: boolean }) {
+export function WebPage({
+  tab,
+  request,
+  visible,
+}: {
+  tab: BrowserTab;
+  request: LoadRequest | undefined;
+  visible: boolean;
+  userAgent: string | undefined;
+  gpc: boolean;
+  onLeave: () => void;
+  onSend?: () => void;
+}) {
   const theme = useTheme();
   const url = request?.url || tab.url;
   if (!visible) return null;

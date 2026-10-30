@@ -261,6 +261,7 @@ export function App() {
             readerable={state.readerable}
             readerActive={state.readerActive}
             autofill={state.autofill}
+            autoOpen={!modalOpen && !extMenuOpen}
             onOpenChange={onOmniOpen}
             onSiteInfo={(rect) => setPopover({ kind: "site", anchor: below(rect) })}
             onZoom={(rect) => setPopover({ kind: "zoom", anchor: below(rect) })}

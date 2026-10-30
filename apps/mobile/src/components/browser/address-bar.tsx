@@ -23,6 +23,7 @@ export function AddressBar({
   loading,
   blocked,
   blockingOn,
+  certError,
   onDraft,
   onEdit,
   onSubmit,
@@ -42,6 +43,8 @@ export function AddressBar({
   blocked: number | null;
   /** Blocking is on for this site. */
   blockingOn: boolean;
+  /** The page did not open because its certificate is not valid: never the lock. */
+  certError: boolean;
   onDraft: (text: string) => void;
   onEdit: () => void;
   onSubmit: () => void;
@@ -76,7 +79,11 @@ export function AddressBar({
           hitSlop={6}
           style={styles.shield}
           testID="browser-shield">
-          <Icon name={blocked === null ? (isSecure(url) ? 'lock' : 'info') : blockingOn ? 'shieldCheck' : 'shieldOff'} size={22} color={blocked !== null && blockingOn ? theme.accentText : theme.textSecondary} />
+          <Icon
+            name={blocked === null ? (certError ? 'warning' : isSecure(url) ? 'lock' : 'info') : blockingOn ? 'shieldCheck' : 'shieldOff'}
+            size={22}
+            color={blocked === null && certError ? theme.danger : blocked !== null && blockingOn ? theme.accentText : theme.textSecondary}
+          />
           {blocked !== null && blocked > 0 && blockingOn ? (
             <View style={[styles.badge, { backgroundColor: theme.accent }]}>
               <ThemedText type="caption" style={[styles.badgeText, { color: theme.onAccent }]} testID="browser-blocked-count">
@@ -126,8 +133,8 @@ export function AddressBar({
           </>
         ) : (
           <Pressable accessibilityRole="button" accessibilityLabel={t('Address')} accessibilityHint={t('Search or type a web address')} onPress={onEdit} style={styles.shown} testID="browser-address">
-            {web && !isSecure(url) ? (
-              <ThemedText type="small" style={{ color: theme.warning }}>
+            {web && (certError || !isSecure(url)) ? (
+              <ThemedText type="small" style={{ color: certError ? theme.danger : theme.warning }} testID="browser-not-secure">
                 {t('Not secure')}
               </ThemedText>
             ) : null}

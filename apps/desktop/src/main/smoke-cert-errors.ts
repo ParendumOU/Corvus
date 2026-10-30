@@ -32,10 +32,10 @@ const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 const ROUTER_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Router admin</title></head>
 <body style="font-family:sans-serif;padding:24px"><h1>Router admin</h1><p>Signal strength: excellent.</p><img id="logo" src="/logo.png" width="16" height="16"></body></html>`;
 
-/** The whole window as composited on screen (address bar and page together). */
-async function windowShot(win: BrowserWindowCtl, name: string): Promise<void> {
-  const dir = process.env.CORVUS_SMOKE_OUT;
-  if (!dir) return;
+/** The whole window as composited on screen (address bar and page together), as `<dir>/<name>.png` under the smoke output. */
+export async function windowShot(win: BrowserWindowCtl, name: string, dir = "cert"): Promise<void> {
+  const out = process.env.CORVUS_SMOKE_OUT;
+  if (!out) return;
   win.win.focus();
   await sleep(500);
   const bounds = win.win.getBounds();
@@ -45,7 +45,7 @@ async function windowShot(win: BrowserWindowCtl, name: string): Promise<void> {
   const image = sources[0]?.thumbnail;
   if (!image || image.isEmpty()) return;
   const png = image.crop({ x: Math.round(bounds.x * scale), y: Math.round(bounds.y * scale), width: Math.round(bounds.width * scale), height: Math.round(bounds.height * scale) }).toPNG();
-  const file = path.join(dir, "cert", `${name}.png`);
+  const file = path.join(out, dir, `${name}.png`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, png);
 }

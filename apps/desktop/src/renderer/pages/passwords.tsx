@@ -7,8 +7,9 @@ import { checkupSummary, type PasswordCheckupView, type PasswordHealth } from ".
 import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { errorMessage, internalApi } from "../common/api";
 import { Modal } from "../common/modal";
-import { IconAgent, IconClock, IconCopy, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
+import { IconAgent, IconCamera, IconClock, IconCopy, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
 import { Favicon, Pager, hostOf } from "../common/ui";
+import { AuthenticatorImport } from "./authenticator-import";
 import { PageShell, mount } from "./shell";
 import "./passwords.css";
 
@@ -176,6 +177,7 @@ function PasswordsPage() {
   const [options, setOptions] = useState<PasswordOptions>(DEFAULT_PASSWORD_OPTIONS);
   const [error, setError] = useState<string | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
   const setAutoSignIn = useCallback(
     (id: string, on: boolean) => void api.call("credentials.setAutoSignIn", id, on).then((ids) => setAutoIds(new Set(ids))),
@@ -282,9 +284,15 @@ function PasswordsPage() {
       toolbar={
         <>
           <input className="input" placeholder={t("Search logins")} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button className="btn" onClick={() => {
+            setForm(null);
+            setImporting(true);
+          }}>
+            <IconCamera size={14} />{" "}{t("Import from Google Authenticator")}</button>
           <button className="btn primary" onClick={() => {
             setError(null);
             setQrError(null);
+            setImporting(false);
             setForm(EMPTY_FORM);
           }}>
             <IconPlus size={14} />{" "}{t("Add")}</button>
@@ -296,6 +304,8 @@ function PasswordsPage() {
           <div className="pw-warn">{t("No system keychain is available, so saved logins are kept in memory for this session only and are not written to disk.")}</div>
         </div>
       )}
+
+      {importing && <AuthenticatorImport onClose={() => setImporting(false)} onImported={() => load(query)} />}
 
       {form && (
         <div className="card">
@@ -375,9 +385,9 @@ function PasswordsPage() {
         </div>
       )}
 
-      {!form && <CheckupCard view={checkup} onRun={runCheckup} />}
+      {!form && !importing && <CheckupCard view={checkup} onRun={runCheckup} />}
 
-      {anyTotp && !form && (
+      {anyTotp && !form && !importing && (
         <div className="card">
           <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
         </div>

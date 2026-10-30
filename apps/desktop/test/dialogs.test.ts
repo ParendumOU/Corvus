@@ -119,6 +119,15 @@ describe("pages' dialogs", () => {
     expect(await reply).toEqual([true, ""]);
     expect(signal?.aborted).toBe(true);
 
+    // The tab closes with its dialog open: Corvus's dialog is withdrawn with it.
+    const closing = fakeTab();
+    dialogs.watch(closing as never);
+    void closing.emitDialog("alert", "Bye");
+    expect(dialogs.pending(closing as never)?.message).toBe("Bye");
+    closing.emit("destroyed");
+    expect(dialogs.pending(closing as never)).toBeNull();
+    expect(signal?.aborted).toBe(true);
+
     const electron = vi.fn((_info: unknown, done: (accept: boolean, text: string) => void) => done(false, ""));
     const noWindow = new PageDialogs(() => null);
     const other = fakeTab(electron);

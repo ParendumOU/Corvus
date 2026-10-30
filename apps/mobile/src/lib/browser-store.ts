@@ -14,6 +14,7 @@ import { AppState, Platform } from 'react-native';
 
 import { publishTabs, recordVisit, retitleVisitOf } from '@/hooks/use-session';
 import { pickEngine, type SearchEngineId } from './address';
+import type { CertErrorKind } from './cert-errors';
 import { configurePrivacy } from './content-blocking';
 import { EMPTY_TABS, activeTab, openTabsKey, openTabsRecord, restoreTabs, serializeTabs, tabsReducer, type BrowserTab, type TabsAction, type TabsState } from './tabs';
 import { addLocalVisit, isNewVisit, mergeVisit, type LastVisit } from './visits';
@@ -31,6 +32,8 @@ export interface TabRuntime {
   viewTag: number | null;
   /** What happened to the page's cookie banner (Android), once the banner script found one. */
   cookieBanner: ConsentPageState | null;
+  /** Why the page did not open, when its certificate is not valid. */
+  certError: CertErrorKind | null;
 }
 
 /** An address the app asked a tab to load (`n` tells two requests of the same address apart). */
@@ -86,7 +89,7 @@ const LOCAL_HISTORY_MAX = 500;
 
 export const DEFAULT_PREFS: BrowserPrefs = { engine: null, blocking: true, allowedSites: [], cookieConsent: true, gpc: true, consentAllowedSites: [], openIn: 'corvus' };
 
-const IDLE: TabRuntime = { loading: false, progress: 0, canGoBack: false, canGoForward: false, blocked: 0, viewTag: null, cookieBanner: null };
+const IDLE: TabRuntime = { loading: false, progress: 0, canGoBack: false, canGoForward: false, blocked: 0, viewTag: null, cookieBanner: null, certError: null };
 
 let state: BrowserState = { loaded: false, tabs: EMPTY_TABS, runtime: {}, requests: {}, prefs: DEFAULT_PREFS, localHistory: [], bannersHandled: 0 };
 const listeners = new Set<() => void>();

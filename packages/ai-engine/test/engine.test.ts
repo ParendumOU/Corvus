@@ -127,6 +127,8 @@ describe("createSearchEngine", () => {
       retrievers: [retriever(RESULTS, calls)],
       provider: provider(["Alpha [1]."], seen),
       cache: new SearchCache(),
+      // Deep mode must not reach the network for the test's made-up result pages.
+      deepFetch: async () => [],
     });
     await collect(engine.search("What is alpha"));
     const replay = await collect(engine.search("  what IS alpha "));

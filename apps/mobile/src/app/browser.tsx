@@ -314,6 +314,7 @@ export default function BrowserScreen() {
           loading={!!rt?.loading && isWebPage(url)}
           blocked={blocks && isWebPage(url) ? (rt?.blocked ?? 0) : null}
           blockingOn={blockingHere}
+          certError={!!rt?.certError}
           onDraft={setDraft}
           onEdit={() => {
             setDraft(url);
@@ -345,6 +346,8 @@ export default function BrowserScreen() {
               visible={x.id === tab?.id && !editing}
               userAgent={AGENTS ? (x.desktop ? AGENTS.desktop : AGENTS.mobile) : undefined}
               gpc={browser.prefs.gpc}
+              onLeave={back}
+              onSend={paired && targets.length > 0 ? () => onAction('send') : undefined}
             />
           ))}
         {editing || !url ? (
@@ -424,6 +427,7 @@ export default function BrowserScreen() {
       <SitePanel
         open={panel}
         url={url}
+        certError={!!rt?.certError}
         blocked={rt?.blocked ?? 0}
         canBlock={blocks}
         blockingOn={browser.prefs.blocking}

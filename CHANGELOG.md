@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Corvus for mobile
+- **Sites with an invalid certificate** (a router with a self-signed certificate, an expired certificate, one issued for another name) show "Your connection is not private" in the tab, with a sentence on what is wrong with the certificate, in English and Spanish, instead of a generic "This page could not be opened" with an English error ("SSL error: ...") on Android. **Back to safety**, like the back button, returns to the page you were on (before, back skipped it and went one page further), or closes a tab another app opened, as back does. Reload tries the site again. The address bar no longer keeps loading forever after such a page on Android. The phone offers no way past it, since Google Play refuses apps whose browser view skips certificate errors: for a device you trust, the page says to open it in Corvus on your computer, and **Send to a computer** sends it there when the phone is paired.
+- The address bar never shows the lock for such a site (the iPhone did): it says **Not secure** in red, with a warning sign on iPhone, and the site panel says the certificate is not valid.
+- Android: tapping a link to such a site did nothing (the page stayed as it was, with no word of why); it now shows that page too.
+- Android: a page that failed to open (an invalid certificate, no connection, an unknown address) is no longer added to your history, on the phone and on your synced computers.
+
+## v0.32.2
+
+### Browser
+- **The tab strip and the address bar no longer freeze.** After a page closed itself (for example a sign-in or payment popup that opened as a tab and closed when it was done), they stopped updating until Corvus was restarted: tabs you closed stayed on the strip and did nothing when clicked, and the address bar kept the same page whichever tab you switched to. A page that closes itself now closes its tab, as in Chrome, and closing a window after that no longer freezes the other windows of the profile too.
+- Should anything ever keep Corvus from preparing what the tab strip shows again, the strip and the address bar still follow your tabs instead of freezing, and the error is written to the crash log (when "Save crash logs locally" is on in Settings).
+- Closing a tab while its page shows a message (alert, confirm or prompt) now closes the message too, instead of leaving it over the window.
+- **Saving a password is now a small form that opens by itself** when you sign in to a site with a new or changed password, as in Brave and Chrome, instead of only turning the key in the address bar purple. It shows the site, the username and the password you just entered (hidden behind dots, with an eye button to show it), and you can correct either before you press **Save** (or **Update** for a login you already have). **Cancel** forgets it, and Enter and Escape do the same as Save and Cancel.
+- The form opens once per sign-in and leaves the keyboard on the page, so you can keep typing. A click elsewhere closes it, and the purple key in the address bar opens it again until you answer. It does not open by itself in a tab an AI agent is driving.
+- Changing the username in the form to one you already saved for the site updates that login's password; changing it to a new one saves a new login and leaves the old one as it was.
+- **Import from Google Authenticator** on the Passwords page moves your 2FA accounts into Corvus, so it fills the codes on each site. In Google Authenticator choose Transfer accounts, then Export accounts, take a photo of each QR code it shows, and choose the photos (or the folder that holds them) in Corvus. The photos are read on this computer and never uploaded.
+- Phone photos of the screen work: large, tilted, with glare or a little blur. Corvus reads them one by one ("Reading photo 5 of 12") without slowing the browser, says which QR code each photo held ("QR 2 of 12: 10 accounts"), ignores a code photographed twice, flags a photo with no code, and tells you which QR codes are missing so you can add their photos. Several exports, and accounts found twice, are merged. A site's own setup QR code can be in the same selection.
+- Before anything is saved you see every account with the site it goes to (editable) and what happens: "Adds 2FA to your login" when a saved login on that site has the account's username (or is the site's only login), or "New login (2FA only)" otherwise. A login that already has a different 2FA code is shown as a conflict and is only replaced if you tick it. Accounts from unknown issuers wait for you to type their site. Filter the list, select all or none, and see how many accounts are matched, new, in conflict or need a site. Counter-based (HOTP) and MD5 accounts are listed as not importable.
+- After the import Corvus reminds you to delete the photos, from your phone's gallery and any cloud photo backup too: they hold every 2FA secret.
+
 ## v0.32.1
 
 ### Browser

@@ -1,6 +1,6 @@
 import encodeQR from "qr";
 import { describe, expect, it } from "vitest";
-import { decodeQrBitmap, totpFromQrText } from "../src/main/qr-decode";
+import { decodeQrBitmap, invertBitmap, totpFromQrText } from "../src/main/qr-decode";
 
 /** Renders a QR code as a 4-bytes-per-pixel bitmap with a quiet zone, like a screenshot would. */
 function bitmap(text: string, format: "RGBA" | "BGRA", scale = 6, quiet = 4): { data: Uint8Array; width: number; height: number } {
@@ -32,6 +32,12 @@ describe("decodeQrBitmap", () => {
   it("decodes RGBA too", async () => {
     const img = bitmap(URI, "RGBA");
     expect(await decodeQrBitmap(img.data, img.width, img.height, "RGBA")).toBe(URI);
+  });
+
+  it("inverts a bitmap in place for light codes on dark screens, alpha kept", () => {
+    const data = Uint8Array.from([0, 10, 200, 255, 255, 255, 255, 128]);
+    invertBitmap(data);
+    expect([...data]).toEqual([255, 245, 55, 255, 0, 0, 0, 128]);
   });
 
   it("explains when there is no code", async () => {

@@ -9,6 +9,7 @@ import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
 import { runAgentRunsSmoke } from "./smoke-agent-runs";
 import { runAnnotationsSmoke } from "./smoke-annotations";
+import { runAuthenticatorImportSmoke } from "./smoke-authenticator-import";
 import { runAssistSmoke } from "./smoke-assist";
 import { runDictationSmoke } from "./smoke-dictation";
 import { runDialogsSmoke } from "./smoke-dialogs";
@@ -18,6 +19,7 @@ import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runCertErrorSmoke } from "./smoke-cert-errors";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
+import { runTabCloseSmoke } from "./smoke-tab-close";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
@@ -30,7 +32,7 @@ import { runWorkflowsSmoke } from "./smoke-workflows";
 import { runSiteMemorySmoke } from "./smoke-site-memory";
 import { runSyncLearnedSmoke } from "./smoke-sync-learned";
 import { runBuiltinSyncSmoke } from "./smoke-builtin-sync";
-import { runCredentialsSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
+import { runCredentialsSmoke, runSavePromptSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { narrowLayout, narrowWindow, runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
@@ -202,6 +204,21 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runCertErrorSmoke(ctx, { win, check });
       return;
     }
+    // CORVUS_SMOKE_ONLY=tabclose: only the checks that closing tabs keeps the chrome UI up to date.
+    if (process.env.CORVUS_SMOKE_ONLY === "tabclose") {
+      await runTabCloseSmoke(ctx, { win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=passwords: only the save-password prompt checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "passwords") {
+      await runSavePromptSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=authenticator: only the Import from Google Authenticator checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "authenticator") {
+      await runAuthenticatorImportSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
     if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
@@ -259,6 +276,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runSleepSmoke(ctx, { url, win, check });
     await runMediaSmoke(ctx, { url, win, check, capture });
     await runCertErrorSmoke(ctx, { win, check });
+    await runTabCloseSmoke(ctx, { win, check, capture });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();
@@ -285,6 +303,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runReaderSmoke(ctx, { win, check, capture });
     await runPdfSmoke(ctx, { win, check, capture });
     await runCredentialsSmoke(ctx, { url, win, check, capture });
+    await runAuthenticatorImportSmoke(ctx, { win, check, capture });
     await runAnnotationsSmoke(ctx, { url, win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runScheduledAgentSmoke(ctx, { win, check, capture });

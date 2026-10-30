@@ -10,6 +10,7 @@ import { languageName, type TranslateBarState } from "../../shared/translate";
 import { CorvusMark, IconBook, IconClock, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
+import { SavePasswordPrompt } from "./SavePassword";
 
 import { t } from "../common/i18n";
 export interface OmniboxHandle {
@@ -123,13 +124,15 @@ interface OmniboxProps {
   readerable: boolean;
   readerActive: boolean;
   autofill: AutofillBarState;
+  /** No other popover or dialog is open: the save-password prompt may open by itself. */
+  autoOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onSiteInfo: (rect: DOMRect) => void;
   onZoom: (rect: DOMRect) => void;
 }
 
 export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
-  function Omnibox({ tab, translate, bookmarked, zoomPercent, readerable, readerActive, autofill, onOpenChange, onSiteInfo, onZoom }, ref) {
+  function Omnibox({ tab, translate, bookmarked, zoomPercent, readerable, readerActive, autofill, autoOpen, onOpenChange, onSiteInfo, onZoom }, ref) {
     const api = chromeApi();
     const inputRef = useRef<HTMLInputElement>(null);
     const [focused, setFocused] = useState(false);
@@ -138,16 +141,31 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     const [selected, setSelected] = useState(0);
     const hoverSelect = useHoverSelect(setSelected);
     const [autofillOpen, setAutofillOpen] = useState(false);
+    // The save prompt was opened from the key button (it takes the keyboard), not by itself.
+    const [saveFocus, setSaveFocus] = useState(false);
     const [matches, setMatches] = useState<CredentialMatch[]>([]);
     const request = useRef(0);
     const typed = useRef(false);
     const url = tab?.url ?? "";
     const open = focused && suggestions.length > 0;
     const showAutofill = Boolean(tab) && !focused && (autofill.available || autofill.canSave);
+    const promptSave = showAutofill && autofill.savePrompt && autoOpen;
 
+    // The panel belongs to the tab, and to the pending save, it was opened for.
+    useEffect(() => setAutofillOpen(false), [tab?.id, autofill.saveId]);
     useEffect(() => {
       if (!showAutofill) setAutofillOpen(false);
-    }, [showAutofill, tab?.id, autofill.canSave]);
+    }, [showAutofill]);
+    // A submitted login opens the save prompt by itself, once per save, like Chrome and Brave. It leaves
+    // the keyboard on the page; after that the key button still reaches it until it is answered.
+    useEffect(() => {
+      if (!promptSave) return;
+      // The address bar may still hold the caret it had when the page took the keyboard: Chromium puts
+      // it back as soon as a click focuses this view, which would close the prompt under the click.
+      if (document.activeElement === inputRef.current) inputRef.current?.blur();
+      setSaveFocus(false);
+      setAutofillOpen(true);
+    }, [promptSave, autofill.saveId]);
 
     const openAutofill = (): void => {
       if (autofillOpen) {
@@ -155,7 +173,13 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
         return;
       }
       if (autofill.available) void api.call("autofill.suggestions").then(setMatches);
+      setSaveFocus(true);
       setAutofillOpen(true);
+    };
+    // A click elsewhere, or the save prompt closing while it had the keyboard, gives it back to the page.
+    const closeAutofill = (refocusPage: boolean): void => {
+      setAutofillOpen(false);
+      if (refocusPage) void api.call("ui.focusContent");
     };
 
     const fill = (id: string): void => {
@@ -169,14 +193,6 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     const otpMatches = autofill.otpAvailable ? matches.filter((m) => m.hasTotp) : [];
     const loginMatches = autofill.matchCount > 0 ? matches : [];
     const sourceLabel = (m: CredentialMatch): string => (m.source === "keepass" ? `KeePass${m.sourceName ? `: ${m.sourceName}` : ""}` : "");
-    const acceptSave = (): void => {
-      void api.call("autofill.saveAccept");
-      setAutofillOpen(false);
-    };
-    const dismissSave = (): void => {
-      void api.call("autofill.saveDismiss");
-      setAutofillOpen(false);
-    };
 
     useEffect(() => {
       if (!focused) setValue(displayUrl(url));
@@ -372,46 +388,32 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             ))}
           </ul>
         )}
-        {autofillOpen && <div className="omni-panel-backdrop" onMouseDown={() => setAutofillOpen(false)} />}
-        {autofillOpen && (
+        {autofillOpen && <div className="omni-panel-backdrop" onMouseDown={() => closeAutofill(true)} />}
+        {autofillOpen && autofill.canSave && <SavePasswordPrompt key={autofill.saveId} takeFocus={saveFocus} onClose={closeAutofill} />}
+        {autofillOpen && !autofill.canSave && (
           <div className="omni-autofill-panel">
-            {autofill.canSave ? (
-              <div className="af-save">
-                <div className="af-title">
-                  {autofill.saveUpdates ? t("Update password for ") : t("Save password for ")}
-                  {autofill.saveHost}?
-                </div>
-                <div className="af-row">
-                  <button className="btn small primary" onMouseDown={(e) => { e.preventDefault(); acceptSave(); }}>
-                    {autofill.saveUpdates ? t("Update") : t("Save")}
-                  </button>
-                  <button className="btn small ghost" onMouseDown={(e) => { e.preventDefault(); dismissSave(); }}>{t("Not now")}</button>
-                </div>
-              </div>
-            ) : (
-              <div className="af-list">
-                {otpMatches.length === 0 && loginMatches.length === 0 ? (
-                  <div className="af-empty">{t("No saved logins for this site.")}</div>
-                ) : (
-                  <>
-                    {otpMatches.map((m) => (
-                      <button key={`otp-${m.id}`} className="af-item af-otp" onMouseDown={(e) => { e.preventDefault(); fillTotp(m.id); }}>
-                        <IconClock size={14} />
-                        <span>{t("2FA code for")}{" "}{m.username || t("(no username)")}</span>
-                        {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
-                      </button>
-                    ))}
-                    {loginMatches.map((m) => (
-                      <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
-                        <IconLock size={14} />
-                        <span>{m.username || t("(no username)")}</span>
-                        {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-            )}
+            <div className="af-list">
+              {otpMatches.length === 0 && loginMatches.length === 0 ? (
+                <div className="af-empty">{t("No saved logins for this site.")}</div>
+              ) : (
+                <>
+                  {otpMatches.map((m) => (
+                    <button key={`otp-${m.id}`} className="af-item af-otp" onMouseDown={(e) => { e.preventDefault(); fillTotp(m.id); }}>
+                      <IconClock size={14} />
+                      <span>{t("2FA code for")}{" "}{m.username || t("(no username)")}</span>
+                      {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
+                    </button>
+                  ))}
+                  {loginMatches.map((m) => (
+                    <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
+                      <IconLock size={14} />
+                      <span>{m.username || t("(no username)")}</span>
+                      {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
             <button className="af-manage" onMouseDown={(e) => { e.preventDefault(); void api.call("autofill.openManager"); setAutofillOpen(false); }}>{t("Manage passwords")}</button>
           </div>
         )}
