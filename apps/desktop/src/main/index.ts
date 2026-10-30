@@ -23,6 +23,7 @@ import { KeePassService } from "./keepass-service";
 import { PasswordCheckupService } from "./password-checkup";
 import { TelegramLink } from "./telegram-link";
 import { SecretFillGuard } from "./secret-fill-guard";
+import { BackupReminder } from "./backup-reminder";
 import { DefaultBrowser } from "./default-browser";
 import { DownloadManager } from "./downloads";
 import { DownloadQueue } from "./download-queue";
@@ -246,6 +247,7 @@ async function main(): Promise<void> {
   ctx.queue = new DownloadQueue(ctx);
   ctx.browserImport = new BrowserImport();
   ctx.defaultBrowser = new DefaultBrowser(ctx);
+  ctx.backupReminder = new BackupReminder(ctx);
   ctx.sessionRestore = new SessionRestore(ctx, userData);
   ctx.adblock = new AdblockService(userData, (profileId) => {
     for (const win of ctx.windows.forProfile(profileId)) {
@@ -295,6 +297,7 @@ async function main(): Promise<void> {
   );
   profiles.onCreated((runtime) =>
     runtime.credentials.changes.on(() => {
+      runtime.backup.noteChange();
       for (const win of ctx.windows.forProfile(runtime.profile.id)) win.notifyInternalPages({ type: "credentials-changed" }, ["passwords"]);
     }),
   );
@@ -347,6 +350,7 @@ async function main(): Promise<void> {
     win?.createTab("corvus://welcome/", { activate: true });
   } else if (!automated) {
     void ctx.defaultBrowser.startup(ctx.windows.focused() ?? ctx.windows.all()[0]);
+    void ctx.backupReminder.remind(ctx.windows.focused() ?? ctx.windows.all()[0]);
   }
   ctx.sessionRestore.start();
   ctx.webscope.apply();

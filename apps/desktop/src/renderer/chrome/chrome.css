@@ -291,6 +291,88 @@ body,
   }
 }
 
+/* An AI agent asks the person to do something in the tab (request_user_action): the tab pulses
+   until they go to it, then stays lit while it is the active one; a dot on its icon marks it at
+   any width. A collapsed group hiding it pulses instead. Reduced motion: lit, without pulsing. */
+.tab.needs-you,
+.v-tab.needs-you,
+.v-group.needs-you {
+  position: relative;
+  isolation: isolate;
+}
+.tab.needs-you:not(.active)::after,
+.v-tab.needs-you:not(.active)::after,
+.v-group.needs-you::after {
+  content: "";
+  position: absolute;
+  inset: 0 1px 4px;
+  z-index: -1;
+  border-radius: 9px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: needs-you 1.2s ease-in-out infinite;
+}
+.tab.needs-you:not(.active):hover::after {
+  bottom: 0;
+}
+.v-tab.needs-you:not(.active)::after,
+.v-group.needs-you::after {
+  inset: 0;
+  border-radius: 7px;
+}
+.tab.needs-you.active {
+  background: linear-gradient(color-mix(in srgb, var(--accent) 16%, var(--toolbar)), var(--toolbar));
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.v-tab.needs-you.active {
+  background: color-mix(in srgb, var(--accent) 18%, var(--active));
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.needs-you .tab-icon::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--toolbar);
+  pointer-events: none;
+}
+.group-chip.needs-you {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px var(--strip),
+    0 0 0 3.5px var(--accent),
+    0 0 10px var(--accent);
+  animation: needs-you-chip 1.2s ease-in-out infinite;
+}
+@keyframes needs-you {
+  50% {
+    opacity: 0.2;
+  }
+}
+@keyframes needs-you-chip {
+  50% {
+    box-shadow:
+      0 0 0 2px var(--strip),
+      0 0 0 3.5px transparent,
+      0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab.needs-you:not(.active)::after,
+  .v-tab.needs-you:not(.active)::after,
+  .v-group.needs-you::after,
+  .group-chip.needs-you {
+    animation: none;
+  }
+}
+
 .new-tab-btn {
   -webkit-app-region: no-drag;
   align-self: center;

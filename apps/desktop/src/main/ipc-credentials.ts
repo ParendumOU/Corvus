@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { clipboard, dialog, ipcMain, nativeImage, type IpcMainEvent } from "electron";
 import { tr } from "./menu-i18n";
+import { isBigChange } from "../shared/backup-reminder";
 import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
 import {
   AUTOFILL_CAPTURE_CHANNEL,
@@ -86,6 +87,7 @@ export const CREDENTIALS_INTERNAL_PERMISSIONS: Record<keyof CredentialsRpc, read
   "credentials.authenticatorPreview": ["passwords"],
   "credentials.authenticatorImport": ["passwords"],
   "credentials.authenticatorDiscard": ["passwords"],
+  "credentials.backupState": ["passwords"],
   "credentials.agentAccess": ["passwords"],
   "credentials.autoSignInIds": ["passwords"],
   "credentials.setAutoSignIn": ["passwords"],
@@ -215,8 +217,12 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
     },
     "credentials.authenticatorRead": (c, importId, index) => readAuthenticatorPhoto(c.profile.profile.id, str(importId, "import", 64), photoIndex(index)),
     "credentials.authenticatorPreview": (c, importId, sites) => authenticatorPreview(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites)),
-    "credentials.authenticatorImport": (c, importId, sites, selected) =>
-      applyAuthenticatorImport(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites), idList(selected)),
+    "credentials.authenticatorImport": (c, importId, sites, selected) => {
+      const result = applyAuthenticatorImport(c.profile.profile.id, str(importId, "import", 64), c.profile.credentials, siteMap(sites), idList(selected));
+      if (isBigChange(result.attached + result.created)) c.profile.backup.noteBigChange();
+      return result;
+    },
+    "credentials.backupState": (c) => ({ lastBackupAt: c.profile.backup.state().lastBackupAt }),
     "credentials.authenticatorDiscard": (_c, importId) => discardAuthenticatorImport(str(importId, "import", 64)),
     "credentials.agentAccess": () => ctx.settings.get().passwords.agentAccess,
     "credentials.autoSignInIds": (c) => [...c.profile.autoSignIn.ids()],
@@ -354,6 +360,7 @@ export async function exportVaultToKdbx(profile: ProfileRuntime, file: string, p
   try {
     const bytes = await createKdbx(vaultExportEntries(creds), password, { name: "Corvus" });
     await fs.promises.writeFile(target, bytes, { flag: "wx", mode: 0o600 });
+    profile.backup.recordBackup();
     return { ok: true, path: target, count: creds.length };
   } catch (err) {
     return { ok: false, error: `Could not write the file: ${(err as Error).message}` };

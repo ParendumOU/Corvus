@@ -13,9 +13,11 @@ import {
   photoScales,
   planImport,
   rowsToImport,
+  sameTotp,
   type AuthenticatorImportResult,
   type AuthenticatorPick,
   type AuthenticatorPreview,
+  type ImportAccount,
   type PhotoReport,
   type PhotoStatus,
   type PlanLogin,
@@ -211,7 +213,7 @@ export async function readAuthenticatorPhoto(profileId: string, importId: string
 
 /** The vault's logins as the plan needs them (with their 2FA, which never leaves this process). */
 function planLogins(vault: CredentialVault): PlanLogin[] {
-  return vault.all().map((c) => ({ id: c.id, origin: c.origin, username: c.username, updatedAt: c.updatedAt, ...(c.totp ? { totp: c.totp } : {}) }));
+  return vault.all().map((c) => ({ id: c.id, origin: c.origin, username: c.username, hasPassword: c.password !== "", updatedAt: c.updatedAt, ...(c.totp ? { totp: c.totp } : {}) }));
 }
 
 export function authenticatorPreview(profileId: string, importId: string, vault: CredentialVault, sites: Record<string, string>): AuthenticatorPreview {
@@ -221,28 +223,51 @@ export function authenticatorPreview(profileId: string, importId: string, vault:
 
 /**
  * Imports the chosen rows in one go: matched logins get the 2FA, the others become new logins that
- * hold only the 2FA. The plan is made again here from the stored accounts, so the page only ever
- * sends row ids and the sites typed for them. Ends the session.
+ * hold only the 2FA, and logins an earlier import made for a 2FA alone are fixed or removed. The plan
+ * is made again here from the stored accounts, so the page only ever sends row ids and the sites typed
+ * for them. A login is only removed while it still has no password and holds the secret that moved.
+ * Ends the session.
  */
 export function applyAuthenticatorImport(profileId: string, importId: string, vault: CredentialVault, sites: Record<string, string>, selected: string[]): AuthenticatorImportResult {
   const { collector } = session(profileId, importId);
-  const accounts = new Map(collector.accounts.map((a) => [a.id, a]));
-  const rows = rowsToImport(planImport(collector.accounts, planLogins(vault), sites), new Set(selected));
-  const result: AuthenticatorImportResult = { attached: 0, created: 0 };
+  const result = importAccounts(vault, collector.accounts, sites, selected);
+  discardAuthenticatorImport(importId);
+  return result;
+}
+
+/** Writes the chosen rows of the plan for these accounts to the vault (see applyAuthenticatorImport). */
+export function importAccounts(vault: CredentialVault, list: readonly ImportAccount[], sites: Record<string, string>, selected: string[]): AuthenticatorImportResult {
+  const accounts = new Map(list.map((a) => [a.id, a]));
+  const rows = rowsToImport(planImport(list, planLogins(vault), sites), new Set(selected));
+  const targets = new Set(rows.flatMap((r) => (r.login ? [r.login.id] : [])));
+  const result: AuthenticatorImportResult = { attached: 0, created: 0, repaired: 0 };
   vault.batch(() => {
     for (const row of rows) {
       const account = accounts.get(row.id)!;
-      if (row.login) {
-        vault.update(row.login.id, { totp: account.config });
-        result.attached++;
+      if (row.action === "fix" && row.login) {
+        vault.update(row.login.id, { username: account.account });
+        result.repaired++;
+      } else if (row.login) {
+        const has = vault.get(row.login.id)?.totp;
+        if (!has || !sameTotp(has, account.config)) {
+          vault.update(row.login.id, { totp: account.config });
+          result.attached++;
+        }
       } else {
         vault.add({ origin: row.site, username: account.account, password: "", totp: account.config });
         result.created++;
       }
+      let removed = false;
+      for (const old of row.removes) {
+        const current = vault.get(old.id);
+        if (!current || current.password !== "" || !current.totp || !sameTotp(current.totp, account.config) || targets.has(old.id)) continue;
+        vault.remove(old.id);
+        removed = true;
+      }
+      if (removed && row.action !== "fix") result.repaired++;
     }
   });
   vault.flush();
-  discardAuthenticatorImport(importId);
   return result;
 }
 

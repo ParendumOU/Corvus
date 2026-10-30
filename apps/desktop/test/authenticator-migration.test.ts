@@ -106,4 +106,71 @@ describe("splitAccountName", () => {
     expect(splitAccountName("Other:bob", "Example")).toEqual({ issuer: "Example", account: "Other:bob" });
     expect(splitAccountName(":bob", "")).toEqual({ issuer: "", account: ":bob" });
   });
+
+  it("drops an issuer written before the account with a separator", () => {
+    const cases: Array<[string, string, string, string]> = [
+      // [label, issuer field, issuer, account]
+      ["Parendum Central - info@example.com", "Parendum Central", "Parendum Central", "info@example.com"],
+      ["parendum central - info@example.com", "Parendum Central", "Parendum Central", "info@example.com"],
+      ["Parendum  Central  -  info@example.com ", "PARENDUM CENTRAL", "PARENDUM CENTRAL", "info@example.com"],
+      ["GitHub | octocat", "GitHub", "GitHub", "octocat"],
+      ["GitHub|octocat", "github", "github", "octocat"],
+      ["AWS / admin", "AWS", "AWS", "admin"],
+      ["Binance \u00b7 trader-01", "Binance", "Binance", "trader-01"],
+      ["Hetzner \u2013 ops", "Hetzner", "Hetzner", "ops"],
+      ["Hetzner \u2014 ops@example.org", "Hetzner", "Hetzner", "ops@example.org"],
+      ["Acme \u2022 jane", "Acme", "Acme", "jane"],
+      ["Acme Corp:Acme Corp - jane@example.org", "Acme Corp", "Acme Corp", "jane@example.org"],
+      ["Acme Corp:Acme Corp - jane@example.org", "", "Acme Corp", "jane@example.org"],
+      ["Slack (team@example.com)", "Slack", "Slack", "team@example.com"],
+      ["Discord (Some One#1234)", "discord", "discord", "Some One#1234"],
+      ["octocat (GitHub)", "GitHub", "GitHub", "octocat"],
+      ["admin - Intranet", "Intranet", "Intranet", "admin"],
+    ];
+    for (const [label, issuer, wantIssuer, account] of cases) expect(splitAccountName(label, issuer), label).toEqual({ issuer: wantIssuer, account });
+  });
+
+  it("takes the e-mail address as the account when the other part is a name", () => {
+    const cases: Array<[string, string, string, string]> = [
+      ["Parendum Central - info@example.com", "", "Parendum Central", "info@example.com"],
+      ["Parendum Central - info@example.com", "Parendum", "Parendum", "info@example.com"],
+      ["Parendum Central | info@example.com", "", "Parendum Central", "info@example.com"],
+      ["[Staging] Acme - dev@example.test", "", "[Staging] Acme", "dev@example.test"],
+      ["Acme - Admin - root@example.org", "", "Acme - Admin", "root@example.org"],
+      ["me@example.com - Work", "", "Work", "me@example.com"],
+      ["me@example.com (Work)", "", "Work", "me@example.com"],
+      ["Work (me@example.com)", "", "Work", "me@example.com"],
+      ["Proton \u2013 smoke@example.org", "", "Proton", "smoke@example.org"],
+    ];
+    for (const [label, issuer, wantIssuer, account] of cases) expect(splitAccountName(label, issuer), label).toEqual({ issuer: wantIssuer, account });
+  });
+
+  it("leaves labels alone when no part is the issuer or an address", () => {
+    const cases: Array<[string, string]> = [
+      ["jean-pierre", "Example"],
+      ["Jean - Pierre", "Example"],
+      ["Work - Personal", ""],
+      ["a@example.com - b@example.org", ""],
+      ["GitHub - ", "GitHub"],
+      ["octocat", "GitHub"],
+      ["team (prod)", "Acme"],
+    ];
+    for (const [label, issuer] of cases) expect(splitAccountName(label, issuer), label).toEqual({ issuer, account: label.trim() });
+    expect(splitAccountName("https://example.com - me@example.com", "")).toEqual({ issuer: "https://example.com", account: "me@example.com" });
+  });
+
+  it("splits the labels of an export the same way", () => {
+    const batch = parseMigrationUri(
+      migrationUri(
+        encodeMigrationPayload([
+          { secret: new Uint8Array(10).fill(1), name: "Parendum Central - info@example.com" },
+          { secret: new Uint8Array(10).fill(2), name: "Parendum Central - info@example.com", issuer: "Parendum Central" },
+        ]),
+      ),
+    );
+    expect(batch.accounts.map((a) => [a.issuer, a.account])).toEqual([
+      ["Parendum Central", "info@example.com"],
+      ["Parendum Central", "info@example.com"],
+    ]);
+  });
 });

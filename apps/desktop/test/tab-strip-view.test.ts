@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { TabGroup } from "@corvus/shared";
-import { buildStripRows, renderedTabs, type ViewTab } from "../src/shared/tab-strip-view";
+import { buildStripRows, groupsNeedingYou, renderedTabs, type ViewTab } from "../src/shared/tab-strip-view";
 
 const g = (id: string, extra: Partial<TabGroup> = {}): TabGroup => ({ id, title: id, color: "blue", collapsed: false, ...extra });
-const t = (id: string, extra: Partial<ViewTab> = {}): ViewTab => ({ id, pinned: false, active: false, ...extra });
+const t = (id: string, extra: Partial<ViewTab & { needsYou: boolean }> = {}): ViewTab & { needsYou?: boolean } => ({ id, pinned: false, active: false, ...extra });
 
 const shape = (rows: ReturnType<typeof buildStripRows<ViewTab>>): string =>
   rows.map((r) => (r.type === "group" ? `[${r.group.id}:${r.members.length}]` : r.tab.id + (r.firstInGroup ? "{" : "") + (r.lastInGroup ? "}" : ""))).join(" ");
@@ -44,5 +44,21 @@ describe("buildStripRows", () => {
     const tabs = [t("a"), t("b", { groupId: "G" }), t("c", { groupId: "G" })];
     const groups = [g("G")];
     expect(buildStripRows(tabs, groups)).toEqual(buildStripRows(tabs, groups));
+  });
+});
+
+describe("groupsNeedingYou", () => {
+  it("names collapsed groups hiding a tab an AI agent waits in", () => {
+    const groups = [g("A", { collapsed: true }), g("B"), g("C", { collapsed: true }), g("D", { collapsed: true })];
+    const tabs = [
+      t("a", { groupId: "A", needsYou: true }),
+      t("b", { groupId: "B", needsYou: true }),
+      // A collapsed group still shows its active tab: that tab is lit, not the group.
+      t("c", { groupId: "C", needsYou: true, active: true }),
+      t("d", { groupId: "D" }),
+      t("e", { needsYou: true }),
+    ];
+    expect([...groupsNeedingYou(tabs, groups)]).toEqual(["A"]);
+    expect(groupsNeedingYou(tabs.map((x) => ({ ...x, needsYou: false })), groups).size).toBe(0);
   });
 });

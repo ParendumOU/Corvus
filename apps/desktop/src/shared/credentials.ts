@@ -3,6 +3,7 @@
  * normalization used for autofill matching, list search and the password generator. No Node or
  * Electron imports so this runs in the main process, the renderer and tests alike.
  */
+import { siteOf } from "./tab-organizer";
 import { isValidTotpConfig, type TotpConfig } from "./totp";
 
 /** A stored login. Synced as the `credentials` collection; password/notes/totp are secret. */
@@ -29,6 +30,8 @@ export interface CredentialSummary {
   origin: string;
   username: string;
   hasNotes: boolean;
+  /** False for a login that holds only a 2FA (what an authenticator import makes when no login matched). */
+  hasPassword: boolean;
   hasTotp: boolean;
   agentTotp: boolean;
   agentSignIn: boolean;
@@ -39,15 +42,81 @@ export interface CredentialSummary {
 /** Where a login comes from: the built-in vault or a KeePass database. */
 export type CredentialSource = "corvus" | "keepass";
 
-/** A single login the autofill dropdown offers for the current page (no secrets). */
+/**
+ * One account the autofill offers for the current page (no secrets): the saved logins of one username
+ * on the page's site, merged. The id is opaque; the main process resolves it against the page again.
+ */
 export interface CredentialMatch {
   id: string;
   username: string;
-  /** The login has a 2FA generator, so its current code can be filled. */
+  /** Host (and port) the password is saved for, without the protocol, e.g. "central.example.com". */
+  site: string;
+  /** Some login of the account has a password; false for an account that holds only a 2FA. */
+  hasPassword: boolean;
+  /** Some login of the account has a 2FA generator, so its current code can be filled. */
   hasTotp: boolean;
+  /** Where the password comes from (or the 2FA, for an account without a password). */
   source: CredentialSource;
   /** KeePass database name for KeePass logins. */
   sourceName?: string;
+}
+
+/** Between the parts of an account's label in menus. */
+export const LABEL_SEPARATOR = "  \u00b7  ";
+
+/**
+ * What a menu shows next to an account's username: the site its password is saved for, its KeePass
+ * database (unless the menu has a line of its own for it) and `twoFaOnly` when it has no password.
+ */
+export function accountDetails(m: CredentialMatch, twoFaOnly: string, opts: { source?: boolean } = {}): string[] {
+  const source = m.source === "keepass" && opts.source !== false ? [m.sourceName ? `KeePass: ${m.sourceName}` : "KeePass"] : [];
+  return [...(m.site ? [m.site] : []), ...source, ...(m.hasPassword ? [] : [twoFaOnly])];
+}
+
+/**
+ * Hosting suffixes where every subdomain belongs to someone else: logins saved on one never show on
+ * another (each host keeps its own logins).
+ */
+const SHARED_HOSTING = [
+  "herokuapp.com", "blogspot.com", "appspot.com", "firebaseapp.com", "web.app", "pages.dev", "workers.dev", "azurewebsites.net",
+  "azurestaticapps.net", "cloudapp.net", "cloudfront.net", "amazonaws.com", "amplifyapp.com", "onrender.com", "fly.dev", "glitch.me",
+  "ngrok.io", "ngrok-free.app", "ngrok.app", "trycloudflare.com", "duckdns.org", "no-ip.org", "myshopify.com", "wixsite.com",
+  "bitbucket.io", "readthedocs.io", "surge.sh", "replit.dev", "repl.co", "deno.dev", "supabase.co", "neocities.org",
+  "github.io", "gitlab.io", "vercel.app", "netlify.app",
+];
+
+/**
+ * The domain a login is shared across: "central.example.com" and "example.com" give "example.com". ""
+ * for hosts whose logins stay on the host itself: IP addresses, localhost and other single labels, and
+ * shared hosting suffixes.
+ */
+export function loginDomainOf(host: string): string {
+  const h = host.toLowerCase().replace(/\.$/, "");
+  if (!h.includes(".") || /^[\d.]+$/.test(h) || h.includes(":") || h.startsWith("[")) return "";
+  if (SHARED_HOSTING.some((suffix) => h === suffix || h.endsWith(`.${suffix}`))) return "";
+  const site = siteOf(`https://${h}`);
+  return site.includes(".") ? site : "";
+}
+
+/**
+ * How a login saved for `entry` (scheme, host, port; scheme null for a bare host) fits a page: "exact"
+ * for the page's own origin (or host, for a bare host), "domain" for another host of the same
+ * registrable domain (see loginDomainOf), else null. A login saved for https never fits an http page.
+ */
+export function loginFit(entry: { scheme: "http:" | "https:" | null; host: string; port: string }, pageUrl: string): "exact" | "domain" | null {
+  let page: URL;
+  try {
+    page = new URL(pageUrl);
+  } catch {
+    return null;
+  }
+  if (page.protocol !== "http:" && page.protocol !== "https:") return null;
+  if (entry.scheme === "https:" && page.protocol === "http:") return null;
+  const host = page.hostname.toLowerCase();
+  const port = page.port && page.port !== (page.protocol === "https:" ? "443" : "80") ? page.port : "";
+  if (host === entry.host && port === entry.port && (entry.scheme === null || entry.scheme === page.protocol)) return "exact";
+  const domain = loginDomainOf(host);
+  return domain && domain === loginDomainOf(entry.host) ? "domain" : null;
 }
 
 /**
@@ -91,6 +160,7 @@ export function credentialSummary(c: Credential): CredentialSummary {
     origin: c.origin,
     username: c.username,
     hasNotes: Boolean(c.notes && c.notes.trim()),
+    hasPassword: c.password !== "",
     hasTotp: Boolean(c.totp),
     agentTotp: c.agentTotp === true,
     agentSignIn: c.agentSignIn === true,

@@ -2,6 +2,7 @@
  * Pure helpers for KeePass entries: reading a 2FA generator from the fields KeePassXC and KeePass 2
  * use, and matching an entry's URL fields to a page. No kdbxweb import, so it unit-tests cheaply.
  */
+import { loginFit } from "../shared/credentials";
 import {
   base32Decode,
   isValidTotpConfig,
@@ -166,6 +167,22 @@ export function entryMatchScore(entry: Pick<KeePassEntry, "urls">, pageUrl: stri
   let best = 0;
   for (const url of entry.urls) best = Math.max(best, urlMatchScore(url, pageUrl));
   return best;
+}
+
+/**
+ * How the best of an entry's URLs fits a page for the person's autofill (see loginFit): "exact" for
+ * the page's own host, "domain" for another host of its registrable domain; with the host it names.
+ */
+export function entryFit(entry: Pick<KeePassEntry, "urls">, pageUrl: string): { fit: "exact" | "domain"; host: string } | null {
+  let found: { fit: "exact" | "domain"; host: string } | null = null;
+  for (const raw of entry.urls) {
+    const url = parseEntryUrl(raw);
+    const fit = url ? loginFit(url, pageUrl) : null;
+    if (!url || !fit) continue;
+    if (fit === "exact") return { fit, host: url.port ? `${url.host}:${url.port}` : url.host };
+    found ??= { fit, host: url.port ? `${url.host}:${url.port}` : url.host };
+  }
+  return found;
 }
 
 /** A host to show for an entry (first parseable URL), or its title. */

@@ -644,6 +644,7 @@ export class BrowserWindowCtl {
       crashed: tab.crashed,
       audible: tab.audible,
       ...(tab.asleep ? { sleeping: true } : {}),
+      ...(this.ctx.userActions.needsYou(tab.id) ? { needsYou: true } : {}),
     };
   }
 
@@ -1288,6 +1289,7 @@ export class BrowserWindowCtl {
     this.ctx.secretFills.clear(id);
     this.ctx.annotations.forgetTab(id);
     this.ctx.assist.forgetTab(id);
+    this.ctx.userActions.forgetTab(id);
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);
     // A site set to be forgotten loses its cookies and data once no tab of its session shows it.

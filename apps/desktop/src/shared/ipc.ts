@@ -62,6 +62,8 @@ export interface TabView extends Tab {
   container?: TabContainer;
   /** Its site's certificate is not valid ("ERR_CERT_…"): the error page, or a page let through anyway. */
   certError?: string;
+  /** An AI agent asked the person to do something in it (request_user_action) and waits for the answer. */
+  needsYou?: boolean;
 }
 
 export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, CommandBarWindowExtras {

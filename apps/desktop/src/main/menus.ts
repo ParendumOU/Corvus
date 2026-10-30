@@ -1,7 +1,7 @@
 import { Menu, app, clipboard, nativeImage, type MenuItemConstructorOptions } from "electron";
 import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { BAR_FOLDER_ID, childrenOf, folderUrls } from "../shared/bookmark-tree";
-import type { CredentialMatch } from "../shared/credentials";
+import { accountDetails, LABEL_SEPARATOR, type CredentialMatch } from "../shared/credentials";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
@@ -380,24 +380,29 @@ export function showBookmarkMenu(ctx: AppContext, win: BrowserWindowCtl, bookmar
   );
 }
 
-/** The saved logins of a page, under the login field the person clicked; picking one fills it. */
-export function showLoginFieldMenu(ctx: AppContext, win: BrowserWindowCtl, matches: CredentialMatch[], x: number, y: number): void {
-  popup(
-    win,
-    [
-      ...matches.map(
-        (m): MenuItemConstructorOptions => ({
-          label: m.username || tr("(no username)"),
-          ...(m.source === "keepass" ? { sublabel: m.sourceName || "KeePass" } : {}),
-          click: () => void ctx.autofill.fill(win, m.id),
-        }),
-      ),
-      { type: "separator" },
-      { label: tr("Manage passwords…"), click: () => win.openSingleton("corvus://passwords/") },
-    ],
-    x,
-    y,
-  );
+/**
+ * The saved accounts of a page, for the menu under the login field the person clicked; picking one
+ * fills it. Each shows the username, the site its password is saved for, its KeePass database (a
+ * sublabel on macOS, the only system that shows one) and "2FA only" when it has no password.
+ */
+export function loginFieldMenuItems(ctx: AppContext, win: BrowserWindowCtl, matches: CredentialMatch[]): MenuItemConstructorOptions[] {
+  const mac = process.platform === "darwin";
+  return [
+    ...matches.map((m): MenuItemConstructorOptions => {
+      const label = [m.username || tr("(no username)"), ...accountDetails(m, tr("2FA only"), { source: !mac })].join(LABEL_SEPARATOR);
+      return {
+        label,
+        ...(mac && m.source === "keepass" ? { sublabel: m.sourceName || "KeePass" } : {}),
+        click: () => void ctx.autofill.fill(win, m.id),
+      };
+    }),
+    { type: "separator" },
+    { label: tr("Manage passwords…"), click: () => win.openSingleton("corvus://passwords/") },
+  ];
+}
+
+export function showMenuAt(win: BrowserWindowCtl, template: MenuItemConstructorOptions[], x: number, y: number): void {
+  popup(win, template, x, y);
 }
 
 const isWebUrl = (url: string): boolean => /^https?:/i.test(url);

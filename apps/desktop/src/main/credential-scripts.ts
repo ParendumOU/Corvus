@@ -163,13 +163,15 @@ export function detectLoginScript(): string {
 
 /**
  * Fills the detected username and password through the native setters, firing input/change events.
- * With `submit` (auto sign-in, after the person confirmed), also submits the login form.
+ * An empty password (a login that holds only a 2FA) leaves the password field as it is. With `submit`
+ * (auto sign-in, after the person confirmed), also submits the login form.
  */
 export function fillLoginScript(username: string, password: string, submit = false): string {
   return `(() => {${PRELUDE}
   const login = findLogin();
   if (!login || !login.pass) return false;
   if (login.user && ${JSON.stringify(username)}) setValue(login.user, ${JSON.stringify(username)});
+  if (!${JSON.stringify(password)}) return Boolean(login.user);
   setValue(login.pass, ${JSON.stringify(password)});
   markSecret(login.pass, false);
   if (${submit ? "true" : "false"}) {

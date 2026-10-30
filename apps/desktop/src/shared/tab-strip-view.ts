@@ -69,3 +69,12 @@ export function buildStripRows<T extends ViewTab>(tabs: readonly T[], groups: re
 export function renderedTabs<T extends ViewTab>(tabs: readonly T[], groups: readonly TabGroup[]): T[] {
   return buildStripRows(tabs, groups).flatMap((r) => (r.type === "tab" ? [r.tab] : []));
 }
+
+/**
+ * Collapsed groups that hide a tab an AI agent waits in (needsYou and not the active tab, which a
+ * collapsed group still shows): their header pulses for it.
+ */
+export function groupsNeedingYou(tabs: ReadonlyArray<ViewTab & { needsYou?: boolean }>, groups: readonly TabGroup[]): Set<string> {
+  const collapsed = new Set(groups.filter((g) => g.collapsed).map((g) => g.id));
+  return new Set(tabs.flatMap((t) => (t.needsYou && !t.active && t.groupId && collapsed.has(t.groupId) ? [t.groupId] : [])));
+}

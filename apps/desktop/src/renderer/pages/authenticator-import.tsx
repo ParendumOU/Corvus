@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AuthenticatorImportResult, AuthenticatorPreview, ImportAction, ImportRow, MissingCodes, PhotoReport, SkippedAccount } from "../../shared/authenticator-import";
+import { IMPORTABLE_ACTIONS, type AuthenticatorImportResult, type AuthenticatorPreview, type ImportAction, type ImportRow, type MissingCodes, type PhotoReport, type SkippedAccount } from "../../shared/authenticator-import";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconCamera, IconFolder, IconWarning } from "../common/icons";
@@ -8,7 +8,7 @@ import { hostOf } from "../common/ui";
 type Stage = "start" | "reading" | "preview" | "done";
 
 /** Rows that can be imported: the others are shown but have no checkbox to tick. */
-const importable = (row: ImportRow): boolean => row.action === "attach" || row.action === "replace" || row.action === "create";
+const importable = (row: ImportRow): boolean => IMPORTABLE_ACTIONS.has(row.action);
 
 const accounts = (n: number): string => (n === 1 ? t("1 account") : t("{n} accounts", { n }));
 const photos = (n: number): string => (n === 1 ? t("1 photo") : t("{n} photos", { n }));
@@ -68,25 +68,42 @@ function actionText(row: ImportRow): string {
       return t("New login (2FA only)");
     case "needs-site":
       return t("Enter the site where you sign in to import it");
+    case "move":
+      return row.removes.length === 1
+        ? t("Moves the 2FA from the earlier import to your login {user} on {site} and removes that entry", { user, site })
+        : t("Moves the 2FA from the earlier import to your login {user} on {site} and removes those {n} entries", { user, site, n: row.removes.length });
+    case "fix":
+      return t("Fixes the 2FA-only login from the earlier import: it becomes {user} on {site}", { user: row.account || t("(no username)"), site: hostOf(row.site) });
   }
 }
 
-type Filter = ImportAction | null;
+/** The earlier 2FA-only logins a row removes, when its action text does not say so already. */
+function removesNote(row: ImportRow): string | null {
+  if (row.removes.length === 0 || row.action === "move") return null;
+  const names = row.removes.map((l) => `${l.username || t("(no username)")} (${hostOf(l.origin)})`).join(", ");
+  return t("Also removes the 2FA-only login from the earlier import: {names}", { names });
+}
 
-const FILTERS: Array<{ action: ImportAction; label: string }> = [
-  { action: "attach", label: t("Matched") },
-  { action: "create", label: t("New") },
-  { action: "replace", label: t("Conflicts") },
-  { action: "needs-site", label: t("Needs a site") },
-  { action: "same", label: t("Already set") },
+type FilterKey = "attach" | "create" | "repair" | "replace" | "needs-site" | "same";
+type Filter = FilterKey | null;
+
+const FILTERS: Array<{ key: FilterKey; label: string; actions: ImportAction[] }> = [
+  { key: "attach", label: t("Matched"), actions: ["attach"] },
+  { key: "create", label: t("New"), actions: ["create"] },
+  { key: "repair", label: t("Repairs"), actions: ["move", "fix"] },
+  { key: "replace", label: t("Conflicts"), actions: ["replace"] },
+  { key: "needs-site", label: t("Needs a site"), actions: ["needs-site"] },
+  { key: "same", label: t("Already set"), actions: ["same"] },
 ];
+
+const filterOf = (action: ImportAction): FilterKey => FILTERS.find((f) => f.actions.includes(action))!.key;
 
 /**
  * Moves 2FA accounts from Google Authenticator into the vault: photos of its export QR codes are read
  * one by one in the main process, then every account is shown with where it goes. The secrets stay in
  * the main process: this page only sends row ids and the sites typed for them.
  */
-export function AuthenticatorImport({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+export function AuthenticatorImport({ onClose, onImported, onBackup }: { onClose: () => void; onImported: () => void; onBackup: () => void }) {
   const api = internalApi();
   const [stage, setStage] = useState<Stage>("start");
   const [importId, setImportId] = useState<string | null>(null);
@@ -194,8 +211,8 @@ export function AuthenticatorImport({ onClose, onImported }: { onClose: () => vo
   const rows = preview?.rows ?? [];
   const exportCount = preview?.exportCount ?? 0;
   const counts = useMemo(() => {
-    const by: Record<ImportAction, number> = { attach: 0, replace: 0, same: 0, create: 0, "needs-site": 0 };
-    for (const r of rows) by[r.action]++;
+    const by: Record<FilterKey, number> = { attach: 0, create: 0, repair: 0, replace: 0, "needs-site": 0, same: 0 };
+    for (const r of rows) by[filterOf(r.action)]++;
     return by;
   }, [rows]);
   const shared = useMemo(() => {
@@ -206,7 +223,7 @@ export function AuthenticatorImport({ onClose, onImported }: { onClose: () => vo
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter(
-      (r) => (filter === null || r.action === filter) && (!q || [r.issuer, r.account, r.site, sites[r.id] ?? ""].some((v) => v.toLowerCase().includes(q))),
+      (r) => (filter === null || filterOf(r.action) === filter) && (!q || [r.issuer, r.account, r.site, sites[r.id] ?? ""].some((v) => v.toLowerCase().includes(q))),
     );
   }, [rows, filter, query, sites]);
   const chosen = rows.filter((r) => selected.has(r.id) && importable(r));
@@ -325,9 +342,9 @@ export function AuthenticatorImport({ onClose, onImported }: { onClose: () => vo
                     <button className={`ga-chip ${filter === null ? "on" : ""}`} onClick={() => setFilter(null)}>
                       {t("All")} <span>{rows.length}</span>
                     </button>
-                    {FILTERS.filter((f) => counts[f.action] > 0).map((f) => (
-                      <button key={f.action} className={`ga-chip ${f.action} ${filter === f.action ? "on" : ""}`} onClick={() => setFilter(filter === f.action ? null : f.action)}>
-                        {f.label} <span>{counts[f.action]}</span>
+                    {FILTERS.filter((f) => counts[f.key] > 0).map((f) => (
+                      <button key={f.key} className={`ga-chip ${f.key} ${filter === f.key ? "on" : ""}`} onClick={() => setFilter(filter === f.key ? null : f.key)}>
+                        {f.label} <span>{counts[f.key]}</span>
                       </button>
                     ))}
                   </div>
@@ -362,12 +379,15 @@ export function AuthenticatorImport({ onClose, onImported }: { onClose: () => vo
                         className={`input ga-site ${row.action === "needs-site" ? "missing" : ""}`}
                         spellCheck={false}
                         placeholder={t("site.com")}
-                        value={sites[row.id] ?? row.siteInput}
+                        value={row.siteKnown ? row.siteInput : (sites[row.id] ?? row.siteInput)}
+                        readOnly={row.siteKnown}
+                        title={row.siteKnown ? t("This 2FA is already saved for this site") : undefined}
                         onChange={(e) => setSites((s) => ({ ...s, [row.id]: e.target.value }))}
                       />
                       <span className="ga-what">
                         {actionText(row)}
                         {row.action === "replace" && <span className="ga-note">{t("It already has a different 2FA code: tick the box to replace it.")}</span>}
+                        {removesNote(row) && <span className="ga-note">{removesNote(row)}</span>}
                         {(shared.get(row.target) ?? 0) > 1 && importable(row) && <span className="ga-note">{t("Another account here goes to the same login: only one of them can be imported.")}</span>}
                       </span>
                     </div>
@@ -405,13 +425,16 @@ export function AuthenticatorImport({ onClose, onImported }: { onClose: () => vo
           <>
             <div className="ga-result">
               <strong>{t("Added 2FA to {logins}, created {created}.", { logins: logins(result.attached), created: result.created })}</strong>
+              {result.repaired > 0 && <span> {result.repaired === 1 ? t("Repaired 1 login from an earlier import.") : t("Repaired {n} logins from an earlier import.", { n: result.repaired })}</span>}
             </div>
             <div className="pw-warn ga-delete">
               <IconWarning size={14} />{" "}
-              {t("Now delete the photos: they hold every 2FA secret. Delete them from this computer, from your phone's gallery (and its recently deleted folder), and from any cloud photo backup such as Google Photos or iCloud.")}
+              {t("Now delete the photos: they hold every 2FA secret. Delete them from this computer, from your phone's gallery (and its recently deleted folder), and from any cloud photo backup such as Google Photos or iCloud.")}{" "}
+              {t("Your 2FA codes now live in Corvus: back them up so a broken computer does not lock you out.")}
             </div>
             <div className="pw-actions">
               <button className="btn primary" onClick={onClose}>{t("Done")}</button>
+              <button className="btn" title={t("Writes your logins and 2FA codes to a KeePass file you keep somewhere else")} onClick={onBackup}>{t("Back up now")}</button>
             </div>
           </>
         )}

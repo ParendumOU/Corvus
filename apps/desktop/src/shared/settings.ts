@@ -96,6 +96,8 @@ export interface Settings {
      * on Windows each request opens the system security-key dialog. Applies to tabs opened afterwards.
      */
     passkeys: boolean;
+    /** Remind the person, at most once per launch, to back up their logins and 2FA codes. On by default. */
+    backupReminder: boolean;
   };
   mcp: {
     enabled: boolean;
@@ -274,7 +276,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       maxOutputTokens: 400,
     },
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true, runScreenshots: true },
-    passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false },
+    passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false, backupReminder: true },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
     downloads: { directory: "", askWhereToSave: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },

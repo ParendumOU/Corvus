@@ -5,7 +5,7 @@
  * unit-tested; the main process keeps the secrets and the renderer only ever sees `ImportRow`s.
  */
 import { originKeyOf } from "./credentials";
-import { isMigrationUri, parseMigrationUri, type MigrationSkipReason } from "./authenticator-migration";
+import { isMigrationUri, parseMigrationUri, splitAccountName, type MigrationSkipReason } from "./authenticator-migration";
 import { issuerSite } from "./authenticator-sites";
 import { siteOf } from "./tab-organizer";
 import { parseOtpauthUri, type TotpConfig } from "./totp";
@@ -85,8 +85,9 @@ export class AuthenticatorCollector {
     }
     if (/^otpauth:\/\/totp\//i.test(trimmed)) {
       try {
-        const { config, issuer, account } = parseOtpauthUri(trimmed);
-        return { kind: "setup", issuer, account, again: !this.addAccount(issuer, account, config) };
+        const parsed = parseOtpauthUri(trimmed);
+        const { issuer, account } = splitAccountName(parsed.account, parsed.issuer);
+        return { kind: "setup", issuer, account, again: !this.addAccount(issuer, account, parsed.config) };
       } catch {
         return { kind: "damaged" };
       }
@@ -121,16 +122,27 @@ export interface PlanLogin {
   id: string;
   origin: string;
   username: string;
+  /** False for a login that holds only a 2FA (what an import makes when no login matched). */
+  hasPassword: boolean;
   totp?: TotpConfig;
   updatedAt: number;
 }
 
 /**
  * attach: the matched login gets this 2FA. replace: it already has a different one (off by default).
- * same: it already has this one. create: a new login that holds only the 2FA. needs-site: no site
- * known yet, the person types it.
+ * same: the 2FA is already in the vault (nothing changes). create: a new login that holds only the
+ * 2FA. needs-site: no site known yet, the person types it. move: an earlier import put this 2FA in a
+ * login of its own under the whole label ("Site - name@example.com", no password, `removes`) and the
+ * account's login with a password is on the same site: that login gets it and the other one goes.
+ * fix: the same without such a login: the earlier one gets the right username, nothing else changes.
  */
-export type ImportAction = "attach" | "replace" | "same" | "create" | "needs-site";
+export type ImportAction = "attach" | "replace" | "same" | "create" | "needs-site" | "move" | "fix";
+
+export interface RowLogin {
+  id: string;
+  username: string;
+  origin: string;
+}
 
 /** One preview row: no secret, only labels and where the account goes. */
 export interface ImportRow {
@@ -139,10 +151,14 @@ export interface ImportRow {
   account: string;
   /** Origin the account goes to, "" while unknown. */
   site: string;
-  /** What the person typed for the site, or the suggestion from the issuer. */
+  /** What the person typed for the site, or the issuer's site, or where the 2FA already is. */
   siteInput: string;
+  /** The 2FA is already in the vault: the site is the one it was given then and is not asked again. */
+  siteKnown: boolean;
   action: ImportAction;
-  login: { id: string; username: string; origin: string } | null;
+  login: RowLogin | null;
+  /** Logins an earlier import made for this same 2FA under the whole label that importing the row removes. */
+  removes: RowLogin[];
   /** Rows with the same target would write the same login: only one of them can be imported. */
   target: string;
   /** Checked when the row is first shown. */
@@ -159,7 +175,7 @@ export function siteToOrigin(input: string): string {
   return host.includes(".") || host === "localhost" ? origin : "";
 }
 
-const sameTotp = (a: TotpConfig, b: TotpConfig): boolean => a.secret === b.secret && a.algorithm === b.algorithm && a.digits === b.digits && a.period === b.period;
+export const sameTotp = (a: TotpConfig, b: TotpConfig): boolean => a.secret === b.secret && a.algorithm === b.algorithm && a.digits === b.digits && a.period === b.period;
 
 const lower = (s: string): string => s.trim().toLowerCase();
 
@@ -168,11 +184,57 @@ function best(logins: PlanLogin[], origin: string): PlanLogin | undefined {
   return [...logins].sort((a, b) => Number(b.origin === origin) - Number(a.origin === origin) || b.updatedAt - a.updatedAt)[0];
 }
 
+/** One with a password first, then the newest. */
+const keeper = (logins: PlanLogin[]): PlanLogin | undefined => [...logins].sort((a, b) => Number(b.hasPassword) - Number(a.hasPassword) || b.updatedAt - a.updatedAt)[0];
+
+const rowLogin = (l: PlanLogin): RowLogin => ({ id: l.id, username: l.username, origin: l.origin });
+
+/** Rows whose import changes something; they are ticked when first shown (but conflicts). */
+const SELECTED_BY_DEFAULT: ReadonlySet<ImportAction> = new Set(["attach", "create", "move", "fix"]);
+
+interface Placed {
+  a: ImportAccount;
+  siteInput: string;
+  site: string;
+  siteKnown: boolean;
+  /** Logins of the account's site: the single-login fallback picks from them. */
+  candidates: PlanLogin[];
+  login: PlanLogin | undefined;
+  fix: boolean;
+  /** Logins an earlier import made for this 2FA under the whole label: removed when the 2FA goes elsewhere. */
+  labelled: PlanLogin[];
+  /** Logins that hold this 2FA: the single-login fallback of another account never takes them. */
+  holders: PlanLogin[];
+}
+
 /**
- * Where each account goes. A login matches when it is on the same site (registrable domain) as the
- * account's site and has the account's name as its username (case-insensitive). When no username
- * matches and the site has exactly one login that no other account claims, that login is used. Else
- * the account becomes a new login. `sites` holds what the person typed per row id.
+ * An account whose 2FA is already in the vault (a login with the same secret, algorithm, digits and
+ * period). Its site is that login's origin, as the person gave it then. The same username: already
+ * set. Else a login an earlier import made under the whole label ("Site - name@example.com", no
+ * password): moved to the account's login with a password on the same site, or else fixed in place
+ * (its username only). Else (the person put the 2FA on a login with another name): already set.
+ */
+function placeKnown(a: ImportAccount, holders: PlanLogin[], bySite: ReadonlyMap<string, PlanLogin[]>): Placed {
+  const name = lower(a.account);
+  const named = holders.filter((l) => lower(l.username) === name);
+  const labelled = holders.filter((l) => !l.hasPassword && lower(l.username) !== name && name !== "" && lower(splitAccountName(l.username, a.issuer).account) === name);
+  const at = (login: PlanLogin, fix = false): Placed => ({ a, siteInput: login.origin, site: login.origin, siteKnown: true, candidates: [], login, fix, labelled, holders });
+  if (named.length > 0) return at(keeper(named)!);
+  const old = keeper(labelled);
+  if (!old) return at(keeper(holders)!);
+  const real = best((bySite.get(siteOf(old.origin)) ?? []).filter((l) => l.hasPassword && lower(l.username) === name), old.origin);
+  return real ? { ...at(old), login: real } : at(old, true);
+}
+
+/**
+ * Where each account goes. First by its 2FA: an account whose 2FA is already in the vault keeps that
+ * login's site and goes to it (see placeKnown), so importing the same photos again never asks for a
+ * site again and never changes one. Else the site is what the person typed, or the issuer's sign-in
+ * page, and a login matches when it is on the same site (registrable domain) and has the account's
+ * name as its username (case-insensitive). When no username matches and the site has exactly one
+ * login that no other account claims, that login is used. Else the account becomes a new login. Only a
+ * login with no password that holds the very 2FA that moves is ever removed. `sites` holds what the
+ * person typed per row id.
  */
 export function planImport(accounts: readonly ImportAccount[], logins: readonly PlanLogin[], sites: Readonly<Record<string, string>> = {}): ImportRow[] {
   const bySite = new Map<string, PlanLogin[]>();
@@ -180,14 +242,16 @@ export function planImport(accounts: readonly ImportAccount[], logins: readonly 
     const key = siteOf(login.origin);
     if (key) bySite.set(key, [...(bySite.get(key) ?? []), login]);
   }
-  const placed = accounts.map((a) => {
+  const placed = accounts.map((a): Placed => {
+    const holders = logins.filter((l) => l.totp && sameTotp(l.totp, a.config));
+    if (holders.length > 0) return placeKnown(a, holders, bySite);
     const siteInput = sites[a.id] ?? issuerSite(a.issuer);
     const site = siteToOrigin(siteInput);
     const candidates = site ? (bySite.get(siteOf(site)) ?? []) : [];
     const byName = lower(a.account) ? candidates.filter((l) => lower(l.username) === lower(a.account)) : [];
-    return { a, siteInput, site, candidates, login: best(byName, site) };
+    return { a, siteInput, site, siteKnown: false, candidates, login: best(byName, site), fix: false, labelled: [], holders };
   });
-  const claimed = new Set(placed.flatMap((p) => (p.login ? [p.login.id] : [])));
+  const claimed = new Set(placed.flatMap((p) => [...(p.login ? [p.login.id] : []), ...p.holders.map((l) => l.id)]));
   // Accounts per site that found no login by name: the single-login fallback needs to be unambiguous.
   const unmatched = new Map<string, number>();
   for (const p of placed) if (p.site && !p.login) unmatched.set(siteOf(p.site), (unmatched.get(siteOf(p.site)) ?? 0) + 1);
@@ -195,12 +259,26 @@ export function planImport(accounts: readonly ImportAccount[], logins: readonly 
     const only = p.candidates.length === 1 ? p.candidates[0]! : undefined;
     if (p.site && !p.login && only && !claimed.has(only.id) && unmatched.get(siteOf(p.site)) === 1) p.login = only;
   }
+  const targets = new Set(placed.flatMap((p) => (p.login ? [p.login.id] : [])));
 
   const taken = new Set<string>();
-  return placed.map(({ a, siteInput, site, login }) => {
-    const action: ImportAction = !site ? "needs-site" : !login ? "create" : !login.totp ? "attach" : sameTotp(login.totp, a.config) ? "same" : "replace";
+  return placed.map(({ a, siteInput, site, siteKnown, login, fix, labelled }) => {
+    const removes = login ? labelled.filter((l) => l.id !== login.id && !targets.has(l.id)) : [];
+    const action: ImportAction = !site
+      ? "needs-site"
+      : !login
+        ? "create"
+        : fix
+          ? "fix"
+          : login.totp && !sameTotp(login.totp, a.config)
+            ? "replace"
+            : removes.length > 0
+              ? "move"
+              : login.totp
+                ? "same"
+                : "attach";
     const target = login ? `login:${login.id}` : site ? `new:${site} ${lower(a.account)}` : `row:${a.id}`;
-    const selected = (action === "attach" || action === "create") && !taken.has(target);
+    const selected = SELECTED_BY_DEFAULT.has(action) && !taken.has(target);
     if (selected) taken.add(target);
     return {
       id: a.id,
@@ -208,19 +286,24 @@ export function planImport(accounts: readonly ImportAccount[], logins: readonly 
       account: a.account,
       site,
       siteInput,
+      siteKnown,
       action,
-      login: login ? { id: login.id, username: login.username, origin: login.origin } : null,
+      login: login ? rowLogin(login) : null,
+      removes: removes.map(rowLogin),
       target,
       selected,
     };
   });
 }
 
+/** Rows that change something when imported (the others are shown without a checkbox). */
+export const IMPORTABLE_ACTIONS: ReadonlySet<ImportAction> = new Set(["attach", "replace", "create", "move", "fix"]);
+
 /** The rows a person's choices import: known ids, importable actions, one row per target. */
 export function rowsToImport(rows: readonly ImportRow[], chosen: ReadonlySet<string>): ImportRow[] {
   const taken = new Set<string>();
   return rows.filter((r) => {
-    if (!chosen.has(r.id) || r.action === "needs-site" || r.action === "same" || taken.has(r.target)) return false;
+    if (!chosen.has(r.id) || !IMPORTABLE_ACTIONS.has(r.action) || taken.has(r.target)) return false;
     taken.add(r.target);
     return true;
   });
@@ -258,8 +341,10 @@ export interface AuthenticatorPreview {
 }
 
 export interface AuthenticatorImportResult {
-  /** Logins that got the 2FA (replacements included). */
+  /** Logins that got the 2FA (replacements and moves included). */
   attached: number;
   /** New logins that hold only the 2FA. */
   created: number;
+  /** Logins from an earlier import that were fixed in place or removed because their 2FA moved. */
+  repaired: number;
 }

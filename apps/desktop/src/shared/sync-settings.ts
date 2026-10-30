@@ -65,6 +65,7 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "passwords.agentAccess": "Lets AI agents use opted-in logins and 2FA codes on this device; a per-device security decision.",
   "passwords.keepassAutoLockMinutes": "KeePass databases are local files; their lock timeout is chosen per device.",
   "passwords.passkeys": "Passkeys and security keys depend on this device's authenticators (Windows Hello, Touch ID, USB keys).",
+  "passwords.backupReminder": "The backup reminder follows the backups made on this device.",
   "mcp.enabled": "Exposes this browser to local AI agents; a per-device security decision.",
   "mcp.host": "Bind interface (loopback vs all interfaces); a per-device security decision.",
   "mcp.port": "Port on this machine.",

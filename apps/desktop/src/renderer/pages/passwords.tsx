@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CredentialSummary, PasswordOptions } from "../../shared/credentials";
-import { DEFAULT_PASSWORD_OPTIONS, generatePassword } from "../../shared/credentials";
+import { DEFAULT_PASSWORD_OPTIONS, generatePassword, searchCredentials } from "../../shared/credentials";
 import type { RevealedCredential } from "../../shared/credentials-ipc";
 import type { KeePassDbView, KeePassEntryDetails, KeePassEntrySummary, KeePassExportResult, KeePassState, KeePassUnlockResult } from "../../shared/keepass-ipc";
+import { daysSince } from "../../shared/backup-reminder";
 import { checkupSummary, type PasswordCheckupView, type PasswordHealth } from "../../shared/password-health";
+import { initialTab, PAGE_SIZE, pageSlice, searchTwoFactor, TAB_STORAGE_KEY, tabHash, twoFactorItems, type PasswordsTab, type TwoFactorItem } from "../../shared/password-tabs";
 import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { errorMessage, internalApi } from "../common/api";
 import { Modal } from "../common/modal";
-import { IconAgent, IconCamera, IconClock, IconCopy, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
+import { IconAgent, IconCamera, IconClock, IconCopy, IconDownload, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
 import { Favicon, Pager, hostOf } from "../common/ui";
 import { AuthenticatorImport } from "./authenticator-import";
 import { PageShell, mount } from "./shell";
@@ -155,6 +157,190 @@ function CheckupCard({ view, onRun }: { view: PasswordCheckupView | null; onRun:
   );
 }
 
+function lastBackupText(at: number): string {
+  const days = daysSince(at, Date.now());
+  return days === 0 ? t("Last backup: today") : days === 1 ? t("Last backup: yesterday") : t("Last backup: {n} days ago", { n: days });
+}
+
+/** "Back up now", with when the last backup was made under it. */
+function BackupButton({ lastBackupAt, onClick }: { lastBackupAt: number | null | undefined; onClick: () => void }) {
+  return (
+    <div className="pw-backup">
+      <button className="btn" onClick={onClick}>
+        <IconDownload size={14} /> {t("Back up now")}
+      </button>
+      {lastBackupAt !== undefined && <span className="pw-backup-when">{lastBackupAt === null ? t("Never backed up") : lastBackupText(lastBackupAt)}</span>}
+    </div>
+  );
+}
+
+function readStoredTab(): string | null {
+  try {
+    return localStorage.getItem(TAB_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeTab(tab: PasswordsTab): void {
+  try {
+    localStorage.setItem(TAB_STORAGE_KEY, tab);
+  } catch {
+    // Storage off (private mode, blocked): the tab is still in the address.
+  }
+}
+
+/** "Passwords" and "2FA codes", with how many each holds; arrow keys move between them. */
+function TabBar({ tab, counts, onTab }: { tab: PasswordsTab; counts: Record<PasswordsTab, number>; onTab: (tab: PasswordsTab) => void }) {
+  const tabs: Array<[PasswordsTab, string]> = [
+    ["passwords", t("Passwords")],
+    ["2fa", t("2FA codes")],
+  ];
+  return (
+    <div
+      className="pw-tabs"
+      role="tablist"
+      aria-label={t("Passwords")}
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        const next = tab === "passwords" ? "2fa" : "passwords";
+        onTab(next);
+        document.getElementById(`pw-tab-${next}`)?.focus();
+      }}
+    >
+      {tabs.map(([id, label]) => (
+        <button
+          key={id}
+          id={`pw-tab-${id}`}
+          role="tab"
+          aria-selected={tab === id}
+          aria-controls="pw-panel"
+          tabIndex={tab === id ? 0 : -1}
+          className={`pw-tab ${tab === id ? "on" : ""}`}
+          onClick={() => onTab(id)}
+        >
+          {label} <span className="pw-tab-count">{counts[id]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A ring that empties as the code's period runs out. */
+function CountdownRing({ left, period }: { left: number; period: number }) {
+  const r = 8;
+  const around = 2 * Math.PI * r;
+  return (
+    <svg className={`tf-ring ${left <= 5 ? "low" : ""}`} width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+      <circle className="tf-ring-track" cx="10" cy="10" r={r} />
+      <circle className="tf-ring-left" cx="10" cy="10" r={r} strokeDasharray={around} strokeDashoffset={around * (1 - left / period)} />
+    </svg>
+  );
+}
+
+/**
+ * The current code of one login, fetched from the main process (never the secret) when the row shows
+ * and again when its period ends: rows on other pages are not mounted, so they cost nothing.
+ */
+function TwoFactorCode({ item, now }: { item: TwoFactorItem; now: number }) {
+  const api = internalApi();
+  const [code, setCode] = useState<TotpCode | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fetchCode = (): void => {
+      const next = item.source === "keepass" ? api.call("keepass.totpCode", item.id) : api.call("credentials.totpCode", item.id);
+      void (next as Promise<TotpCode | null>).then((current) => {
+        if (!alive) return;
+        setCode(current);
+        if (current) timer = setTimeout(fetchCode, Math.max(250, current.expiresAt - Date.now() + 50));
+      });
+    };
+    fetchCode();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [api, item.id, item.source]);
+
+  if (!code) return <span className="tf-code muted">{t("Loading…")}</span>;
+  const left = Math.max(0, Math.ceil((code.expiresAt - now) / 1000));
+  const copy = (): void => {
+    void (item.source === "keepass" ? api.call("keepass.copyTotp", item.id) : api.call("credentials.copyTotp", item.id)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <div className="tf-codebox">
+      <span className="tf-code">{formatTotpCode(code.code)}</span>
+      <span className="tf-left" aria-label={t("{left} seconds left", { left })} title={t("{left} seconds left", { left })}>
+        <CountdownRing left={left} period={code.period} />
+        <span className="tf-secs">{left}</span>
+      </span>
+      <button className="btn small" onClick={copy}>
+        <IconCopy size={13} /> {copied ? t("Copied") : t("Copy")}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Every login with a 2FA (the vault, and unlocked KeePass databases), a page at a time, each with its
+ * current code. One clock drives the countdowns of the rows on screen.
+ */
+function TwoFactorTab({ items, query, onShow, onImport }: { items: TwoFactorItem[]; query: string; onShow: (item: TwoFactorItem) => void; onImport: () => void }) {
+  const [page, setPage] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const shown = useMemo(() => searchTwoFactor(items, query), [items, query]);
+  const slice = pageSlice(shown, page);
+  useEffect(() => setPage(0), [query]);
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  return (
+    <div className="card tf-card">
+      <div className="card-head tf-head">
+        <p className="muted">{t("The current code of every login with 2FA. Corvus also fills it on the site when it asks for the code.")}</p>
+        <button className="btn small" onClick={onImport}>
+          <IconCamera size={13} /> {t("Import from Google Authenticator")}
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty tf-empty">
+          {t("No 2FA codes yet. Add one to a login (Edit, then 2FA), or import your accounts from Google Authenticator.")}
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="empty">{t("No 2FA codes match your search.")}</div>
+      ) : (
+        <div className="list tf-list">
+          {slice.items.map((item) => (
+            <div key={item.id} className="tf-row" data-id={item.id}>
+              {item.url ? <Favicon url={item.url} /> : <IconLock size={15} />}
+              <div className="tf-main">
+                <div className="tf-site">
+                  <span className="tf-host">{item.site || item.title || t("(no site)")}</span>
+                  {!item.hasPassword && <span className="pill">{t("2FA only")}</span>}
+                  {item.source === "keepass" && <span className="pill">{item.sourceName ? `KeePass: ${item.sourceName}` : "KeePass"}</span>}
+                </div>
+                <div className="tf-user">{item.username || t("(no username)")}</div>
+              </div>
+              <TwoFactorCode item={item} now={now} />
+              <button className="btn small ghost tf-show" title={t("Show this login in the Passwords tab")} onClick={() => onShow(item)}>{t("Show login")}</button>
+            </div>
+          ))}
+          <Pager page={slice.page} size={PAGE_SIZE} total={shown.length} onPage={setPage} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PasswordsPage() {
   const api = internalApi();
   const [checkup, setCheckup] = useState<PasswordCheckupView | null>(null);
@@ -168,8 +354,11 @@ function PasswordsPage() {
     return api.onEvent((e) => (e.type === "credentials-changed" || e.type === "keepass-changed") && reloadCheckup());
   }, [api, reloadCheckup]);
   const health = new Map((checkup?.items ?? []).map((h) => [h.id, h]));
+  const [tab, setTab] = useState<PasswordsTab>(() => initialTab(location.hash, readStoredTab()));
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<CredentialSummary[]>([]);
+  const [page, setPage] = useState(0);
+  const [allItems, setAllItems] = useState<CredentialSummary[]>([]);
+  const [keepassItems, setKeepassItems] = useState<KeePassEntrySummary[]>([]);
   const [persisted, setPersisted] = useState(true);
   const [agentAccess, setAgentAccess] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
@@ -178,26 +367,73 @@ function PasswordsPage() {
   const [error, setError] = useState<string | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [backingUp, setBackingUp] = useState(() => location.hash === "#backup");
+  const [lastBackupAt, setLastBackupAt] = useState<number | null | undefined>(undefined);
+  const loadBackup = useCallback(() => void api.call("credentials.backupState").then((s) => setLastBackupAt(s.lastBackupAt)), [api]);
   const [autoIds, setAutoIds] = useState<Set<string>>(new Set());
   const setAutoSignIn = useCallback(
     (id: string, on: boolean) => void api.call("credentials.setAutoSignIn", id, on).then((ids) => setAutoIds(new Set(ids))),
     [api],
   );
 
-  const load = useCallback((q: string) => void api.call("credentials.list", q).then(setItems), [api]);
+  const load = useCallback(() => void api.call("credentials.list", "").then(setAllItems), [api]);
+  const loadKeePass = useCallback(() => void api.call("keepass.entries", "").then(setKeepassItems), [api]);
 
   useEffect(() => {
     void api.call("credentials.persisted").then(setPersisted);
     void api.call("credentials.agentAccess").then(setAgentAccess);
     void api.call("credentials.autoSignInIds").then((ids) => setAutoIds(new Set(ids)));
-  }, [api]);
+    load();
+    loadKeePass();
+    loadBackup();
+    return api.onEvent((e) => {
+      if (e.type === "credentials-changed") load();
+      if (e.type === "keepass-changed") loadKeePass();
+    });
+  }, [api, load, loadKeePass, loadBackup]);
 
+  const chooseTab = useCallback((next: PasswordsTab) => {
+    setTab(next);
+    storeTab(next);
+    history.replaceState(null, "", tabHash(next));
+  }, []);
+  // A link to the page with another tab (corvus://passwords/#2fa), or to the backup (#backup), while it is open.
   useEffect(() => {
-    const timer = setTimeout(() => load(query), 120);
-    return () => clearTimeout(timer);
-  }, [query, load]);
+    const onHash = (): void => {
+      setTab(initialTab(location.hash, readStoredTab()));
+      if (location.hash !== "#backup") return;
+      setBackingUp(true);
+      loadBackup();
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [loadBackup]);
 
-  useEffect(() => api.onEvent((e) => e.type === "credentials-changed" && load(query)), [api, query, load]);
+  const items = useMemo(() => searchCredentials(allItems, query), [allItems, query]);
+  const slice = pageSlice(items, page);
+  useEffect(() => setPage(0), [query]);
+  const twoFactor = useMemo(() => twoFactorItems(allItems, keepassItems), [allItems, keepassItems]);
+  const counts: Record<PasswordsTab, number> = { passwords: allItems.length + keepassItems.length, "2fa": twoFactor.length };
+
+  const showLogin = (item: TwoFactorItem): void => {
+    setQuery(item.site || item.username);
+    chooseTab("passwords");
+    window.scrollTo(0, 0);
+  };
+
+  const openBackup = (): void => {
+    setImporting(false);
+    setForm(null);
+    setBackingUp(true);
+    loadBackup();
+    window.scrollTo(0, 0);
+  };
+
+  const startImport = (): void => {
+    setBackingUp(false);
+    setForm(null);
+    setImporting(true);
+  };
 
   const reveal = async (id: string): Promise<void> => {
     if (revealed[id]) {
@@ -234,7 +470,7 @@ function PasswordsPage() {
 
   const remove = (id: string): void => {
     if (!window.confirm(t("Delete this login? This cannot be undone."))) return;
-    void api.call("credentials.remove", id).then(() => load(query));
+    void api.call("credentials.remove", id).then(load);
   };
 
   const generate = (): void => void api.call("credentials.generate", options).then((pw) => setForm((f) => (f ? { ...f, password: pw } : f)));
@@ -266,7 +502,7 @@ function PasswordsPage() {
       if (form.id) await api.call("credentials.update", form.id, fields);
       else await api.call("credentials.add", fields);
       setForm(null);
-      load(query);
+      load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -274,7 +510,7 @@ function PasswordsPage() {
 
   const set = (patch: Partial<FormState>): void => setForm((f) => (f ? { ...f, ...patch } : f));
   const toggle = (key: keyof PasswordOptions): void => setOptions((o) => ({ ...o, [key]: !o[key] }));
-  const anyTotp = items.some((i) => i.hasTotp);
+  const anyTotp = twoFactor.length > 0;
   const hasTotp = Boolean(form?.totp.trim());
 
   return (
@@ -283,155 +519,185 @@ function PasswordsPage() {
       active="passwords"
       toolbar={
         <>
-          <input className="input" placeholder={t("Search logins")} value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button className="btn" onClick={() => {
-            setForm(null);
-            setImporting(true);
-          }}>
-            <IconCamera size={14} />{" "}{t("Import from Google Authenticator")}</button>
+          <input className="input" placeholder={tab === "2fa" ? t("Search 2FA codes") : t("Search logins")} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button className="btn" title={t("Import from Google Authenticator")} onClick={startImport}>
+            <IconCamera size={14} />{" "}<span className="pw-ga-label">{t("Import from Google Authenticator")}</span></button>
+          <BackupButton lastBackupAt={lastBackupAt} onClick={openBackup} />
           <button className="btn primary" onClick={() => {
             setError(null);
             setQrError(null);
             setImporting(false);
             setForm(EMPTY_FORM);
+            chooseTab("passwords");
           }}>
             <IconPlus size={14} />{" "}{t("Add")}</button>
         </>
       }
     >
+      <TabBar tab={tab} counts={counts} onTab={chooseTab} />
+
       {!persisted && (
         <div className="card">
           <div className="pw-warn">{t("No system keychain is available, so saved logins are kept in memory for this session only and are not written to disk.")}</div>
         </div>
       )}
 
-      {importing && <AuthenticatorImport onClose={() => setImporting(false)} onImported={() => load(query)} />}
+      {importing && <AuthenticatorImport onClose={() => setImporting(false)} onImported={load} onBackup={openBackup} />}
 
-      {form && (
-        <div className="card">
+      {backingUp && (
+        <div className="card pw-backup-card" id="backup">
           <div className="card-head">
-            <h2>{form.id ? t("Edit login") : t("Add login")}</h2>
+            <h2>{t("Back up your passwords and 2FA codes")}</h2>
+            <p className="muted">{t("Corvus writes every saved login, with its 2FA, to a new KeePass file (.kdbx) protected by a master password you choose, and never overwrites a file. Keep it somewhere other than this computer, such as a USB drive or a cloud folder: KeePassXC, KeePass and Corvus can open it.")}</p>
           </div>
-          <div className="card-body padded pw-form">
-            <label className="pw-field">
-              <span>{t("Site")}</span>
-              <input className="input" placeholder={t("https://example.com")} value={form.origin} onChange={(e) => set({ origin: e.target.value })} />
-            </label>
-            <label className="pw-field">
-              <span>{t("Username")}</span>
-              <input className="input" autoComplete="off" value={form.username} onChange={(e) => set({ username: e.target.value })} />
-            </label>
-            <label className="pw-field">
-              <span>{t("Password")}</span>
-              <input className="input" type="text" autoComplete="off" value={form.password} onChange={(e) => set({ password: e.target.value })} />
-            </label>
-            <div className="pw-gen">
-              <button className="btn small" onClick={generate}>{t("Generate")}</button>
-              <label className="pw-opt">{t("Length")}<input className="input pw-len" type="number" min={4} max={128} value={options.length} onChange={(e) => setOptions((o) => ({ ...o, length: Number(e.target.value) || 20 }))} />
+          <div className="card-body padded">
+            <ExportForm onClose={() => setBackingUp(false)} onDone={loadBackup} />
+          </div>
+        </div>
+      )}
+
+      <div id="pw-panel" role="tabpanel" aria-labelledby={`pw-tab-${tab}`} className="pw-panel">
+        {tab === "2fa" && (
+          <>
+            {anyTotp && !importing && (
+              <div className="card">
+                <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
+              </div>
+            )}
+            <TwoFactorTab items={twoFactor} query={query} onShow={showLogin} onImport={startImport} />
+          </>
+        )}
+
+        {tab === "passwords" && form && (
+          <div className="card">
+            <div className="card-head">
+              <h2>{form.id ? t("Edit login") : t("Add login")}</h2>
+            </div>
+            <div className="card-body padded pw-form">
+              <label className="pw-field">
+                <span>{t("Site")}</span>
+                <input className="input" placeholder={t("https://example.com")} value={form.origin} onChange={(e) => set({ origin: e.target.value })} />
               </label>
-              <label className="pw-opt"><input type="checkbox" checked={options.uppercase} onChange={() => toggle("uppercase")} /> A-Z</label>
-              <label className="pw-opt"><input type="checkbox" checked={options.lowercase} onChange={() => toggle("lowercase")} /> a-z</label>
-              <label className="pw-opt"><input type="checkbox" checked={options.digits} onChange={() => toggle("digits")} /> 0-9</label>
-              <label className="pw-opt"><input type="checkbox" checked={options.symbols} onChange={() => toggle("symbols")} /> !@#</label>
-            </div>
-            <div className="pw-field">
-              <span>{t("2FA (optional)")}</span>
-              {form.totpLabel ? (
-                <div className="pw-totp-imported">
-                  <IconClock size={13} /> {form.totpLabel}
-                  <button className="btn small ghost" onClick={() => set({ totp: "", totpLabel: "" })}>{t("Remove")}</button>
-                </div>
-              ) : (
-                <input
-                  className="input pw-totp-input"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder={t("Paste an otpauth:// link or the base32 secret")}
-                  value={form.totp}
-                  onChange={(e) => set({ totp: e.target.value })}
-                />
-              )}
+              <label className="pw-field">
+                <span>{t("Username")}</span>
+                <input className="input" autoComplete="off" value={form.username} onChange={(e) => set({ username: e.target.value })} />
+              </label>
+              <label className="pw-field">
+                <span>{t("Password")}</span>
+                <input className="input" type="text" autoComplete="off" value={form.password} onChange={(e) => set({ password: e.target.value })} />
+              </label>
               <div className="pw-gen">
-                <button className="btn small" onClick={() => void importQr()}>{t("Import QR code image")}</button>
-                {hasTotp && !form.totpLabel && <button className="btn small ghost" onClick={() => set({ totp: "" })}>{t("Remove 2FA")}</button>}
-                <span>{t("Decoded on this device; the image is not uploaded.")}</span>
+                <button className="btn small" onClick={generate}>{t("Generate")}</button>
+                <label className="pw-opt">{t("Length")}<input className="input pw-len" type="number" min={4} max={128} value={options.length} onChange={(e) => setOptions((o) => ({ ...o, length: Number(e.target.value) || 20 }))} />
+                </label>
+                <label className="pw-opt"><input type="checkbox" checked={options.uppercase} onChange={() => toggle("uppercase")} /> A-Z</label>
+                <label className="pw-opt"><input type="checkbox" checked={options.lowercase} onChange={() => toggle("lowercase")} /> a-z</label>
+                <label className="pw-opt"><input type="checkbox" checked={options.digits} onChange={() => toggle("digits")} /> 0-9</label>
+                <label className="pw-opt"><input type="checkbox" checked={options.symbols} onChange={() => toggle("symbols")} /> !@#</label>
               </div>
-              {qrError && <div className="pw-error">{qrError}</div>}
-              {hasTotp && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
-            </div>
-            <div className="pw-field">
-              <span>{t("AI agents")}</span>
-              <label className="pw-opt">
-                <input type="checkbox" checked={form.agentSignIn} onChange={(e) => set({ agentSignIn: e.target.checked })} />{" "}{t("Let AI agents sign in with this login")}</label>
-              <label className="pw-opt">
-                <input type="checkbox" disabled={!hasTotp} checked={form.agentTotp && hasTotp} onChange={(e) => set({ agentTotp: e.target.checked })} />{" "}{t("Let AI agents use this 2FA code")}</label>
-              <div className="pw-hint">{t("Agents never see the password or the code: Corvus fills them into the page after you approve each use.")}{!agentAccess && (
-                  <>
-                    {" "}{t("AI agent use is off for every login until you turn it on in")}{" "}<a href="corvus://settings/#passwords">{t("Settings")}</a>.
-                  </>
-                )}
-              </div>
-            </div>
-            <label className="pw-field">
-              <span>{t("Notes")}</span>
-              <textarea className="input pw-notes" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
-            </label>
-            {error && <div className="pw-error">{error}</div>}
-            <div className="pw-actions">
-              <button className="btn primary" onClick={submit}>{t("Save")}</button>
-              <button className="btn ghost" onClick={() => setForm(null)}>{t("Cancel")}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!form && !importing && <CheckupCard view={checkup} onRun={runCheckup} />}
-
-      {anyTotp && !form && !importing && (
-        <div className="card">
-          <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
-        </div>
-      )}
-
-      <div className="card">
-        {items.length === 0 ? (
-          <div className="empty">{query ? t("No logins match your search.") : t("No saved logins yet. Sign in to a site or add one with the Add button.")}</div>
-        ) : (
-          <div className="list">
-            {items.map((item) => (
-              <div key={item.id} className="list-row" style={{ alignItems: "center" }}>
-                <Favicon url={item.origin} />
-                <div className="grow">
-                  <div className="title">
-                    {item.username || t("(no username)")} <AgentChips signIn={item.agentSignIn} totp={item.agentTotp} globalOn={agentAccess} />
-                    <HealthChips health={health.get(item.id)} />
+              <div className="pw-field">
+                <span>{t("2FA (optional)")}</span>
+                {form.totpLabel ? (
+                  <div className="pw-totp-imported">
+                    <IconClock size={13} /> {form.totpLabel}
+                    <button className="btn small ghost" onClick={() => set({ totp: "", totpLabel: "" })}>{t("Remove")}</button>
                   </div>
-                  <div className="sub">{hostOf(item.origin)}</div>
-                  <AutoSignInToggle id={item.id} on={autoIds.has(item.id)} onChange={setAutoSignIn} />
-                  {revealed[item.id] && <div className="pw-reveal">{revealed[item.id]}</div>}
+                ) : (
+                  <input
+                    className="input pw-totp-input"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={t("Paste an otpauth:// link or the base32 secret")}
+                    value={form.totp}
+                    onChange={(e) => set({ totp: e.target.value })}
+                  />
+                )}
+                <div className="pw-gen">
+                  <button className="btn small" onClick={() => void importQr()}>{t("Import QR code image")}</button>
+                  {hasTotp && !form.totpLabel && <button className="btn small ghost" onClick={() => set({ totp: "" })}>{t("Remove 2FA")}</button>}
+                  <span>{t("Decoded on this device; the image is not uploaded.")}</span>
                 </div>
-                {item.hasTotp && <VaultTotp id={item.id} />}
-                <div className="actions">
-                  <button className="btn small ghost" title={t("Reveal password")} onClick={() => void reveal(item.id)}>
-                    <IconLock size={13} /> {revealed[item.id] ? t("Hide") : t("Show")}
-                  </button>
-                  <button className="icon-btn" title={t("Copy password")} onClick={() => void copyPassword(item.id)}>
-                    <IconCopy size={15} />
-                  </button>
-                  <button className="icon-btn" title={t("Edit")} onClick={() => void openEdit(item)}>
-                    <IconEdit size={15} />
-                  </button>
-                  <button className="icon-btn" title={t("Delete")} onClick={() => remove(item.id)}>
-                    <IconTrash size={15} />
-                  </button>
+                {qrError && <div className="pw-error">{qrError}</div>}
+                {hasTotp && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
+              </div>
+              <div className="pw-field">
+                <span>{t("AI agents")}</span>
+                <label className="pw-opt">
+                  <input type="checkbox" checked={form.agentSignIn} onChange={(e) => set({ agentSignIn: e.target.checked })} />{" "}{t("Let AI agents sign in with this login")}</label>
+                <label className="pw-opt">
+                  <input type="checkbox" disabled={!hasTotp} checked={form.agentTotp && hasTotp} onChange={(e) => set({ agentTotp: e.target.checked })} />{" "}{t("Let AI agents use this 2FA code")}</label>
+                <div className="pw-hint">{t("Agents never see the password or the code: Corvus fills them into the page after you approve each use.")}{!agentAccess && (
+                    <>
+                      {" "}{t("AI agent use is off for every login until you turn it on in")}{" "}<a href="corvus://settings/#passwords">{t("Settings")}</a>.
+                    </>
+                  )}
                 </div>
               </div>
-            ))}
+              <label className="pw-field">
+                <span>{t("Notes")}</span>
+                <textarea className="input pw-notes" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+              </label>
+              {error && <div className="pw-error">{error}</div>}
+              <div className="pw-actions">
+                <button className="btn primary" onClick={submit}>{t("Save")}</button>
+                <button className="btn ghost" onClick={() => setForm(null)}>{t("Cancel")}</button>
+              </div>
+            </div>
           </div>
         )}
-      </div>
 
-      <KeePassSection query={query} agentAccess={agentAccess} autoIds={autoIds} onAutoSignIn={setAutoSignIn} health={health} />
+        {tab === "passwords" && !form && !importing && <CheckupCard view={checkup} onRun={runCheckup} />}
+
+        {tab === "passwords" && anyTotp && !form && !importing && (
+          <div className="card">
+            <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
+          </div>
+        )}
+
+        {tab === "passwords" && (
+          <div className="card">
+            {items.length === 0 ? (
+              <div className="empty">{query ? t("No logins match your search.") : t("No saved logins yet. Sign in to a site or add one with the Add button.")}</div>
+            ) : (
+              <div className="list pw-list">
+                {slice.items.map((item) => (
+                  <div key={item.id} className="list-row" style={{ alignItems: "center" }}>
+                    <Favicon url={item.origin} />
+                    <div className="grow">
+                      <div className="title">
+                        {item.username || t("(no username)")} <AgentChips signIn={item.agentSignIn} totp={item.agentTotp} globalOn={agentAccess} />
+                        <HealthChips health={health.get(item.id)} />
+                        {!item.hasPassword && item.hasTotp && <span className="pill">{t("2FA only")}</span>}
+                      </div>
+                      <div className="sub">{hostOf(item.origin)}</div>
+                      <AutoSignInToggle id={item.id} on={autoIds.has(item.id)} onChange={setAutoSignIn} />
+                      {revealed[item.id] && <div className="pw-reveal">{revealed[item.id]}</div>}
+                    </div>
+                    {item.hasTotp && <VaultTotp id={item.id} />}
+                    <div className="actions">
+                      <button className="btn small ghost" title={t("Reveal password")} onClick={() => void reveal(item.id)}>
+                        <IconLock size={13} /> {revealed[item.id] ? t("Hide") : t("Show")}
+                      </button>
+                      <button className="icon-btn" title={t("Copy password")} onClick={() => void copyPassword(item.id)}>
+                        <IconCopy size={15} />
+                      </button>
+                      <button className="icon-btn" title={t("Edit")} onClick={() => void openEdit(item)}>
+                        <IconEdit size={15} />
+                      </button>
+                      <button className="icon-btn" title={t("Delete")} onClick={() => remove(item.id)}>
+                        <IconTrash size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <Pager page={slice.page} size={PAGE_SIZE} total={items.length} onPage={setPage} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "passwords" && <KeePassSection query={query} agentAccess={agentAccess} autoIds={autoIds} onAutoSignIn={setAutoSignIn} health={health} onExport={openBackup} />}
+      </div>
     </PageShell>
   );
 }
@@ -520,7 +786,7 @@ function UnlockForm({ db, canRemember, onDone }: { db: KeePassDbView; canRemembe
   );
 }
 
-function ExportForm({ onClose }: { onClose: () => void }) {
+function ExportForm({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const api = internalApi();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -530,13 +796,14 @@ function ExportForm({ onClose }: { onClose: () => void }) {
 
   const run = async (): Promise<void> => {
     setBusy(true);
-    setResult((await api.call("keepass.export", password)) as KeePassExportResult);
+    const done = (await api.call("keepass.export", password)) as KeePassExportResult;
+    setResult(done);
+    if (done?.ok) onDone();
     setBusy(false);
   };
 
   return (
     <div className="kp-export">
-      <div className="pw-hint">{t("Writes your saved logins and their 2FA secrets to a new KeePass database, protected by a master password you choose. Corvus never overwrites an existing file.")}</div>
       <input className="input" type="password" autoComplete="new-password" placeholder={t("New master password (8+ characters)")} value={password} onChange={(e) => setPassword(e.target.value)} />
       <input className="input" type="password" autoComplete="new-password" placeholder={t("Repeat the master password")} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
       {mismatch && <div className="pw-error">{t("The passwords do not match.")}</div>}
@@ -560,19 +827,21 @@ function KeePassSection({
   autoIds,
   onAutoSignIn,
   health,
+  onExport,
 }: {
   query: string;
   agentAccess: boolean;
   autoIds: Set<string>;
   onAutoSignIn: (id: string, on: boolean) => void;
   health: Map<string, PasswordHealth>;
+  /** Opens the backup form (the export of the built-in vault) at the top of the page. */
+  onExport: () => void;
 }) {
   const api = internalApi();
   const [state, setState] = useState<KeePassState | null>(null);
   const [entries, setEntries] = useState<KeePassEntrySummary[]>([]);
   const [unlocking, setUnlocking] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
-  const [exporting, setExporting] = useState(false);
 
   const refresh = useCallback(() => {
     void api.call("keepass.state").then(setState);
@@ -623,9 +892,9 @@ function KeePassSection({
             <button className="btn small ghost" onClick={() => void api.call("keepass.lock", null).then(setState)}>
               <IconLock size={13} />{" "}{t("Lock all")}</button>
           )}
-          <button className="btn small ghost" onClick={() => setExporting((v) => !v)}>{t("Export saved logins to KeePass")}</button>
+          <button className="btn small ghost" onClick={onExport}>{t("Export saved logins to KeePass")}</button>
         </div>
-        {exporting && <ExportForm onClose={() => setExporting(false)} />}
+
 
         {state && state.sources.length === 0 && <div className="pw-hint">{t("No KeePass databases yet. Add a .kdbx file, or a folder that holds them.")}</div>}
         {state && state.sources.filter((s) => s.kind === "folder").map((s) => (

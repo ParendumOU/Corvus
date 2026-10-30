@@ -10,6 +10,7 @@ import { runAgentSmoke } from "./smoke-agent";
 import { runAgentRunsSmoke } from "./smoke-agent-runs";
 import { runAnnotationsSmoke } from "./smoke-annotations";
 import { runAuthenticatorImportSmoke } from "./smoke-authenticator-import";
+import { runBackupSmoke } from "./smoke-backup";
 import { runAssistSmoke } from "./smoke-assist";
 import { runDictationSmoke } from "./smoke-dictation";
 import { runDialogsSmoke } from "./smoke-dialogs";
@@ -20,6 +21,7 @@ import { runCertErrorSmoke } from "./smoke-cert-errors";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
 import { runTabCloseSmoke } from "./smoke-tab-close";
+import { runUserActionSmoke } from "./smoke-user-action";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
@@ -209,6 +211,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runTabCloseSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=useraction: only the checks of an AI agent asking the person to do something in a tab.
+    if (process.env.CORVUS_SMOKE_ONLY === "useraction") {
+      await runUserActionSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=passwords: only the save-password prompt checks.
     if (process.env.CORVUS_SMOKE_ONLY === "passwords") {
       await runSavePromptSmoke(ctx, { url, win, check, capture });
@@ -216,7 +223,12 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     }
     // CORVUS_SMOKE_ONLY=authenticator: only the Import from Google Authenticator checks.
     if (process.env.CORVUS_SMOKE_ONLY === "authenticator") {
-      await runAuthenticatorImportSmoke(ctx, { win, check, capture });
+      await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=backup: only the backup reminder and Back up now checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "backup") {
+      await runBackupSmoke(ctx, { win, check, capture });
       return;
     }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
@@ -277,6 +289,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runMediaSmoke(ctx, { url, win, check, capture });
     await runCertErrorSmoke(ctx, { win, check });
     await runTabCloseSmoke(ctx, { win, check, capture });
+    await runUserActionSmoke(ctx, { win, check, capture });
 
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();
@@ -303,7 +316,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runReaderSmoke(ctx, { win, check, capture });
     await runPdfSmoke(ctx, { win, check, capture });
     await runCredentialsSmoke(ctx, { url, win, check, capture });
-    await runAuthenticatorImportSmoke(ctx, { win, check, capture });
+    await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
+    await runBackupSmoke(ctx, { win, check, capture });
     await runAnnotationsSmoke(ctx, { url, win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runScheduledAgentSmoke(ctx, { win, check, capture });

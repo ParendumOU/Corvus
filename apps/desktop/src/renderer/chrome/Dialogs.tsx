@@ -159,8 +159,11 @@ export function DialogModal({ view }: { view: DialogView }) {
   );
 }
 
-/** Questions that leave the page usable (an AI agent asks for a hand in it), as bars under the toolbar. */
-export function DialogBars({ bars }: { bars: DialogView[] }) {
+/**
+ * Questions that leave the page usable (an AI agent asks for a hand in it), as bars under the toolbar.
+ * A bar about a tab that is not the active one offers to go to it, which does not answer it.
+ */
+export function DialogBars({ bars, activeTabId }: { bars: DialogView[]; activeTabId: string | null }) {
   return (
     <>
       {bars.map((view) => (
@@ -172,6 +175,11 @@ export function DialogBars({ bars }: { bars: DialogView[] }) {
             <strong>{view.message}</strong>
             {view.detail ? <span className="dialog-bar-detail">{view.detail.split("\n\n")[0]}</span> : null}
           </div>
+          {view.tabId && view.tabId !== activeTabId ? (
+            <button type="button" className="btn" data-dialog-goto onClick={() => void chromeApi().call("tabs.activate", view.tabId!)}>
+              {t("Go to tab")}
+            </button>
+          ) : null}
           <Buttons view={view} focus={false} onPress={(button) => answer(view, button, false, "")} />
         </div>
       ))}

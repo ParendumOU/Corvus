@@ -2,16 +2,17 @@ import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type M
 import type { TabGroup } from "@corvus/shared";
 import { GROUP_COLOR_HEX, type TabView, type WindowState } from "../../shared/ipc";
 import { computeDropTarget, type TabStripState } from "../../shared/tab-strip";
-import { buildStripRows } from "../../shared/tab-strip-view";
+import { buildStripRows, groupsNeedingYou } from "../../shared/tab-strip-view";
 import { chromeApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconClose, IconPlus, IconSparkle, IconVolume } from "../common/icons";
 import { Favicon } from "../common/ui";
 import { formatMemory } from "../../shared/tab-sleep";
 
 import { t as tx } from "../common/i18n";
-/** A tab's hover text: its title, then who drives it, whether it sleeps, or what memory it uses. */
+/** A tab's hover text: its title, whether an AI agent waits for the person in it, who drives it, whether it sleeps, or what memory it uses. */
 function tabTooltip(tab: TabView): string {
   const lines = [tab.title || tab.url];
+  if (tab.needsYou) lines.push(tx("An AI agent needs you here"));
   if (tab.container) lines.push(tx("Container: {name}", { name: tab.container.name }));
   if (tab.inSplit) lines.push(tx("In split view: shows with the other tabs of the split"));
   if (tab.agentControlled) lines.push(tx("Controlled by an AI agent"));
@@ -134,6 +135,7 @@ function HorizontalTabStrip({
   };
 
   const working = new Set(state.agentGroups);
+  const needYou = groupsNeedingYou(state.tabs, state.groups);
   const items: JSX.Element[] = [];
   let lastGroup: string | undefined;
   for (const tab of state.tabs) {
@@ -144,10 +146,12 @@ function HorizontalTabStrip({
         <div
           key={`group-${group.id}`}
           data-group-id={group.id}
-          className={`group-chip ${group.collapsed ? "collapsed" : ""} ${group.title ? "" : "untitled"} ${working.has(group.id) ? "agent-working" : ""}`}
+          className={`group-chip ${group.collapsed ? "collapsed" : ""} ${group.title ? "" : "untitled"} ${working.has(group.id) ? "agent-working" : ""} ${needYou.has(group.id) ? "needs-you" : ""}`}
           style={{ "--group-color": color } as CSSProperties}
           draggable
-          title={working.has(group.id) ? tx("Corvus is working in these tabs") : group.title || tx("Unnamed group")}
+          title={
+            needYou.has(group.id) ? tx("An AI agent needs you in this group") : working.has(group.id) ? tx("Corvus is working in these tabs") : group.title || tx("Unnamed group")
+          }
           onDragStart={(e) => {
             e.dataTransfer.setData(GROUP_MIME, group.id);
             e.dataTransfer.effectAllowed = "move";
@@ -242,6 +246,7 @@ function Tab({
     tab.pinned ? "pinned" : "",
     color ? "grouped" : "",
     tab.agentControlled ? "agent" : "",
+    tab.needsYou ? "needs-you" : "",
     tab.sleeping ? "sleeping" : "",
     tab.inSplit ? "in-split" : "",
     hint ? `drop-${hint}` : "",
@@ -250,6 +255,7 @@ function Tab({
   return (
     <div
       className={classes}
+      data-tab-id={tab.id}
       role="tab"
       aria-selected={tab.active}
       title={tabTooltip(tab)}
@@ -306,6 +312,7 @@ function VerticalTabStrip({
     state.groups,
   );
   const tabById = new Map(state.tabs.map((t) => [t.id, t]));
+  const needYou = groupsNeedingYou(state.tabs, state.groups);
 
   const sideOf = (e: DragEvent<HTMLElement>): "before" | "after" => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -360,9 +367,9 @@ function VerticalTabStrip({
             <div
               key={`g-${row.group.id}`}
               data-group-id={row.group.id}
-              className={`v-group ${row.group.collapsed ? "collapsed" : ""}`}
+              className={`v-group ${row.group.collapsed ? "collapsed" : ""} ${needYou.has(row.group.id) ? "needs-you" : ""}`}
               style={{ "--group-color": color } as CSSProperties}
-              title={row.group.title || tx("Unnamed group")}
+              title={needYou.has(row.group.id) ? tx("An AI agent needs you in this group") : row.group.title || tx("Unnamed group")}
               onClick={() => void api.call("groups.update", row.group.id, { collapsed: !row.group.collapsed })}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -427,6 +434,7 @@ function VTab({
     tab.pinned ? "pinned" : "",
     grouped ? "grouped" : "",
     tab.agentControlled ? "agent" : "",
+    tab.needsYou ? "needs-you" : "",
     tab.sleeping ? "sleeping" : "",
     tab.inSplit ? "in-split" : "",
     hint ? `drop-${hint}` : "",
@@ -434,6 +442,7 @@ function VTab({
   return (
     <div
       className={classes}
+      data-tab-id={tab.id}
       role="tab"
       aria-selected={tab.active}
       title={tabTooltip(tab)}

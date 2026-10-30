@@ -11,7 +11,10 @@ const totp = (secret: string): TotpConfig => ({ secret, algorithm: "SHA1", digit
 
 const account = (id: string, issuer: string, name: string, secret = "JBSWY3DPEHPK3PXPJBSWY3DP"): ImportAccount => ({ id, issuer, account: name, config: totp(secret) });
 
-const login = (id: string, origin: string, username: string, extra: Partial<PlanLogin> = {}): PlanLogin => ({ id, origin, username, updatedAt: 1, ...extra });
+const login = (id: string, origin: string, username: string, extra: Partial<PlanLogin> = {}): PlanLogin => ({ id, origin, username, hasPassword: true, updatedAt: 1, ...extra });
+
+/** A login an earlier import made for a 2FA alone: no password. */
+const twoFaOnly = (id: string, origin: string, username: string, secret: string, extra: Partial<PlanLogin> = {}): PlanLogin => login(id, origin, username, { hasPassword: false, totp: totp(secret), ...extra });
 
 describe("issuerSite", () => {
   it("knows the sign-in page of common issuers", () => {
@@ -79,7 +82,7 @@ describe("planImport", () => {
 
   it("marks a different existing 2FA as a conflict, off by default, and the same one as done", () => {
     const logins = [login("l1", "https://github.com", "octocat", { totp: totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ") }), login("l2", "https://gitlab.com", "octocat", { totp: totp("JBSWY3DPEHPK3PXPJBSWY3DP") })];
-    const rows = planImport([account("a1", "GitHub", "octocat"), account("a2", "GitLab", "octocat")], logins);
+    const rows = planImport([account("a1", "GitHub", "octocat", "MFRGGZDFMZTWQ2LKMFRGGZDFMZTWQ2LK"), account("a2", "GitLab", "octocat")], logins);
     expect(rows.map((r) => [r.action, r.selected])).toEqual([
       ["replace", false],
       ["same", false],
@@ -119,12 +122,136 @@ describe("planImport", () => {
 describe("rowsToImport", () => {
   it("keeps chosen importable rows, one per target", () => {
     const rows = planImport(
-      [account("a1", "GitHub", "octocat"), account("a2", "GitHub", "octocat", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"), account("a3", "Acme", "x"), account("a4", "GitLab", "y")],
+      [account("a1", "GitHub", "octocat", "MFRGGZDFMZTWQ2LKMFRGGZDFMZTWQ2LK"), account("a2", "GitHub", "octocat", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"), account("a3", "Acme", "x", "ONSWG4TFOQZDCMRSONSWG4TFOQZDCMRS"), account("a4", "GitLab", "y")],
       [login("l1", "https://github.com", "octocat"), login("l2", "https://gitlab.com", "y", { totp: totp("JBSWY3DPEHPK3PXPJBSWY3DP") })],
     );
     expect(rowsToImport(rows, new Set(["a1", "a2", "a3", "a4", "zz"])).map((r) => r.id)).toEqual(["a1"]);
     expect(rowsToImport(rows, new Set(["a2", "a1"])).map((r) => r.id)).toEqual(["a1"]);
     expect(rowsToImport(rows, new Set(["a2"])).map((r) => r.id)).toEqual(["a2"]);
+  });
+
+  it("imports repairs of an earlier import", () => {
+    const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const rows = planImport(
+      [account("a1", "Parendum Central", "info@example.com", secret), account("a2", "Acme", "ops@example.org")],
+      [login("l1", "https://central.example.com", "info@example.com"), twoFaOnly("s1", "https://central.example.com", "Parendum Central - info@example.com", secret), twoFaOnly("s2", "https://acme.example.org", "Acme - ops@example.org", "JBSWY3DPEHPK3PXPJBSWY3DP")],
+    );
+    expect(rows.map((r) => r.action)).toEqual(["move", "fix"]);
+    expect(rowsToImport(rows, new Set(["a1", "a2"])).map((r) => r.id)).toEqual(["a1", "a2"]);
+  });
+});
+
+describe("planImport repairs an earlier import", () => {
+  const SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+  const OTHER = "MFRGGZDFMZTWQ2LKMFRGGZDFMZTWQ2LK";
+  /** What the first import made from the label "Parendum Central - info@example.com": a login of its own. */
+  const label = "Parendum Central - info@example.com";
+  const info = account("a1", "Parendum Central", "info@example.com", SECRET);
+
+  it("moves the 2FA to the login with a password and removes the 2FA-only entry", () => {
+    const logins = [
+      login("real", "https://central.example.com", "info@example.com", { updatedAt: 5 }),
+      login("other", "https://example.com", "admin@example.com"),
+      twoFaOnly("old", "https://central.example.com", label, SECRET, { updatedAt: 9 }),
+    ];
+    expect(planImport([info], logins)[0]).toMatchObject({
+      action: "move",
+      site: "https://central.example.com",
+      siteInput: "https://central.example.com",
+      siteKnown: true,
+      login: { id: "real", username: "info@example.com" },
+      removes: [{ id: "old", username: label, origin: "https://central.example.com" }],
+      selected: true,
+    });
+  });
+
+  it("also moves when the login with a password is on another subdomain of the site", () => {
+    const logins = [login("real", "https://example.com", "INFO@example.com"), twoFaOnly("old", "https://central.example.com", label, SECRET)];
+    expect(planImport([info], logins)[0]).toMatchObject({ action: "move", login: { id: "real" }, removes: [{ id: "old" }], selected: true });
+    // Never to another registrable domain.
+    const elsewhere = [login("real", "https://example.org", "info@example.com"), twoFaOnly("old", "https://central.example.com", label, SECRET)];
+    expect(planImport([info], elsewhere)[0]).toMatchObject({ action: "fix", login: { id: "old" } });
+  });
+
+  it("fixes the 2FA-only entry in place when no login with a password matches, keeping its site", () => {
+    const logins = [login("other", "https://example.com", "admin@example.com"), twoFaOnly("old", "https://central.example.com", label, SECRET)];
+    expect(planImport([info], logins)[0]).toMatchObject({ action: "fix", site: "https://central.example.com", siteKnown: true, login: { id: "old", username: label }, removes: [], selected: true, target: "login:old" });
+    // Even when it is the only login of the site (the single-login fallback would have kept the old name).
+    expect(planImport([info], [logins[1]!])[0]).toMatchObject({ action: "fix", login: { id: "old" } });
+    // A site typed for the row does not move it.
+    expect(planImport([info], logins, { a1: "portal.example.org" })[0]).toMatchObject({ action: "fix", site: "https://central.example.com", siteInput: "https://central.example.com" });
+  });
+
+  it("fixes the newest of two earlier entries and removes the other", () => {
+    const logins = [twoFaOnly("old1", "https://central.example.com", label, SECRET, { updatedAt: 1 }), twoFaOnly("old2", "https://central.example.com", `${label} `, SECRET, { updatedAt: 2 })];
+    expect(planImport([info], logins)[0]).toMatchObject({ action: "fix", login: { id: "old2" }, removes: [{ id: "old1" }] });
+  });
+
+  it("leaves logins with a password, other names and other secrets alone", () => {
+    const withPassword = [login("real", "https://central.example.com", "info@example.com"), login("kept", "https://central.example.com", label, { totp: totp(SECRET) })];
+    expect(planImport([info], withPassword)[0]).toMatchObject({ action: "same", login: { id: "kept" }, removes: [], selected: false });
+    // A 2FA-only login the person renamed is not a label of this account.
+    expect(planImport([info], [twoFaOnly("mine", "https://central.example.com", "office", SECRET)])[0]).toMatchObject({ action: "same", login: { id: "mine" }, removes: [] });
+    const another = [login("real", "https://central.example.com", "info@example.com"), twoFaOnly("another", "https://central.example.com", "Parendum Central - other@example.com", OTHER)];
+    expect(planImport([info], another, { a1: "central.example.com" })[0]).toMatchObject({ action: "attach", login: { id: "real" }, removes: [] });
+  });
+
+  it("keeps an earlier entry that another account of the import matches by name", () => {
+    const logins = [login("real", "https://central.example.com", "info@example.com"), twoFaOnly("old", "https://central.example.com", label, SECRET)];
+    const rows = planImport([info, account("a2", "", label, SECRET)], logins);
+    expect(rows.map((r) => [r.action, r.login?.id, r.removes.map((l) => l.id)])).toEqual([
+      ["attach", "real", []],
+      ["same", "old", []],
+    ]);
+  });
+
+  it("says already set for a correct earlier import", () => {
+    // A 2FA-only login under the right name.
+    expect(planImport([info], [twoFaOnly("ok", "https://central.example.com", "info@example.com", SECRET)])[0]).toMatchObject({ action: "same", removes: [], selected: false });
+    // The 2FA on the login with a password.
+    expect(planImport([info], [login("real", "https://central.example.com", "INFO@example.com", { totp: totp(SECRET) })])[0]).toMatchObject({ action: "same", removes: [] });
+    // A 2FA-only login under the right name next to a login with a password: it keeps the 2FA.
+    const both = [login("real", "https://central.example.com", "info@example.com", { updatedAt: 9 }), twoFaOnly("ok", "https://central.example.com", "info@example.com", SECRET)];
+    expect(planImport([info], both)[0]).toMatchObject({ action: "same", login: { id: "ok" }, removes: [] });
+  });
+
+  it("removes the earlier entry when the login with a password already has the 2FA", () => {
+    const logins = [login("real", "https://central.example.com", "info@example.com", { totp: totp(SECRET) }), twoFaOnly("old", "https://central.example.com", label, SECRET)];
+    expect(planImport([info], logins)[0]).toMatchObject({ action: "move", login: { id: "real" }, removes: [{ id: "old" }], selected: true });
+  });
+
+  it("lists the entry a conflict would remove, off by default", () => {
+    const logins = [login("real", "https://central.example.com", "info@example.com", { totp: totp(OTHER) }), twoFaOnly("old", "https://central.example.com", label, SECRET)];
+    expect(planImport([info], logins)[0]).toMatchObject({ action: "replace", removes: [{ id: "old" }], selected: false });
+  });
+
+  it("takes the site from the login that has the 2FA, over the issuer's and a typed one", () => {
+    const github = account("a1", "GitHub", "octocat", SECRET);
+    const logins = [twoFaOnly("old", "https://sso.example.org", "GitHub - octocat", SECRET)];
+    expect(planImport([github], logins)[0]).toMatchObject({ siteInput: "https://sso.example.org", siteKnown: true, action: "fix" });
+    expect(planImport([github], logins, { a1: "github.com" })[0]).toMatchObject({ site: "https://sso.example.org", action: "fix" });
+    // The person put the 2FA on a login with another name: already set, on that login's site.
+    expect(planImport([github], [login("p", "https://example.net", "someone", { totp: totp(SECRET) })])[0]).toMatchObject({ siteInput: "https://example.net", action: "same", login: { id: "p" } });
+  });
+
+  it("a second import of 50 accounts whose sites were typed asks for no site and changes only label-shaped entries", () => {
+    // The first import: unknown issuers, so the person typed every site; ten labels were "Issuer - address".
+    const secret = (n: number): string => `JBSWY3DPEHPK3PX${"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"[n % 32]}${"ABCDEFGH"[Math.floor(n / 32)]}`;
+    const issuer = (n: number): string => `Intranet ${n}`;
+    const raw = (n: number): string => (n < 10 ? `${issuer(n)} - user${n}@example.com` : `user${n}@example.com`);
+    const logins = Array.from({ length: 50 }, (_, n) => twoFaOnly(`l${n}`, `https://app${n}.example.org`, raw(n), secret(n), { updatedAt: 100 + n }));
+    // Some unrelated logins with passwords on other sites.
+    logins.push(login("p1", "https://example.com", "user3@example.com"), login("p2", "https://example.net", "user12@example.com"));
+    // The same photos, read with the new label parsing.
+    const accounts = Array.from({ length: 50 }, (_, n) => account(`a${n}`, issuer(n), `user${n}@example.com`, secret(n)));
+    const rows = planImport(accounts, logins);
+    expect(new Set(accounts.map((a) => a.config.secret)).size).toBe(50);
+    expect(rows.filter((r) => r.action === "needs-site")).toEqual([]);
+    expect(rows.every((r, n) => r.siteKnown && r.site === `https://app${n}.example.org` && r.login?.id === `l${n}` && r.removes.length === 0)).toBe(true);
+    expect(rows.filter((r) => r.action === "fix").map((r) => r.id)).toEqual(Array.from({ length: 10 }, (_, n) => `a${n}`));
+    expect(rows.filter((r) => r.action === "same")).toHaveLength(40);
+    const chosen = rowsToImport(rows, new Set(rows.filter((r) => r.selected).map((r) => r.id)));
+    expect(chosen.map((r) => r.id)).toEqual(Array.from({ length: 10 }, (_, n) => `a${n}`));
   });
 });
 

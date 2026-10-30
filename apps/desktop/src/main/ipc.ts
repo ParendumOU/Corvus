@@ -11,6 +11,7 @@ import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from 
 import { SHOWN_COMMAND_RECENTS } from "../shared/command-history";
 import { PROXY_KINDS, type ConnectionChoice } from "../shared/connections";
 import { parsePasswordCsv } from "../shared/password-import";
+import { isBigChange } from "../shared/backup-reminder";
 import type { BookmarkImportResult, ConnectionsView, PasswordImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
 import { internalPageOf, type InternalPage } from "../shared/internal-urls";
@@ -955,6 +956,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
         c.profile.credentials.add({ origin: login.origin, username: login.username, password: login.password });
         imported++;
       }
+      if (isBigChange(imported)) c.profile.backup.noteBigChange();
       return { imported, duplicates, skipped, canceled: false };
     },
     "import.run": (c, sourceId, profileDir, kinds) => {

@@ -1,3 +1,4 @@
+import type { MenuItemConstructorOptions } from "electron";
 import type { TabId } from "@corvus/shared";
 import type { CredentialMatch } from "../shared/credentials";
 import { originKeyOf } from "../shared/credentials";
@@ -5,7 +6,7 @@ import { type AutofillBarState, type CapturedSubmit, EMPTY_AUTOFILL, type LoginF
 import { totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
-import { showLoginFieldMenu } from "./menus";
+import { loginFieldMenuItems, showMenuAt } from "./menus";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -79,6 +80,7 @@ export class AutofillService {
   /** Per tab: origin -> when auto sign-in last asked. */
   private readonly autoAsked = new Map<TabId, Map<string, number>>();
   private autoApprover: AutoSignInApprover | null = null;
+  private fieldMenuProbe: ((items: MenuItemConstructorOptions[]) => void) | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -232,37 +234,52 @@ export class AutofillService {
     return win.profile.logins.matchesFor(this.pageUrl(tab));
   }
 
+  /** Smoke tests read the login field menu instead of showing it; null shows it again. */
+  setFieldMenuProbe(probe: ((items: MenuItemConstructorOptions[]) => void) | null): void {
+    this.fieldMenuProbe = probe;
+  }
+
   /**
-   * The person clicked a login field (reported by the tab preload): list the page's saved logins in a
-   * menu right under the field, as the omnibox key button does. Only in the active, person-driven tab
-   * of a page where a login form was detected.
+   * The person clicked a login field (reported by the tab preload): list the page's saved accounts in
+   * a menu right under the field, as the omnibox key button does. Only in the active, person-driven
+   * tab of a page where a login form was detected.
    */
   onLoginFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, box: LoginFieldBox): void {
     if (tab.agentControlled || win.activeTab()?.id !== tab.id || !this.detected.get(tab.id)?.login) return;
     const matches = this.suggestions(win);
     if (matches.length === 0) return;
+    const items = loginFieldMenuItems(this.ctx, win, matches);
+    if (this.fieldMenuProbe) {
+      this.fieldMenuProbe(items);
+      return;
+    }
     const bounds = tab.view.getBounds();
     const zoom = tab.view.webContents.getZoomFactor();
-    showLoginFieldMenu(this.ctx, win, matches, bounds.x + box.x * zoom, bounds.y + (box.y + box.height) * zoom);
+    showMenuAt(win, items, bounds.x + box.x * zoom, bounds.y + (box.y + box.height) * zoom);
   }
 
+  /**
+   * Fills an account of the page (by the id of any of its logins): its username, and its password
+   * when it has one (a 2FA-only account leaves the password field alone).
+   */
   async fill(win: BrowserWindowCtl, id: string): Promise<void> {
     const tab = win.activeTab();
     if (!tab) return;
-    const login = win.profile.logins.forPage(id, this.pageUrl(tab));
-    if (!login) return;
+    const account = win.profile.logins.accountFor(id, this.pageUrl(tab));
+    if (!account) return;
+    const password = account.password?.record.password ?? "";
     // Secrets in the page: agents may not script it until it navigates (see secret-fill-guard.ts).
-    this.ctx.secretFills.mark(tab.id, [login.password]);
-    await this.run<boolean>(tab, fillLoginScript(login.username, login.password));
+    this.ctx.secretFills.mark(tab.id, password ? [password] : []);
+    await this.run<boolean>(tab, fillLoginScript(account.username, password));
   }
 
-  /** Fills the current 2FA code of a matching login into the page's one-time-code field. */
+  /** Fills the current 2FA code of a page's account into the page's one-time-code field. */
   async fillTotp(win: BrowserWindowCtl, id: string): Promise<void> {
     const tab = win.activeTab();
     if (!tab) return;
-    const login = win.profile.logins.forPage(id, this.pageUrl(tab));
-    if (!login?.totp) return;
-    const { code } = await totpCode(login.totp);
+    const totp = win.profile.logins.accountFor(id, this.pageUrl(tab))?.totp?.record.totp;
+    if (!totp) return;
+    const { code } = await totpCode(totp);
     this.ctx.secretFills.mark(tab.id, [code]);
     await this.run<number>(tab, fillOtpScript(code));
   }

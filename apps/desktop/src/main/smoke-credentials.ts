@@ -434,7 +434,13 @@ export async function runSavePromptSmoke(ctx: AppContext, { url, win, check }: S
     if (field) for (const type of ["mouseDown", "mouseUp"] as const) chromeWc.sendInputEvent({ type, x: field.x, y: field.y, button: "left", clickCount: 1 });
     await delay(150);
     const clickedIn = await promptView(win, "new-pass-4");
-    chromeWc.selectAll();
+    // Typing replaces the username once all of it is selected (a busy renderer can take a moment).
+    const selectedAll = "(() => { const i = document.querySelector('.af-save input[name=username]'); return !!i && i.selectionStart === 0 && i.selectionEnd === i.value.length; })()";
+    for (let i = 0; i < 20; i++) {
+      chromeWc.selectAll();
+      await delay(50);
+      if ((await chromeJs<boolean>(win, selectedAll)) === true) break;
+    }
     await chromeWc.insertText("carol.edited");
     await delay(100);
     const asUpdate = await promptView(win, "new-pass-4");

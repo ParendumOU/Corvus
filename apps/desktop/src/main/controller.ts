@@ -499,23 +499,20 @@ export class Controller implements BrowserController {
   }
 
   /**
-   * request_user_action: brings the tab to the front and asks the person, in a dialog that leaves
-   * the page usable, to do the step the client describes; Done, Cancel, or timeout.
+   * request_user_action: asks the person, in a bar of the tab's window that leaves the page usable,
+   * to do the step the client describes; Done, Cancel, or timeout. Neither the active tab nor the
+   * window's focus changes: the tab pulses in the strip until the request ends (UserActionService).
    */
   async requestUserAction(id: TabId, request: UserActionRequest, signal?: AbortSignal): Promise<UserActionResult> {
     const { window, tab } = this.locate(id);
     this.touch(window, id);
-    window.activate(id);
-    if (window.win.isMinimized()) window.win.restore();
-    window.win.show();
-    window.win.focus();
     let host = "";
     try {
       host = new URL(tab.view.webContents.getURL() || tab.url).host;
     } catch {
       host = "";
     }
-    return this.ctx.userActions.ask({ client: this.ctx.agents.currentClient, message: request.message, host }, request.timeoutMs, signal);
+    return this.ctx.userActions.ask(id, { client: this.ctx.agents.currentClient, message: request.message, host }, request.timeoutMs, signal);
   }
 
   /** Page zoom for the tab only (the site's remembered zoom is left as the person set it). */

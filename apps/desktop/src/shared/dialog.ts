@@ -3,6 +3,7 @@
  * payment to approve, a page's confirm()), shown as a modal in the window's UI with Corvus's look
  * instead of the system's message box.
  */
+import type { TabId } from "@corvus/shared";
 
 export type DialogTone = "info" | "question" | "warning" | "danger";
 
@@ -45,6 +46,8 @@ export interface DialogSpec {
    * person to do something in it).
    */
   bar?: boolean;
+  /** The tab a bar is about: while another tab is active, the bar offers to go to it (without answering). */
+  tabId?: TabId;
 }
 
 export interface DialogView extends DialogSpec {

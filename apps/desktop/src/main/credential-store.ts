@@ -3,11 +3,9 @@ import path from "node:path";
 import { generateVaultKey, openSecret, sealSecret } from "@corvus/sync-core";
 import {
   type Credential,
-  type CredentialMatch,
   type CredentialSummary,
   credentialSummary,
   isValidCredential,
-  matchCredentials,
   originKeyOf,
   searchCredentials,
 } from "../shared/credentials";
@@ -199,15 +197,6 @@ export class CredentialVault {
 
   get(id: string): Credential | undefined {
     return this.cache.get(id);
-  }
-
-  /** Logins the autofill dropdown may offer for a page (no passwords in the result). */
-  matchesFor(url: string): CredentialMatch[] {
-    return matchCredentials(this.all(), url).map((c) => ({ id: c.id, username: c.username, hasTotp: Boolean(c.totp), source: "corvus" as const }));
-  }
-
-  hasMatch(url: string): boolean {
-    return matchCredentials(this.all(), url).length > 0;
   }
 
   findByLogin(origin: string, username: string): Credential | undefined {

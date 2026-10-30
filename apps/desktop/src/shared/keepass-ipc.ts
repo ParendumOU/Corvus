@@ -48,6 +48,8 @@ export interface KeePassEntrySummary {
   /** Host of the first usable URL, or "". */
   site: string;
   group: string;
+  /** False for an entry that holds only a 2FA. */
+  hasPassword: boolean;
   hasTotp: boolean;
   agentTotp: boolean;
   agentSignIn: boolean;

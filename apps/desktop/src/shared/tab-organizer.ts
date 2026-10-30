@@ -37,8 +37,12 @@ export interface OrganizerProposal {
 }
 
 const TWO_LEVEL_SUFFIXES = new Set([
-  "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "co.jp", "ne.jp", "or.jp", "co.nz", "com.br", "com.mx",
-  "com.ar", "co.in", "co.kr", "com.cn", "com.tr", "co.za", "com.sg", "com.hk", "github.io", "gitlab.io", "vercel.app", "netlify.app",
+  "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au", "edu.au", "gov.au", "co.jp", "ne.jp", "or.jp", "ac.jp", "co.nz",
+  "com.br", "net.br", "org.br", "gov.br", "com.mx", "org.mx", "gob.mx", "com.ar", "co.in", "net.in", "org.in", "gov.in", "ac.in",
+  "co.kr", "com.cn", "com.tr", "co.za", "com.sg", "com.hk", "com.tw", "com.es", "org.es", "nom.es", "gob.es", "edu.es", "com.co",
+  "com.pe", "com.ve", "com.ec", "com.uy", "com.py", "com.bo", "co.il", "org.il", "co.id", "or.id", "com.my", "com.ph", "com.vn",
+  "com.pk", "com.eg", "com.sa", "co.th", "com.pl", "co.at", "or.at", "com.ua", "com.ng", "co.ke",
+  "github.io", "gitlab.io", "vercel.app", "netlify.app",
 ]);
 
 export function hostOf(url: string): string {

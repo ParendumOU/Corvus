@@ -6,6 +6,7 @@ import { probePage } from "./favicon-probe";
 import { AdblockController } from "./adblock";
 import { AnnotationStore } from "./annotation-store";
 import { AutoSignInStore } from "./auto-sign-in-store";
+import { BackupStore } from "./backup-store";
 import { containerPartition } from "../shared/containers";
 import { ContainerStore } from "./containers";
 import { CredentialVault } from "./credential-store";
@@ -101,6 +102,8 @@ export class ProfileRuntime {
   readonly keepass: KeePassStore;
   /** Logins the person chose to sign in with automatically (always confirmed first). */
   readonly autoSignIn: AutoSignInStore;
+  /** When the saved logins were last backed up (the reminder). */
+  readonly backup: BackupStore;
   /** Every login source of this profile (built-in vault, KeePass) behind one matcher. */
   readonly logins: LoginSources;
   readonly extensions: ExtensionHost;
@@ -176,6 +179,7 @@ export class ProfileRuntime {
     this.credentials = new CredentialVault(dataDir, cipher);
     this.keepass = new KeePassStore(dataDir, cipher);
     this.autoSignIn = new AutoSignInStore(dataDir);
+    this.backup = new BackupStore(dataDir);
     const vaultLogins = vaultProvider(this.credentials);
     const keepassLogins = this.keepass.provider();
     this.logins = new LoginSources(() => [vaultLogins, keepassLogins]);
@@ -341,6 +345,7 @@ export class ProfileRuntime {
     this.credentials.flush();
     this.keepass.flush();
     this.autoSignIn.flush();
+    this.backup.flush();
     this.siteSettings.flush();
     this.adblock.flush();
     this.containers.flush();

@@ -18,9 +18,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { KeePassDbStatus, KeePassDbView, KeePassEntrySummary, KeePassSourceKind, KeePassSourceView, KeePassUnlockResult } from "../shared/keepass-ipc";
 import { JsonFile } from "./json-file";
-import { entryMatchScore, entrySite, type KeePassEntry } from "./keepass-entries";
+import { entryFit, entryMatchScore, entrySite, type KeePassEntry } from "./keepass-entries";
 import { openKdbx, saveKdbxEntry, type EntryInput } from "./keepass-format";
-import type { LoginProvider, LoginRecord } from "./login-sources";
+import type { LoginCandidate, LoginProvider, LoginRecord } from "./login-sources";
 import type { SecretCipher } from "./settings-store";
 
 type Listener = () => void;
@@ -495,6 +495,17 @@ export class KeePassStore {
         }
         return scored.sort((a, b) => b.score - a.score || b.record.updatedAt - a.record.updatedAt).map((s) => s.record);
       },
+      candidates: (url) => {
+        const found: LoginCandidate[] = [];
+        for (const db of this.dbs.values()) {
+          if (db.status !== "unlocked") continue;
+          for (const e of db.entries) {
+            const fit = entryFit(e, url);
+            if (fit) found.push({ record: this.record(db, e), ...fit });
+          }
+        }
+        return found;
+      },
       get: (id) => {
         const found = this.find(id);
         return found ? this.record(found.db, found.entry) : undefined;
@@ -517,6 +528,7 @@ export class KeePassStore {
       username: e.username,
       site: entrySite(e) === e.title ? "" : entrySite(e),
       group: e.group,
+      hasPassword: e.password !== "",
       hasTotp: Boolean(e.totp),
       agentTotp: optIn.totp === true && Boolean(e.totp),
       agentSignIn: optIn.signIn === true,

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CredentialVault } from "../src/main/credential-store";
+import { LoginSources, vaultProvider } from "../src/main/login-sources";
 import type { SecretCipher } from "../src/main/settings-store";
 
 /** Reversible stand-in for the OS keychain (same shape the sync e2e test uses). */
@@ -21,6 +22,8 @@ const noKeychain: SecretCipher = {
     throw new Error("unavailable");
   },
 };
+
+const logins = (vault: CredentialVault): LoginSources => new LoginSources(() => [vaultProvider(vault)]);
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -101,9 +104,9 @@ describe("CredentialVault", () => {
     const vault = new CredentialVault(tmp(), keychain);
     vault.add({ origin: "https://example.com", username: "alice", password: "pw" });
     vault.add({ origin: "https://other.com", username: "bob", password: "pw" });
-    expect(vault.matchesFor("https://example.com/login").map((m) => m.username)).toEqual(["alice"]);
-    expect(vault.hasMatch("https://nope.com")).toBe(false);
-    expect(vault.matchesFor("https://example.com/login")[0]).not.toHaveProperty("password");
+    expect(logins(vault).matchesFor("https://example.com/login").map((m) => m.username)).toEqual(["alice"]);
+    expect(logins(vault).matchesFor("https://nope.com")).toEqual([]);
+    expect(logins(vault).matchesFor("https://example.com/login")[0]).not.toHaveProperty("password");
   });
 
   it("saveOnSubmit creates, updates and dedupes", () => {
@@ -178,7 +181,7 @@ describe("CredentialVault", () => {
     const removed = vault.update(c.id, { totp: null, agentTotp: true });
     expect(removed?.totp).toBeUndefined();
     expect(removed?.agentTotp).toBeUndefined();
-    expect(vault.matchesFor("https://example.com/")[0]).toMatchObject({ hasTotp: false, source: "corvus" });
+    expect(logins(vault).matchesFor("https://example.com/")[0]).toMatchObject({ hasTotp: false, source: "corvus" });
   });
 
   it("accepts synced logins with a 2FA generator and drops malformed ones", () => {

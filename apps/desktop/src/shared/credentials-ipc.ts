@@ -62,6 +62,8 @@ export interface CredentialsRpc {
   "credentials.authenticatorImport"(importId: string, sites: Record<string, string>, selected: string[]): AuthenticatorImportResult;
   /** Ends an import without importing; its accounts are forgotten. */
   "credentials.authenticatorDiscard"(importId: string): void;
+  /** When the saved logins were last backed up (a KeePass export), null when never. */
+  "credentials.backupState"(): { lastBackupAt: number | null };
   /** The global "Let AI agents use logins you opt in" setting (off by default). */
   "credentials.agentAccess"(): boolean;
   /** Ids (vault or KeePass) of logins that sign in automatically after a confirmation. */

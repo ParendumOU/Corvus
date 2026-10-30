@@ -131,20 +131,56 @@ const ALGORITHMS: Record<number, TotpAlgorithm | "MD5"> = { 0: "SHA1", 1: "SHA1"
 const DIGITS: Record<number, number> = { 0: 6, 1: 6, 2: 8 };
 const TYPE_HOTP = 1;
 
+/** Where a label is cut in two: " - ", " / ", "|", a middle dot, a bullet, en and em dashes, ":". */
+const LABEL_SEPARATOR = /\s+[-/]\s+|\s*[|:\u00b7\u2022\u2013\u2014]\s*/g;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const sameName = (a: string, b: string): boolean => a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Every way to cut a label in two at a separator, or around a trailing "(...)": [left, right]. */
+function labelCuts(label: string): Array<[string, string]> {
+  const cuts: Array<[string, string]> = [];
+  for (const m of label.matchAll(LABEL_SEPARATOR)) {
+    const at = m.index ?? 0;
+    const left = label.slice(0, at).trim();
+    const right = label.slice(at + m[0].length).trim();
+    if (left && right) cuts.push([left, right]);
+  }
+  const paren = /^(.*?)\s*\(([^()]*)\)$/.exec(label);
+  if (paren?.[1]?.trim() && paren[2]?.trim()) cuts.push([paren[1].trim(), paren[2].trim()]);
+  return cuts;
+}
+
 /**
- * Splits the stored name: Google Authenticator keeps "Issuer:account" when the setup link had a
- * prefix. The prefix is dropped when it repeats the issuer, and becomes the issuer when there is none.
+ * Splits the stored name into issuer and account. Google Authenticator keeps "Issuer:account" when the
+ * setup link had a prefix: the prefix is dropped when it repeats the issuer, and becomes the issuer when
+ * there is none. Sites also write "Issuer - account" (or with "|", "/", a middle dot, dashes),
+ * "Issuer (account)" and "account (Issuer)": the part that repeats the issuer is dropped. Else, when one
+ * part is an e-mail address and the other is not, the address is the account (logins are found by it)
+ * and the other part is the issuer when there is none.
  */
 export function splitAccountName(name: string, issuer: string): { issuer: string; account: string } {
-  const cleanIssuer = issuer.trim();
-  const colon = name.indexOf(":");
-  if (colon > 0) {
-    const prefix = name.slice(0, colon).trim();
-    const rest = name.slice(colon + 1).trim();
-    if (!cleanIssuer) return { issuer: prefix, account: rest };
-    if (prefix.toLowerCase() === cleanIssuer.toLowerCase()) return { issuer: cleanIssuer, account: rest };
+  let cleanIssuer = issuer.trim();
+  let account = name.trim();
+  const colon = account.indexOf(":");
+  if (colon > 0 && !account.startsWith("//", colon + 1)) {
+    const prefix = account.slice(0, colon).trim();
+    const rest = account.slice(colon + 1).trim();
+    if (!cleanIssuer || sameName(prefix, cleanIssuer)) {
+      cleanIssuer ||= prefix;
+      account = rest;
+    }
   }
-  return { issuer: cleanIssuer, account: name.trim() };
+  const cuts = labelCuts(account);
+  for (const [left, right] of cuts) {
+    if (cleanIssuer && sameName(left, cleanIssuer)) return { issuer: cleanIssuer, account: right };
+    if (cleanIssuer && sameName(right, cleanIssuer)) return { issuer: cleanIssuer, account: left };
+  }
+  for (const [left, right] of cuts) {
+    if (EMAIL.test(right) && !left.includes("@")) return { issuer: cleanIssuer || left, account: right };
+    if (EMAIL.test(left) && !right.includes("@")) return { issuer: cleanIssuer || right, account: left };
+  }
+  return { issuer: cleanIssuer, account };
 }
 
 function toAccount(otp: RawOtp): { ok: MigrationAccount } | { skipped: MigrationSkipped } {

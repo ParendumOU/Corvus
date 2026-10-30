@@ -1,15 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { dialog, nativeImage, nativeTheme, type WebContents } from "electron";
+import { dialog, nativeImage, nativeTheme, type MenuItemConstructorOptions, type WebContents } from "electron";
 import type { AuthenticatorPreview, PhotoReport } from "../shared/authenticator-import";
 import { encodeMigrationPayload, migrationUri, type MigrationOtpInput } from "../shared/authenticator-migration";
 import { base32Encode, totpCode, type TotpConfig } from "../shared/totp";
 import { addPhotos, authenticatorPreview, discardAuthenticatorImport, readAuthenticatorPhoto } from "./authenticator-import";
 import type { AppContext } from "./context";
-import type { BrowserWindowCtl } from "./window";
+import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 interface Helpers {
+  /** The smoke server (its /login and /2fa pages). */
+  url: string;
   win: BrowserWindowCtl;
   check: (name: string, ok: boolean, detail?: unknown) => void;
   capture: (name: string, wc: WebContents) => Promise<void>;
@@ -28,7 +30,7 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 15_000)
 
 const js = <T>(wc: WebContents, expr: string): Promise<T | null> => (wc.isDestroyed() ? Promise.resolve(null) : (wc.executeJavaScript(expr, true) as Promise<T>).catch(() => null));
 
-/** A made-up 20-byte secret per seed: no real account's. */
+/** A made-up 20-byte secret per seed below 256 (seeds 256 apart give the same one): no real account's. */
 const fakeSecret = (seed: number): Uint8Array => Uint8Array.from({ length: 20 }, (_, i) => (seed * 53 + i * 29 + 7) & 0xff);
 
 const config = (secret: Uint8Array, algorithm: TotpConfig["algorithm"] = "SHA1", digits = 6): TotpConfig => ({ secret: base32Encode(secret), algorithm, digits, period: 30 });
@@ -46,6 +48,11 @@ function exportAccounts(): MigrationOtpInput[] {
     { secret: fakeSecret(5), name: "ops", issuer: "Acme Intranet" },
     { secret: fakeSecret(6), name: "Bank:counter", issuer: "Bank", type: 1, counter: 4 },
     { secret: fakeSecret(7), name: "Proton:smoke@example.org", issuer: "Proton", algorithm: 2, digits: 2 },
+    // "Issuer - address" labels: the address is the account (it matches a login), the rest the issuer.
+    { secret: fakeSecret(8), name: "Bitbucket - bit-smoke@example.com" },
+    // Already in the vault from an import before that parsing: a 2FA-only login under the whole label.
+    { secret: fakeSecret(9), name: "Portal Org - portal-smoke@example.org" },
+    { secret: fakeSecret(10), name: "Team Wiki | wiki-smoke@example.org" },
   ];
   const filler = Array.from({ length: FILLER }, (_, n) => ({ secret: fakeSecret(100 + n), name: `user${n}@example.com`, issuer: `svc${n}.example` }));
   return [...special, ...filler];
@@ -159,7 +166,7 @@ async function nearbyCodes(c: TotpConfig): Promise<string[]> {
  * a photo taken twice, one without a code and a setup screenshot) go through the Passwords page with
  * the file picker stubbed; the preview, the import and the vault's 2FA generators are checked.
  */
-export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check, capture }: Helpers): Promise<void> {
+export async function runAuthenticatorImportSmoke(ctx: AppContext, { url, win, check, capture }: Helpers): Promise<void> {
   const vault = win.profile.credentials;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-ga-"));
   const accounts = exportAccounts();
@@ -173,7 +180,7 @@ export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check
   const again = path.join(dir, "IMG_2043 (copy).jpg");
   fs.copyFileSync(files[3]!, again);
   const blank = await writePhoto(dir, "IMG_2099.jpg", null, { seed: 99, size: 0.5, tilt: 0, rotate: 0, glare: 0.5, noise: 10 });
-  const setupConfig = config(fakeSecret(900));
+  const setupConfig = config(fakeSecret(250));
   const setup = await writeSetupPng(dir, `otpauth://totp/Fastmail:setup-smoke@example.com?secret=${setupConfig.secret}&issuer=Fastmail`);
   const picked = [...files, again, blank, setup];
   check("authenticator smoke photos written", picked.every((f) => fs.statSync(f).size > 1000), { photos: picked.length, ms: Date.now() - started });
@@ -183,6 +190,11 @@ export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check
   const google = vault.add({ origin: "https://accounts.google.com", username: "conflict-smoke@example.com", password: "pw-google", totp: config(fakeSecret(222)) });
   const discord = vault.add({ origin: "https://discord.com", username: "someone@example.com", password: "pw-discord" });
   const gitlab = vault.add({ origin: "https://gitlab.com", username: "same-smoke", password: "pw-gitlab", totp: config(fakeSecret(4)) });
+  const bitbucket = vault.add({ origin: "https://bitbucket.org", username: "bit-smoke@example.com", password: "pw-bitbucket" });
+  // What an import before the label parsing made of two of the accounts (sites the person typed then).
+  const portal = vault.add({ origin: "https://portal.example.org", username: "portal-smoke@example.org", password: "pw-portal" });
+  const portalOld = vault.add({ origin: "https://portal.example.org", username: "Portal Org - portal-smoke@example.org", password: "", totp: config(fakeSecret(9)) });
+  const wikiOld = vault.add({ origin: "https://wiki.example.net", username: "Team Wiki | wiki-smoke@example.org", password: "", totp: config(fakeSecret(10)) });
 
   // The main-process side alone: what the page receives carries no secret.
   const profileId = win.profile.profile.id;
@@ -227,8 +239,8 @@ export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check
       photoLines.slice(-4),
     );
 
-    const rowsOf = (): Promise<Array<{ issuer: string; account: string; site: string; what: string; cls: string; checked: boolean; disabled: boolean }> | null> =>
-      js(wc, `[...document.querySelectorAll('.ga-row:not(.ga-head)')].map((r) => ({ issuer: r.querySelector('.ga-account strong').textContent, account: r.querySelector('.ga-account .muted').textContent, site: r.querySelector('.ga-site').value, what: r.querySelector('.ga-what').textContent, cls: r.className, checked: r.querySelector('input[type=checkbox]').checked, disabled: r.querySelector('input[type=checkbox]').disabled }))`);
+    const rowsOf = (): Promise<Array<{ issuer: string; account: string; site: string; what: string; cls: string; checked: boolean; disabled: boolean; readOnly: boolean }> | null> =>
+      js(wc, `[...document.querySelectorAll('.ga-row:not(.ga-head)')].map((r) => ({ issuer: r.querySelector('.ga-account strong').textContent, account: r.querySelector('.ga-account .muted').textContent, site: r.querySelector('.ga-site').value, what: r.querySelector('.ga-what').textContent, cls: r.className, checked: r.querySelector('input[type=checkbox]').checked, disabled: r.querySelector('input[type=checkbox]').disabled, readOnly: r.querySelector('.ga-site').readOnly }))`);
     const rows = (await rowsOf()) ?? [];
     const row = (issuer: string) => rows.find((r) => r.issuer === issuer);
     check("authenticator preview lists every importable account", rows.length === accounts.length - 1 + 1, { rows: rows.length });
@@ -238,9 +250,32 @@ export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check
     check("authenticator preview knows an equal 2FA is already there", (row("GitLab")?.cls ?? "").includes("same") && row("GitLab")?.disabled === true, row("GitLab"));
     check("authenticator preview asks for the site of an unknown issuer", (row("Acme Intranet")?.cls ?? "").includes("needs-site") && row("Acme Intranet")?.disabled === true, row("Acme Intranet"));
     check("authenticator preview creates 2FA-only logins on the issuer's site", row("Proton")?.site === "https://account.proton.me" && /New login \(2FA only\)/.test(row("Proton")?.what ?? ""), row("Proton"));
+    check(
+      "authenticator preview reads an 'Issuer - address' label and matches the login of the address",
+      row("Bitbucket")?.account === "bit-smoke@example.com" && /Adds 2FA to your login bit-smoke@example\.com on bitbucket\.org/.test(row("Bitbucket")?.what ?? "") && row("Bitbucket")?.checked === true,
+      row("Bitbucket"),
+    );
+    const portalRow = row("Portal Org");
+    check(
+      "authenticator preview moves a 2FA an earlier import kept under the whole label to the login, on the site typed then",
+      (portalRow?.cls ?? "").includes("move") && portalRow?.checked === true && portalRow.readOnly && portalRow.site === "https://portal.example.org" &&
+        /Moves the 2FA from the earlier import to your login portal-smoke@example\.org on portal\.example\.org and removes that entry/.test(portalRow.what),
+      portalRow,
+    );
+    const wikiRow = row("Team Wiki");
+    check(
+      "authenticator preview fixes the name of an earlier 2FA-only login in place",
+      (wikiRow?.cls ?? "").includes("fix") && wikiRow?.checked === true && wikiRow.readOnly && wikiRow.site === "https://wiki.example.net" &&
+        /Fixes the 2FA-only login from the earlier import: it becomes wiki-smoke@example\.org on wiki\.example\.net/.test(wikiRow.what),
+      wikiRow,
+    );
     const counts = await js<string>(wc, `[...document.querySelectorAll('.ga-chip')].map((c) => c.textContent).join(' | ')`);
     const skipped = await js<string>(wc, `document.querySelector('.ga-skipped summary')?.textContent ?? ''`);
-    check("authenticator preview counts rows and lists skipped HOTP accounts", /All 115/.test(counts ?? "") && /Matched 2/.test(counts ?? "") && /Conflicts 1/.test(counts ?? "") && /1 account cannot be imported/.test(skipped ?? ""), { counts, skipped });
+    check(
+      "authenticator preview counts rows and lists skipped HOTP accounts",
+      /All 118/.test(counts ?? "") && /Matched 3/.test(counts ?? "") && /Repairs 2/.test(counts ?? "") && /Conflicts 1/.test(counts ?? "") && /1 account cannot be imported/.test(skipped ?? ""),
+      { counts, skipped },
+    );
     const text = (await js<string>(wc, "document.body.innerText")) ?? "";
     check("authenticator page shows no secret", !secrets.some((sec) => text.includes(sec)));
 
@@ -286,7 +321,7 @@ export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check
     const result = await js<string>(wc, `document.querySelector('.ga-import .card-body').innerText`);
     check(
       "authenticator import reports what it did and asks to delete the photos",
-      done && /Added 2FA to 3 logins, created 111\./.test(result ?? "") && /delete the photos/.test(result ?? ""),
+      done && /Added 2FA to 5 logins, created 111\. Repaired 2 logins from an earlier import\./.test(result ?? "") && /delete the photos/.test(result ?? ""),
       result,
     );
     await sleep(500);
@@ -307,11 +342,206 @@ export async function runAuthenticatorImportSmoke(_ctx: AppContext, { win, check
     check("authenticator import creates every filler account once", filler.length === FILLER && new Set(filler.map((c) => c.origin)).size === FILLER && (await same(filler.find((c) => c.origin === "https://svc42.example")?.totp, config(fakeSecret(142)))), { filler: filler.length });
     check("authenticator import takes a setup code from the same selection", await same(created.find((c) => c.origin === "https://app.fastmail.com")?.totp, setupConfig));
     check("authenticator import skips counter-based accounts", !vault.all().some((c) => c.username === "counter"));
-    const list = await until(() => js<boolean>(wc, "document.querySelectorAll('.list .list-row').length > 100").then(Boolean));
-    check("Passwords list shows the imported logins", list);
+    check("authenticator import adds the 2FA of an 'Issuer - address' label to the address's login", await same(vault.get(bitbucket.id)?.totp, config(fakeSecret(8))));
+    check(
+      "authenticator import moves the 2FA to the login and removes the earlier 2FA-only entry",
+      (await same(vault.get(portal.id)?.totp, config(fakeSecret(9)))) && vault.get(portal.id)?.password === "pw-portal" && !vault.get(portalOld.id),
+      { moved: Boolean(vault.get(portal.id)?.totp), removed: !vault.get(portalOld.id) },
+    );
+    const wiki = vault.get(wikiOld.id);
+    check(
+      "authenticator import fixes the earlier entry's name and keeps its site and 2FA",
+      wiki?.username === "wiki-smoke@example.org" && wiki.origin === "https://wiki.example.net" && wiki.password === "" && (await same(wiki.totp, config(fakeSecret(10)))),
+      { username: wiki?.username, origin: wiki?.origin },
+    );
+    const list = await until(() => js<boolean>(wc, `document.querySelectorAll(".pw-list > .list-row").length === 25 && document.querySelector(".pw-list .pager .muted")?.textContent === "1-25 of ${vault.all().length}"`).then(Boolean));
+    check("Passwords list shows the imported logins, 25 at a time", list, await js<string>(wc, `document.querySelector(".pw-list .pager .muted")?.textContent ?? ""`));
+    await passwordsTabsSmoke(tab, { win, check, capture });
+
+    // The same photos again: every account is found by its 2FA, on the site it has, and nothing is asked or changed.
+    const before = JSON.stringify(vault.all());
+    const again = addPhotos(profileId, null, [files[0]!]);
+    await readAuthenticatorPhoto(profileId, again.importId, 0);
+    const second = authenticatorPreview(profileId, again.importId, vault, {});
+    discardAuthenticatorImport(again.importId);
+    const intranetRow = second.rows.find((r) => r.issuer === "Acme Intranet");
+    check(
+      "a second import of the same photos asks for no site and has nothing to change",
+      second.rows.length === 9 && second.rows.every((r) => r.action === "same" && r.siteKnown && !r.selected) && intranetRow?.site === "https://intranet.acme.example" && JSON.stringify(vault.all()) === before,
+      second.rows.map((r) => [r.issuer, r.action, r.site]),
+    );
   } finally {
     dialog.showOpenDialog = showOpenDialog;
     nativeTheme.themeSource = "system";
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  await fieldMenuSmoke(ctx, url.replace(/\/$/, ""), { win, check, capture });
 }
+
+/**
+ * The login field menu on a page with a login that has a password and a 2FA-only login of the same
+ * user (what an import makes): one item, labelled with the user and the site, that fills both fields;
+ * a 2FA-only account fills the username only; the 2FA fill uses the 2FA-only login's code.
+ */
+async function fieldMenuSmoke(ctx: AppContext, base: string, { win, check, capture }: Omit<Helpers, "url">): Promise<void> {
+  const vault = win.profile.credentials;
+  const origin = new URL(base).origin;
+  const host = new URL(base).host;
+  const totp = config(fakeSecret(77));
+  const ids = [
+    vault.add({ origin, username: "menu-smoke@example.com", password: "pw-menu-smoke" }).id,
+    vault.add({ origin, username: "Menu-Smoke@example.com", password: "", totp }).id,
+    vault.add({ origin, username: "twofa-only@example.com", password: "", totp: config(fakeSecret(78)) }).id,
+  ];
+  let items: MenuItemConstructorOptions[] | null = null;
+  ctx.autofill.setFieldMenuProbe((shown) => {
+    items = shown;
+  });
+  try {
+    const tab = win.createTab(`${base}/login`);
+    const wc = tab.view.webContents;
+    await until(() => !wc.isDestroyed() && wc.getURL().includes("/login") && !tab.loading);
+    await until(() => ctx.autofill.stateFor(win).available);
+    const clickField = async (selector: string): Promise<void> => {
+      items = null;
+      const box = await js<{ x: number; y: number }>(wc, `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+      if (!box) return;
+      wc.focus();
+      wc.sendInputEvent({ type: "mouseDown", x: box.x, y: box.y, button: "left", clickCount: 1 });
+      wc.sendInputEvent({ type: "mouseUp", x: box.x, y: box.y, button: "left", clickCount: 1 });
+      await until(() => items !== null, 5000);
+    };
+    await clickField("#u");
+    const labels = ((items ?? []) as MenuItemConstructorOptions[]).filter((i) => i.label).map((i) => i.label!);
+    const merged = `menu-smoke@example.com  \u00b7  ${host}`;
+    check(
+      "login field menu shows one item per user with the site, and marks 2FA-only accounts",
+      labels.filter((l) => l.toLowerCase().startsWith("menu-smoke@")).length === 1 && labels.includes(merged) && labels.includes(`twofa-only@example.com  \u00b7  ${host}  \u00b7  2FA only`),
+      labels,
+    );
+    const pick = (label: string): void => {
+      const item = ((items ?? []) as MenuItemConstructorOptions[]).find((i) => i.label === label);
+      (item?.click as (() => void) | undefined)?.();
+    };
+    pick(merged);
+    const fields = (): Promise<string | null> => js<string>(wc, `document.getElementById("u").value + "/" + document.getElementById("p").value`);
+    const filled = await until(async () => (await fields()) === "menu-smoke@example.com/pw-menu-smoke", 5000);
+    check("picking the merged account fills the username and the password", filled, (await fields())?.split("/")[0]);
+
+    await js(wc, `(() => { const p = document.getElementById("p"); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(p, "typed-by-hand"); return true; })()`);
+    await clickField("#p");
+    pick(`twofa-only@example.com  \u00b7  ${host}  \u00b7  2FA only`);
+    const onlyUser = await until(async () => (await fields()) === "twofa-only@example.com/typed-by-hand", 5000);
+    check("picking a 2FA-only account fills the username and leaves the password field alone", onlyUser, (await fields())?.split("/")[0]);
+    await capture("autofill-field-menu-filled", wc);
+
+    const otp = win.createTab(`${base}/2fa`);
+    const ow = otp.view.webContents;
+    await until(() => !ow.isDestroyed() && ow.getURL().includes("/2fa") && !otp.loading);
+    await until(() => ctx.autofill.stateFor(win).otpAvailable);
+    const account = ctx.autofill.suggestions(win).find((m) => m.username.toLowerCase() === "menu-smoke@example.com");
+    if (account) await ctx.autofill.fillTotp(win, account.id);
+    const code = await until(async () => (await nearbyCodes(totp)).includes((await js<string>(ow, `document.getElementById("otp").value`)) ?? ""), 5000);
+    check("the 2FA fill of the merged account uses the 2FA-only login's code", Boolean(account?.hasTotp && account.hasPassword) && code, account);
+    win.closeTab(otp.id);
+    win.closeTab(tab.id);
+  } finally {
+    ctx.autofill.setFieldMenuProbe(null);
+    for (const id of ids) vault.remove(id);
+  }
+}
+
+/** Types into a React-controlled input of a page. */
+const typeInto = (wc: WebContents, selector: string, value: string): Promise<unknown> =>
+  js(wc, `(() => { const el = document.querySelector(${JSON.stringify(selector)}); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
+
+/**
+ * The Passwords page's tabs on a vault the import filled (100+ logins with a 2FA): the 2FA codes tab
+ * opens by click, link and keyboard, is remembered, searches, pages, and shows the codes totpCode
+ * gives; "Show login" goes back to the login. Light and dark, wide and 480 px wide.
+ */
+async function passwordsTabsSmoke(tab: TabRuntime, { win, check, capture }: Omit<Helpers, "url">): Promise<void> {
+  const wc = tab.view.webContents;
+  const vault = win.profile.credentials;
+  const withTotp = vault.all().filter((c) => c.totp).length;
+  const pagerText = (list: string): Promise<string | null> => js<string>(wc, `document.querySelector(${JSON.stringify(`${list} .pager .muted`)})?.textContent ?? ""`);
+  // Close the import's summary (Done).
+  await js(wc, `document.querySelector(".ga-import .ga-result") && document.querySelector(".ga-import .pw-actions .btn.primary").click()`);
+  await until(() => js<boolean>(wc, `!document.querySelector(".ga-import")`).then(Boolean), 3000);
+
+  await js(wc, `document.querySelector(".pw-list .pager button:last-child").click()`);
+  const moved = await until(async () => (await pagerText(".pw-list")) === `26-50 of ${vault.all().length}`, 5000);
+  check("Passwords tab pages its logins", moved, await pagerText(".pw-list"));
+  await capture("passwords-tabs-passwords-light", wc);
+
+  await js(wc, `document.getElementById("pw-tab-2fa").click()`);
+  const opened = await until(() => js<boolean>(wc, `document.querySelectorAll(".tf-row").length === 25 && location.hash === "#2fa" && localStorage.getItem("corvus.passwords.tab") === "2fa"`).then(Boolean), 5000);
+  const count = Number(await js<string>(wc, `document.querySelector("#pw-tab-2fa .pw-tab-count").textContent`));
+  check("2FA codes tab opens with the count, in the address and remembered", opened && count >= withTotp && (await pagerText(".tf-list")) === `1-25 of ${count}`, { count, withTotp, pager: await pagerText(".tf-list") });
+
+  const loaded = await until(() => js<boolean>(wc, `[...document.querySelectorAll(".tf-row .tf-code")].every((c) => /^[0-9]{3,4} [0-9]{3,4}$/.test(c.textContent))`).then(Boolean), 10_000);
+  const shown = (await js<Array<{ id: string; code: string }>>(wc, `[...document.querySelectorAll(".tf-row")].slice(0, 6).map((r) => ({ id: r.dataset.id, code: r.querySelector(".tf-code").textContent.split(" ").join("") }))`)) ?? [];
+  const matches = await Promise.all(shown.map(async (s) => {
+    const config = vault.get(s.id)?.totp;
+    return Boolean(config) && (await nearbyCodes(config!)).includes(s.code);
+  }));
+  check("2FA codes tab shows each login's current code", loaded && shown.length === 6 && matches.every(Boolean), { loaded, matches });
+  const only = await js<boolean>(wc, `[...document.querySelectorAll(".tf-row")].some((r) => r.querySelector(".pill")?.textContent === "2FA only")`);
+  check("2FA codes tab marks 2FA-only logins", only === true);
+  for (const theme of ["light", "dark"] as const) {
+    nativeTheme.themeSource = theme;
+    await sleep(500);
+    await capture(`passwords-tabs-2fa-${theme}`, wc);
+  }
+  nativeTheme.themeSource = "system";
+
+  await js(wc, `document.querySelector(".tf-list .pager button:last-child").click()`);
+  const next = await until(async () => (await pagerText(".tf-list"))?.startsWith("26-50 of ") === true, 5000);
+  await typeInto(wc, ".page-toolbar .input", "svc4");
+  const narrowed = await until(() => js<boolean>(wc, `(() => { const rows = [...document.querySelectorAll(".tf-row .tf-host")]; return rows.length > 0 && rows.length <= 25 && rows.every((r) => r.textContent.includes("svc4")); })()`).then(Boolean), 5000);
+  const searchPager = await pagerText(".tf-list");
+  check("2FA codes tab pages, and a search narrows the list from its first page", next && narrowed && (searchPager === "" || (searchPager?.startsWith("1-") ?? false)), { searchPager });
+
+  // "Show login" goes to the Passwords tab with the login's site searched.
+  await js(wc, `[...document.querySelectorAll(".tf-row")].find((r) => r.querySelector(".tf-host").textContent === "svc42.example").querySelector(".tf-show").click()`);
+  const shownLogin = await until(() => js<boolean>(wc, `document.getElementById("pw-tab-passwords").getAttribute("aria-selected") === "true" && document.querySelector(".page-toolbar .input").value === "svc42.example" && document.querySelectorAll(".pw-list > .list-row").length === 1`).then(Boolean), 5000);
+  check("Show login opens the login in the Passwords tab", shownLogin);
+
+  // The keyboard moves between the tabs; a link opens the 2FA tab.
+  await js(wc, `document.getElementById("pw-tab-passwords").focus(); document.getElementById("pw-tab-passwords").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })); true`);
+  const byKey = await until(() => js<boolean>(wc, `document.getElementById("pw-tab-2fa").getAttribute("aria-selected") === "true" && document.activeElement?.id === "pw-tab-2fa"`).then(Boolean), 3000);
+  const linked = win.createTab("corvus://passwords/#2fa");
+  const lw = linked.view.webContents;
+  const byLink = await until(() => js<boolean>(lw, `Boolean(document.getElementById("pw-tab-2fa")?.getAttribute("aria-selected") === "true" && document.querySelector(".tf-row"))`).then(Boolean), 10_000);
+  check("arrow keys switch tabs and corvus://passwords/#2fa opens the 2FA codes tab", byKey && byLink, { byKey, byLink });
+  win.closeTab(linked.id);
+
+  // About 480 px wide: nothing wider than the page, in both tabs.
+  win.activate(tab.id);
+  await typeInto(wc, ".page-toolbar .input", "");
+  const bounds = tab.view.getBounds();
+  tab.view.setBounds({ ...bounds, width: 480 });
+  const fits: Record<string, boolean> = {};
+  const wider: Record<string, string[]> = {};
+  for (const which of ["2fa", "passwords"] as const) {
+    await js(wc, `document.getElementById("pw-tab-${which}").click()`);
+    await sleep(700);
+    fits[which] = (await js<boolean>(wc, "document.documentElement.scrollWidth <= window.innerWidth + 1")) === true;
+    if (!fits[which]) wider[which] = (await js<string[]>(wc, WIDER_THAN_PAGE)) ?? [];
+    for (const theme of ["light", "dark"] as const) {
+      nativeTheme.themeSource = theme;
+      await sleep(400);
+      await capture(`passwords-tabs-${which}-480-${theme}`, wc);
+    }
+  }
+  nativeTheme.themeSource = "system";
+  tab.view.setBounds(bounds);
+  check("Passwords page fits a 480 px wide window in both tabs", fits["2fa"] === true && fits.passwords === true, { fits, wider });
+  await capture("passwords-tabs-passwords-dark", wc);
+}
+
+/** The innermost elements that reach past the right edge of the page (what makes it scroll sideways). */
+const WIDER_THAN_PAGE = `[...document.querySelectorAll("body *")]
+  .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1 && ![...el.children].some((c) => c.getBoundingClientRect().right > window.innerWidth + 1))
+  .slice(0, 6)
+  .map((el) => el.tagName.toLowerCase() + "." + String(el.className).split(" ").join(".") + " " + Math.round(el.getBoundingClientRect().right))`;

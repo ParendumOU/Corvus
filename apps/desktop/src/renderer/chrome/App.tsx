@@ -348,7 +348,7 @@ export function App() {
         </div>
         {state.showBookmarksBar && <BookmarksBar state={state} />}
         {state.defaultBrowserOffer && <DefaultBrowserBar />}
-        {state.dialogBars.length > 0 && <DialogBars bars={state.dialogBars} />}
+        {state.dialogBars.length > 0 && <DialogBars bars={state.dialogBars} activeTabId={state.activeTabId} />}
         {state.find && active && (
           <FindBar key={active.id} find={state.find} focusToken={findFocus} focusHandled={findFocusHandled} />
         )}

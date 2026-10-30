@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import type { CredentialMatch } from "../../shared/credentials";
+import { accountDetails, LABEL_SEPARATOR, type CredentialMatch } from "../../shared/credentials";
 import type { AutofillBarState } from "../../shared/credentials-ipc";
 import { GROUP_COLOR_HEX, type TabView } from "../../shared/ipc";
 import { isNewTabUrl } from "../../shared/internal-urls";
@@ -192,7 +192,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     };
     const otpMatches = autofill.otpAvailable ? matches.filter((m) => m.hasTotp) : [];
     const loginMatches = autofill.matchCount > 0 ? matches : [];
-    const sourceLabel = (m: CredentialMatch): string => (m.source === "keepass" ? `KeePass${m.sourceName ? `: ${m.sourceName}` : ""}` : "");
+    const details = (m: CredentialMatch): string => accountDetails(m, t("2FA only")).join(LABEL_SEPARATOR);
 
     useEffect(() => {
       if (!focused) setValue(displayUrl(url));
@@ -401,14 +401,14 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
                     <button key={`otp-${m.id}`} className="af-item af-otp" onMouseDown={(e) => { e.preventDefault(); fillTotp(m.id); }}>
                       <IconClock size={14} />
                       <span>{t("2FA code for")}{" "}{m.username || t("(no username)")}</span>
-                      {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
+                      {details(m) && <span className="af-source">{details(m)}</span>}
                     </button>
                   ))}
                   {loginMatches.map((m) => (
                     <button key={m.id} className="af-item" onMouseDown={(e) => { e.preventDefault(); fill(m.id); }}>
                       <IconLock size={14} />
                       <span>{m.username || t("(no username)")}</span>
-                      {sourceLabel(m) && <span className="af-source">{sourceLabel(m)}</span>}
+                      {details(m) && <span className="af-source">{details(m)}</span>}
                     </button>
                   ))}
                 </>

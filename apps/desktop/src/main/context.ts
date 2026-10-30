@@ -11,6 +11,7 @@ import type { CertErrorService } from "./cert-errors";
 import type { Controller } from "./controller";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
+import type { BackupReminder } from "./backup-reminder";
 import type { DefaultBrowser } from "./default-browser";
 import type { BrowserImport } from "./browser-import";
 import type { DownloadQueue } from "./download-queue";
@@ -63,6 +64,8 @@ export interface AppContext {
   grabber: LinkGrabber;
   /** Corvus as the default browser: status, "Make default", and the once-per-launch offer. */
   defaultBrowser: DefaultBrowser;
+  /** The once-per-launch reminder to back up the saved logins and 2FA codes. */
+  backupReminder: BackupReminder;
   /** Corvus's own download queue (packages from the link grabber). */
   queue: DownloadQueue;
   /** Bookmarks and history from the other browsers installed here. */
