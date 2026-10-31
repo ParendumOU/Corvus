@@ -82,10 +82,11 @@ export function dropdownAccounts(kind: AutofillFieldKind, matches: CredentialMat
 /**
  * Whether a page with these fields and saved accounts can show the dropdown (its window then loads the
  * dropdown's view ahead): any password field can (its accounts, a suggested password or "Copy
- * password"), a code field when an account has a 2FA.
+ * password"), a two-step sign-in's username step when the site has accounts, a code field when an
+ * account has a 2FA.
  */
-export function dropdownMayOpen(fields: { login: boolean; otp: boolean }, matches: CredentialMatch[]): boolean {
-  return fields.login || (fields.otp && dropdownAccounts("otp", matches).length > 0);
+export function dropdownMayOpen(fields: { login: boolean; identifier?: boolean; otp: boolean }, matches: CredentialMatch[]): boolean {
+  return fields.login || (fields.identifier === true && matches.length > 0) || (fields.otp && dropdownAccounts("otp", matches).length > 0);
 }
 
 /** The words a row needs, in the UI's language: t("…") in the dropdown, tr("…") in the main process. */

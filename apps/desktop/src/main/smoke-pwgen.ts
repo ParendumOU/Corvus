@@ -49,9 +49,9 @@ export function servePasswordGeneratorSmokeRoute(req: http.IncomingMessage, res:
   return true;
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 8000): Promise<boolean> {
+export async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 8000): Promise<boolean> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     if (await cond()) return true;
@@ -60,14 +60,14 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 8000): 
   return false;
 }
 
-const js = <T>(wc: WebContents | null | undefined, expr: string): Promise<T | null> =>
+export const js = <T>(wc: WebContents | null | undefined, expr: string): Promise<T | null> =>
   !wc || wc.isDestroyed() ? Promise.resolve(null) : (wc.executeJavaScript(expr, true) as Promise<T>).catch(() => null);
 
 const SYMBOL = new RegExp(`[${PASSWORD_CHARSETS.symbols.replace(/[-\\^\]]/g, "\\$&")}]`);
 const DIGIT = /[0-9]/;
 
 /** A real click at the middle of an element of `wc` (a click on a view first gives it the keyboard, as on screen). */
-async function clickAt(wc: WebContents, selector: string): Promise<boolean> {
+export async function clickAt(wc: WebContents, selector: string): Promise<boolean> {
   const box = await js<{ x: number; y: number }>(wc, `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
   if (!box) return false;
   wc.focus();
@@ -76,7 +76,7 @@ async function clickAt(wc: WebContents, selector: string): Promise<boolean> {
 }
 
 /** Real keys: named ones (Enter, Escape, Down, V with Ctrl) or characters typed. */
-function key(wc: WebContents, keyCode: string, modifiers: Array<"control"> = []): void {
+export function key(wc: WebContents, keyCode: string, modifiers: Array<"control"> = []): void {
   for (const type of ["keyDown", "keyUp"] as const) wc.sendInputEvent({ type, keyCode, modifiers });
 }
 function typeText(wc: WebContents, text: string): void {

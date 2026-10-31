@@ -1,14 +1,14 @@
 import { clipboard, type WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
-import { autofillSiteOf, neverSaveHostOf } from "../shared/autofill-sites";
+import { autofillSiteOf, neverSaveHostOf, sendIdentifier, sentIdentifierFor, type SentIdentifier } from "../shared/autofill-sites";
 import { loginDomainOf, originKeyOf, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
-import { type AutofillBarState, type AutofillCode, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
+import { type AutofillBarState, type AutofillCode, type CapturedIdentifier, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { dropdownAccounts, dropdownMayOpen } from "../shared/field-dropdown";
 import { offersGenerator } from "../shared/password-rules";
 import type { Settings } from "../shared/settings";
 import { codeToFill, totpCode } from "../shared/totp";
-import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
+import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillIdentifierScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
 import { FieldDropdown, pageOf, type FieldBox, type PasswordOffer } from "./field-dropdown";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
@@ -38,6 +38,8 @@ interface PendingSave {
 
 interface Detected {
   login: boolean;
+  /** No login form, but a two-step sign-in's first step (only the username shows). */
+  identifier: boolean;
   otp: boolean;
 }
 
@@ -86,6 +88,8 @@ function generatorOptions(p: Settings["passwords"]): PasswordOptions {
 export class AutofillService {
   private readonly detected = new Map<TabId, Detected>();
   private readonly pending = new Map<TabId, PendingSave>();
+  /** Per tab, in memory only: the username sent from a two-step sign-in's first step (see sentIdentifierFor). */
+  private readonly identifiers = new Map<TabId, SentIdentifier>();
   private lastSaveId = 0;
   private readonly reprobes = new Map<TabId, NodeJS.Timeout>();
   /** Per tab: origin -> when auto sign-in last asked. */
@@ -159,15 +163,15 @@ export class AutofillService {
     return pageOf(tab)?.getURL() ?? tab.url;
   }
 
-  /** Probes the page for a login form and a 2FA field, and tells the window when that changed. */
+  /** Probes the page for a login form, a two-step sign-in's username step and a 2FA field, and tells the window when that changed. */
   private async probe(win: BrowserWindowCtl, tab: TabRuntime): Promise<Detected> {
     const result = await this.run<LoginDetection>(tab, detectLoginScript());
-    const next: Detected = { login: result?.hasPassword === true, otp: result?.hasOtp === true };
+    const next: Detected = { login: result?.hasPassword === true, identifier: result?.hasIdentifier === true, otp: result?.hasOtp === true };
     // The tab closed meanwhile: nothing to remember for it.
     if (!pageOf(tab)) return next;
-    const before = this.detected.get(tab.id) ?? { login: false, otp: false };
+    const before = this.detected.get(tab.id) ?? { login: false, identifier: false, otp: false };
     this.detected.set(tab.id, next);
-    if ((next.login !== before.login || next.otp !== before.otp) && win.activeTab()?.id === tab.id) win.pushState();
+    if ((next.login !== before.login || next.identifier !== before.identifier || next.otp !== before.otp) && win.activeTab()?.id === tab.id) win.pushState();
     this.warmDropdown(win, tab, next);
     return next;
   }
@@ -196,10 +200,24 @@ export class AutofillService {
   onSubmitCaptured(win: BrowserWindowCtl, tab: TabRuntime, data: CapturedSubmit): void {
     const origin = originKeyOf(data.origin);
     if (!origin || !data.password || win.profile.siteSettings.isNeverSave(neverSaveHostOf(origin))) return;
-    const existing = win.profile.credentials.findByLogin(origin, data.username);
+    // The password step of a two-step sign-in often has no username field: the one sent from its first step.
+    const username = data.username || sentIdentifierFor(this.identifiers.get(tab.id), origin, Date.now())?.username || "";
+    const existing = win.profile.credentials.findByLogin(origin, username);
     if (existing && existing.password === data.password) return; // already saved, unchanged
-    this.pending.set(tab.id, { id: ++this.lastSaveId, origin, username: data.username, password: data.password, shown: false });
+    this.pending.set(tab.id, { id: ++this.lastSaveId, origin, username, password: data.password, shown: false });
     if (win.activeTab()?.id === tab.id) win.pushState();
+  }
+
+  /**
+   * The tab preload reported the username sent from a two-step sign-in's first step (typed, then sent or
+   * left changed): kept in memory for a few minutes for the tab and site, so the next step offers its
+   * account first and the save prompt names it. Only from the page the tab shows.
+   */
+  onIdentifierSent(win: BrowserWindowCtl, tab: TabRuntime, data: CapturedIdentifier): void {
+    const url = this.pageUrl(tab);
+    const site = autofillSiteOf(url);
+    if (!site || originKeyOf(data.origin) !== originKeyOf(url)) return;
+    this.identifiers.set(tab.id, sendIdentifier(this.identifiers.get(tab.id), { site, username: data.username, at: Date.now() }));
   }
 
   /** A tab committed a navigation: its login probe is stale (a pending save survives to the new page). */
@@ -210,6 +228,7 @@ export class AutofillService {
   forgetTab(id: TabId): void {
     this.detected.delete(id);
     this.pending.delete(id);
+    this.identifiers.delete(id);
     this.autoAsked.delete(id);
     clearTimeout(this.reprobes.get(id));
     this.reprobes.delete(id);
@@ -220,8 +239,8 @@ export class AutofillService {
     const tab = win.activeTab();
     if (!tab) return EMPTY_AUTOFILL;
     const detected = this.detected.get(tab.id);
-    const matches = detected && (detected.login || detected.otp) ? win.profile.logins.matchesFor(this.pageUrl(tab)) : [];
-    const matchCount = detected?.login ? matches.length : 0;
+    const matches = detected && (detected.login || detected.identifier || detected.otp) ? win.profile.logins.matchesFor(this.pageUrl(tab)) : [];
+    const matchCount = detected?.login || detected?.identifier ? matches.length : 0;
     const otpAvailable = Boolean(detected?.otp && matches.some((m) => m.hasTotp));
     const save = this.pending.get(tab.id);
     return {
@@ -251,12 +270,17 @@ export class AutofillService {
     return { id: save.id, host: hostOf(save.origin), username: save.username, password: save.password, savedUsernames: win.profile.credentials.usernamesAt(save.origin) };
   }
 
-  /** The page's accounts, the one filled last on its site first. */
+  /**
+   * The page's accounts: first the one whose username the tab sent from a two-step sign-in's first step
+   * (its password step then offers it straight away), else the one filled last on its site.
+   */
   suggestions(win: BrowserWindowCtl): CredentialMatch[] {
     const tab = win.activeTab();
     if (!tab) return [];
     const url = this.pageUrl(tab);
-    return win.profile.logins.matchesFor(url, win.profile.siteSettings.lastLogin(autofillSiteOf(url)));
+    const sent = sentIdentifierFor(this.identifiers.get(tab.id), url, Date.now());
+    const sentAccount = sent && (sent.accountId ?? win.profile.logins.accounts(url).find((a) => a.username.trim().toLowerCase() === sent.username.trim().toLowerCase())?.id);
+    return win.profile.logins.matchesFor(url, sentAccount || win.profile.siteSettings.lastLogin(autofillSiteOf(url)));
   }
 
   /** Remembers the account used on the page's site, so it is offered first there next time (never from a private window). */
@@ -298,7 +322,7 @@ export class AutofillService {
    * loads ahead (hidden), so it shows at once on the first click. Never for an agent's tab.
    */
   private warmDropdown(win: BrowserWindowCtl, tab: TabRuntime, fields: Detected): void {
-    if ((!fields.login && !fields.otp) || tab.agentControlled || win.isDisposed() || this.dropdowns.get(win)?.webContents) return;
+    if ((!fields.login && !fields.identifier && !fields.otp) || tab.agentControlled || win.isDisposed() || this.dropdowns.get(win)?.webContents) return;
     if (dropdownMayOpen(fields, win.profile.logins.matchesFor(this.pageUrl(tab)))) this.dropdownOf(win).warm();
   }
 
@@ -324,7 +348,7 @@ export class AutofillService {
    */
   async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick): Promise<void> {
     const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
-    const has = (d: Detected | undefined): boolean => Boolean(click.kind === "otp" ? d?.otp : d?.login);
+    const has = (d: Detected | undefined): boolean => Boolean(click.kind === "otp" ? d?.otp : d?.login || d?.identifier);
     if (!active()) return;
     if (!has(this.detected.get(tab.id)) && !has(await this.probe(win, tab))) return;
     const url = this.pageUrl(tab);
@@ -391,15 +415,21 @@ export class AutofillService {
     const account = win.profile.logins.accountFor(id, url);
     if (!account) return;
     const page = await this.run<LoginDetection>(tab, detectLoginScript());
-    const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, { login: page?.hasPassword === true, otp: page?.hasOtp === true });
+    const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, { login: page?.hasPassword === true, identifier: page?.hasIdentifier === true, otp: page?.hasOtp === true });
     const totp = plan.code ? account.totp?.record.totp : undefined;
     const code = totp ? await codeToFill(totp) : null;
     if (plan.login === "none" && !code) return;
     this.noteUsed(win, url, account.id);
-    const password = account.password?.record.password ?? "";
+    // A two-step sign-in's first step gets the username alone; its next step offers the account first.
+    if (plan.usernameOnly) {
+      this.identifiers.set(tab.id, { site: autofillSiteOf(url), username: account.username, accountId: account.id, at: Date.now() });
+      await this.run<boolean>(tab, fillIdentifierScript(account.username, { keepTyped: plan.login === "empty" }));
+    }
+    const password = plan.usernameOnly ? "" : (account.password?.record.password ?? "");
+    const secrets = [password, code?.code ?? ""].filter(Boolean);
     // Secrets in the page: agents may not script it until it navigates (see secret-fill-guard.ts).
-    this.ctx.secretFills.mark(tab.id, [password, code?.code ?? ""].filter(Boolean));
-    if (plan.login !== "none") await this.run<boolean>(tab, fillLoginScript(account.username, password, { keepTyped: plan.login === "empty" }));
+    if (secrets.length > 0 || !plan.usernameOnly) this.ctx.secretFills.mark(tab.id, secrets);
+    if (plan.login !== "none" && !plan.usernameOnly) await this.run<boolean>(tab, fillLoginScript(account.username, password, { keepTyped: plan.login === "empty" }));
     if (!code) return;
     if (code.waitMs > 0) await delay(code.waitMs);
     if (this.pageUrl(tab) === url) await this.run<number>(tab, fillOtpScript(code.code));

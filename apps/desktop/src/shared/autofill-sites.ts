@@ -75,3 +75,31 @@ export function addNeverSave(list: readonly string[], host: string): string[] {
   if (!isHost(h) || list.includes(h)) return [...list];
   return [...list, h].slice(-MAX_NEVER_SAVE);
 }
+
+/** How long the username sent from a two-step sign-in's first step is kept for its next steps. */
+export const SENT_IDENTIFIER_MS = 5 * 60_000;
+
+/**
+ * The username a tab sent from a two-step sign-in's first step (typed, or the account picked for it),
+ * kept in memory only, per tab: its next step may ask only for the password, which then offers that
+ * account first, and the save prompt names it.
+ */
+export interface SentIdentifier {
+  site: string;
+  username: string;
+  /** The account picked for it, while the username is still that account's. */
+  accountId?: string;
+  at: number;
+}
+
+/** The username sent from the first step, if it is for the page's site (see autofillSiteOf) and recent. */
+export function sentIdentifierFor(sent: SentIdentifier | undefined, url: string, now: number): SentIdentifier | null {
+  const site = autofillSiteOf(url);
+  return sent && site && sent.site === site && now - sent.at >= 0 && now - sent.at < SENT_IDENTIFIER_MS ? sent : null;
+}
+
+/** A username sent again: the account picked for it stays while it is still that account's username. */
+export function sendIdentifier(previous: SentIdentifier | undefined, next: SentIdentifier): SentIdentifier {
+  const same = previous?.accountId && previous.site === next.site && previous.username.trim().toLowerCase() === next.username.trim().toLowerCase();
+  return same && !next.accountId ? { ...next, accountId: previous.accountId } : next;
+}

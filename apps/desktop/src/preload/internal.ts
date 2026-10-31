@@ -3,7 +3,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor } from "../shared/annotations";
 import { ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
-import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
+import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, AUTOFILL_IDENTIFIER_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
+import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-field";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 import { probePattern, type PasswordFieldClick } from "../shared/password-rules";
@@ -50,6 +51,16 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     });
     return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
   };
+  // A two-step sign-in's username field (shared/identifier-field.ts, as the autofill scripts decide).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isIdentifier = (el: any): boolean =>
+    Boolean(el) && el.tagName === "INPUT" && !el.disabled && !el.readOnly && ["text", "email", "tel"].includes(String(el.getAttribute("type") || "text").toLowerCase()) && !isOtpFacts(otpFieldFacts(el)) && isIdentifierFacts(identifierFieldFacts(el));
+  // The username typed on such a step, as it is sent (the form's submit, Enter) or left changed: the
+  // next step may ask only for the password, and the save prompt then needs it. Only the username.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reportIdentifier = (el: any): void => {
+    if (isIdentifier(el) && el.value) ipcRenderer.send(AUTOFILL_IDENTIFIER_CHANNEL, { origin: location.origin, username: String(el.value) });
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const captureFrom = (scope: any): void => {
     try {
@@ -57,7 +68,10 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       const { fields: passwords, roles } = passwordFieldsOf(scope, null);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const pass = passwords.find((p: any, i: number) => p.value && roles[i] === "new") || Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).find((p: any) => p.value);
-      if (!pass) return;
+      if (!pass) {
+        Array.prototype.slice.call(scope.querySelectorAll("input")).forEach(reportIdentifier);
+        return;
+      }
       const fields = Array.prototype.slice
         .call((pass.form || scope).querySelectorAll("input[type=text], input[type=email], input[type=tel], input:not([type])"))
         .filter((el: any) => el !== pass && el.value);
@@ -72,6 +86,18 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     }
   };
   document.addEventListener("submit", (e: { target: unknown }) => captureFrom(e.target || document), true);
+  document.addEventListener(
+    "change",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      try {
+        if (e.isTrusted) reportIdentifier(e.target);
+      } catch {
+        // never let autofill break a page's own fields
+      }
+    },
+    true,
+  );
 
   // A click in a login field (a password field, or a text field of a form that has one) or in a
   // one-time-code field reports which kind it is and the field's box, so the main process can list the
@@ -94,7 +120,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const type = String(el.getAttribute("type") || "text").toLowerCase();
     if (isOtpFacts(otpFieldFacts(el)) || (["text", "tel", "number"].includes(type) && isCodeBox(el))) return "otp";
     if (!TEXT_TYPES.includes(type)) return null;
-    return type === "password" || (el.form || document).querySelector("input[type=password]") ? "login" : null;
+    return type === "password" || (el.form || document).querySelector("input[type=password]") || isIdentifier(el) ? "login" : null;
   };
   // A password field: its part in its form, whether it holds something (never what) and what it takes.
   // Its pattern is probed here, with the page's own pattern matching (on a detached copy of the field),
@@ -151,6 +177,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     (e: any) => {
       try {
         if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) report(e.target);
+        else if (e.isTrusted && e.key === "Enter") reportIdentifier(e.target);
       } catch {
         // never let autofill break a page's own keys
       }

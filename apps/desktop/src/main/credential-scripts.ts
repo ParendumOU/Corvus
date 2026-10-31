@@ -9,6 +9,7 @@
  * and are never logged. Fields Corvus fills with a secret are marked `data-corvus-secret` so the
  * agent's page snapshot never reports their value; agent fills also mask them on screen.
  */
+import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-field";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 
@@ -23,6 +24,8 @@ export interface LoginDetection {
   hasUsername: boolean;
   /** Current value of the detected username field (so a save can capture it). */
   username: string;
+  /** No login form, but a two-step sign-in's username step (see shared/identifier-field.ts). */
+  hasIdentifier: boolean;
   /** A visible one-time-code (2FA) field is on the page. */
   hasOtp: boolean;
   origin: string;
@@ -161,18 +164,46 @@ const PASSWORD_FIELD = `
   };
 `;
 
-const PRELUDE = `${IS_VISIBLE}${FIND_OTP}${FIND_LOGIN}${SET_VALUE}${PASSWORD_FIELD}`;
+/**
+ * A two-step sign-in's first step, as shared/identifier-field.ts decides (its functions' source is
+ * embedded here): the username field that shows with no password field next to it, or null.
+ */
+const FIND_IDENTIFIER = `
+  const identifierFieldFacts = ${String(identifierFieldFacts)};
+  const isIdentifierFacts = ${String(isIdentifierFacts)};
+  const findIdentifier = () => Array.prototype.slice.call(document.querySelectorAll("input"))
+    .find((el) => ["text", "email", "tel"].includes(typeOf(el)) && !el.disabled && !el.readOnly && isVisible(el) && !isOtpField(el) && isIdentifierFacts(identifierFieldFacts(el))) || null;
+`;
+
+const PRELUDE = `${IS_VISIBLE}${FIND_OTP}${FIND_LOGIN}${SET_VALUE}${PASSWORD_FIELD}${FIND_IDENTIFIER}`;
 
 const findRef = (ref: string): string =>
   `document.querySelector('[data-corvus-ref="' + ${JSON.stringify(ref)}.replace(/["\\\\]/g, "") + '"]')`;
 
-/** Detects a login form and a one-time-code field; reports the username field's current value. */
+/**
+ * Detects a login form, a two-step sign-in's username step (only without a login form) and a
+ * one-time-code field; reports the username field's current value.
+ */
 export function detectLoginScript(): string {
   return `(() => {${PRELUDE}
   const login = findLogin();
   const hasOtp = Boolean(findOtp());
-  if (!login) return { hasPassword: false, hasUsername: false, username: "", hasOtp, origin: location.origin };
-  return { hasPassword: true, hasUsername: Boolean(login.user), username: login.user ? String(login.user.value || "") : "", hasOtp, origin: location.origin };
+  if (!login) return { hasPassword: false, hasUsername: false, username: "", hasIdentifier: Boolean(findIdentifier()), hasOtp, origin: location.origin };
+  return { hasPassword: true, hasUsername: Boolean(login.user), username: login.user ? String(login.user.value || "") : "", hasIdentifier: false, hasOtp, origin: location.origin };
+})()`;
+}
+
+/**
+ * Fills the username on a two-step sign-in's first step, firing input/change: never a password (a
+ * hidden decoy password field stays empty), and never a press on "Next". With `keepTyped`, a field that
+ * already holds something stays as it is.
+ */
+export function fillIdentifierScript(username: string, opts: { keepTyped?: boolean } = {}): string {
+  return `(() => {${PRELUDE}
+  const el = findIdentifier();
+  if (!el || !${JSON.stringify(username)}) return false;
+  if (!${opts.keepTyped ? "true" : "false"} || !el.value) setValue(el, ${JSON.stringify(username)});
+  return true;
 })()`;
 }
 
@@ -229,8 +260,10 @@ export function fillOtpByRefScript(ref: string, code: string): string {
 
 /**
  * Agent sign-in by reference. With a ref, the login is located around that field: a password field
- * gets the password (and the form's username field), a text field gets the username (and the form's
- * password field if there is one, so two-step sign-ins work). Without a ref, the page's login form.
+ * that shows gets the password (and the form's username field), a text field gets the username (and
+ * the form's password field if one shows, so two-step sign-ins work). Without a ref, the page's login
+ * form, or the username alone on a two-step sign-in's first step. A password field that does not show
+ * (a decoy) never gets the password.
  */
 export function fillLoginByRefScript(ref: string | null, username: string, password: string): string {
   return `(() => {${PRELUDE}
@@ -242,6 +275,7 @@ export function fillLoginByRefScript(ref: string | null, username: string, passw
     if (!el) return { ok: false, reason: "missing" };
     if (el.tagName !== "INPUT" || el.disabled || el.readOnly) return { ok: false, reason: "not-field" };
     if (typeOf(el) === "password") {
+      if (!isVisible(el)) return { ok: false, reason: "not-field" };
       pass = el;
       user = userFor(el);
     } else if (["text", "email", "tel"].includes(typeOf(el))) {
@@ -253,9 +287,9 @@ export function fillLoginByRefScript(ref: string | null, username: string, passw
     }
   } else {
     const login = findLogin();
-    if (!login) return { ok: false, reason: "no-form" };
-    user = login.user;
-    pass = login.pass;
+    user = login ? login.user : findIdentifier();
+    pass = login ? login.pass : null;
+    if (!login && !user) return { ok: false, reason: "no-form" };
   }
   const name = ${JSON.stringify(username)};
   if (user && name) setValue(user, name);

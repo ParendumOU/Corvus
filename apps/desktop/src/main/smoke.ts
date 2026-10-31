@@ -40,6 +40,7 @@ import { runTotpEditSmoke } from "./smoke-totp-edit";
 import { runPasswordTablesSmoke } from "./smoke-password-tables";
 import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
 import { runPasswordGeneratorSmoke, servePasswordGeneratorSmokeRoute } from "./smoke-pwgen";
+import { runIdentifierFirstSmoke, serveIdentifierFirstSmokeRoute } from "./smoke-idfirst";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { narrowLayout, narrowWindow, runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
@@ -106,6 +107,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveCredentialsSmokeRoute(req, res)) return;
     if (serveOtpFillSmokeRoute(req, res)) return;
     if (servePasswordGeneratorSmokeRoute(req, res)) return;
+    if (serveIdentifierFirstSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
     if (serveMediaSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
@@ -253,6 +255,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       return;
     }
     // CORVUS_SMOKE_ONLY=pwgen: only the checks of the strong password generator under password fields (with screenshots).
+    // CORVUS_SMOKE_ONLY=idfirst: only the checks of two-step ("identifier first") sign-ins (with screenshots).
+    if (process.env.CORVUS_SMOKE_ONLY === "idfirst") {
+      await runIdentifierFirstSmoke(ctx, { url, win, check });
+      return;
+    }
     if (process.env.CORVUS_SMOKE_ONLY === "pwgen") {
       await runPasswordGeneratorSmoke(ctx, { url, win, check });
       return;
@@ -375,6 +382,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
     await runOtpFillSmoke(ctx, { url, win, check, capture });
     await runPasswordGeneratorSmoke(ctx, { url, win, check });
+    await runIdentifierFirstSmoke(ctx, { url, win, check });
     await runBackupSmoke(ctx, { win, check, capture });
     await runAnnotationsSmoke(ctx, { url, win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });

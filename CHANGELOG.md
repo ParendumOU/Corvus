@@ -12,6 +12,14 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.33.1
+
+### Passwords and 2FA
+- **Two-step sign-ins.** On sites that ask for your e-mail or username first and for the password on the next step (IONOS, Google, Microsoft and many others), clicking the e-mail field now lists your saved logins for the site, under the field and in the key in the address bar, as on any sign-in form. Picking one fills only the e-mail: Corvus never fills a password into a hidden field of that step and never presses **Next** for you. Ordinary e-mail fields (a newsletter, a search) stay quiet, and nothing shows on sites where you have no saved login.
+- On the password step, the login you picked or typed on the first step comes first, also when the site shows the password step on the same page.
+- **Saving a password on a two-step sign-in** now keeps the e-mail or username you entered on the first step (the password step usually has no username field), instead of saving the login with an empty username. Corvus keeps that username in memory only, for that tab and a few minutes.
+- AI agents signing in on such a first step fill only the username and are told to continue to the password step; a hidden password field is never filled.
+
 ## v0.33.0
 
 ### Passwords and 2FA

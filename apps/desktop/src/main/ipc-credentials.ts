@@ -8,6 +8,7 @@ import {
   AUTOFILL_CAPTURE_CHANNEL,
   AUTOFILL_DROPDOWN_DONE_CHANNEL,
   AUTOFILL_FIELD_CHANNEL,
+  AUTOFILL_IDENTIFIER_CHANNEL,
   FIELD_MENU_ACTION,
   type AutofillChromeRpc,
   type CapturedSubmit,
@@ -290,6 +291,12 @@ export function registerAutofillCapture(ctx: AppContext): void {
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
     const data = parseCapture(raw);
     if (data) ctx.autofill.onSubmitCaptured(found.window, found.tab, data);
+  });
+  ipcMain.on(AUTOFILL_IDENTIFIER_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
+    const found = ctx.windows.byTabWebContents(event.sender);
+    const v = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+    if (!found || event.senderFrame !== event.sender.mainFrame || typeof v.origin !== "string" || typeof v.username !== "string") return;
+    if (v.origin.length <= MAX_FIELD && v.username.trim() && v.username.length <= MAX_FIELD) ctx.autofill.onIdentifierSent(found.window, found.tab, { origin: v.origin, username: v.username.trim() });
   });
   ipcMain.on(AUTOFILL_FIELD_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byTabWebContents(event.sender);

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { addNeverSave, autofillSiteOf, MAX_LAST_LOGINS, MAX_NEVER_SAVE, neverSaveHostOf, noteLastLogin, reviveLastLogins, reviveNeverSave, type LastLogins } from "../src/shared/autofill-sites";
+import { addNeverSave, autofillSiteOf, MAX_LAST_LOGINS, MAX_NEVER_SAVE, neverSaveHostOf, noteLastLogin, reviveLastLogins, reviveNeverSave, sendIdentifier, SENT_IDENTIFIER_MS, sentIdentifierFor, type LastLogins } from "../src/shared/autofill-sites";
 import { SiteSettingsStore } from "../src/main/site-settings";
 
 const dirs: string[] = [];
@@ -25,6 +25,23 @@ describe("the site an account was used on", () => {
     expect(autofillSiteOf("http://127.0.0.1:8080/")).toBe("127.0.0.1:8080");
     expect(autofillSiteOf("https://me.github.io/")).toBe("me.github.io");
     for (const url of ["corvus://settings", "file:///C:/x.html", "not a url", ""]) expect(autofillSiteOf(url), url).toBe("");
+  });
+});
+
+describe("the username sent from a two-step sign-in's first step", () => {
+  const sent = { site: "example.com", username: "info@example.com", accountId: "a1", at: 1_000 };
+
+  it("applies to the pages of its site for a few minutes", () => {
+    expect(sentIdentifierFor(sent, "https://auth.example.com/password", 1_000 + 60_000)).toBe(sent);
+    expect(sentIdentifierFor(sent, "https://example.org/password", 2_000)).toBeNull();
+    expect(sentIdentifierFor(sent, "https://example.com/", 1_000 + SENT_IDENTIFIER_MS)).toBeNull();
+    expect(sentIdentifierFor(undefined, "https://example.com/", 2_000)).toBeNull();
+  });
+
+  it("keeps the account picked for it while the username stays that account's", () => {
+    expect(sendIdentifier(sent, { site: "example.com", username: "INFO@example.com", at: 5_000 })).toEqual({ site: "example.com", username: "INFO@example.com", accountId: "a1", at: 5_000 });
+    expect(sendIdentifier(sent, { site: "example.com", username: "other@example.com", at: 5_000 })).toEqual({ site: "example.com", username: "other@example.com", at: 5_000 });
+    expect(sendIdentifier(sent, { site: "example.org", username: "info@example.com", at: 5_000 }).accountId).toBeUndefined();
   });
 });
 

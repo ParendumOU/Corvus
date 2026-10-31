@@ -197,6 +197,43 @@ describe("the account used last", () => {
   });
 });
 
+describe("a two-step sign-in", () => {
+  it("names the save after the username sent from its first step when the password step has none", () => {
+    const { win, autofill, tabs, submit } = setup();
+    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "step-one@example.com" });
+    submit("t1", "", "pw-step-two");
+    expect(autofill.pendingSave(win)).toMatchObject({ username: "step-one@example.com", password: "pw-step-two" });
+    // A username on the password step wins.
+    submit("t1", "typed@example.com", "pw-other");
+    expect(autofill.pendingSave(win)?.username).toBe("typed@example.com");
+  });
+
+  it("keeps the username per tab and site only", () => {
+    const { win, autofill, tabs, submit, activate } = setup();
+    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "step-one@example.com" });
+    // Another tab, or a report from a page the tab no longer shows, names nothing.
+    autofill.onIdentifierSent(win, tabs.get("t2")!, { origin: "https://other.example.org", username: "elsewhere@example.org" });
+    submit("t2", "", "pw-t2");
+    activate("t2");
+    expect(autofill.pendingSave(win)?.username).toBe("");
+    // A closed tab forgets it.
+    activate("t1");
+    autofill.forgetTab("t1");
+    submit("t1", "", "pw-after-close");
+    expect(autofill.pendingSave(win)?.username).toBe("");
+  });
+
+  it("offers the account of the username sent from the first step first on the next one", () => {
+    const { vault, win, autofill, tabs } = setup();
+    const alice = vault.add({ origin: SITE, username: "alice@example.com", password: "pw-a" });
+    const bob = vault.add({ origin: SITE, username: "bob@example.com", password: "pw-b" });
+    (vault.get(bob.id) as { updatedAt: number }).updatedAt = 1;
+    expect(autofill.suggestions(win).map((m) => m.id)).toEqual([alice.id, bob.id]);
+    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "BOB@example.com" });
+    expect(autofill.suggestions(win).map((m) => m.id)).toEqual([bob.id, alice.id]);
+  });
+});
+
 describe("the save-password IPC", () => {
   it("hands the pending save only to the prompt, and checks what comes back", () => {
     const { vault, win, autofill, ctx, submit } = setup();

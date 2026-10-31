@@ -149,6 +149,17 @@ export interface AutofillChromeRpc {
 export const AUTOFILL_CAPTURE_CHANNEL = "corvus:autofill-captured";
 
 /**
+ * One-way channel: the tab preload reports the username typed on a two-step sign-in's first step, as
+ * it is sent or left changed (the next step may ask only for the password; the save prompt names it).
+ */
+export const AUTOFILL_IDENTIFIER_CHANNEL = "corvus:autofill-identifier";
+
+export interface CapturedIdentifier {
+  origin: string;
+  username: string;
+}
+
+/**
  * One-way channel: the tab preload reports a click in a login field or a one-time-code field (which
  * kind, its box in CSS pixels of the page's viewport and, for a password field, its part in its form
  * and what it takes, never its value) so the main process can list the saved accounts under it, and

@@ -8,21 +8,28 @@ describe("planAccountFill", () => {
   const oneForm = { login: true, otp: true };
 
   it("fills username, password and code in one pick on a page that asks for all three", () => {
-    expect(planAccountFill("account", { hasTotp: true }, oneForm)).toEqual({ login: "all", code: true });
+    expect(planAccountFill("account", { hasTotp: true }, oneForm)).toEqual({ login: "all", usernameOnly: false, code: true });
   });
 
   it("keeps typed login fields when the pick was for the code", () => {
-    expect(planAccountFill("code", { hasTotp: true }, oneForm)).toEqual({ login: "empty", code: true });
+    expect(planAccountFill("code", { hasTotp: true }, oneForm)).toEqual({ login: "empty", usernameOnly: false, code: true });
   });
 
   it("fills no code for an account without a 2FA or a page without a code field", () => {
-    expect(planAccountFill("account", { hasTotp: false }, oneForm)).toEqual({ login: "all", code: false });
-    expect(planAccountFill("account", { hasTotp: true }, { login: true, otp: false })).toEqual({ login: "all", code: false });
+    expect(planAccountFill("account", { hasTotp: false }, oneForm)).toEqual({ login: "all", usernameOnly: false, code: false });
+    expect(planAccountFill("account", { hasTotp: true }, { login: true, otp: false })).toEqual({ login: "all", usernameOnly: false, code: false });
   });
 
   it("fills only the code on a two-step page's code step", () => {
-    expect(planAccountFill("account", { hasTotp: true }, { login: false, otp: true })).toEqual({ login: "none", code: true });
-    expect(planAccountFill("code", { hasTotp: true }, { login: false, otp: true })).toEqual({ login: "none", code: true });
+    expect(planAccountFill("account", { hasTotp: true }, { login: false, otp: true })).toEqual({ login: "none", usernameOnly: false, code: true });
+    expect(planAccountFill("code", { hasTotp: true }, { login: false, otp: true })).toEqual({ login: "none", usernameOnly: false, code: true });
+  });
+
+  it("fills only the username on a two-step sign-in's first step", () => {
+    expect(planAccountFill("account", { hasTotp: true }, { login: false, identifier: true, otp: false })).toEqual({ login: "all", usernameOnly: true, code: false });
+    expect(planAccountFill("code", { hasTotp: false }, { login: false, identifier: true, otp: false })).toEqual({ login: "empty", usernameOnly: true, code: false });
+    // A login form on the page wins over a username step.
+    expect(planAccountFill("account", { hasTotp: false }, { login: true, identifier: true, otp: false })).toEqual({ login: "all", usernameOnly: false, code: false });
   });
 });
 
