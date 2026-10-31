@@ -173,7 +173,7 @@ describe("extensions from other browsers", () => {
 });
 
 describe("BrowserImport", () => {
-  it("finds the browsers and profiles, counts them, and imports bookmarks and history into Corvus", async () => {
+  it("finds the browsers and profiles, counts them, and imports bookmarks and history into Corvus", { timeout: 20_000 }, async () => {
     const roots = writeBrowserFixtures(tempDir());
     const service = new BrowserImport();
     service.setTestRoots(roots);

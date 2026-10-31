@@ -65,6 +65,10 @@ appImage:
   artifactName: Corvus-${version}-${arch}.${ext}
 mac:
   target: dmg
+  # koffi only serves Windows (DPAPI for the password import); its macOS binaries would also break the universal merge.
+  files:
+    - "!**/node_modules/koffi/**"
+    - "!**/node_modules/@koromix/**"
   icon: build/icon.png
   category: public.app-category.productivity
   hardenedRuntime: true
