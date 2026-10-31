@@ -12,6 +12,11 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.32.9
+
+### Passwords and 2FA
+- The 2FA code next to a login in the Passwords tab shows the same countdown ring as the 2FA codes tab (it had a thin line that was hard to see).
+
 ## v0.32.8
 
 ### Browser

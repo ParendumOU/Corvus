@@ -73,11 +73,10 @@ function TotpCodeView({ load, copy }: { load: () => Promise<TotpCode | null>; co
   };
   return (
     <div className="pw-totp" title={t("Current 2FA code")}>
-      <IconClock size={13} />
       <span className="pw-totp-code">{formatTotpCode(code.code)}</span>
-      <span className={`pw-totp-left ${left <= 5 ? "low" : ""}`} aria-label={t("{left} seconds left", { left })}>
-        <span className="pw-totp-bar" style={{ width: `${(left / code.period) * 100}%` }} />
-        {left}s
+      <span className="tf-left" aria-label={t("{left} seconds left", { left })}>
+        <CountdownRing left={left} period={code.period} />
+        <span className="tf-secs">{left}</span>
       </span>
       <button className="icon-btn" title={copied ? t("Copied") : t("Copy 2FA code")} onClick={onCopy}>
         <IconCopy size={14} />

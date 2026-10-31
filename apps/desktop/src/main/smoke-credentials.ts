@@ -248,6 +248,10 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   const liveCode = String(await page.view.webContents.executeJavaScript(`document.querySelector(".pw-totp-code")?.textContent ?? ""`)).replace(/\s/g, "");
   const warned = await page.view.webContents.executeJavaScript(`document.body.innerText.includes("turns two factors into one")`);
   check("corvus://passwords shows the live 2FA code and the warning", (await nearbyCodes()).includes(liveCode) && warned === true, { warned, length: liveCode.length });
+  const ring = await page.view.webContents.executeJavaScript(
+    `(() => { const r = document.querySelector(".pw-totp .tf-ring")?.getBoundingClientRect(); return { ring: r ? r.width : 0, secs: document.querySelector(".pw-totp .tf-secs")?.textContent ?? "" }; })()`,
+  );
+  check("corvus://passwords shows each 2FA code's countdown ring, as the 2FA codes tab does", ring.ring >= 16 && /^\d+$/.test(ring.secs), ring);
   await capture("passwords", page.view.webContents);
   await checkupSmoke(ctx, base, page.view.webContents, { url, win, check, capture });
 
