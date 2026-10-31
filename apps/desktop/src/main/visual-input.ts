@@ -32,6 +32,9 @@ export interface AgentShot {
 
 export type PointInfo = PointTarget & { box?: { x: number; y: number; width: number; height: number } };
 
+/** A tab out of sight is painted for its capture; this is the rare page that still gave no picture. */
+export const NOT_PAINTED = "The tab could not be painted out of sight; bring it to the front and retry";
+
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -75,9 +78,16 @@ export async function agentScreenshot(ctx: AppContext, id: TabId): Promise<Agent
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "screenshot" });
-  const view = await exec<{ width: number; height: number }>(wc, viewportScript());
-  const image = await wc.capturePage(undefined, { stayHidden: true });
-  if (image.isEmpty()) throw new Error("The tab has not been painted yet; activate it and retry");
+  const release = await win.paintForCapture(id);
+  let image: Electron.NativeImage;
+  let view: { width: number; height: number };
+  try {
+    view = await exec<{ width: number; height: number }>(wc, viewportScript());
+    image = await wc.capturePage(undefined, { stayHidden: true });
+  } finally {
+    release();
+  }
+  if (image.isEmpty()) throw new Error(NOT_PAINTED);
   const fit = fitShot(view.width, view.height);
   const size = image.getSize();
   const sized = size.width === fit.width && size.height === fit.height ? image : image.resize({ width: fit.width, height: fit.height, quality: "better" });
@@ -280,6 +290,16 @@ export async function captureTab(ctx: AppContext, id: TabId, opts: CaptureOption
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "screenshot" });
+  // A tab out of sight is painted at the window's size for the capture, without showing it.
+  const release = await win.paintForCapture(id);
+  try {
+    return await capturePainted(wc, opts);
+  } finally {
+    release();
+  }
+}
+
+async function capturePainted(wc: WebContents, opts: CaptureOptions): Promise<Capture> {
   const mode = opts.mode ?? "viewport";
   const scale = Math.max(0.1, Math.min(2, opts.scale ?? 1));
   const jpeg = opts.format === "jpeg";
@@ -312,7 +332,7 @@ export async function captureTab(ctx: AppContext, id: TabId, opts: CaptureOption
     await sleep(SETTLE_MS);
   }
   const image = await wc.capturePage(undefined, { stayHidden: true });
-  if (image.isEmpty()) throw new Error("The tab has not been painted yet; activate it and retry");
+  if (image.isEmpty()) throw new Error(NOT_PAINTED);
   const ratio = image.getSize().width / view.width;
   const region =
     mode === "element"

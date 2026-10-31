@@ -167,10 +167,10 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
   register(
     "tab_open",
     {
-      description: "Open a URL in a new tab (marked as agent-controlled).",
+      description: "Open a URL in a new tab (marked as agent-controlled). Background tabs load and render too (screenshot works).",
       inputSchema: {
         url,
-        background: z.boolean().optional().describe("Open without focusing"),
+        background: z.boolean().optional().describe("Open without focusing (it loads and renders all the same)"),
         groupId: z.string().min(1).max(200).optional(),
       },
     },

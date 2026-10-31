@@ -395,6 +395,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   const openInTab = (url: string): void => {
     win.createTab(url, {
       activate: false,
+      preload: true,
       openerId: tab.id,
       ...(tab.agentControlled ? { agent: true } : {}),
       ...(tab.containerId ? { containerId: tab.containerId } : {}),

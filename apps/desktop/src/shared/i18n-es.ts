@@ -156,6 +156,9 @@ export const ES: Record<string, string> = {
   "Pinned tabs, tabs playing sound, tabs an AI agent is using and pages where you typed something stay awake.":
     "Las pestañas fijadas, las que reproducen sonido, las que usa un agente de IA y las páginas donde escribiste algo se quedan despiertas.",
   "Sleep after": "Dormir tras",
+  "Load tabs opened in the background right away": "Cargar al momento las pestañas abiertas en segundo plano",
+  "A tab you open in the background (middle click, Ctrl+click, Open link in new tab) loads at the window's size and is drawn before you get to it, so it shows complete at once. “Open all” on a bookmarks folder loads the first {count} now and the rest when you get to them.":
+    "Una pestaña que abres en segundo plano (clic central, Ctrl+clic, Abrir enlace en una pestaña nueva) se carga al tamaño de la ventana y se dibuja antes de que llegues a ella, así que se ve completa al instante. «Abrir todos» en una carpeta de marcadores carga ahora las {count} primeras y el resto cuando llegas a ellas.",
   "{n} minutes": "{n} minutos",
   "{n} hours": "{n} horas",
   "1 hour": "1 hora",
@@ -580,6 +583,9 @@ export const ES: Record<string, string> = {
     "Activa el servidor una vez para obtener un puerto y el comando `claude mcp add`.",
   "Approved clients": "Clientes aprobados",
   "Clients that connect without asking.": "Clientes que se conectan sin preguntar.",
+  "Let AI agents render pages in the background": "Dejar que los agentes de IA dibujen las páginas en segundo plano",
+  "Tabs AI agents work in (MCP clients, the Command Bar, Assist and scheduled agents) keep drawing while out of sight, so agents can see and capture them without taking your screen. Only the {count} they used last do, fewer when memory runs low.":
+    "Las pestañas en las que trabajan los agentes de IA (clientes MCP, la barra de comandos, Assist y los agentes programados) se siguen dibujando aunque no estén a la vista, para que los agentes puedan verlas y capturarlas sin quitarte la pantalla. Solo lo hacen las {count} que usaron por última vez, menos cuando queda poca memoria.",
   "AI agents: remote access": "Agentes de IA: acceso remoto",
   "By default the MCP server listens on 127.0.0.1 and only local clients can reach it. Turn this on to also accept connections from other devices on your network. The bearer token is still required.":
     "Por defecto el servidor MCP escucha en 127.0.0.1 y solo pueden llegar los clientes locales. Actívalo para aceptar también conexiones de otros dispositivos de tu red. El token de acceso sigue siendo obligatorio.",

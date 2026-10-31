@@ -145,7 +145,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       const o = (opts ?? {}) as { url?: unknown; groupId?: unknown; background?: unknown };
       const url = optStr(o.url, "url") ?? "corvus://newtab/";
       const groupId = optStr(o.groupId, "group");
-      return w.createTab(url, { activate: o.background !== true, ...(groupId ? { groupId } : {}) }).id;
+      return w.createTab(url, { activate: o.background !== true, preload: true, ...(groupId ? { groupId } : {}) }).id;
     },
     "tabs.close": (w, id) => w.closeTab(str(id, "tab")),
     "tabs.activate": (w, id) => w.activate(str(id, "tab")),

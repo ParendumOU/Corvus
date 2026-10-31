@@ -29,6 +29,8 @@ export class TabSleeper {
 
   /** One pass over every window; returns how many tabs went to sleep. */
   async tick(now: number): Promise<number> {
+    // Low on memory, fewer agent tabs keep painting while hidden.
+    this.ctx.backgroundRender.enforce();
     const memory = this.ctx.settings.get().memory;
     if (!memory.sleepTabs) return 0;
     let slept = 0;

@@ -38,11 +38,14 @@ export function childrenOf(list: Bookmark[], parentId: string | null): Bookmark[
   return list.filter((b) => b.parentId === parentId).sort((a, b) => a.position - b.position);
 }
 
-/** The addresses of a folder's own bookmarks (not its subfolders'), in order: what "Open all" opens. */
+/** A folder's own bookmarks (not its subfolders'), in order: what "Open all" opens. */
+export function folderPages(list: Bookmark[], folderId: string): Array<{ url: string; title: string }> {
+  return childrenOf(list, folderId).flatMap((b) => (b.kind === "bookmark" && b.url ? [{ url: b.url, title: b.title }] : []));
+}
+
+/** The addresses of a folder's own bookmarks, in order. */
 export function folderUrls(list: Bookmark[], folderId: string): string[] {
-  return childrenOf(list, folderId)
-    .filter((b) => b.kind === "bookmark" && b.url)
-    .map((b) => b.url as string);
+  return folderPages(list, folderId).map((p) => p.url);
 }
 
 /**

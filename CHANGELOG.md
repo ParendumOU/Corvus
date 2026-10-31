@@ -12,6 +12,14 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.32.8
+
+### Browser
+- **Tabs you open in the background are ready when you get to them.** A link you middle-click, Ctrl+click (⌘-click on a Mac) or open with Open link in new tab, a page that opens a tab in the background and a tab an extension opens in the background now load at the window's size and are drawn before you look at them, images included, so the page shows complete at once (before, its pictures came in about half a second after you switched to it). They may still go to sleep later by the usual rules. **Settings → Memory → Load tabs opened in the background right away** turns this off.
+- **Open all** on a bookmarks folder loads the first 5 tabs at once and the rest when you get to them.
+- **AI agents can see the tabs they work in without taking your screen.** Tabs an MCP client, the Command Bar agent, Assist or a scheduled agent opens or uses keep drawing out of sight, at the window's size, so their screenshots show the page and the coordinate tools land where they should, while the tab you are on keeps your clicks, keys and focus. Only the 8 agent tabs used most recently do (2 when the computer is low on memory); turn it off in **Settings → AI agents (MCP) → Let AI agents render pages in the background**.
+- Fixed: a screenshot of a tab that had never been on screen failed with "The tab has not been painted yet". Any background tab is now drawn for its screenshot without showing it, and a sleeping tab loads first.
+
 ## v0.32.7
 
 ### Browser

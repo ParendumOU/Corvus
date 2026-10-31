@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { GroupColor } from "@corvus/shared";
+import { OPEN_ALL_LOAD_NOW } from "../../shared/background-tabs";
 import { CONTAINER_COLORS, type Container } from "../../shared/containers";
 import { DANGEROUS_TYPE_GROUPS, type DangerousTypeGroupId, type TrustedType } from "../../shared/download-trust";
 import type { DefaultBrowserView, MakeDefaultResult } from "../../shared/browser-ipc";
@@ -233,6 +234,16 @@ export function MemorySection({ view, update }: Props) {
               </option>
             ))}
         </select>
+      </Row>
+      <Row
+        label={t("Load tabs opened in the background right away")}
+        hint={t("A tab you open in the background (middle click, Ctrl+click, Open link in new tab) loads at the window's size and is drawn before you get to it, so it shows complete at once. “Open all” on a bookmarks folder loads the first {count} now and the rest when you get to them.", { count: OPEN_ALL_LOAD_NOW })}
+      >
+        <Toggle
+          label={t("Load tabs opened in the background right away")}
+          checked={m.preloadBackgroundTabs}
+          onChange={(v) => update({ memory: { preloadBackgroundTabs: v } })}
+        />
       </Row>
     </Section>
   );

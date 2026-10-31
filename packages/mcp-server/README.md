@@ -37,7 +37,7 @@ Other exports:
 | Tool | Purpose |
 |---|---|
 | `tabs_list` | Tabs and groups |
-| `tab_open` | Open URL in a new tab (always `agent: true`, so the UI shows the AI badge) |
+| `tab_open` | Open URL in a new tab (always `agent: true`, so the UI shows the AI badge); with `background` it does not take focus but still loads and renders, so `page_snapshot`, `screenshot` and the `*_at` tools work on it |
 | `tab_close`, `tab_activate` | Close / focus a tab |
 | `navigate`, `back`, `forward`, `reload` | Navigation |
 | `group_create`, `ungroup` | Tab groups |

@@ -43,6 +43,7 @@ export const OPT_IN_SYNCED_SETTINGS = ["ai.searxngUrl", "ai.localBaseUrl"] as co
 export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "agent.siteMemory": "Whether this device learns about sites is its own choice (what it learned syncs as the site memory category).",
   "agent.runScreenshots": "Captures of agent runs stay on this device, so keeping them is its own choice.",
+  "agent.renderInBackground": "Pages agents paint in the background use this machine's memory and processor.",
   "agent.rememberCommands": "Whether this device keeps a Command Bar history is its own choice (the history syncs as its own category).",
   "phone.telegramBot": "Goes with the bot token, which stays in this device's keychain.",
   "phone.telegramChatId": "Linked on this device with its own bot token.",
@@ -81,6 +82,7 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "appearance.sidebarCollapsed": "Sidebar collapse is a per-device UI state.",
   "memory.sleepTabs": "Memory pressure is a property of this machine.",
   "memory.sleepAfterMinutes": "Tuned to this machine's memory.",
+  "memory.preloadBackgroundTabs": "Loading tabs ahead uses this machine's memory.",
   "monitor.enabled": "Runs a background network fetcher on this device; a per-device decision.",
   "monitor.defaultIntervalMinutes": "Monitoring runs per device, so its cadence stays local.",
   "monitor.maxWatches": "Concurrency cap tuned to this machine.",

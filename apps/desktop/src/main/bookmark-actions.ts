@@ -2,7 +2,7 @@
  * What the bookmarks bar does with a bookmark beyond opening it: Edit… in Corvus's dialog, opening
  * a whole folder (a middle click, or "Open all"), and the site icons its "»" menu shows.
  */
-import { OPEN_ALL_ASK_ABOVE, ROOT_IDS, bookmarkUrlFromInput, folderUrls } from "../shared/bookmark-tree";
+import { OPEN_ALL_ASK_ABOVE, ROOT_IDS, bookmarkUrlFromInput, folderPages } from "../shared/bookmark-tree";
 import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 import type { BrowserWindowCtl } from "./window";
@@ -49,13 +49,13 @@ export async function editBookmark(ctx: AppContext, win: BrowserWindowCtl, id: s
 export async function openBookmarkFolder(ctx: AppContext, win: BrowserWindowCtl, folderId: string): Promise<number> {
   const folder = win.profile.bookmarks.get(folderId);
   if (folder?.kind !== "folder") return 0;
-  const urls = folderUrls(win.profile.bookmarks.list(), folderId);
-  if (urls.length > OPEN_ALL_ASK_ABOVE) {
+  const pages = folderPages(win.profile.bookmarks.list(), folderId);
+  if (pages.length > OPEN_ALL_ASK_ABOVE) {
     const { button } = await ctx.dialogs.ask(
       {
         tone: "question",
-        title: tr("Open {count} tabs?", { count: urls.length }),
-        message: tr("Open {count} tabs?", { count: urls.length }),
+        title: tr("Open {count} tabs?", { count: pages.length }),
+        message: tr("Open {count} tabs?", { count: pages.length }),
         detail: tr("Every bookmark in “{folder}” opens in a new tab.", { folder: folder.title }),
         buttons: [tr("Cancel"), tr("Open all")],
         defaultId: 1,
@@ -65,8 +65,8 @@ export async function openBookmarkFolder(ctx: AppContext, win: BrowserWindowCtl,
     );
     if (button !== 1 || win.win.isDestroyed()) return 0;
   }
-  for (const url of urls) win.openUrl(url, "background-tab");
-  return urls.length;
+  win.openAllInBackground(pages);
+  return pages.length;
 }
 
 /**

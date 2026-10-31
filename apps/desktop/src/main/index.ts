@@ -12,6 +12,7 @@ import { AnnotationService } from "./annotation-service";
 import { AssistService } from "./assist-service";
 import { TranslateService } from "./translate-service";
 import { TabSleeper } from "./tab-sleeper";
+import { BackgroundRender } from "./background-render";
 import { AutofillService } from "./autofill-service";
 import type { AppContext } from "./context";
 import { AgentCredentialService } from "./agent-credentials";
@@ -210,6 +211,7 @@ async function main(): Promise<void> {
   ctx.assist = new AssistService(ctx);
   ctx.translate = new TranslateService(ctx);
   ctx.tabSleeper = new TabSleeper(ctx);
+  ctx.backgroundRender = new BackgroundRender(ctx);
   ctx.reader = new ReaderService(ctx);
   ctx.controller = new Controller(ctx);
   ctx.certErrors = new CertErrorService();

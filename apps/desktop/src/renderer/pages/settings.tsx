@@ -5,6 +5,7 @@ import type { UserNote } from "../../shared/user-memory";
 import type { ConnectionTestResult, EngineInfo, LocalServerInfo, McpStatus, UpdateStatus } from "../../shared/ipc";
 import type { AccessLevel, ClaudeAccountMode, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
 import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
+import { AGENT_RENDER_CAP } from "../../shared/background-tabs";
 import { DICTATION_PRESETS, dictationReady, type DictationPreset } from "../../shared/dictation";
 import { errorMessage, internalApi } from "../common/api";
 import { setUiLanguage, t } from "../common/i18n";
@@ -1056,6 +1057,16 @@ function AgentsSection({ view, update }: { view: SettingsView; update: (p: Setti
             </button>
           </span>
         ))}
+      </Row>
+      <Row
+        label={t("Let AI agents render pages in the background")}
+        hint={t("Tabs AI agents work in (MCP clients, the Command Bar, Assist and scheduled agents) keep drawing while out of sight, so agents can see and capture them without taking your screen. Only the {count} they used last do, fewer when memory runs low.", { count: AGENT_RENDER_CAP })}
+      >
+        <Toggle
+          label={t("Let AI agents render pages in the background")}
+          checked={view.settings.agent.renderInBackground}
+          onChange={(v) => update({ agent: { renderInBackground: v } })}
+        />
       </Row>
       <AgentActivityLog view={view} update={update} />
     </Section>

@@ -65,7 +65,7 @@ import type { PageDialogs } from "./page-dialogs";
 import { extractScript, findScript, htmlScript, textScript, waitProbeScript } from "./read-scripts";
 import { TabLogs } from "./tab-logs";
 import { pageOf, pageUrl } from "./tab-page";
-import { captureTab, dragBetween, hoverAt, mouseClickAt, pressKeys, scrollAt, typeTextPaced } from "./visual-input";
+import { NOT_PAINTED, captureTab, dragBetween, hoverAt, mouseClickAt, pressKeys, scrollAt, typeTextPaced } from "./visual-input";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 const LOAD_TIMEOUT_MS = 15_000;
@@ -456,9 +456,15 @@ export class Controller implements BrowserController {
     const { window, wc } = this.readable(id);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "screenshot" });
-    const image = await wc.capturePage(undefined, { stayHidden: true });
-    if (image.isEmpty()) throw new AgentError("The tab has not been painted yet; activate it and retry");
-    return { mimeType: "image/png", base64: image.toPNG().toString("base64") };
+    // A tab out of sight is painted for the capture, without showing it.
+    const release = await window.paintForCapture(id);
+    try {
+      const image = await wc.capturePage(undefined, { stayHidden: true });
+      if (image.isEmpty()) throw new AgentError(NOT_PAINTED);
+      return { mimeType: "image/png", base64: image.toPNG().toString("base64") };
+    } finally {
+      release();
+    }
   }
 
   /** Screenshot of the viewport, one element or the whole page, sized for the *_at tools. */

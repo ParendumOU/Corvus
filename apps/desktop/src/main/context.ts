@@ -6,6 +6,7 @@ import type { AnnotationService } from "./annotation-service";
 import type { AssistService } from "./assist-service";
 import type { TranslateService } from "./translate-service";
 import type { TabSleeper } from "./tab-sleeper";
+import type { BackgroundRender } from "./background-render";
 import type { AutofillService } from "./autofill-service";
 import type { CertErrorService } from "./cert-errors";
 import type { ExternalAppService } from "./external-apps";
@@ -112,4 +113,6 @@ export interface AppContext {
   crashReporter: CrashReporter;
   /** Puts background tabs to sleep and keeps per-tab memory figures. */
   tabSleeper: TabSleeper;
+  /** The agent tabs that keep painting while hidden (Settings > AI agents). */
+  backgroundRender: BackgroundRender;
 }

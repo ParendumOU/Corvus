@@ -82,6 +82,7 @@ export class ExtensionWindowBridge implements ProfileDelegate {
     const openerTab = opener ? win.tabByWebContents(opener) : undefined;
     const tab = win.createTab(url, {
       activate: details.active !== false,
+      preload: true,
       ...(typeof details.index === "number" && details.index >= 0 ? { index: details.index } : {}),
       ...(details.pinned === true ? { pinned: true } : {}),
       ...(openerTab ? { openerId: openerTab.id } : {}),

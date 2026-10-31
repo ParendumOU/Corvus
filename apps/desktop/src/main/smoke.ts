@@ -16,6 +16,7 @@ import { runDictationSmoke } from "./smoke-dictation";
 import { runDialogsSmoke } from "./smoke-dialogs";
 import { runLibrarySmoke } from "./smoke-library";
 import { runAssistAgentSmoke } from "./smoke-assist-agent";
+import { runBgTabsSmoke } from "./smoke-bgtabs";
 import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runCertErrorSmoke } from "./smoke-cert-errors";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
@@ -257,6 +258,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runExternalAppsSmoke(ctx, { win, check, capture }, true);
       return;
     }
+    // CORVUS_SMOKE_ONLY=bgtabs: only the background tab checks (preloading, agent tabs painting out of sight, captures), with CORVUS_BGTABS_MEASURE=1 also memory and timings.
+    if (process.env.CORVUS_SMOKE_ONLY === "bgtabs") {
+      await runBgTabsSmoke(ctx, { win, check, capture, log });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
     if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
@@ -361,6 +367,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runWebscopeSmoke(ctx, { url, win, check, capture });
 
     await runExtensionSmoke(ctx, { check, capture, log });
+    // Last: it moves the real pointer and keyboard focus of the display (put back afterwards).
+    await runBgTabsSmoke(ctx, { win, check, capture, log });
   } catch (err) {
     check("unexpected error", false, (err as Error).stack ?? String(err));
   } finally {

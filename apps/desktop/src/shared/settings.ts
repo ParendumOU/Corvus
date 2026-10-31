@@ -82,6 +82,8 @@ export interface Settings {
     rememberCommands: boolean;
     /** Keep a small capture of the page after each step in the run history. On by default. */
     runScreenshots: boolean;
+    /** Tabs agents work in keep painting while hidden (the most recently used few), for screenshots. On by default. */
+    renderInBackground: boolean;
   };
   passwords: {
     /**
@@ -143,6 +145,8 @@ export interface Settings {
     sleepTabs: boolean;
     /** Minutes a tab stays in the background before it sleeps. */
     sleepAfterMinutes: number;
+    /** A tab the person opens in the background loads at the window's size and paints until loaded. On by default. */
+    preloadBackgroundTabs: boolean;
   };
   media: {
     /** Float a video that is playing with sound when you switch to another tab. On by default. */
@@ -275,12 +279,12 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       answerLanguage: "",
       maxOutputTokens: 400,
     },
-    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true, runScreenshots: true },
+    agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true, runScreenshots: true, renderInBackground: true },
     passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false, backupReminder: true },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
     downloads: { directory: "", askWhereToSave: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
-    memory: { sleepTabs: true, sleepAfterMinutes: 60 },
+    memory: { sleepTabs: true, sleepAfterMinutes: 60, preloadBackgroundTabs: true },
     media: { autoPictureInPicture: true },
     phone: { telegramBot: "", telegramChatId: "", telegramChatName: "", receiveLinks: true, answerQuestions: true },
     translate: { offer: true, targetLanguage: "" },

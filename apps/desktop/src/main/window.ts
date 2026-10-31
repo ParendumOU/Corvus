@@ -7,6 +7,7 @@ import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError
 import { downloadTabStep, downloadedByAgent, hasOwnPage } from "../shared/download-trust";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
+import { newTabPaint, openAllPlan, paintedScript, type PaintReason } from "../shared/background-tabs";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
@@ -115,6 +116,18 @@ const SIDEBAR_COLLAPSED_WIDTH = 52;
 const SLEEP_CHECK_WORLD_ID = 1999;
 /** Input in a tab this soon after an agent acted on it may be the agent's own (see BrowserWindowCtl.downloadByAgent). */
 const AGENT_INPUT_GRACE_MS = 2000;
+/** Isolated world that waits for a hidden page to paint before it is captured. */
+const PAINT_WORLD_ID = 2003;
+/** A tab opened in the background keeps painting this long after its page loads (what it draws once loaded, images in view). */
+const PRELOAD_SETTLE_MS = 1500;
+/** A tab opened in the background stops painting after this long even if its page never finishes loading. */
+const PRELOAD_MAX_MS = 30_000;
+/** A capture of a tab that was not painting waits this long at most for the images in view. */
+const CAPTURE_IMAGES_WAIT_MS = 1500;
+/** A capture never waits longer than this for a hidden page to paint. */
+const CAPTURE_PAINT_TIMEOUT_MS = 3000;
+/** Hidden tabs that paint take the new window size once a resize has settled this long. */
+const PAINT_RESIZE_MS = 200;
 
 export interface TabRuntime {
   id: TabId;
@@ -156,6 +169,10 @@ export interface TabRuntime {
   personInputAt?: number;
   /** The last time an agent acted on it (epoch ms). */
   agentActedAt?: number;
+  /** Why it paints while not on screen (see shared/background-tabs.ts); captures count. */
+  paintHolds?: Partial<Record<PaintReason, number>>;
+  /** Since when it has been painting while not on screen (epoch ms). */
+  paintingSince?: number;
 }
 
 export interface OpenTabOptions {
@@ -167,6 +184,12 @@ export interface OpenTabOptions {
   pinned?: boolean;
   /** Do not load until the tab is shown (session restore). */
   lazy?: boolean;
+  /**
+   * The person opened it in the background to look at it soon (a middle click, "Open link in new
+   * tab"): with Settings > Memory's "Load tabs opened in the background right away", it loads at the
+   * window's size and paints until loaded, so it is complete when shown.
+   */
+  preload?: boolean;
   title?: string;
   /** Icon a lazy tab shows until it loads and its page reports its own (last known site icon). */
   faviconUrl?: string;
@@ -233,6 +256,9 @@ export class BrowserWindowCtl {
   private processMemory: ReadonlyMap<number, number> = new Map();
   /** A sleeping tab's view while the extensions layer is told about it (see sleepTab). */
   private quietExtensionTab: WebContents | null = null;
+  /** Where tab pages go in the window (the last layout): hidden tabs that paint take this size. */
+  private content = { x: 0, y: 0, width: 0, height: 0 };
+  private paintResizeTimer: NodeJS.Timeout | null = null;
 
   /** A private window (see WindowOpenOptions.private). */
   readonly isPrivate: boolean;
@@ -378,6 +404,11 @@ export class BrowserWindowCtl {
       this.sidePanel.layout(bounds);
     }
     const content = { x: left, y: top, width: Math.max(0, width - left - side - panel), height: Math.max(0, height - top) };
+    if (content.width !== this.content.width || content.height !== this.content.height) {
+      if (this.paintResizeTimer) clearTimeout(this.paintResizeTimer);
+      this.paintResizeTimer = setTimeout(() => this.resizePainting(), PAINT_RESIZE_MS);
+    }
+    this.content = content;
     const active = this.activeTab();
     if (this.splitShown()) {
       const split = this.splitSession!;
@@ -472,18 +503,24 @@ export class BrowserWindowCtl {
       if (!tab) continue;
       tab.view.setVisible(false);
       tab.lastShownAt = now;
+      // An agent's tab keeps painting out of sight, at the size of the window's content area (it may have been a split pane).
+      if (this.isPainting(tab)) this.sizeHidden(tab);
       if (shouldAutoPip({ audible: tab.audible, url: tab.url, enabled: autoPip })) void this.enterAutoPip(tab);
     }
+    const arrived: TabRuntime[] = [];
     for (const id of visible) {
       const tab = this.tabs.get(id);
       if (!tab) continue;
       tab.lastShownAt = now;
       if (this.shownTabIds.includes(id)) continue;
       tab.view.setVisible(true);
+      arrived.push(tab);
       if (tab.pendingUrl) this.loadPending(tab);
       if (tab.autoPip) void this.exitAutoPip(tab);
     }
     this.shownTabIds = visible;
+    // A tab opened in the background is on screen now: it paints as any shown tab, and not once it is left.
+    for (const tab of arrived) this.setPaintHold(tab.id, "preload", false);
     if (this.activeShown !== activeId) {
       const next = activeId ? this.tabs.get(activeId) : undefined;
       if (next) {
@@ -918,6 +955,13 @@ export class BrowserWindowCtl {
       else void this.profile.whenConnected(ses).then(start);
     }
     this.syncActive(true);
+    const settings = this.ctx.settings.get();
+    const paint = newTabPaint(
+      { activate, lazy, agent: opts.agent === true, preload: opts.preload === true },
+      { preloadBackgroundTabs: settings.memory.preloadBackgroundTabs, agentsRenderInBackground: settings.agent.renderInBackground },
+    );
+    if (paint === "agent") this.ctx.backgroundRender.use(this, id);
+    else if (paint === "preload") this.preload(tab);
     this.pushState();
     return tab;
   }
@@ -970,6 +1014,8 @@ export class BrowserWindowCtl {
     wc.on("did-navigate", (_e, url) => {
       tab.committed = true;
       this.applyPageBase(tab, url);
+      // A page from another site gets a new renderer, which starts out not painting while hidden.
+      if (this.isPainting(tab)) wc.setBackgroundThrottling(false);
       // The recovery page is loaded over a crashed tab; keep the tab's real URL and crashed flag.
       if (internalPageOf(url) === "crash") {
         tab.committedUrl = tab.url;
@@ -1145,6 +1191,7 @@ export class BrowserWindowCtl {
         createWindow: (options) =>
           this.createTab(url, {
             activate: disposition !== "background-tab",
+            preload: true,
             openerId: tab.id,
             ...(tab.agentControlled ? { agent: true } : {}),
             ...container,
@@ -1337,6 +1384,7 @@ export class BrowserWindowCtl {
     this.ctx.annotations.forgetTab(tab.id);
     this.ctx.assist.forgetTab(tab.id);
     this.ctx.userActions.forgetTab(tab.id);
+    this.ctx.backgroundRender.forget(tab.id);
   }
 
   closeTabs(ids: TabId[]): void {
@@ -1436,6 +1484,10 @@ export class BrowserWindowCtl {
     this.profile.adblock.forgetTab(wc.id);
     this.ctx.translate.forget(id);
     this.ctx.reader.forgetTab(id);
+    // Asleep it paints nothing (a capture loads it again, see paintForCapture).
+    this.ctx.backgroundRender.forget(id);
+    delete tab.paintHolds;
+    delete tab.paintingSince;
     this.win.contentView.removeChildView(old);
     wc.close();
     tab.view = this.newTabView(tab.url, tab.containerId);
@@ -1483,6 +1535,126 @@ export class BrowserWindowCtl {
         },
       ];
     });
+  }
+
+  // ---------------------------------------------------------------- painting while hidden
+
+  /**
+   * Turns one reason for a tab to keep painting while it is not on screen on or off (see
+   * shared/background-tabs.ts). Captures count, since several may wait on the same tab.
+   */
+  setPaintHold(id: TabId, reason: PaintReason, on: boolean): void {
+    const tab = this.tabs.get(id);
+    if (!tab || this.disposed) return;
+    const before = this.isPainting(tab);
+    const holds = (tab.paintHolds ??= {});
+    holds[reason] = reason === "capture" ? Math.max(0, (holds[reason] ?? 0) + (on ? 1 : -1)) : on ? 1 : 0;
+    const after = this.isPainting(tab);
+    if (before !== after) this.applyPaint(tab, after);
+  }
+
+  /** Whether the tab paints while it is not on screen. */
+  isPainting(tab: TabRuntime): boolean {
+    return Object.values(tab.paintHolds ?? {}).some((n) => (n ?? 0) > 0);
+  }
+
+  /**
+   * A hidden tab paints once its page is no longer throttled: Chromium then keeps it "hidden but
+   * painting", at the size of the window's content area. Its page runs as if on screen, but its view
+   * stays hidden, so the person never sees it and their clicks and keys never reach it. Throttled
+   * again, a hidden tab stops painting.
+   */
+  private applyPaint(tab: TabRuntime, on: boolean): void {
+    const wc = pageOf(tab.view);
+    if (!wc) return;
+    if (on) {
+      tab.paintingSince = Date.now();
+      this.sizeHidden(tab);
+      wc.setBackgroundThrottling(false);
+    } else {
+      delete tab.paintingSince;
+      wc.setBackgroundThrottling(true);
+      if (!tab.view.getVisible()) this.refreshHidden(tab.view);
+    }
+  }
+
+  /** A hidden tab that paints takes the size of the window's content area, so its captures are full size. */
+  private sizeHidden(tab: TabRuntime): void {
+    const { width, height } = this.content;
+    if (tab.view.getVisible() || width === 0 || height === 0) return;
+    tab.view.setBounds(this.content);
+    this.refreshHidden(tab.view);
+  }
+
+  /**
+   * A hidden view takes a new size, or stops painting, only when it is next shown. Shown and hidden
+   * again at once, it does so without ever reaching the screen (the window draws after this task)
+   * and without its page seeing a visibility change.
+   */
+  private refreshHidden(view: WebContentsView): void {
+    view.setVisible(true);
+    view.setVisible(false);
+  }
+
+  /** Hidden tabs that paint follow the window's size, once a resize has settled. */
+  private resizePainting(): void {
+    this.paintResizeTimer = null;
+    if (this.disposed) return;
+    for (const tab of this.tabs.values()) {
+      const bounds = tab.view.getBounds();
+      if (!this.isPainting(tab) || (bounds.width === this.content.width && bounds.height === this.content.height)) continue;
+      this.sizeHidden(tab);
+    }
+  }
+
+  /**
+   * A tab the person opened in the background paints until its page has loaded, and a moment more
+   * for what the page draws once loaded and the images in view, so it is complete when they get to
+   * it. Showing it ends this early; it may sleep later by the usual rules.
+   */
+  private preload(tab: TabRuntime): void {
+    const wc = tab.view.webContents;
+    let settle: NodeJS.Timeout | null = null;
+    const release = (): void => {
+      clearTimeout(limit);
+      if (settle) clearTimeout(settle);
+      if (!wc.isDestroyed()) wc.removeListener("did-stop-loading", onStop);
+      if (this.tabs.get(tab.id) === tab) this.setPaintHold(tab.id, "preload", false);
+    };
+    const onStop = (): void => {
+      if (settle) clearTimeout(settle);
+      settle = setTimeout(release, PRELOAD_SETTLE_MS);
+    };
+    const limit = setTimeout(release, PRELOAD_MAX_MS);
+    wc.on("did-stop-loading", onStop);
+    this.setPaintHold(tab.id, "preload", true);
+  }
+
+  /**
+   * Gets a tab that is not on screen ready to be captured without showing it: a sleeping or
+   * restored tab loads first, then its page paints at the window's size until it has drawn (and,
+   * when it only just started painting, until the images in view have loaded). Resolves to a
+   * release to call once the capture is taken. A tab on screen needs nothing.
+   */
+  async paintForCapture(id: TabId): Promise<() => void> {
+    const none = (): void => undefined;
+    const tab = this.tabs.get(id);
+    if (!tab || this.disposed) return none;
+    if (tab.pendingUrl) await this.ensureLoaded(id);
+    const wc = pageOf(tab.view);
+    if (!wc || this.tabs.get(id) !== tab || tab.view.getVisible()) return none;
+    this.setPaintHold(id, "capture", true);
+    let held = true;
+    const release = (): void => {
+      if (held) this.setPaintHold(id, "capture", false);
+      held = false;
+    };
+    const painting = Date.now() - (tab.paintingSince ?? Date.now());
+    const drawn = wc.executeJavaScriptInIsolatedWorld(PAINT_WORLD_ID, [{ code: paintedScript(CAPTURE_IMAGES_WAIT_MS - painting) }]).catch(() => undefined);
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([drawn, new Promise<void>((resolve) => (timer = setTimeout(resolve, CAPTURE_PAINT_TIMEOUT_MS)))]);
+    clearTimeout(timer);
+    return release;
   }
 
   /** Memory of each renderer process (by OS pid, in KB), shown next to the tabs using it. */
@@ -1622,7 +1794,27 @@ export class BrowserWindowCtl {
   openUrl(url: string, disposition: "current" | "new-tab" | "background-tab"): void {
     const active = this.activeTab();
     if (disposition === "current" && active) this.loadUrl(active.id, url);
-    else this.createTab(url, { activate: disposition !== "background-tab", ...(active ? { openerId: active.id } : {}) });
+    else this.createTab(url, { activate: disposition !== "background-tab", preload: true, ...(active ? { openerId: active.id } : {}) });
+  }
+
+  /**
+   * Pages in background tabs ("Open all" on a bookmarks folder): the first few load at once, the
+   * rest when first shown (all at once with Settings > Memory's "Load tabs opened in the background
+   * right away" off, as before).
+   */
+  openAllInBackground(pages: ReadonlyArray<{ url: string; title: string }>): void {
+    const active = this.activeTab();
+    const plan = openAllPlan(pages.length, this.ctx.settings.get().memory.preloadBackgroundTabs);
+    const known = this.profile.history.faviconsFor(pages.filter((_, i) => !plan[i]).map((p) => p.url));
+    pages.forEach((page, i) => {
+      const now = plan[i] === true;
+      const faviconUrl = known.get(page.url);
+      this.createTab(page.url, {
+        activate: false,
+        ...(active ? { openerId: active.id } : {}),
+        ...(now ? { preload: true } : { lazy: true, title: page.title || page.url, ...(faviconUrl ? { faviconUrl } : {}) }),
+      });
+    });
   }
 
   /** The proxy a tab goes through (its profile's, its container's, or a site rule's), if any. */
@@ -1782,6 +1974,7 @@ export class BrowserWindowCtl {
       tab.agentControlled = true;
       this.pushState();
     }
+    this.ctx.backgroundRender.use(this, id);
   }
 
   /** Whether a download from this tab is an AI agent's doing rather than the person's (see downloadedByAgent). */
@@ -1828,6 +2021,7 @@ export class BrowserWindowCtl {
   /** The user's own tab is theirs again after an Assist agent run worked in it. */
   clearAgentMark(id: TabId): void {
     const tab = this.tabs.get(id);
+    this.ctx.backgroundRender.forget(id);
     if (tab?.agentControlled) {
       tab.agentControlled = false;
       this.pushState();
@@ -2347,6 +2541,7 @@ export class BrowserWindowCtl {
     if (this.disposed) return;
     this.disposed = true;
     if (this.stateTimer) clearTimeout(this.stateTimer);
+    if (this.paintResizeTimer) clearTimeout(this.paintResizeTimer);
     this.teardownSplit();
     for (const cleanup of this.cleanups) cleanup();
     for (const tab of this.tabs.values()) {
