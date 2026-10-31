@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CredentialMatch } from "../src/shared/credentials";
+import type { GeneratorState } from "../src/shared/credentials-ipc";
 import { DROPDOWN_GAP, dropdownAccounts, dropdownBounds, dropdownEntries, dropdownLabel, dropdownLines, dropdownMayOpen, dropdownStays, dropdownTwoFaOnly, moveHighlight, parseDropdownAction } from "../src/shared/field-dropdown";
 import { translate } from "../src/shared/i18n-es";
 
@@ -101,12 +102,37 @@ describe("which accounts the field dropdown offers", () => {
     expect(dropdownAccounts("otp", [password, twoFa])).toEqual([twoFa]);
   });
 
-  it("can open (its view is loaded ahead) only on a page with such a field and accounts for it", () => {
+  it("can open (its view is loaded ahead) on a page with a password field, or a code field and accounts with a 2FA", () => {
     expect(dropdownMayOpen({ login: true, otp: false }, [password])).toBe(true);
+    // No account to offer: a password field still gets a suggested password or "Copy password".
+    expect(dropdownMayOpen({ login: true, otp: true }, [])).toBe(true);
     expect(dropdownMayOpen({ login: false, otp: true }, [twoFa])).toBe(true);
     expect(dropdownMayOpen({ login: false, otp: true }, [password])).toBe(false);
-    expect(dropdownMayOpen({ login: true, otp: true }, [])).toBe(false);
     expect(dropdownMayOpen({ login: false, otp: false }, [password, twoFa])).toBe(false);
+  });
+});
+
+describe("what the field dropdown offers a password field", () => {
+  const generator: GeneratorState = {
+    open: false,
+    password: "x",
+    options: { length: 24, lowercase: true, uppercase: true, digits: true, symbols: true },
+    minLength: 8,
+    maxLength: 128,
+    fixed: { lowercase: false, uppercase: false, digits: false, symbols: false },
+    notes: [],
+    copied: false,
+  };
+  const types = (state: Parameters<typeof dropdownEntries>[0]) => dropdownEntries(state).map((e) => e.type);
+
+  it("puts Copy password first, then the suggested password, the accounts and Manage passwords", () => {
+    expect(types({ first: [match("a")], others: [], othersOpen: false, copy: "offer", generator })).toEqual(["copy", "suggest", "account", "manage"]);
+    expect(types({ first: [], others: [], othersOpen: false, copy: null, generator })).toEqual(["suggest", "manage"]);
+  });
+
+  it("offers only the copy when that is all there is, and nothing while the generator is open", () => {
+    expect(types({ first: [], others: [], othersOpen: false, copy: "copied", generator: null })).toEqual(["copy"]);
+    expect(types({ first: [match("a")], others: [], othersOpen: false, copy: "offer", generator: { ...generator, open: true } })).toEqual([]);
   });
 });
 
@@ -115,7 +141,24 @@ describe("actions from the dropdown view", () => {
     expect(parseDropdownAction({ type: "size", token: 3, width: 376, height: 120 })).toEqual({ type: "size", token: 3, width: 376, height: 120 });
     expect(parseDropdownAction({ type: "activate", token: 3, index: 0 })).toEqual({ type: "activate", token: 3, index: 0 });
     expect(parseDropdownAction({ type: "hover", token: 3, index: 2 })).toEqual({ type: "hover", token: 3, index: 2 });
-    for (const bad of [null, "size", {}, { type: "size", token: 3, width: -1, height: 1 }, { type: "activate", token: "3", index: 0 }, { type: "activate", token: 3, index: 1.5 }, { type: "fill", token: 3, index: 0 }, { type: "size", token: 3, width: 99_999, height: 1 }]) {
+    expect(parseDropdownAction({ type: "press", token: 3, keyboard: true })).toEqual({ type: "press", token: 3, keyboard: true });
+    expect(parseDropdownAction({ type: "length", token: 3, length: 32 })).toEqual({ type: "length", token: 3, length: 32 });
+    expect(parseDropdownAction({ type: "toggle", token: 3, option: "symbols" })).toEqual({ type: "toggle", token: 3, option: "symbols" });
+    for (const type of ["escape", "regenerate", "copy", "use"]) expect(parseDropdownAction({ type, token: 3, extra: 1 })).toEqual({ type, token: 3 });
+    for (const bad of [
+      null,
+      "size",
+      {},
+      { type: "size", token: 3, width: -1, height: 1 },
+      { type: "activate", token: "3", index: 0 },
+      { type: "activate", token: 3, index: 1.5 },
+      { type: "fill", token: 3, index: 0 },
+      { type: "size", token: 3, width: 99_999, height: 1 },
+      { type: "press", token: 3, keyboard: "yes" },
+      { type: "length", token: 3, length: -4 },
+      { type: "toggle", token: 3, option: "emoji" },
+      { type: "use" },
+    ]) {
       expect(parseDropdownAction(bad), JSON.stringify(bad)).toBeNull();
     }
   });

@@ -3,6 +3,7 @@
  * normalization used for autofill matching, list search and the password generator. No Node or
  * Electron imports so this runs in the main process, the renderer and tests alike.
  */
+import { PASSWORD_CHARSETS } from "./password-rules";
 import { siteOf } from "./tab-organizer";
 import { isValidTotpConfig, type TotpConfig } from "./totp";
 
@@ -222,13 +223,6 @@ export interface PasswordOptions {
 
 export const DEFAULT_PASSWORD_OPTIONS: PasswordOptions = { length: 20, lowercase: true, uppercase: true, digits: true, symbols: true };
 
-const CHARSETS = {
-  lowercase: "abcdefghijkmnpqrstuvwxyz",
-  uppercase: "ABCDEFGHJKLMNPQRSTUVWXYZ",
-  digits: "23456789",
-  symbols: "!@#$%^&*-_=+?",
-} as const;
-
 /** One uniformly random index in [0, max) using rejection sampling over Web Crypto bytes. */
 function randomIndex(max: number): number {
   const limit = 256 - (256 % max);
@@ -241,15 +235,16 @@ function randomIndex(max: number): number {
 
 /**
  * A random password from the selected character classes, guaranteeing at least one character from each
- * enabled class. Ambiguous characters (0/O, 1/l/I) are excluded from the pools.
+ * enabled class. Ambiguous characters (0/O, 1/l/I) are excluded from the pools. `symbols` narrows the
+ * symbols to draw from (those a site takes).
  */
-export function generatePassword(opts: PasswordOptions): string {
+export function generatePassword(opts: PasswordOptions, symbols: string = PASSWORD_CHARSETS.symbols): string {
   const pools: string[] = [];
-  if (opts.lowercase) pools.push(CHARSETS.lowercase);
-  if (opts.uppercase) pools.push(CHARSETS.uppercase);
-  if (opts.digits) pools.push(CHARSETS.digits);
-  if (opts.symbols) pools.push(CHARSETS.symbols);
-  if (pools.length === 0) pools.push(CHARSETS.lowercase);
+  if (opts.lowercase) pools.push(PASSWORD_CHARSETS.lowercase);
+  if (opts.uppercase) pools.push(PASSWORD_CHARSETS.uppercase);
+  if (opts.digits) pools.push(PASSWORD_CHARSETS.digits);
+  if (opts.symbols && symbols) pools.push(symbols);
+  if (pools.length === 0) pools.push(PASSWORD_CHARSETS.lowercase);
 
   const length = Math.max(pools.length, Math.min(128, Math.floor(opts.length) || 0));
   const all = pools.join("");

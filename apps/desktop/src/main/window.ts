@@ -338,6 +338,7 @@ export class BrowserWindowCtl {
       reshape();
     });
     this.win.on("focus", () => ctx.windows.noteFocus(this));
+    this.win.on("blur", () => ctx.windows.noteBlur(this));
     // Private windows are never part of the saved session.
     this.win.on("close", () => (this.isPrivate ? undefined : ctx.sessionRestore.windowClosing(this)));
     this.win.on("closed", () => this.dispose());

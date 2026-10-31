@@ -46,10 +46,18 @@ const SOURCE_TILES: Record<string, { letter: string; color: string }> = {
   firefox: { letter: "F", color: "#d35400" },
 };
 
-/** The browser a history page came from (live history from other browsers): a small round tile with its initial. */
-export function SourceBadge({ source, size = 14 }: { source: string; size?: number }) {
+/** The browser a history page came from (live history from other browsers): its own small icon, or a round tile with its initial. */
+export function SourceBadge({ source, size = 14, icon }: { source: string; size?: number; icon?: string }) {
   const tile = SOURCE_TILES[source] ?? { letter: source.slice(0, 1).toUpperCase(), color: "#5f6368" };
   const label = t("From {browser}", { browser: liveSourceName(source) });
+  // The browser's own icon from this computer when Corvus found it; its letter mark otherwise.
+  if (icon) {
+    return (
+      <span className="source-badge source-icon" role="img" title={label} aria-label={label} data-source={source} style={{ width: size, height: size }}>
+        <img src={icon} alt="" width={size} height={size} draggable={false} />
+      </span>
+    );
+  }
   return (
     <span className="source-badge" role="img" title={label} aria-label={label} data-source={source} style={{ width: size, height: size, fontSize: Math.round(size * 0.62), background: tile.color }}>
       {tile.letter}

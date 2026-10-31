@@ -2,13 +2,15 @@ import { clipboard, type WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
 import { autofillSiteOf, neverSaveHostOf } from "../shared/autofill-sites";
-import { loginDomainOf, originKeyOf, type CredentialMatch } from "../shared/credentials";
+import { loginDomainOf, originKeyOf, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
 import { type AutofillBarState, type AutofillCode, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { dropdownAccounts, dropdownMayOpen } from "../shared/field-dropdown";
+import { offersGenerator } from "../shared/password-rules";
+import type { Settings } from "../shared/settings";
 import { codeToFill, totpCode } from "../shared/totp";
-import { AUTOFILL_WORLD_ID, detectLoginScript, fillLoginScript, fillOtpScript, type LoginDetection } from "./credential-scripts";
+import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
-import { FieldDropdown, pageOf } from "./field-dropdown";
+import { FieldDropdown, pageOf, type FieldBox, type PasswordOffer } from "./field-dropdown";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -69,6 +71,11 @@ function hostOf(origin: string): string {
   }
 }
 
+/** The password generator's choices as Settings > passwords keeps them. */
+function generatorOptions(p: Settings["passwords"]): PasswordOptions {
+  return { length: p.generatorLength, lowercase: p.generatorLowercase, uppercase: p.generatorUppercase, digits: p.generatorDigits, symbols: p.generatorSymbols };
+}
+
 /**
  * Autofill: detects login forms and one-time-code fields on web pages (isolated-world script), offers
  * to fill a saved login or its current 2FA code through the omnibox key button, and captures
@@ -86,6 +93,8 @@ export class AutofillService {
   private autoApprover: AutoSignInApprover | null = null;
   /** Per window: the account dropdown under a field, made once a page of the window can show it. */
   private readonly dropdowns = new Map<BrowserWindowCtl, FieldDropdown>();
+  /** A private window's password generator choices: they last as long as the window, never saved. */
+  private readonly privateGenerator = new WeakMap<BrowserWindowCtl, PasswordOptions>();
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -261,6 +270,10 @@ export class AutofillService {
     const dropdown = new FieldDropdown(win, {
       account: (kind, id) => void (kind === "otp" ? this.fillTotp(win, id) : this.fill(win, id)),
       manage: () => win.openSingleton("corvus://passwords/"),
+      usePassword: (password, field) => void this.fillGenerated(win, password, field),
+      copyField: (field) => this.copyField(win, field),
+      copyText: (text) => clipboard.writeText(text),
+      rememberOptions: (options) => this.rememberGenerator(win, options),
     });
     this.dropdowns.set(win, dropdown);
     win.win.once("closed", () => {
@@ -281,7 +294,7 @@ export class AutofillService {
   }
 
   /**
-   * A page found a login or code field: when the person has accounts for it, the window's dropdown
+   * A page found a password field (or a code field the person has a 2FA for): the window's dropdown
    * loads ahead (hidden), so it shows at once on the first click. Never for an agent's tab.
    */
   private warmDropdown(win: BrowserWindowCtl, tab: TabRuntime, fields: Detected): void {
@@ -303,9 +316,11 @@ export class AutofillService {
    * The person clicked a login field or a one-time-code field, or pressed the down arrow in it (reported
    * by the tab preload): list the page's saved accounts in the dropdown right under it (see
    * field-dropdown.ts), as the omnibox key button does; under a code field, the accounts with a 2FA.
-   * The page keeps the keyboard. Only in the active, person-driven tab, and only where the page has
-   * such a field: probed again when it was not seen yet, since a two-step sign-in shows its code field
-   * after the page loaded. Nothing is filled until the person picks.
+   * Under a password field, also "Copy password" when it holds something, and a suggested strong
+   * password for a new password (or a lone password field with no account to offer, see
+   * offersGenerator). The page keeps the keyboard. Only in the active, person-driven tab (never an
+   * agent's), and only where the page has such a field: probed again when it was not seen yet, since a
+   * two-step sign-in shows its code field after the page loaded. Nothing is filled until the person picks.
    */
   async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick): Promise<void> {
     const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
@@ -314,9 +329,52 @@ export class AutofillService {
     if (!has(this.detected.get(tab.id)) && !has(await this.probe(win, tab))) return;
     const url = this.pageUrl(tab);
     const matches = dropdownAccounts(click.kind, this.suggestions(win));
+    const field = click.kind === "login" ? click.password : undefined;
+    const offer: PasswordOffer = {
+      copy: field?.filled === true,
+      generator: field && offersGenerator(field, matches.length > 0) ? { prefs: this.generatorPrefs(win), rules: field.rules } : null,
+    };
     const page = pageOf(tab);
-    if (!page || !active() || matches.length === 0) return;
-    this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches);
+    if (!page || !active() || (matches.length === 0 && !offer.copy && !offer.generator)) return;
+    this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches, offer);
+  }
+
+  /** The password generator's choices: the person's last ones (a private window's own while it is open). */
+  private generatorPrefs(win: BrowserWindowCtl): PasswordOptions {
+    return this.privateGenerator.get(win) ?? generatorOptions(this.ctx.settings.get().passwords);
+  }
+
+  /** Remembers the generator's choices for next time; a private window keeps them only while it is open. */
+  private rememberGenerator(win: BrowserWindowCtl, o: PasswordOptions): void {
+    if (win.isPrivate) this.privateGenerator.set(win, o);
+    else this.ctx.settings.update({ passwords: { generatorLength: o.length, generatorLowercase: o.lowercase, generatorUppercase: o.uppercase, generatorDigits: o.digits, generatorSymbols: o.symbols } });
+  }
+
+  /**
+   * Use in the generator: fills the generated password into the active tab's form under the dropdown
+   * (its new password and confirmation, never its current one), then keeps it ready to save until the
+   * form is submitted: the key button offers it at once (the page may fail, or sign up without a form
+   * submit), and the submit's own save prompt replaces it.
+   */
+  async fillGenerated(win: BrowserWindowCtl, password: string, field: FieldBox): Promise<void> {
+    const tab = win.activeTab();
+    if (!tab || tab.agentControlled) return;
+    this.ctx.secretFills.mark(tab.id, [password]);
+    const result = await this.run<GeneratedFill>(tab, fillGeneratedScript(password, field));
+    const origin = originKeyOf(this.pageUrl(tab));
+    if (!result?.filled || !origin || win.profile.siteSettings.isNeverSave(neverSaveHostOf(origin))) return;
+    this.pending.set(tab.id, { id: ++this.lastSaveId, origin, username: result.username, password, shown: true });
+    if (win.activeTab()?.id === tab.id) win.pushState();
+  }
+
+  /** "Copy password": what the active tab's password field under the dropdown holds goes to the clipboard; false when nothing. */
+  async copyField(win: BrowserWindowCtl, field: FieldBox): Promise<boolean> {
+    const tab = win.activeTab();
+    if (!tab || tab.agentControlled) return false;
+    const value = await this.run<string>(tab, readPasswordFieldScript(field));
+    if (!value) return false;
+    clipboard.writeText(value);
+    return true;
   }
 
   /**

@@ -382,7 +382,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
                 </span>
                 <span className="sugg-title">{s.title}</span>
                 {s.detail && <span className="sugg-detail">— {s.detail}</span>}
-                {s.source && <SourceBadge source={s.source} />}
+                {s.source && <SourceBadge source={s.source} icon={s.sourceIcon} />}
               </li>
             ))}
           </ul>

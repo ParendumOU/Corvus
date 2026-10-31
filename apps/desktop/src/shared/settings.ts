@@ -100,6 +100,12 @@ export interface Settings {
     passkeys: boolean;
     /** Remind the person, at most once per launch, to back up their logins and 2FA codes. On by default. */
     backupReminder: boolean;
+    /** The strong password suggested under new-password fields: the person's last choices (8 to 128 characters, the classes in it). */
+    generatorLength: number;
+    generatorLowercase: boolean;
+    generatorUppercase: boolean;
+    generatorDigits: boolean;
+    generatorSymbols: boolean;
   };
   mcp: {
     enabled: boolean;
@@ -280,7 +286,17 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       maxOutputTokens: 400,
     },
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true, runScreenshots: true, renderInBackground: true },
-    passwords: { agentAccess: false, keepassAutoLockMinutes: 15, passkeys: false, backupReminder: true },
+    passwords: {
+      agentAccess: false,
+      keepassAutoLockMinutes: 15,
+      passkeys: false,
+      backupReminder: true,
+      generatorLength: 24,
+      generatorLowercase: true,
+      generatorUppercase: true,
+      generatorDigits: true,
+      generatorSymbols: true,
+    },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
     downloads: { directory: "", askWhereToSave: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
@@ -337,6 +353,7 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
   merged.ai.maxOutputTokens = Math.max(50, Math.min(4000, Math.round(merged.ai.maxOutputTokens)));
   merged.agent.maxSteps = Math.max(1, Math.min(50, Math.round(merged.agent.maxSteps)));
   merged.passwords.keepassAutoLockMinutes = Math.max(0, Math.min(1440, Math.round(merged.passwords.keepassAutoLockMinutes) || 0));
+  merged.passwords.generatorLength = Math.max(8, Math.min(128, Math.round(merged.passwords.generatorLength) || 24));
   merged.webscope.maxBodyBytes = Math.max(64 * 1024, Math.min(50 * 1024 * 1024, Math.round(merged.webscope.maxBodyBytes)));
   merged.appearance.sidebarWidth = Math.max(180, Math.min(480, Math.round(merged.appearance.sidebarWidth)));
   merged.appearance.assistWidth = Math.max(320, Math.min(960, Math.round(merged.appearance.assistWidth) || 380));

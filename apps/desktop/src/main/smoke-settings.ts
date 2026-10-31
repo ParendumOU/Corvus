@@ -200,7 +200,8 @@ export async function runSettingsLayoutSmoke(ctx: AppContext, h: { win: Window; 
         })`)) as { rows: number; pager: string; first: string };
       const first = await page();
       await wc.executeJavaScript(`[...document.querySelectorAll("#agents .pager button")].find((b) => b.textContent.trim() === "Next")?.click()`);
-      await poll(wc, `document.querySelector("#agents .pager")?.textContent.includes("6-10")`);
+      // The pager's text can change a frame before the rows it pages.
+      await poll(wc, `document.querySelector("#agents .pager")?.textContent.includes("6-10") && document.querySelector("#agents .agent-calls .list-row")?.textContent !== ${JSON.stringify(first.first)}`);
       const second = await page();
       await wc.executeJavaScript(`document.querySelector("#agents .agent-calls")?.scrollIntoView({ block: "center" })`);
       await sleep(200);

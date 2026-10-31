@@ -1,17 +1,34 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from "react";
 import type { CredentialSummary, PasswordOptions } from "../../shared/credentials";
 import { DEFAULT_PASSWORD_OPTIONS, generatePassword, searchCredentials } from "../../shared/credentials";
 import type { RevealedCredential } from "../../shared/credentials-ipc";
 import type { KeePassDbView, KeePassEntryDetails, KeePassEntrySummary, KeePassExportResult, KeePassState, KeePassUnlockResult } from "../../shared/keepass-ipc";
 import { daysSince } from "../../shared/backup-reminder";
-import { checkupSummary, type PasswordCheckupView, type PasswordHealth } from "../../shared/password-health";
-import { initialTab, PAGE_SIZE, pageSlice, searchTwoFactor, TAB_STORAGE_KEY, tabHash, twoFactorItems, type PasswordsTab, type TwoFactorItem } from "../../shared/password-tabs";
+import { checkupSummary, sortByBreaches, type PasswordCheckupView, type PasswordHealth } from "../../shared/password-health";
+import {
+  deleteTargetOf,
+  initialDeleteChoice,
+  initialTab,
+  keepassEntryChanged,
+  PAGE_SIZE,
+  pageSlice,
+  searchTwoFactor,
+  sortLogins,
+  TAB_STORAGE_KEY,
+  tabHash,
+  twoFactorItems,
+  type DeleteChoice,
+  type DeleteTarget,
+  type PasswordsTab,
+  type TwoFactorItem,
+} from "../../shared/password-tabs";
 import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { errorMessage, internalApi } from "../common/api";
 import { Modal } from "../common/modal";
-import { IconAgent, IconCamera, IconClock, IconCopy, IconDownload, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconTrash } from "../common/icons";
-import { Favicon, Pager, hostOf } from "../common/ui";
+import { IconAgent, IconCamera, IconCheck, IconClock, IconCopy, IconDownload, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconSearch, IconTrash } from "../common/icons";
+import { Favicon, Pager, Toggle, hostOf } from "../common/ui";
 import { AuthenticatorImport } from "./authenticator-import";
+import { DeleteLoginDialog } from "./delete-login";
 import { PageShell, mount } from "./shell";
 import "./passwords.css";
 
@@ -35,10 +52,54 @@ const EMPTY_FORM: FormState = { id: null, origin: "", username: "", password: ""
 const TWO_FACTOR_WARNING =
   t("Keeping a 2FA secret next to the password turns two factors into one: anyone who can open this vault gets both. Use a separate authenticator for your most important accounts.");
 
-/** Live 2FA code for one login: asks the main process for the current code (never the secret). */
-function TotpCodeView({ load, copy }: { load: () => Promise<TotpCode | null>; copy: () => Promise<void> }) {
-  const [code, setCode] = useState<TotpCode | null>(null);
+/**
+ * A field of an edit form that holds a secret (a password, a 2FA secret). With `blur`, its text stays
+ * blurred, hard to read on screen or in a screen share, except while the pointer is over the field or
+ * it has the focus; Copy copies the value without showing it.
+ */
+function SecretInput({
+  value,
+  onChange,
+  blur = true,
+  className = "",
+  ...rest
+}: { value: string; onChange: (value: string) => void; blur?: boolean } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+  const api = internalApi();
+  const [copied, setCopied] = useState(false);
+  const copy = (): void => {
+    void api.call("clipboard.write", value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <span className="pw-secret">
+      <input {...rest} className={`${blur ? "pw-blur" : ""} ${className}`.trim()} value={value} onChange={(e) => onChange(e.target.value)} />
+      <button type="button" className="icon-btn pw-secret-copy" title={copied ? t("Copied") : t("Copy")} aria-label={copied ? t("Copied") : t("Copy")} disabled={!value} onClick={copy}>
+        {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+      </button>
+    </span>
+  );
+}
+
+/** One clock for the countdowns of a list's rows on screen. */
+function useClock(): number {
   const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  return now;
+}
+
+/**
+ * The 2FA code cell of a row, the same in the three lists: the current code, fetched from the main
+ * process (never the secret) when the row shows and again when its period ends, its countdown and
+ * Copy. `load` changes with the login, so a 2FA secret just edited shows its new code at once; rows on
+ * other pages are not mounted, so they cost nothing.
+ */
+function TotpCell({ load, copy, now }: { load: () => Promise<TotpCode | null>; copy: () => Promise<void>; now: number }) {
+  const [code, setCode] = useState<TotpCode | null | undefined>(undefined);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -58,12 +119,14 @@ function TotpCodeView({ load, copy }: { load: () => Promise<TotpCode | null>; co
     };
   }, [load]);
 
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, []);
-
-  if (!code) return null;
+  if (code === undefined) {
+    return (
+      <div className="pt-code">
+        <span className="tf-code muted">{t("Loading…")}</span>
+      </div>
+    );
+  }
+  if (!code) return <div className="pt-code" />;
   const left = Math.max(0, Math.ceil((code.expiresAt - now) / 1000));
   const onCopy = (): void => {
     void copy().then(() => {
@@ -71,25 +134,82 @@ function TotpCodeView({ load, copy }: { load: () => Promise<TotpCode | null>; co
       setTimeout(() => setCopied(false), 1200);
     });
   };
+  const copyName = copied ? t("Copied") : t("Copy 2FA code");
   return (
-    <div className="pw-totp" title={t("Current 2FA code")}>
-      <span className="pw-totp-code">{formatTotpCode(code.code)}</span>
-      <span className="tf-left" aria-label={t("{left} seconds left", { left })}>
+    <div className="pt-code" title={t("Current 2FA code")}>
+      <span className="tf-code pw-totp-code">{formatTotpCode(code.code)}</span>
+      <span className="tf-left" aria-label={t("{left} seconds left", { left })} title={t("{left} seconds left", { left })}>
         <CountdownRing left={left} period={code.period} />
         <span className="tf-secs">{left}</span>
       </span>
-      <button className="icon-btn" title={copied ? t("Copied") : t("Copy 2FA code")} onClick={onCopy}>
-        <IconCopy size={14} />
+      <button className="btn small ghost pt-copy" title={copyName} aria-label={copyName} onClick={onCopy}>
+        {copied ? <IconCheck size={13} /> : <IconCopy size={13} />} <span className="pt-label">{copied ? t("Copied") : t("Copy")}</span>
       </button>
     </div>
   );
 }
 
-function VaultTotp({ id }: { id: string }) {
+/** A saved login's code; `version` (its last change) fetches the code again after an edit. */
+function VaultTotp({ id, version, now }: { id: string; version: number; now: number }) {
   const api = internalApi();
-  const load = useCallback(() => api.call("credentials.totpCode", id) as Promise<TotpCode | null>, [api, id]);
+  const load = useCallback(() => api.call("credentials.totpCode", id) as Promise<TotpCode | null>, [api, id, version]);
   const copy = useCallback(() => api.call("credentials.copyTotp", id) as Promise<void>, [api, id]);
-  return <TotpCodeView load={load} copy={copy} />;
+  return <TotpCell load={load} copy={copy} now={now} />;
+}
+
+/** A KeePass entry's code; `version` (its summary, new after each reload) fetches it again after an edit. */
+function KeePassTotp({ id, version, now }: { id: string; version: object; now: number }) {
+  const api = internalApi();
+  const load = useCallback(() => api.call("keepass.totpCode", id) as Promise<TotpCode | null>, [api, id, version]);
+  const copy = useCallback(() => api.call("keepass.copyTotp", id) as Promise<void>, [api, id]);
+  return <TotpCell load={load} copy={copy} now={now} />;
+}
+
+/** The first column of a row: the site's icon, or a lock for an entry without an address. */
+function RowIcon({ url }: { url: string }) {
+  return <span className="pt-icon">{url ? <Favicon url={url} /> : <IconLock size={15} />}</span>;
+}
+
+/**
+ * The name column: the site (or entry title) and the username, each cut with an ellipsis and shown
+ * in full on hover; `children` adds a line under them (where a KeePass entry is, a revealed password).
+ */
+function NameCell({ primary, secondary, primaryClass = "", children }: { primary: string; secondary: string; primaryClass?: string; children?: ReactNode }) {
+  return (
+    <div className="pt-name">
+      <span className={`pt-primary ${primaryClass}`.trim()} title={primary}>
+        {primary}
+      </span>
+      <span className="pt-secondary" title={secondary}>
+        {secondary}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** A row action: icon and word on a wide list, the icon alone (named by `name`, aria-label, and `title`, its tooltip) on a narrow one. */
+function RowAction({ icon, label, name = label, title = name, className = "", disabled, onClick }: { icon: ReactNode; label: string; name?: string; title?: string; className?: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button className={`btn small ghost pt-act ${className}`.trim()} title={title} aria-label={name} disabled={disabled} onClick={onClick}>
+      {icon} <span className="pt-label">{label}</span>
+    </button>
+  );
+}
+
+/** The light header row naming a table's columns (hidden when the rows fold onto two lines). */
+function TableHead({ name, options }: { name: string; options?: boolean }) {
+  return (
+    <div className="pt-head" aria-hidden="true">
+      <span />
+      <span>{name}</span>
+      <span>{t("Status")}</span>
+      <span>{t("2FA code")}</span>
+      {/* A non-breaking hyphen: the narrow header breaks between the words, not inside "sign-in". */}
+      {options && <span className="pt-head-option">{t("Auto sign-in").replace("-", "\u2011")}</span>}
+      <span className="pt-head-actions">{t("Actions")}</span>
+    </div>
+  );
 }
 
 /** "AI: sign-in" / "AI: 2FA" chips for logins an agent may use. */
@@ -99,7 +219,7 @@ function AgentChips({ signIn, totp, globalOn }: { signIn: boolean; totp: boolean
   return (
     <span className={`pw-agent ${globalOn ? "" : "off"}`} title={title}>
       <IconAgent size={12} />
-      {[signIn ? "sign-in" : "", totp ? "2FA" : ""].filter(Boolean).join(" + ")}
+      {[signIn ? t("sign-in") : "", totp ? "2FA" : ""].filter(Boolean).join(" + ")}
     </span>
   );
 }
@@ -111,7 +231,7 @@ function HealthChips({ health }: { health: PasswordHealth | undefined }) {
   return (
     <>
       {breaches > 0 && (
-        <span className="pw-health danger" title={t("This password appears in known data breaches: change it on the site, then here")}>{t("In {v}", { v: breaches.toLocaleString() })}{" "}{breaches === 1 ? "breach" : "breaches"}
+        <span className="pw-health danger" title={t("This password appears in known data breaches: change it on the site, then here")}>{breaches === 1 ? t("In 1 breach") : t("In {n} breaches", { n: breaches.toLocaleString() })}
         </span>
       )}
       {health.reusedWith > 0 && (
@@ -238,69 +358,50 @@ function CountdownRing({ left, period }: { left: number; period: number }) {
   );
 }
 
-/**
- * The current code of one login, fetched from the main process (never the secret) when the row shows
- * and again when its period ends: rows on other pages are not mounted, so they cost nothing.
- */
+/** A row's code in the 2FA codes tab, from the vault or a KeePass database; every reload of the list gives new items, so an edited secret shows its code at once. */
 function TwoFactorCode({ item, now }: { item: TwoFactorItem; now: number }) {
   const api = internalApi();
-  const [code, setCode] = useState<TotpCode | null>(null);
-  const [copied, setCopied] = useState(false);
+  const load = useCallback(() => (item.source === "keepass" ? api.call("keepass.totpCode", item.id) : api.call("credentials.totpCode", item.id)) as Promise<TotpCode | null>, [api, item]);
+  const copy = useCallback(() => (item.source === "keepass" ? api.call("keepass.copyTotp", item.id) : api.call("credentials.copyTotp", item.id)) as Promise<void>, [api, item]);
+  return <TotpCell load={load} copy={copy} now={now} />;
+}
 
-  useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const fetchCode = (): void => {
-      const next = item.source === "keepass" ? api.call("keepass.totpCode", item.id) : api.call("credentials.totpCode", item.id);
-      void (next as Promise<TotpCode | null>).then((current) => {
-        if (!alive) return;
-        setCode(current);
-        if (current) timer = setTimeout(fetchCode, Math.max(250, current.expiresAt - Date.now() + 50));
-      });
-    };
-    fetchCode();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [api, item.id, item.source]);
-
-  if (!code) return <span className="tf-code muted">{t("Loading…")}</span>;
-  const left = Math.max(0, Math.ceil((code.expiresAt - now) / 1000));
-  const copy = (): void => {
-    void (item.source === "keepass" ? api.call("keepass.copyTotp", item.id) : api.call("credentials.copyTotp", item.id)).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  };
+/** "KeePass: <database>" for a row from a KeePass database, cut with an ellipsis. */
+function SourcePill({ name }: { name: string }) {
+  const text = name ? `KeePass: ${name}` : "KeePass";
   return (
-    <div className="tf-codebox">
-      <span className="tf-code">{formatTotpCode(code.code)}</span>
-      <span className="tf-left" aria-label={t("{left} seconds left", { left })} title={t("{left} seconds left", { left })}>
-        <CountdownRing left={left} period={code.period} />
-        <span className="tf-secs">{left}</span>
-      </span>
-      <button className="btn small" onClick={copy}>
-        <IconCopy size={13} /> {copied ? t("Copied") : t("Copy")}
-      </button>
-    </div>
+    <span className="pill pt-pill" title={text}>
+      {text}
+    </span>
   );
 }
 
 /**
- * Every login with a 2FA (the vault, and unlocked KeePass databases), a page at a time, each with its
- * current code. One clock drives the countdowns of the rows on screen.
+ * Every login with a 2FA (the vault, and unlocked KeePass databases), a page at a time, in the same
+ * columns as the logins: the site and username, its status, the current code, Show login, Edit and
+ * Delete. One clock drives the countdowns of the rows on screen. Edit and Delete open over the list,
+ * which keeps its page.
  */
-function TwoFactorTab({ items, query, onShow, onImport }: { items: TwoFactorItem[]; query: string; onShow: (item: TwoFactorItem) => void; onImport: () => void }) {
+function TwoFactorTab({
+  items,
+  query,
+  onShow,
+  onEdit,
+  onDelete,
+  onImport,
+}: {
+  items: TwoFactorItem[];
+  query: string;
+  onShow: (item: TwoFactorItem) => void;
+  onEdit: (item: TwoFactorItem) => void;
+  onDelete: (item: TwoFactorItem) => void;
+  onImport: () => void;
+}) {
   const [page, setPage] = useState(0);
-  const [now, setNow] = useState(() => Date.now());
+  const now = useClock();
   const shown = useMemo(() => searchTwoFactor(items, query), [items, query]);
   const slice = pageSlice(shown, page);
   useEffect(() => setPage(0), [query]);
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  }, []);
 
   return (
     <div className="card tf-card">
@@ -317,26 +418,126 @@ function TwoFactorTab({ items, query, onShow, onImport }: { items: TwoFactorItem
       ) : shown.length === 0 ? (
         <div className="empty">{t("No 2FA codes match your search.")}</div>
       ) : (
-        <div className="list tf-list">
-          {slice.items.map((item) => (
-            <div key={item.id} className="tf-row" data-id={item.id}>
-              {item.url ? <Favicon url={item.url} /> : <IconLock size={15} />}
-              <div className="tf-main">
-                <div className="tf-site">
-                  <span className="tf-host">{item.site || item.title || t("(no site)")}</span>
-                  {!item.hasPassword && <span className="pill">{t("2FA only")}</span>}
-                  {item.source === "keepass" && <span className="pill">{item.sourceName ? `KeePass: ${item.sourceName}` : "KeePass"}</span>}
+        <div className="pt-wrap tf-list">
+          <div className="pt pt-2fa">
+            <TableHead name={t("Site and username")} />
+            {slice.items.map((item) => (
+              <div key={item.id} className="pt-row tf-row" data-id={item.id}>
+                <RowIcon url={item.url} />
+                <NameCell primary={item.site || item.title || t("(no site)")} primaryClass="tf-host" secondary={item.username || t("(no username)")} />
+                <div className="pt-meta">
+                  <div className="pt-status">
+                    {!item.hasPassword && <span className="pill">{t("2FA only")}</span>}
+                    {item.source === "keepass" && <SourcePill name={item.sourceName} />}
+                  </div>
+                  <TwoFactorCode item={item} now={now} />
                 </div>
-                <div className="tf-user">{item.username || t("(no username)")}</div>
+                <div className="pt-actions">
+                  <RowAction className="tf-show" icon={<IconSearch size={13} />} label={t("Show login")} title={t("Show this login in the Passwords tab")} onClick={() => onShow(item)} />
+                  <RowAction className="tf-edit" icon={<IconEdit size={13} />} label={t("Edit")} title={t("Change the site, the username or the 2FA secret")} onClick={() => onEdit(item)} />
+                  <RowAction className="tf-delete" icon={<IconTrash size={13} />} label={t("Delete")} title={t("Delete this login, or only its 2FA")} onClick={() => onDelete(item)} />
+                </div>
               </div>
-              <TwoFactorCode item={item} now={now} />
-              <button className="btn small ghost tf-show" title={t("Show this login in the Passwords tab")} onClick={() => onShow(item)}>{t("Show login")}</button>
-            </div>
-          ))}
-          <Pager page={slice.page} size={PAGE_SIZE} total={shown.length} onPage={setPage} />
+            ))}
+            <Pager page={slice.page} size={PAGE_SIZE} total={shown.length} onPage={setPage} />
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The fields of the vault's login form, in the Passwords tab's card or over the 2FA codes tab. The
+ * password and the 2FA secret stay blurred until pointed at or focused.
+ */
+function LoginFields({
+  form,
+  set,
+  options,
+  setOptions,
+  agentAccess,
+  qrError,
+  onImportQr,
+}: {
+  form: FormState;
+  set: (patch: Partial<FormState>) => void;
+  options: PasswordOptions;
+  setOptions: (update: (o: PasswordOptions) => PasswordOptions) => void;
+  agentAccess: boolean;
+  qrError: string | null;
+  onImportQr: () => void;
+}) {
+  const api = internalApi();
+  const hasTotp = Boolean(form.totp.trim());
+  const toggle = (key: keyof PasswordOptions): void => setOptions((o) => ({ ...o, [key]: !o[key] }));
+  const generate = (): void => void api.call("credentials.generate", options).then((pw) => set({ password: pw }));
+  return (
+    <>
+      <label className="pw-field">
+        <span>{t("Site")}</span>
+        <input className="input pw-origin" placeholder={t("https://example.com")} value={form.origin} onChange={(e) => set({ origin: e.target.value })} />
+      </label>
+      <label className="pw-field">
+        <span>{t("Username")}</span>
+        <input className="input pw-username" autoComplete="off" value={form.username} onChange={(e) => set({ username: e.target.value })} />
+      </label>
+      <label className="pw-field">
+        <span>{t("Password")}</span>
+        <SecretInput className="pw-password" type="text" autoComplete="off" spellCheck={false} value={form.password} onChange={(password) => set({ password })} />
+      </label>
+      <div className="pw-gen">
+        <button className="btn small" onClick={generate}>{t("Generate")}</button>
+        <label className="pw-opt">{t("Length")}<input className="input pw-len" type="number" min={4} max={128} value={options.length} onChange={(e) => setOptions((o) => ({ ...o, length: Number(e.target.value) || 20 }))} />
+        </label>
+        <label className="pw-opt"><input type="checkbox" checked={options.uppercase} onChange={() => toggle("uppercase")} /> A-Z</label>
+        <label className="pw-opt"><input type="checkbox" checked={options.lowercase} onChange={() => toggle("lowercase")} /> a-z</label>
+        <label className="pw-opt"><input type="checkbox" checked={options.digits} onChange={() => toggle("digits")} /> 0-9</label>
+        <label className="pw-opt"><input type="checkbox" checked={options.symbols} onChange={() => toggle("symbols")} /> !@#</label>
+      </div>
+      <div className="pw-field">
+        <span>{t("2FA (optional)")}</span>
+        {form.totpLabel ? (
+          <div className="pw-totp-imported">
+            <IconClock size={13} /> {form.totpLabel}
+            <button className="btn small ghost" onClick={() => set({ totp: "", totpLabel: "" })}>{t("Remove")}</button>
+          </div>
+        ) : (
+          <SecretInput
+            className="pw-totp-input"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={t("Paste an otpauth:// link or the base32 secret")}
+            value={form.totp}
+            onChange={(totp) => set({ totp })}
+          />
+        )}
+        <div className="pw-gen">
+          <button className="btn small" onClick={onImportQr}>{t("Import QR code image")}</button>
+          {hasTotp && !form.totpLabel && <button className="btn small ghost" onClick={() => set({ totp: "" })}>{t("Remove 2FA")}</button>}
+          <span>{t("Decoded on this device; the image is not uploaded.")}</span>
+        </div>
+        {qrError && <div className="pw-error">{qrError}</div>}
+        {hasTotp && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
+      </div>
+      <div className="pw-field">
+        <span>{t("AI agents")}</span>
+        <label className="pw-opt">
+          <input type="checkbox" checked={form.agentSignIn} onChange={(e) => set({ agentSignIn: e.target.checked })} />{" "}{t("Let AI agents sign in with this login")}</label>
+        <label className="pw-opt">
+          <input type="checkbox" disabled={!hasTotp} checked={form.agentTotp && hasTotp} onChange={(e) => set({ agentTotp: e.target.checked })} />{" "}{t("Let AI agents use this 2FA code")}</label>
+        <div className="pw-hint">{t("Agents never see the password or the code: Corvus fills them into the page after you approve each use.")}{!agentAccess && (
+            <>
+              {" "}{t("AI agent use is off for every login until you turn it on in")}{" "}<a href="corvus://settings/#passwords">{t("Settings")}</a>.
+            </>
+          )}
+        </div>
+      </div>
+      <label className="pw-field">
+        <span>{t("Notes")}</span>
+        <textarea className="input pw-notes" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
+      </label>
+    </>
   );
 }
 
@@ -344,7 +545,11 @@ function PasswordsPage() {
   const api = internalApi();
   const [checkup, setCheckup] = useState<PasswordCheckupView | null>(null);
   const reloadCheckup = useCallback(() => void api.call("credentials.checkup").then(setCheckup), [api]);
+  // The breach check also sorts the logins, most breached first.
+  const [byBreaches, setByBreaches] = useState(false);
   const runCheckup = (): void => {
+    setByBreaches(true);
+    setPage(0);
     setCheckup((c) => (c ? { ...c, running: true } : c));
     void api.call("credentials.runCheckup").then(setCheckup, reloadCheckup);
   };
@@ -352,7 +557,7 @@ function PasswordsPage() {
     reloadCheckup();
     return api.onEvent((e) => (e.type === "credentials-changed" || e.type === "keepass-changed") && reloadCheckup());
   }, [api, reloadCheckup]);
-  const health = new Map((checkup?.items ?? []).map((h) => [h.id, h]));
+  const health = useMemo(() => new Map((checkup?.items ?? []).map((h) => [h.id, h])), [checkup]);
   const [tab, setTab] = useState<PasswordsTab>(() => initialTab(location.hash, readStoredTab()));
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -408,8 +613,10 @@ function PasswordsPage() {
     return () => window.removeEventListener("hashchange", onHash);
   }, [loadBackup]);
 
-  const items = useMemo(() => searchCredentials(allItems, query), [allItems, query]);
-  const slice = pageSlice(items, page);
+  const items = useMemo(() => {
+    const found = sortLogins(searchCredentials(allItems, query));
+    return byBreaches ? sortByBreaches(found, health) : found;
+  }, [allItems, query, byBreaches, health]);
   useEffect(() => setPage(0), [query]);
   const twoFactor = useMemo(() => twoFactorItems(allItems, keepassItems), [allItems, keepassItems]);
   const counts: Record<PasswordsTab, number> = { passwords: allItems.length + keepassItems.length, "2fa": twoFactor.length };
@@ -449,13 +656,13 @@ function PasswordsPage() {
     await api.call("clipboard.write", cred.password);
   };
 
-  const openEdit = async (item: CredentialSummary): Promise<void> => {
+  const openEdit = async (id: string): Promise<void> => {
     if (!window.confirm(t("Edit this login? Its password and 2FA secret will be shown in the form."))) return;
-    const cred = (await api.call("credentials.reveal", item.id)) as RevealedCredential;
+    const cred = (await api.call("credentials.reveal", id)) as RevealedCredential;
     setError(null);
     setQrError(null);
     setForm({
-      id: item.id,
+      id,
       origin: cred.origin,
       username: cred.username,
       password: cred.password,
@@ -466,13 +673,20 @@ function PasswordsPage() {
       agentSignIn: cred.agentSignIn,
     });
   };
+  // Stable, so the dialogs over the page keep the focus where the person put it.
+  const closeForm = useCallback(() => setForm(null), []);
 
-  const remove = (id: string): void => {
-    if (!window.confirm(t("Delete this login? This cannot be undone."))) return;
-    void api.call("credentials.remove", id).then(load);
+  // From the 2FA codes tab: the vault's form or the KeePass entry form, over the list.
+  const [keepassEditing, setKeepassEditing] = useState<KeePassEntrySummary | null>(null);
+  const closeKeepassEdit = useCallback(() => setKeepassEditing(null), []);
+  const editTwoFactor = (item: TwoFactorItem): void => {
+    if (item.source === "keepass") setKeepassEditing(keepassItems.find((e) => e.id === item.id) ?? null);
+    else void openEdit(item.id);
   };
 
-  const generate = (): void => void api.call("credentials.generate", options).then((pw) => setForm((f) => (f ? { ...f, password: pw } : f)));
+  const [deleting, setDeleting] = useState<{ target: DeleteTarget; initial: DeleteChoice } | null>(null);
+  const closeDelete = useCallback(() => setDeleting(null), []);
+  const askDelete = (target: DeleteTarget): void => setDeleting({ target, initial: initialDeleteChoice(target, tab) });
 
   const importQr = async (): Promise<void> => {
     setQrError(null);
@@ -508,9 +722,8 @@ function PasswordsPage() {
   };
 
   const set = (patch: Partial<FormState>): void => setForm((f) => (f ? { ...f, ...patch } : f));
-  const toggle = (key: keyof PasswordOptions): void => setOptions((o) => ({ ...o, [key]: !o[key] }));
   const anyTotp = twoFactor.length > 0;
-  const hasTotp = Boolean(form?.totp.trim());
+  const fields = form && <LoginFields form={form} set={set} options={options} setOptions={setOptions} agentAccess={agentAccess} qrError={qrError} onImportQr={() => void importQr()} />;
 
   return (
     <PageShell
@@ -564,8 +777,34 @@ function PasswordsPage() {
                 <div className="pw-warn">{TWO_FACTOR_WARNING}</div>
               </div>
             )}
-            <TwoFactorTab items={twoFactor} query={query} onShow={showLogin} onImport={startImport} />
+            <TwoFactorTab
+              items={twoFactor}
+              query={query}
+              onShow={showLogin}
+              onEdit={editTwoFactor}
+              onDelete={(item) => askDelete(deleteTargetOf.twoFactor(item))}
+              onImport={startImport}
+            />
           </>
+        )}
+
+        {tab === "2fa" && form && (
+          <Modal
+            wide
+            title={form.id ? t("Edit login") : t("Add login")}
+            onClose={closeForm}
+            footer={
+              <>
+                <button className="btn" onClick={closeForm}>{t("Cancel")}</button>
+                <button className="btn primary" onClick={submit}>{t("Save")}</button>
+              </>
+            }
+          >
+            <div className="pw-form">
+              {fields}
+              {error && <div className="pw-error">{error}</div>}
+            </div>
+          </Modal>
         )}
 
         {tab === "passwords" && form && (
@@ -574,73 +813,11 @@ function PasswordsPage() {
               <h2>{form.id ? t("Edit login") : t("Add login")}</h2>
             </div>
             <div className="card-body padded pw-form">
-              <label className="pw-field">
-                <span>{t("Site")}</span>
-                <input className="input" placeholder={t("https://example.com")} value={form.origin} onChange={(e) => set({ origin: e.target.value })} />
-              </label>
-              <label className="pw-field">
-                <span>{t("Username")}</span>
-                <input className="input" autoComplete="off" value={form.username} onChange={(e) => set({ username: e.target.value })} />
-              </label>
-              <label className="pw-field">
-                <span>{t("Password")}</span>
-                <input className="input" type="text" autoComplete="off" value={form.password} onChange={(e) => set({ password: e.target.value })} />
-              </label>
-              <div className="pw-gen">
-                <button className="btn small" onClick={generate}>{t("Generate")}</button>
-                <label className="pw-opt">{t("Length")}<input className="input pw-len" type="number" min={4} max={128} value={options.length} onChange={(e) => setOptions((o) => ({ ...o, length: Number(e.target.value) || 20 }))} />
-                </label>
-                <label className="pw-opt"><input type="checkbox" checked={options.uppercase} onChange={() => toggle("uppercase")} /> A-Z</label>
-                <label className="pw-opt"><input type="checkbox" checked={options.lowercase} onChange={() => toggle("lowercase")} /> a-z</label>
-                <label className="pw-opt"><input type="checkbox" checked={options.digits} onChange={() => toggle("digits")} /> 0-9</label>
-                <label className="pw-opt"><input type="checkbox" checked={options.symbols} onChange={() => toggle("symbols")} /> !@#</label>
-              </div>
-              <div className="pw-field">
-                <span>{t("2FA (optional)")}</span>
-                {form.totpLabel ? (
-                  <div className="pw-totp-imported">
-                    <IconClock size={13} /> {form.totpLabel}
-                    <button className="btn small ghost" onClick={() => set({ totp: "", totpLabel: "" })}>{t("Remove")}</button>
-                  </div>
-                ) : (
-                  <input
-                    className="input pw-totp-input"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={t("Paste an otpauth:// link or the base32 secret")}
-                    value={form.totp}
-                    onChange={(e) => set({ totp: e.target.value })}
-                  />
-                )}
-                <div className="pw-gen">
-                  <button className="btn small" onClick={() => void importQr()}>{t("Import QR code image")}</button>
-                  {hasTotp && !form.totpLabel && <button className="btn small ghost" onClick={() => set({ totp: "" })}>{t("Remove 2FA")}</button>}
-                  <span>{t("Decoded on this device; the image is not uploaded.")}</span>
-                </div>
-                {qrError && <div className="pw-error">{qrError}</div>}
-                {hasTotp && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
-              </div>
-              <div className="pw-field">
-                <span>{t("AI agents")}</span>
-                <label className="pw-opt">
-                  <input type="checkbox" checked={form.agentSignIn} onChange={(e) => set({ agentSignIn: e.target.checked })} />{" "}{t("Let AI agents sign in with this login")}</label>
-                <label className="pw-opt">
-                  <input type="checkbox" disabled={!hasTotp} checked={form.agentTotp && hasTotp} onChange={(e) => set({ agentTotp: e.target.checked })} />{" "}{t("Let AI agents use this 2FA code")}</label>
-                <div className="pw-hint">{t("Agents never see the password or the code: Corvus fills them into the page after you approve each use.")}{!agentAccess && (
-                    <>
-                      {" "}{t("AI agent use is off for every login until you turn it on in")}{" "}<a href="corvus://settings/#passwords">{t("Settings")}</a>.
-                    </>
-                  )}
-                </div>
-              </div>
-              <label className="pw-field">
-                <span>{t("Notes")}</span>
-                <textarea className="input pw-notes" value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
-              </label>
+              {fields}
               {error && <div className="pw-error">{error}</div>}
               <div className="pw-actions">
                 <button className="btn primary" onClick={submit}>{t("Save")}</button>
-                <button className="btn ghost" onClick={() => setForm(null)}>{t("Cancel")}</button>
+                <button className="btn ghost" onClick={closeForm}>{t("Cancel")}</button>
               </div>
             </div>
           </div>
@@ -659,45 +836,50 @@ function PasswordsPage() {
             {items.length === 0 ? (
               <div className="empty">{query ? t("No logins match your search.") : t("No saved logins yet. Sign in to a site or add one with the Add button.")}</div>
             ) : (
-              <div className="list pw-list">
-                {slice.items.map((item) => (
-                  <div key={item.id} className="list-row" style={{ alignItems: "center" }}>
-                    <Favicon url={item.origin} />
-                    <div className="grow">
-                      <div className="title">
-                        {item.username || t("(no username)")} <AgentChips signIn={item.agentSignIn} totp={item.agentTotp} globalOn={agentAccess} />
-                        <HealthChips health={health.get(item.id)} />
-                        {!item.hasPassword && item.hasTotp && <span className="pill">{t("2FA only")}</span>}
-                      </div>
-                      <div className="sub">{hostOf(item.origin)}</div>
-                      <AutoSignInToggle id={item.id} on={autoIds.has(item.id)} onChange={setAutoSignIn} />
-                      {revealed[item.id] && <div className="pw-reveal">{revealed[item.id]}</div>}
-                    </div>
-                    {item.hasTotp && <VaultTotp id={item.id} />}
-                    <div className="actions">
-                      <button className="btn small ghost" title={t("Reveal password")} onClick={() => void reveal(item.id)}>
-                        <IconLock size={13} /> {revealed[item.id] ? t("Hide") : t("Show")}
-                      </button>
-                      <button className="icon-btn" title={t("Copy password")} onClick={() => void copyPassword(item.id)}>
-                        <IconCopy size={15} />
-                      </button>
-                      <button className="icon-btn" title={t("Edit")} onClick={() => void openEdit(item)}>
-                        <IconEdit size={15} />
-                      </button>
-                      <button className="icon-btn" title={t("Delete")} onClick={() => remove(item.id)}>
-                        <IconTrash size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <Pager page={slice.page} size={PAGE_SIZE} total={items.length} onPage={setPage} />
-              </div>
+              <VaultTable
+                items={items}
+                page={page}
+                onPage={setPage}
+                health={health}
+                agentAccess={agentAccess}
+                autoIds={autoIds}
+                onAutoSignIn={setAutoSignIn}
+                revealed={revealed}
+                onReveal={(id) => void reveal(id)}
+                onCopy={(id) => void copyPassword(id)}
+                onEdit={(id) => void openEdit(id)}
+                onDelete={(item) => askDelete(deleteTargetOf.login(item))}
+              />
             )}
           </div>
         )}
 
-        {tab === "passwords" && <KeePassSection query={query} agentAccess={agentAccess} autoIds={autoIds} onAutoSignIn={setAutoSignIn} health={health} onExport={openBackup} />}
+        {tab === "passwords" && (
+          <KeePassSection
+            query={query}
+            agentAccess={agentAccess}
+            autoIds={autoIds}
+            onAutoSignIn={setAutoSignIn}
+            health={health}
+            byBreaches={byBreaches}
+            onExport={openBackup}
+            onDelete={(entry) => askDelete(deleteTargetOf.keepass(entry))}
+          />
+        )}
       </div>
+
+      {keepassEditing && <KeePassEntryForm dbs={[]} editing={keepassEditing} agentAccess={agentAccess} onClose={closeKeepassEdit} onSaved={closeKeepassEdit} />}
+      {deleting && (
+        <DeleteLoginDialog
+          target={deleting.target}
+          initial={deleting.initial}
+          onClose={closeDelete}
+          onDone={() => {
+            setDeleting(null);
+            load();
+          }}
+        />
+      )}
     </PageShell>
   );
 }
@@ -705,16 +887,149 @@ function PasswordsPage() {
 /** Per-login opt-in: when this login's form loads, Corvus asks once, then fills and submits it. */
 function AutoSignInToggle({ id, on, onChange }: { id: string; on: boolean; onChange: (id: string, on: boolean) => void }) {
   return (
-    <label className="pw-opt pw-auto" title={t("Corvus asks before each automatic sign-in")}>
-      <input type="checkbox" checked={on} onChange={(e) => onChange(id, e.target.checked)} />{" "}{t("Sign in automatically on this site (asks first)")}</label>
+    <span className="pt-option" title={t("Corvus asks before each automatic sign-in")}>
+      <Toggle label={t("Sign in automatically on this site (asks first)")} checked={on} onChange={(next) => onChange(id, next)} />
+      <span className="pt-option-label" aria-hidden="true">
+        {t("Auto sign-in")}
+      </span>
+    </span>
   );
 }
 
-function KeePassTotp({ id }: { id: string }) {
-  const api = internalApi();
-  const load = useCallback(() => api.call("keepass.totpCode", id) as Promise<TotpCode | null>, [api, id]);
-  const copy = useCallback(() => api.call("keepass.copyTotp", id) as Promise<void>, [api, id]);
-  return <TotpCodeView load={load} copy={copy} />;
+/**
+ * One login in the Passwords tab, a saved one or a KeePass entry, in the same columns: its site (or
+ * title) and username, its status chips, its 2FA code, the automatic sign-in switch, then Show, Copy,
+ * Edit and Delete, always in that order and place (Show and Copy are off for a login without a
+ * password).
+ */
+function LoginRow({
+  id,
+  url,
+  primary,
+  secondary,
+  where,
+  chips,
+  code,
+  autoOn,
+  onAutoSignIn,
+  hasPassword,
+  revealed,
+  onReveal,
+  onCopy,
+  onEdit,
+  onDelete,
+}: {
+  id: string;
+  url: string;
+  primary: string;
+  secondary: string;
+  /** Where a KeePass entry is: its database and group. */
+  where?: string;
+  chips: ReactNode;
+  code: ReactNode;
+  autoOn: boolean;
+  onAutoSignIn: (id: string, on: boolean) => void;
+  hasPassword: boolean;
+  revealed: string | undefined;
+  onReveal: () => void;
+  onCopy: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="pt-row" data-id={id}>
+      <RowIcon url={url} />
+      <NameCell primary={primary} secondary={secondary}>
+        {where && (
+          <span className="pt-where" title={where}>
+            <IconFolder size={11} /> {where}
+          </span>
+        )}
+        {revealed !== undefined && <span className="pw-reveal">{revealed}</span>}
+      </NameCell>
+      <div className="pt-meta">
+        <div className="pt-status">{chips}</div>
+        {code ?? <div className="pt-code" />}
+        <AutoSignInToggle id={id} on={autoOn} onChange={onAutoSignIn} />
+      </div>
+      <div className="pt-actions">
+        <RowAction className="pt-reveal" icon={<IconLock size={13} />} label={revealed !== undefined ? t("Hide") : t("Show")} name={revealed !== undefined ? t("Hide password") : t("Reveal password")} disabled={!hasPassword} onClick={onReveal} />
+        <RowAction className="pt-copy-password" icon={<IconCopy size={13} />} label={t("Copy")} name={t("Copy password")} disabled={!hasPassword} onClick={onCopy} />
+        <RowAction className="pt-edit" icon={<IconEdit size={13} />} label={t("Edit")} onClick={onEdit} />
+        <RowAction className="pt-delete" icon={<IconTrash size={13} />} label={t("Delete")} onClick={onDelete} />
+      </div>
+    </div>
+  );
+}
+
+/** The status chips of a login: 2FA only, then what the password checkup found, then AI agents' use. */
+function LoginChips({ hasPassword, hasTotp, health, signIn, totp, agentAccess }: { hasPassword: boolean; hasTotp: boolean; health: PasswordHealth | undefined; signIn: boolean; totp: boolean; agentAccess: boolean }) {
+  return (
+    <>
+      {!hasPassword && hasTotp && <span className="pill">{t("2FA only")}</span>}
+      <HealthChips health={health} />
+      <AgentChips signIn={signIn} totp={totp} globalOn={agentAccess} />
+    </>
+  );
+}
+
+/** The saved logins of the vault, a page at a time, in the table every list of the page shares. */
+function VaultTable({
+  items,
+  page,
+  onPage,
+  health,
+  agentAccess,
+  autoIds,
+  onAutoSignIn,
+  revealed,
+  onReveal,
+  onCopy,
+  onEdit,
+  onDelete,
+}: {
+  items: CredentialSummary[];
+  page: number;
+  onPage: (page: number) => void;
+  health: Map<string, PasswordHealth>;
+  agentAccess: boolean;
+  autoIds: Set<string>;
+  onAutoSignIn: (id: string, on: boolean) => void;
+  revealed: Record<string, string>;
+  onReveal: (id: string) => void;
+  onCopy: (id: string) => void;
+  onEdit: (id: string) => void;
+  onDelete: (item: CredentialSummary) => void;
+}) {
+  const now = useClock();
+  const slice = pageSlice(items, page);
+  return (
+    <div className="pt-wrap pw-list">
+      <div className="pt pt-logins">
+        <TableHead name={t("Site and username")} options />
+        {slice.items.map((item) => (
+          <LoginRow
+            key={item.id}
+            id={item.id}
+            url={item.origin}
+            primary={hostOf(item.origin)}
+            secondary={item.username || t("(no username)")}
+            chips={<LoginChips hasPassword={item.hasPassword} hasTotp={item.hasTotp} health={health.get(item.id)} signIn={item.agentSignIn} totp={item.agentTotp} agentAccess={agentAccess} />}
+            code={item.hasTotp ? <VaultTotp id={item.id} version={item.updatedAt} now={now} /> : null}
+            autoOn={autoIds.has(item.id)}
+            onAutoSignIn={onAutoSignIn}
+            hasPassword={item.hasPassword}
+            revealed={revealed[item.id]}
+            onReveal={() => onReveal(item.id)}
+            onCopy={() => onCopy(item.id)}
+            onEdit={() => onEdit(item.id)}
+            onDelete={() => onDelete(item)}
+          />
+        ))}
+        <Pager page={slice.page} size={PAGE_SIZE} total={items.length} onPage={onPage} />
+      </div>
+    </div>
+  );
 }
 
 function baseName(file: string): string {
@@ -827,15 +1142,21 @@ function KeePassSection({
   autoIds,
   onAutoSignIn,
   health,
+  byBreaches,
   onExport,
+  onDelete,
 }: {
   query: string;
   agentAccess: boolean;
   autoIds: Set<string>;
   onAutoSignIn: (id: string, on: boolean) => void;
   health: Map<string, PasswordHealth>;
+  /** Most breached entries first (after a breach check). */
+  byBreaches: boolean;
   /** Opens the backup form (the export of the built-in vault) at the top of the page. */
   onExport: () => void;
+  /** Asks to delete an entry (or only its 2FA), in two steps. */
+  onDelete: (entry: KeePassEntrySummary) => void;
 }) {
   const api = internalApi();
   const [state, setState] = useState<KeePassState | null>(null);
@@ -863,10 +1184,6 @@ function KeePassSection({
     if (!window.confirm(t("Reveal this password?"))) return;
     const password = (await api.call("keepass.reveal", id)) as string;
     setRevealed((r) => ({ ...r, [id]: password }));
-  };
-
-  const optIn = (id: string, patch: { signIn?: boolean; totp?: boolean }): void => {
-    void api.call("keepass.setAgentOptIn", id, patch).then(refresh);
   };
 
   const removeSource = (id: string): void => {
@@ -899,7 +1216,7 @@ function KeePassSection({
         {state && state.sources.length === 0 && <div className="pw-hint">{t("No KeePass databases yet. Add a .kdbx file, or a folder that holds them.")}</div>}
         {state && state.sources.filter((s) => s.kind === "folder").map((s) => (
           <div key={s.id} className="kp-source">
-            <IconFolder size={13} /> <span className="grow">{s.path}</span>
+            <IconFolder size={13} /> <span className="grow kp-path" title={s.path}>{s.path}</span>
             <span className="pw-hint">{s.databases} {s.databases === 1 ? "database" : "databases"}</span>
             <button className="icon-btn" title={t("Remove folder")} onClick={() => removeSource(s.id)}>
               <IconTrash size={14} />
@@ -914,11 +1231,11 @@ function KeePassSection({
                 <div className="list-row" style={{ alignItems: "center" }}>
                   <IconLock size={15} />
                   <div className="grow">
-                    <div className="title">
+                    <div className="title" title={db.name}>
                       {db.name} <span className={`kp-status ${db.status}`}>{STATUS_LABEL[db.status]}</span>
                       {db.remembered && <span className="kp-status kept" title={t("Unlocks when Corvus starts")}>{t("Kept unlocked")}</span>}
                     </div>
-                    <div className="sub">
+                    <div className="sub" title={db.path}>
                       {db.path}
                       {db.status === "unlocked" ? t(" · {entryCount} entries", { entryCount: db.entryCount }) : ""}
                     </div>
@@ -954,7 +1271,7 @@ function KeePassSection({
         )}
 
         <KeePassBrowser
-          entries={entries}
+          entries={byBreaches ? sortByBreaches(entries, health) : entries}
           dbs={state?.databases ?? []}
           agentAccess={agentAccess}
           autoIds={autoIds}
@@ -962,8 +1279,8 @@ function KeePassSection({
           health={health}
           revealed={revealed}
           reveal={(id) => void reveal(id)}
-          optIn={optIn}
           refresh={refresh}
+          onDelete={onDelete}
         />
         {entries.some((e) => e.hasTotp) && <div className="pw-warn">{TWO_FACTOR_WARNING}</div>}
       </div>
@@ -975,34 +1292,68 @@ function KeePassSection({
 
 const KP_PAGE = 25;
 
-/** The form for a new entry, or for changing one (its password stays unless a new one is typed). */
-function KeePassEntryForm({ dbs, editing, onClose, onSaved }: { dbs: KeePassDbView[]; editing: KeePassEntrySummary | null; onClose: () => void; onSaved: () => void }) {
+/**
+ * The form for a new entry, or for changing one: its password and its 2FA stay unless new ones are
+ * typed (neither is ever shown here), and what is typed in them stays blurred until pointed at.
+ * `onClose` must be stable (the Modal moves the focus whenever it changes).
+ */
+function KeePassEntryForm({ dbs, editing, agentAccess, onClose, onSaved }: { dbs: KeePassDbView[]; editing: KeePassEntrySummary | null; agentAccess: boolean; onClose: () => void; onSaved: () => void }) {
   const api = internalApi();
   const [dbId, setDbId] = useState(editing?.dbId ?? dbs[0]?.id ?? "");
   const [groups, setGroups] = useState<string[]>([""]);
   const [form, setForm] = useState<KeePassEntryDetails>({ title: editing?.title ?? "", username: editing?.username ?? "", url: "", notes: "", group: editing?.group ?? "" });
   const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What the entry holds now, to tell whether Save has anything to write to the file.
+  const [loaded, setLoaded] = useState<KeePassEntryDetails | null>(null);
+  // AI agents' use of the entry: kept in Corvus and never in the file, so they need no write to it.
+  const [agentSignIn, setAgentSignIn] = useState(editing?.agentSignIn ?? false);
+  const [agentTotp, setAgentTotp] = useState(editing?.agentTotp ?? false);
+  const canTotp = Boolean(editing?.hasTotp || totp.trim());
+  const importQr = (): void => {
+    setError(null);
+    void api.call("credentials.importTotpQr").then((result) => {
+      if (result?.ok) setTotp(result.uri);
+      else if (result) setError(result.error);
+    });
+  };
 
   useEffect(() => {
     if (dbId) void api.call("keepass.groups", dbId).then((g) => setGroups(g.length ? g : [""]));
   }, [api, dbId]);
   useEffect(() => {
-    if (editing) void api.call("keepass.details", editing.id).then((d) => d && setForm(d));
+    if (!editing) return;
+    void api.call("keepass.details", editing.id).then((d) => {
+      if (!d) return;
+      setForm(d);
+      setLoaded(d);
+    });
   }, [api, editing]);
 
   const set = (patch: Partial<KeePassEntryDetails>): void => setForm((f) => ({ ...f, ...patch }));
-  const save = (): void => {
+  const writesFile = !editing || (loaded !== null && keepassEntryChanged(loaded, form, password, totp));
+  const saveOptions = async (id: string): Promise<void> => {
+    if (agentSignIn === (editing?.agentSignIn ?? false) && (agentTotp && canTotp) === (editing?.agentTotp ?? false)) return;
+    await api.call("keepass.setAgentOptIn", id, { signIn: agentSignIn, totp: agentTotp && canTotp });
+  };
+  const save = async (): Promise<void> => {
     setBusy(true);
     setError(null);
     const uuid = editing ? editing.id.split(":").slice(2).join(":") : undefined;
-    api
-      .call("keepass.saveEntry", dbId, { ...form, ...(uuid ? { uuid } : {}), ...(password || !editing ? { password } : {}) })
-      .then(onSaved)
-      .catch((e: unknown) => setError(errorMessage(e)))
-      .finally(() => setBusy(false));
+    try {
+      const id = writesFile || !editing ? await api.call("keepass.saveEntry", dbId, { ...form, ...(uuid ? { uuid } : {}), ...(password || !editing ? { password } : {}), ...(totp.trim() ? { totp } : {}) }) : editing.id;
+      await saveOptions(id);
+      onSaved();
+    } catch (e) {
+      // The options are not in the file, so a file that cannot be written does not stop them.
+      if (editing) await saveOptions(editing.id).catch(() => undefined);
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -1016,8 +1367,8 @@ function KeePassEntryForm({ dbs, editing, onClose, onSaved }: { dbs: KeePassDbVi
           <button className="btn" onClick={onClose}>
             {t("Cancel")}
           </button>
-          <button className="btn primary" disabled={busy || !form.title.trim() || !dbId} onClick={save}>
-            {busy ? t("Saving…") : t("Save to the database")}
+          <button className="btn primary" disabled={busy || !dbId || (editing !== null && loaded === null) || (writesFile && !form.title.trim())} onClick={() => void save()}>
+            {busy ? t("Saving…") : writesFile ? t("Save to the database") : t("Save")}
           </button>
         </>
       }
@@ -1050,16 +1401,16 @@ function KeePassEntryForm({ dbs, editing, onClose, onSaved }: { dbs: KeePassDbVi
         )}
         <label className="modal-field">
           <span>{t("Title")}</span>
-          <input className="input" autoFocus value={form.title} onChange={(e) => set({ title: e.target.value })} />
+          <input className="input kp-field-title" autoFocus value={form.title} onChange={(e) => set({ title: e.target.value })} />
         </label>
         <label className="modal-field">
           <span>{t("Username")}</span>
-          <input className="input" value={form.username} autoComplete="off" spellCheck={false} onChange={(e) => set({ username: e.target.value })} />
+          <input className="input kp-field-username" value={form.username} autoComplete="off" spellCheck={false} onChange={(e) => set({ username: e.target.value })} />
         </label>
         <label className="modal-field">
           <span>{editing ? t("New password (leave empty to keep it)") : t("Password")}</span>
           <span className="kp-password">
-            <input className="input" type={show ? "text" : "password"} value={password} autoComplete="new-password" spellCheck={false} onChange={(e) => setPassword(e.target.value)} />
+            <SecretInput className="kp-password-input" blur={show} type={show ? "text" : "password"} value={password} autoComplete="new-password" spellCheck={false} onChange={setPassword} />
             <button type="button" className="btn small ghost" onClick={() => setShow((s) => !s)}>
               {show ? t("Hide") : t("Show")}
             </button>
@@ -1077,8 +1428,44 @@ function KeePassEntryForm({ dbs, editing, onClose, onSaved }: { dbs: KeePassDbVi
         </label>
         <label className="modal-field">
           <span>{t("Address")}</span>
-          <input className="input" value={form.url} placeholder="https://" spellCheck={false} onChange={(e) => set({ url: e.target.value })} />
+          <input className="input kp-field-url" value={form.url} placeholder="https://" spellCheck={false} onChange={(e) => set({ url: e.target.value })} />
         </label>
+        <div className="modal-field kp-wide">
+          <span id="kp-totp-label">{editing?.hasTotp ? t("New 2FA secret (leave empty to keep it)") : t("2FA (optional)")}</span>
+          <SecretInput
+            className="kp-totp-input"
+            aria-labelledby="kp-totp-label"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={t("Paste an otpauth:// link or the base32 secret")}
+            value={totp}
+            onChange={setTotp}
+          />
+          <div className="pw-gen">
+            <button type="button" className="btn small" onClick={importQr}>
+              {t("Import QR code image")}
+            </button>
+            <span>{t("Decoded on this device; the image is not uploaded.")}</span>
+          </div>
+        </div>
+        <div className="modal-field kp-wide">
+          <span>{t("AI agents")}</span>
+          <label className="pw-opt kp-ai-signin">
+            <input type="checkbox" checked={agentSignIn} onChange={(e) => setAgentSignIn(e.target.checked)} /> {t("Let AI agents sign in with this login")}
+          </label>
+          <label className="pw-opt kp-ai-totp">
+            <input type="checkbox" disabled={!canTotp} checked={agentTotp && canTotp} onChange={(e) => setAgentTotp(e.target.checked)} /> {t("Let AI agents use this 2FA code")}
+          </label>
+          <div className="pw-hint">
+            {t("Agents never see the password or the code: Corvus fills them into the page after you approve each use.")}
+            {!agentAccess && (
+              <>
+                {" "}
+                {t("AI agent use is off for every login until you turn it on in")} <a href="corvus://settings/#passwords">{t("Settings")}</a>.
+              </>
+            )}
+          </div>
+        </div>
         <label className="modal-field kp-notes">
           <span>{t("Notes")}</span>
           <textarea className="input" rows={3} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
@@ -1089,8 +1476,9 @@ function KeePassEntryForm({ dbs, editing, onClose, onSaved }: { dbs: KeePassDbVi
 }
 
 /**
- * The entries of the unlocked databases: groups as folders on the left, a search, a compact table a
- * page at a time; a row opens to its password, 2FA code, AI agent options and Edit.
+ * The entries of the unlocked databases: groups as folders beside them (above them when the card is
+ * narrow), a search, and the same table as the saved logins a page at a time, each row saying which
+ * database and group it is in.
  */
 function KeePassBrowser({
   entries,
@@ -1101,8 +1489,8 @@ function KeePassBrowser({
   health,
   revealed,
   reveal,
-  optIn,
   refresh,
+  onDelete,
 }: {
   entries: KeePassEntrySummary[];
   dbs: KeePassDbView[];
@@ -1112,15 +1500,16 @@ function KeePassBrowser({
   health: Map<string, PasswordHealth>;
   revealed: Record<string, string>;
   reveal: (id: string) => void;
-  optIn: (id: string, patch: { signIn?: boolean; totp?: boolean }) => void;
   refresh: () => void;
+  onDelete: (entry: KeePassEntrySummary) => void;
 }) {
   const api = internalApi();
+  const now = useClock();
   const [search, setSearch] = useState("");
   const [group, setGroup] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [open, setOpen] = useState<string | null>(null);
   const [form, setForm] = useState<{ editing: KeePassEntrySummary | null } | null>(null);
+  const closeForm = useCallback(() => setForm(null), []);
   const unlocked = dbs.filter((d) => d.status === "unlocked");
 
   // Groups as folders: every group path with how many entries it holds (subgroups included).
@@ -1161,82 +1550,60 @@ function KeePassBrowser({
       </div>
       <div className="kp-layout">
         <nav className="kp-groups" aria-label={t("Groups")}>
-          <button className={group === null ? "active" : ""} onClick={() => setGroup(null)}>
+          <button className={group === null ? "active" : ""} aria-pressed={group === null} onClick={() => setGroup(null)}>
             <IconFolder size={14} /> <span className="grow">{t("All entries")}</span> <span className="kp-count">{entries.length}</span>
           </button>
           {groups.map(([path, count]) => {
             const depth = path.split(" / ").length - 1;
             return (
-              <button key={path} className={group === path ? "active" : ""} style={{ paddingLeft: 10 + depth * 14 }} title={path} onClick={() => setGroup(path)}>
-                <IconFolder size={14} /> <span className="grow">{path.split(" / ").pop()}</span> <span className="kp-count">{count}</span>
+              <button key={path} className={group === path ? "active" : ""} aria-pressed={group === path} style={{ "--depth": depth } as CSSProperties} title={path} onClick={() => setGroup(path)}>
+                <IconFolder size={14} />{" "}
+                <span className="grow">
+                  <span className="kp-leaf">{path.split(" / ").pop()}</span>
+                  <span className="kp-full">{path}</span>
+                </span>{" "}
+                <span className="kp-count">{count}</span>
               </button>
             );
           })}
         </nav>
-        <div className="kp-list">
-          {slice.length === 0 && <div className="pw-hint">{search ? t("No entries match.") : t("No entries in this group.")}</div>}
-          {slice.map((e) => {
-            const expanded = open === e.id;
-            return (
-              <div key={e.id} className={`kp-entry ${expanded ? "open" : ""}`}>
-                <button className="kp-row" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : e.id)}>
-                  {e.site ? <Favicon url={`https://${e.site}`} /> : <IconLock size={15} />}
-                  <span className="kp-main">
-                    <span className="kp-title">{e.title || e.site || t("(untitled)")}</span>
-                    <span className="kp-sub">{e.username || t("(no username)")}</span>
-                  </span>
-                  <span className="kp-site">{e.site}</span>
-                  <span className="kp-chips">
-                    {e.hasTotp && <span className="pill">2FA</span>}
-                    <AgentChips signIn={e.agentSignIn} totp={e.agentTotp} globalOn={agentAccess} />
-                    <HealthChips health={health.get(e.id)} />
-                  </span>
-                </button>
-                <div className="kp-quick">
-                  {e.hasTotp && <KeePassTotp id={e.id} />}
-                  <button className="icon-btn" title={t("Copy password")} onClick={() => void api.call("keepass.copyPassword", e.id)}>
-                    <IconCopy size={15} />
-                  </button>
-                </div>
-                {expanded && (
-                  <div className="kp-details">
-                    <div className="kp-detail-line muted small">
-                      {e.dbName}
-                      {e.group ? ` · ${e.group}` : ""}
-                    </div>
-                    {revealed[e.id] && <div className="pw-reveal">{revealed[e.id]}</div>}
-                    <AutoSignInToggle id={e.id} on={autoIds.has(e.id)} onChange={onAutoSignIn} />
-                    <div className="pw-gen kp-optins">
-                      <label className="pw-opt">
-                        <input type="checkbox" checked={e.agentSignIn} onChange={(ev) => optIn(e.id, { signIn: ev.target.checked })} /> {t("Let AI agents sign in with this login")}
-                      </label>
-                      {e.hasTotp && (
-                        <label className="pw-opt">
-                          <input type="checkbox" checked={e.agentTotp} onChange={(ev) => optIn(e.id, { totp: ev.target.checked })} /> {t("Let AI agents use this 2FA code")}
-                        </label>
-                      )}
-                    </div>
-                    <div className="kp-detail-actions">
-                      <button className="btn small ghost" onClick={() => reveal(e.id)}>
-                        <IconLock size={13} /> {revealed[e.id] ? t("Hide password") : t("Show password")}
-                      </button>
-                      <button className="btn small" onClick={() => setForm({ editing: e })}>
-                        <IconEdit size={13} /> {t("Edit")}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <Pager page={page} size={KP_PAGE} total={shown.length} onPage={setPage} />
+        <div className="pt-wrap kp-list">
+          {slice.length === 0 ? (
+            <div className="pw-hint kp-none">{search ? t("No entries match.") : t("No entries in this group.")}</div>
+          ) : (
+            <div className="pt pt-logins">
+              <TableHead name={t("Entry and username")} options />
+              {slice.map((e) => (
+                <LoginRow
+                  key={e.id}
+                  id={e.id}
+                  url={e.site ? `https://${e.site}` : ""}
+                  primary={e.title || e.site || t("(untitled)")}
+                  secondary={[e.username || t("(no username)"), e.site && e.site !== e.title ? e.site : ""].filter(Boolean).join(" · ")}
+                  where={e.group ? `${e.dbName} / ${e.group}` : e.dbName}
+                  chips={<LoginChips hasPassword={e.hasPassword} hasTotp={e.hasTotp} health={health.get(e.id)} signIn={e.agentSignIn} totp={e.agentTotp} agentAccess={agentAccess} />}
+                  code={e.hasTotp ? <KeePassTotp id={e.id} version={e} now={now} /> : null}
+                  autoOn={autoIds.has(e.id)}
+                  onAutoSignIn={onAutoSignIn}
+                  hasPassword={e.hasPassword}
+                  revealed={revealed[e.id]}
+                  onReveal={() => reveal(e.id)}
+                  onCopy={() => void api.call("keepass.copyPassword", e.id)}
+                  onEdit={() => setForm({ editing: e })}
+                  onDelete={() => onDelete(e)}
+                />
+              ))}
+              <Pager page={page} size={KP_PAGE} total={shown.length} onPage={setPage} />
+            </div>
+          )}
         </div>
       </div>
       {form && (
         <KeePassEntryForm
           dbs={unlocked}
           editing={form.editing}
-          onClose={() => setForm(null)}
+          agentAccess={agentAccess}
+          onClose={closeForm}
           onSaved={() => {
             setForm(null);
             refresh();

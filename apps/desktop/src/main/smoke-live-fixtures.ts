@@ -4,12 +4,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import zlib from "node:zlib";
 import { toChromiumTime, toFirefoxTime, type DataRoots } from "../shared/browser-import";
 
 export interface LiveFixtures {
   roots: DataRoots;
   chromeHistory: string;
   firefoxPlaces: string;
+  /** The fake Chrome's own icon (its menu entry names it); the fake Firefox has none, so it keeps its letter mark. */
+  chromeIcon: string;
   /** A visit in Chrome (transition 1 = typed, 3 = a subframe, which Chrome's history leaves out). */
   chromeVisit(url: string, title: string, at: number, transition?: number): void;
   /** A visit in Firefox (visit type 1 = link, 4 = embedded, which its history leaves out). */
@@ -72,9 +75,51 @@ export function writeLiveFixtures(root: string): LiveFixtures {
     roots: { platform: "linux", home: root, localAppData: "", appData: "", config },
     chromeHistory,
     firefoxPlaces,
+    chromeIcon: writeChromeEntry(root),
     chromeVisit,
     firefoxVisit,
     close: () => firefox.close(),
+  };
+}
+
+/** A Chrome that keeps running: its History held open, its visits saved by commit(). */
+export interface ChromeWriter {
+  /** A visit in the open transaction: on disk only once committed. */
+  visit(url: string, title: string, at: number): void;
+  /** Saves the open transaction and opens the next one (Chrome does it about ten seconds after a change). */
+  commit(): void;
+  /**
+   * Makes the open transaction too big for SQLite's memory, so part of it is written into History
+   * before it is committed, as during a big commit: its journal is then one SQLite plays back.
+   */
+  spill(): void;
+  /** Saves and closes, as when Chrome quits. */
+  close(): void;
+}
+
+/**
+ * Opens `history` as Chrome does while it runs: exclusive locking (other processes can only copy
+ * the file), a rollback journal truncated after each commit, and a transaction always open.
+ */
+export function openChromeWriter(history: string): ChromeWriter {
+  const db = new DatabaseSync(history);
+  db.exec("PRAGMA locking_mode = EXCLUSIVE; PRAGMA journal_mode = TRUNCATE; PRAGMA synchronous = FULL; BEGIN");
+  return {
+    visit: (url, title, at) => {
+      const time = toChromiumTime(at);
+      const id = db.prepare("INSERT INTO urls (url, title, visit_count, last_visit_time, hidden) VALUES (?, ?, 1, ?, 0)").run(url, title, time).lastInsertRowid;
+      db.prepare("INSERT INTO visits (url, visit_time, transition) VALUES (?, ?, 1)").run(id, time);
+    },
+    commit: () => db.exec("COMMIT; BEGIN"),
+    spill: () => {
+      db.exec("PRAGMA cache_size = 10");
+      const add = db.prepare("INSERT INTO urls (url, title, visit_count, last_visit_time, hidden) VALUES (?, ?, 0, 0, 1)");
+      for (let i = 0; i < 2000; i++) add.run(`https://spill.example.org/${i}`, "Filler of a big transaction ".repeat(20));
+    },
+    close: () => {
+      db.exec("COMMIT");
+      db.close();
+    },
   };
 }
 
@@ -99,4 +144,60 @@ export function fillChromeHistory(file: string, pages: number, before: number): 
   } finally {
     db.close();
   }
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(data: Buffer): number {
+  let c = 0xffffffff;
+  for (const byte of data) c = CRC_TABLE[(c ^ byte) & 0xff]! ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, "ascii");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+  return Buffer.concat([head, data, crc]);
+}
+
+/** A made-up round browser icon (a coloured ring around a blue dot) as a 32 px PNG. */
+function fakeBrowserIcon(): Buffer {
+  const size = 32;
+  const rows: Buffer[] = [];
+  for (let y = 0; y < size; y++) {
+    const row = Buffer.alloc(1 + size * 4);
+    for (let x = 0; x < size; x++) {
+      const dx = x - 15.5;
+      const dy = y - 15.5;
+      const r = Math.hypot(dx, dy);
+      const angle = (Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI);
+      const ring = angle < 1 / 3 ? [219, 68, 55] : angle < 2 / 3 ? [244, 180, 0] : [15, 157, 88];
+      const rgba = r > 15.5 ? [0, 0, 0, 0] : r > 7 ? [...ring, 255] : r > 5.5 ? [255, 255, 255, 255] : [66, 133, 244, 255];
+      Buffer.from(rgba).copy(row, 1 + x * 4);
+    }
+    rows.push(row);
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header.set([8, 6, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), pngChunk("IHDR", header), pngChunk("IDAT", zlib.deflateSync(Buffer.concat(rows))), pngChunk("IEND", Buffer.alloc(0))]);
+}
+
+/** The fake Chrome's menu entry, as a Linux package installs it, naming its icon file. */
+function writeChromeEntry(root: string): string {
+  const icon = path.join(root, "icons", "fake-chrome.png");
+  fs.mkdirSync(path.dirname(icon), { recursive: true });
+  fs.writeFileSync(icon, fakeBrowserIcon());
+  const entries = path.join(root, ".local", "share", "applications");
+  fs.mkdirSync(entries, { recursive: true });
+  fs.writeFileSync(path.join(entries, "google-chrome.desktop"), ["[Desktop Entry]", "Name=Google Chrome", "Exec=/opt/google/chrome/google-chrome %U", `Icon=${icon}`, "Type=Application", ""].join("\n"));
+  return icon;
 }

@@ -1,8 +1,9 @@
 /**
  * Per-profile KeePass support (keepass.json in the profile folder). Off until the person adds a
  * database file or a folder of them. Databases are read with fs.readFile, and a directory watcher
- * re-reads an unlocked database when its file changes. A file is written only to add or edit an entry
- * the person asked for, or to add the 2FA of an entry the person ticked in an import (see write()).
+ * re-reads an unlocked database when its file changes. A file is written only to add, edit or delete
+ * an entry the person asked for, or to add the 2FA of an entry the person ticked in an import (see
+ * write()).
  *
  * Unlock takes the master password (and optional key file) once. "Keep unlocked" stores the master
  * password and key file path wrapped by the OS keychain (Electron safeStorage); never in plain text,
@@ -20,7 +21,7 @@ import path from "node:path";
 import type { KeePassDbStatus, KeePassDbView, KeePassEntrySummary, KeePassSourceKind, KeePassSourceView, KeePassUnlockResult } from "../shared/keepass-ipc";
 import { JsonFile } from "./json-file";
 import { entryFit, entryMatchScore, entrySite, type KeePassEntry } from "./keepass-entries";
-import { openKdbx, saveKdbxEntry, setKdbxTotps, type EntryInput, type EntryTotp } from "./keepass-format";
+import { deleteKdbxEntry, openKdbx, saveKdbxEntry, setKdbxTotps, type EntryInput, type EntryTotp } from "./keepass-format";
 import type { LoginCandidate, LoginProvider, LoginRecord } from "./login-sources";
 import type { SecretCipher } from "./settings-store";
 import type { TotpConfig } from "../shared/totp";
@@ -582,10 +583,40 @@ export class KeePassStore {
     return `${KEEPASS_ID_PREFIX}${dbId}:${uuid}`;
   }
 
-  /** Gives entries of an unlocked database their 2FA, in one write (see saveEntry and setKdbxTotps). */
+  /** Gives entries of an unlocked database their 2FA (or removes it), in one write (see saveEntry and setKdbxTotps). */
   async setTotps(dbId: string, changes: readonly EntryTotp[]): Promise<void> {
     if (changes.length === 0) return;
     await this.write(dbId, (data, key) => setKdbxTotps(data, key.password, key.keyFile, changes));
+  }
+
+  /** Removes the 2FA of an entry; its password stays (the previous version stays in its history). */
+  async removeTotp(id: string): Promise<void> {
+    const { dbId, uuid } = this.entryRef(id);
+    await this.setTotps(dbId, [{ uuid, totp: null }]);
+  }
+
+  /**
+   * Deletes an entry as KeePass does (see deleteKdbxEntry), with the same checks and .bak copy as
+   * saveEntry, and forgets its agent opt-ins. True when it went to the database's Recycle Bin.
+   */
+  async deleteEntry(id: string): Promise<boolean> {
+    const { dbId, uuid } = this.entryRef(id);
+    let recycled = false;
+    await this.write(dbId, async (data, key) => {
+      const done = await deleteKdbxEntry(data, key.password, key.keyFile, uuid);
+      recycled = done.recycled;
+      return done.data;
+    });
+    const config = this.file.get();
+    const { [this.optInKey(dbId, uuid)]: optedIn, ...optIns } = config.optIns;
+    if (optedIn) this.file.set({ ...config, optIns });
+    return recycled;
+  }
+
+  private entryRef(id: string): { dbId: string; uuid: string } {
+    const parsed = parseEntryId(id);
+    if (!parsed) throw new Error(tr("The entry is no longer in the database."));
+    return parsed;
   }
 
   /** Changes a database file: the conflict check, the .bak copy of the run's first write, the swap, the reload. */

@@ -1,7 +1,7 @@
 /**
  * IPC contract for KeePass databases on corvus://passwords. Corvus reads .kdbx files and writes to
- * them only to add or edit an entry the person asked for; passwords stay in the main process and
- * leave it only on an explicit reveal or copy.
+ * them only to add, edit or delete an entry the person asked for; passwords stay in the main process
+ * and leave it only on an explicit reveal or copy.
  */
 import type { TotpCode } from "./totp";
 
@@ -68,6 +68,8 @@ export interface KeePassEntryInput extends KeePassEntryDetails {
   uuid?: string;
   /** Absent: the password stays as it is. */
   password?: string;
+  /** A new 2FA, as an otpauth:// link or a base32 secret; absent or empty: the 2FA stays as it is. */
+  totp?: string;
 }
 
 export type KeePassUnlockResult = { ok: true } | { ok: false; error: string };
@@ -94,6 +96,13 @@ export interface KeePassRpc {
   "keepass.details"(id: string): KeePassEntryDetails | null;
   /** Adds (no uuid) or changes an entry in the database file; returns the entry's id. */
   "keepass.saveEntry"(dbId: string, input: KeePassEntryInput): string;
+  /**
+   * Deletes an entry as KeePass does: into the database's Recycle Bin, or for good when the database
+   * has it turned off (false). A .bak copy of the file is kept first, as for saveEntry.
+   */
+  "keepass.deleteEntry"(id: string): boolean;
+  /** Removes an entry's 2FA; its password stays. */
+  "keepass.removeTotp"(id: string): void;
   /** The password of one entry, only on an explicit (confirmed) reveal. */
   "keepass.reveal"(id: string): string;
   "keepass.copyPassword"(id: string): void;

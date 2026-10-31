@@ -6,13 +6,19 @@ import { chromiumTime, firefoxTime, toChromiumTime, toFirefoxTime } from "../src
 import { applyLiveHistory, applySyncedHistory, prune, recordVisit, type HistoryRecord } from "../src/shared/history-ops";
 import {
   LIVE_BACKFILL_MS,
+  LIVE_BACKGROUND_MS,
+  LIVE_RETRY_MS,
   LiveSchedule,
   cleanLiveHistoryConfig,
   filesStamp,
+  liveChange,
+  liveDefaults,
+  liveEnabled,
   liveEntries,
   nextCursor,
   parseSourceKey,
   readWindow,
+  sameDatabaseFile,
   sourceKey,
   sourceMark,
   type LiveVisit,
@@ -21,7 +27,7 @@ import { buildSuggestions } from "../src/shared/suggest";
 import { BrowserImport } from "../src/main/browser-import";
 import { LiveHistoryService } from "../src/main/live-history";
 import { LiveHistoryStore } from "../src/main/live-history-store";
-import { writeLiveFixtures, type LiveFixtures } from "../src/main/smoke-live-fixtures";
+import { openChromeWriter, writeLiveFixtures, type LiveFixtures } from "../src/main/smoke-live-fixtures";
 import { HistoryStore } from "../src/main/stores";
 import { historyAdapter } from "../src/main/sync-adapters";
 import type { AppContext } from "../src/main/context";
@@ -74,8 +80,32 @@ describe("live history cursor", () => {
     const cursor = { visitId: 3, visitTime: 9, stamp: "s" };
     expect(
       cleanLiveHistoryConfig({ enabled: true, sources: ["chrome/Default", "chrome/Default", "bad", 4], cursors: { "chrome/Default": cursor, "edge/Default": cursor, "chrome/Profile 1": { visitId: "x" } } }),
-    ).toEqual({ enabled: true, sources: ["chrome/Default"], cursors: { "chrome/Default": cursor } });
-    expect(cleanLiveHistoryConfig(null)).toEqual({ enabled: false, sources: [], cursors: {} });
+    ).toEqual({ enabled: true, sources: ["chrome/Default"], cursors: { "chrome/Default": cursor }, noticeShown: false });
+    // Following each browser's default profile: any browser profile's cursor is kept.
+    expect(cleanLiveHistoryConfig({ cursors: { "chrome/Default": cursor, bad: cursor }, noticeShown: true })).toEqual({ enabled: null, sources: null, cursors: { "chrome/Default": cursor }, noticeShown: true });
+  });
+
+  it("is on by default, following each browser's default profile, and keeps an Off the person chose", () => {
+    const fresh = cleanLiveHistoryConfig(null);
+    expect(fresh).toEqual({ enabled: null, sources: null, cursors: {}, noticeShown: false });
+    expect(liveEnabled(fresh)).toBe(true);
+    // Files written by 0.32.6 to 0.32.9 exist only once the person used the switch.
+    expect(liveEnabled(cleanLiveHistoryConfig({ enabled: false, sources: [], cursors: {} }))).toBe(false);
+    expect(liveEnabled(cleanLiveHistoryConfig({ enabled: false, sources: ["chrome/Default"], cursors: {} }))).toBe(false);
+    expect(cleanLiveHistoryConfig({ enabled: true, sources: ["edge/Default"], cursors: {} })).toMatchObject({ enabled: true, sources: ["edge/Default"] });
+  });
+
+  it("follows the default profile of each browser, or its first one when none is marked", () => {
+    expect(
+      liveDefaults([
+        { key: "chrome/Profile 1", browser: "chrome", isDefault: false },
+        { key: "chrome/Default", browser: "chrome", isDefault: true },
+        { key: "edge/Default", browser: "edge", isDefault: true },
+        { key: "firefox/a.default", browser: "firefox", isDefault: false },
+        { key: "firefox/b.work", browser: "firefox", isDefault: false },
+      ]),
+    ).toEqual(["chrome/Default", "edge/Default", "firefox/a.default"]);
+    expect(liveDefaults([])).toEqual([]);
   });
 
   it("names sources by browser and profile folder, and marks pages by browser", () => {
@@ -163,22 +193,36 @@ describe("live history schedule", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  const source = (stamps: Array<string | null>) => {
+  /** A source whose files' stamps come from `stamps` (the last repeats); `outcomes` say how each read goes. */
+  const source = (stamps: Array<string | null>, outcomes: Array<"settled" | "moving" | "fails"> = []) => {
     let last: string | null = null;
     let i = 0;
     const reads: string[] = [];
+    const skipped: string[] = [];
     let block: Promise<void> | null = null;
     return {
       reads,
-      hold(p: Promise<void>) {
+      skipped,
+      setStamps(next: Array<string | null>) {
+        stamps = next;
+        i = 0;
+      },
+      hold(p: Promise<void> | null) {
         block = p;
       },
       src: {
         stamp: async () => stamps[Math.min(i++, stamps.length - 1)] ?? null,
         lastStamp: () => last,
         read: async (stamp: string) => {
+          const outcome = outcomes[reads.length] ?? "settled";
           reads.push(stamp);
           if (block) await block;
+          if (outcome === "fails") throw new Error("database disk image is malformed");
+          if (outcome === "settled") last = stamp;
+          return outcome === "settled";
+        },
+        skip: (stamp: string) => {
+          skipped.push(stamp);
           last = stamp;
         },
       },
@@ -186,62 +230,161 @@ describe("live history schedule", () => {
   };
 
   it("reads on focus only when the files changed", async () => {
-    const s = source(["a", "a", "b", null]);
+    const s = source(["a|-|-", "a|-|-", "b|-|-", null]);
     const schedule = new LiveSchedule(s.src);
     await schedule.check();
     await schedule.check();
-    expect(s.reads).toEqual(["a"]);
+    expect(s.reads).toEqual(["a|-|-"]);
     await schedule.check();
-    expect(s.reads).toEqual(["a", "b"]);
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
     // The database went away: nothing to read.
     await schedule.check();
-    expect(s.reads).toEqual(["a", "b"]);
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
   });
 
-  it("reads once, two seconds after the files stop changing", async () => {
-    const s = source(["a"]);
-    const schedule = new LiveSchedule(s.src, 2000);
+  it("makes no copy when only an open transaction's journal changed", async () => {
+    const s = source(["db1|-|0:1", "db1|-|41552:2", "db1|-|41552:2", "db2|-|0:3"]);
+    const schedule = new LiveSchedule(s.src);
+    await schedule.check();
+    await schedule.check();
+    await schedule.check();
+    expect(s.reads).toEqual(["db1|-|0:1"]);
+    expect(s.skipped).toEqual(["db1|-|41552:2"]);
+    // The commit wrote the database: read.
+    await schedule.check();
+    expect(s.reads).toEqual(["db1|-|0:1", "db2|-|0:3"]);
+  });
+
+  it("while Corvus is in front, reads about a second after the files stop changing, and within five seconds of the first change", async () => {
+    const s = source(["a|-|-"]);
+    const schedule = new LiveSchedule(s.src, { debounceMs: 1000 });
     schedule.touched();
-    await vi.advanceTimersByTimeAsync(1500);
+    await vi.advanceTimersByTimeAsync(800);
     schedule.touched();
-    await vi.advanceTimersByTimeAsync(1500);
-    schedule.touched();
-    await vi.advanceTimersByTimeAsync(1999);
+    await vi.advanceTimersByTimeAsync(999);
     expect(s.reads).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(s.reads).toEqual(["a"]);
+    expect(s.reads).toEqual(["a|-|-"]);
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(s.reads).toEqual(["a"]);
+    expect(s.reads).toEqual(["a|-|-"]);
+
+    // Files that never stop changing are still read five seconds after the first change.
+    s.setStamps(["b|-|-"]);
+    for (let t = 0; t < 5400; t += 600) {
+      schedule.touched();
+      await vi.advanceTimersByTimeAsync(600);
+    }
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
   });
 
-  it("never reads twice at once: a request during a read checks again once it ends", async () => {
-    const s = source(["a", "b"]);
+  it("while Corvus is in the background, reads changes at most once a minute, and at once on focus", async () => {
+    const s = source(["a|-|-"]);
+    const schedule = new LiveSchedule(s.src, { foreground: () => false });
+    // Chrome saving every ten seconds does not hold the read back.
+    schedule.touched();
+    for (let t = 10_000; t < LIVE_BACKGROUND_MS; t += 10_000) {
+      await vi.advanceTimersByTimeAsync(10_000);
+      schedule.touched();
+    }
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(s.reads).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.reads).toEqual(["a|-|-"]);
+
+    s.setStamps(["b|-|-"]);
+    schedule.touched();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(s.reads).toEqual(["a|-|-"]);
+    await schedule.check();
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
+    // The read on focus covered the change: the minute passing reads nothing more.
+    await vi.advanceTimersByTimeAsync(LIVE_BACKGROUND_MS);
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
+  });
+
+  it("loses no change: a change during a read is read once it ends", async () => {
+    const s = source(["a|-|-"]);
     let release!: () => void;
     s.hold(new Promise<void>((r) => (release = r)));
-    const schedule = new LiveSchedule(s.src);
+    const schedule = new LiveSchedule(s.src, { debounceMs: 1000 });
     const first = schedule.check();
     await vi.advanceTimersByTimeAsync(0);
+    expect(s.reads).toEqual(["a|-|-"]);
+    // The browser commits while the copy is being read.
+    s.setStamps(["b|-|-"]);
+    schedule.touched();
+    await vi.advanceTimersByTimeAsync(1000);
     const second = schedule.check();
-    expect(s.reads).toEqual(["a"]);
+    s.hold(null);
     release();
     await Promise.all([first, second]);
-    expect(s.reads).toEqual(["a", "b"]);
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
+  });
+
+  it("tries a failed read again a few seconds later without a new change, then less often", async () => {
+    const s = source(["a|-|-"], ["fails", "fails", "settled"]);
+    const schedule = new LiveSchedule(s.src);
+    await schedule.check();
+    expect(s.reads).toEqual(["a|-|-"]);
+    // A focus meanwhile does not copy the same files again: the retry does.
+    await schedule.check();
+    expect(s.reads).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LIVE_RETRY_MS);
+    expect(s.reads).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(LIVE_RETRY_MS * 2 - 1);
+    expect(s.reads).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.reads).toHaveLength(3);
+    // Read: no more retries.
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(s.reads).toHaveLength(3);
+  });
+
+  it("reads again shortly a copy taken while a commit was being written", async () => {
+    const s = source(["a|-|-"], ["moving", "settled"]);
+    const schedule = new LiveSchedule(s.src);
+    await schedule.check();
+    await vi.advanceTimersByTimeAsync(LIVE_RETRY_MS);
+    expect(s.reads).toEqual(["a|-|-", "a|-|-"]);
+    expect(s.src.lastStamp()).toBe("a|-|-");
+  });
+
+  it("reads a new change at once even while a retry waits", async () => {
+    const s = source(["a|-|-"], ["fails", "settled"]);
+    const schedule = new LiveSchedule(s.src);
+    await schedule.check();
+    s.setStamps(["b|-|-"]);
+    await schedule.check();
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
+    await vi.advanceTimersByTimeAsync(LIVE_RETRY_MS * 4);
+    expect(s.reads).toEqual(["a|-|-", "b|-|-"]);
   });
 
   it("does nothing once closed", async () => {
-    const s = source(["a"]);
-    const schedule = new LiveSchedule(s.src, 2000);
+    const s = source(["a|-|-"], ["fails"]);
+    const schedule = new LiveSchedule(s.src);
+    await schedule.check();
     schedule.touched();
     schedule.close();
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(60_000);
     await schedule.check();
-    expect(s.reads).toEqual([]);
+    expect(s.reads).toEqual(["a|-|-"]);
   });
 
-  it("stamps a source's files by size and modification time", () => {
+  it("stamps a source's files by size and modification time, and tells a journal-only change", () => {
     expect(filesStamp([null, { size: 3, mtimeMs: 1 }])).toBeNull();
     expect(filesStamp([{ size: 4096, mtimeMs: 1000.25 }, null, { size: 9, mtimeMs: 2000 }])).toBe("4096:1000.25|-|9:2000");
+    expect(liveChange(null, "a|-|-")).toBe("none");
+    expect(liveChange("a|-|-", "a|-|-")).toBe("none");
+    expect(liveChange("a|-|-", null)).toBe("read");
+    expect(liveChange("a|-|9:2", "a|-|0:1")).toBe("journal");
+    expect(liveChange("a|-|-", "a|-|0:1")).toBe("journal");
+    expect(liveChange("b|-|0:1", "a|-|0:1")).toBe("read");
+    // Firefox's commits are in its write-ahead log.
+    expect(liveChange("a|512:3|-", "a|256:2|-")).toBe("read");
+    expect(sameDatabaseFile("a|1:1|-", "a|2:2|9:9")).toBe(true);
+    expect(sameDatabaseFile("a|-|-", "b|-|-")).toBe(false);
+    expect(sameDatabaseFile("a|-|-", null)).toBe(false);
   });
 });
 
@@ -252,7 +395,15 @@ describe("live history from fake Chrome and Firefox profiles", () => {
   let store: LiveHistoryStore;
   let service: LiveHistoryService;
   let runtime: ProfileRuntime;
-  let focus: ((win: { profile: ProfileRuntime }) => void) | null = null;
+  let focus: ((win: { profile: ProfileRuntime; isPrivate?: boolean }) => void) | null = null;
+  const hasUrl = (url: string): boolean => history.all().some((e) => e.url === url);
+  const statusOf = async (key: string) => (await service.view(runtime)).sources.find((s) => s.key === key)?.status;
+  /** attach() reads a moment after a profile loads: waits for that first look. */
+  const attached = async (): Promise<void> => {
+    service.attach(runtime, 0);
+    await new Promise((r) => setTimeout(r, 20));
+    await service.check(runtime);
+  };
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-live-test-"));
@@ -265,7 +416,8 @@ describe("live history from fake Chrome and Firefox profiles", () => {
     const ctx = {
       browserImport,
       profiles: { loaded: () => [runtime] },
-      windows: { onFocus: (l: typeof focus) => ((focus = l), () => undefined) },
+      windows: { onFocus: (l: typeof focus) => ((focus = l), () => undefined), inFront: () => null },
+      browserIcons: { icons: async () => ({}) },
     } as unknown as AppContext;
     service = new LiveHistoryService(ctx);
     service.start();
@@ -279,12 +431,77 @@ describe("live history from fake Chrome and Firefox profiles", () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("does nothing while the setting is off", async () => {
+  it("is on by default: follows each browser's default profile and brings its recent pages without a click", async () => {
+    fixtures.chromeVisit("https://example.com/chrome-page", "Seen in Chrome", Date.now() - 60_000);
+    fixtures.firefoxVisit("https://example.org/firefox-page", "Seen in Firefox", Date.now() - 60_000);
+    await attached();
+    expect(history.all().map((e) => [e.url, e.source]).sort()).toEqual([
+      ["https://example.com/chrome-page", "chrome"],
+      ["https://example.org/firefox-page", "firefox"],
+    ]);
+    const view = await service.view(runtime);
+    expect(view).toMatchObject({ enabled: true, byDefault: true });
+    expect(view.sources.map((s) => [s.key, s.followed])).toEqual([
+      ["chrome/Default", true],
+      ["firefox/live1234.default-release", true],
+    ]);
+    // Still the person's choice until they make one: nothing was written but the cursors.
+    expect(store.get()).toMatchObject({ enabled: null, sources: null });
+  });
+
+  it("does nothing while the person has turned it off, and a private window's focus reads nothing", async () => {
+    store.set({ enabled: false });
     fixtures.chromeVisit("https://example.com/off", "Off", Date.now());
+    await attached();
     focus?.({ profile: runtime });
     await service.check(runtime);
     expect(service.copies).toBe(0);
     expect(history.all()).toEqual([]);
+    expect((await service.view(runtime)).byDefault).toBe(false);
+
+    await service.set(runtime, { enabled: true });
+    fixtures.chromeVisit("https://example.com/private", "Seen while a private window had focus", Date.now());
+    const copies = service.copies;
+    focus?.({ profile: runtime, isPrivate: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(service.copies).toBe(copies);
+    expect(hasUrl("https://example.com/private")).toBe(false);
+  });
+
+  it("reads a visit once a running Chrome commits it, and never a half-written commit", async () => {
+    await service.set(runtime, { enabled: true, sources: ["chrome/Default"] });
+    const chrome = openChromeWriter(fixtures.chromeHistory);
+    try {
+      // Not saved yet: the open transaction only fills the journal, which is not even copied.
+      chrome.visit("https://example.com/running/one", "Opened while Chrome runs", Date.now());
+      let copies = service.copies;
+      await service.fresh(runtime);
+      expect(hasUrl("https://example.com/running/one")).toBe(false);
+      expect(service.copies).toBe(copies);
+
+      // Chrome's commit, ten seconds later: the address bar's look reads it, Chrome still running.
+      chrome.commit();
+      await service.fresh(runtime);
+      expect(hasUrl("https://example.com/running/one")).toBe(true);
+
+      // A big transaction written into History before its commit: that copy is played back by its journal, so not used.
+      chrome.visit("https://example.com/running/two", "A big commit", Date.now());
+      chrome.spill();
+      expect(fs.readFileSync(`${fixtures.chromeHistory}-journal`).subarray(0, 4).toString("hex")).toBe("d9d505f9");
+      copies = service.copies;
+      const stamp = store.cursor("chrome/Default")?.stamp;
+      await service.check(runtime);
+      expect(service.copies).toBe(copies + 1);
+      expect(hasUrl("https://example.com/running/two")).toBe(false);
+      expect(store.cursor("chrome/Default")?.stamp).toBe(stamp);
+      expect((await statusOf("chrome/Default"))?.error).toBeUndefined();
+      chrome.commit();
+      await service.check(runtime);
+      expect(hasUrl("https://example.com/running/two")).toBe(true);
+      expect((await statusOf("chrome/Default"))?.error).toBeUndefined();
+    } finally {
+      chrome.close();
+    }
   });
 
   it("brings each browser's new visits, local only, and forgets them on request", async () => {

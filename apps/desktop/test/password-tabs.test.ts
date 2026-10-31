@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CredentialSummary } from "../src/shared/credentials";
 import type { KeePassEntrySummary } from "../src/shared/keepass-ipc";
-import { initialTab, pageSlice, searchTwoFactor, tabHash, twoFactorItems } from "../src/shared/password-tabs";
+import { deleteChoices, deleteTargetOf, initialDeleteChoice, initialTab, keepassEntryChanged, pageSlice, searchTwoFactor, sortLogins, tabHash, twoFactorItems } from "../src/shared/password-tabs";
 
 const login = (id: string, origin: string, username: string, extra: Partial<CredentialSummary> = {}): CredentialSummary => ({
   id,
@@ -89,5 +89,59 @@ describe("twoFactorItems and searchTwoFactor", () => {
     expect(searchTwoFactor(items, "personal").map((i) => i.id)).toEqual(["k1"]);
     expect(searchTwoFactor(items, "  ")).toHaveLength(5);
     expect(searchTwoFactor(items, "missing")).toEqual([]);
+  });
+});
+
+describe("deleting a login", () => {
+  it("offers Remove the 2FA only only for a login that keeps a password", () => {
+    expect(deleteChoices({ hasPassword: true, hasTotp: true })).toEqual(["totp", "login"]);
+    expect(deleteChoices({ hasPassword: false, hasTotp: true })).toEqual(["login"]);
+    expect(deleteChoices({ hasPassword: true, hasTotp: false })).toEqual(["login"]);
+  });
+
+  it("starts on what the row is about: the 2FA in the 2FA codes tab, the login in the Passwords tab", () => {
+    expect(initialDeleteChoice({ hasPassword: true, hasTotp: true }, "2fa")).toBe("totp");
+    expect(initialDeleteChoice({ hasPassword: true, hasTotp: true }, "passwords")).toBe("login");
+    expect(initialDeleteChoice({ hasPassword: false, hasTotp: true }, "2fa")).toBe("login");
+  });
+
+  it("names the login the same way from either tab", () => {
+    const vault = login("c1", "https://mail.example.com", "alice@example.com", { hasPassword: false });
+    const kp = entry("kp:db:u1", "", "bob", { title: "Example Bank" });
+    const items = twoFactorItems([vault], [kp]);
+    expect(deleteTargetOf.login(vault)).toEqual({ id: "c1", source: "corvus", sourceName: "", site: "mail.example.com", username: "alice@example.com", hasPassword: false, hasTotp: true });
+    expect(deleteTargetOf.twoFactor(items.find((i) => i.source === "corvus")!)).toEqual(deleteTargetOf.login(vault));
+    expect(deleteTargetOf.keepass(kp)).toEqual({ id: "kp:db:u1", source: "keepass", sourceName: "Work", site: "Example Bank", username: "bob", hasPassword: true, hasTotp: true });
+    expect(deleteTargetOf.twoFactor(items.find((i) => i.source === "keepass")!)).toEqual(deleteTargetOf.keepass(kp));
+  });
+});
+
+describe("sortLogins", () => {
+  it("lists the saved logins by site (www. aside), then username, as the table's columns read", () => {
+    const list = [
+      login("1", "https://www.zeta.example.com", "amy"),
+      login("2", "https://alpha.example.org", "zoe"),
+      login("3", "https://alpha.example.org", "Bob"),
+      login("4", "https://mid.example.net", ""),
+    ];
+    expect(sortLogins(list).map((c) => c.id)).toEqual(["3", "2", "4", "1"]);
+    expect(list.map((c) => c.id)).toEqual(["1", "2", "3", "4"]);
+  });
+});
+
+describe("keepassEntryChanged", () => {
+  const loaded = { title: "Example", username: "alice", url: "https://example.com", notes: "n", group: "Work" };
+
+  it("is false when only what lives outside the file could have changed (the AI options)", () => {
+    expect(keepassEntryChanged(loaded, { ...loaded }, "", "")).toBe(false);
+    expect(keepassEntryChanged(loaded, { ...loaded }, "", "   ")).toBe(false);
+  });
+
+  it("is true for any field of the entry, a new password or a new 2FA", () => {
+    for (const patch of [{ title: "x" }, { username: "x" }, { url: "x" }, { notes: "x" }, { group: "x" }]) {
+      expect(keepassEntryChanged(loaded, { ...loaded, ...patch }, "", "")).toBe(true);
+    }
+    expect(keepassEntryChanged(loaded, { ...loaded }, "new-pass", "")).toBe(true);
+    expect(keepassEntryChanged(loaded, { ...loaded }, "", "JBSWY3DPEHPK3PXP")).toBe(true);
   });
 });

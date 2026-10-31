@@ -102,6 +102,7 @@ function HistoryPage() {
   const [query, setQuery] = useState("");
   const [entries, setEntries] = useState<HistoryRecord[]>([]);
   const [total, setTotal] = useState(0);
+  const [icons, setIcons] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [clearing, setClearing] = useState(false);
 
@@ -110,6 +111,7 @@ function HistoryPage() {
       void api.call("history.query", q, offset, PAGE_SIZE).then((res) => {
         setEntries((prev) => (offset === 0 ? res.entries : [...prev, ...res.entries]));
         setTotal(res.total);
+        setIcons((prev) => ({ ...prev, ...res.sourceIcons }));
       });
     },
     [api],
@@ -212,7 +214,7 @@ function HistoryPage() {
                         {e.source && (
                           <span className="history-source">
                             {" · "}
-                            <SourceBadge source={e.source} size={12} /> {t("From {browser}", { browser: liveSourceName(e.source) })}
+                            <SourceBadge source={e.source} size={12} icon={icons[e.source]} /> {t("From {browser}", { browser: liveSourceName(e.source) })}
                           </span>
                         )}
                       </div>

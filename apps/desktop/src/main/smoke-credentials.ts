@@ -10,6 +10,8 @@ import { totpCode, type TotpConfig } from "../shared/totp";
 import type { AppContext } from "./context";
 import { decodeTotpQrFile, exportVaultToKdbx } from "./ipc-credentials";
 import { windowShot } from "./smoke-cert-errors";
+import { runTotpEditSmoke } from "./smoke-totp-edit";
+import { runPasswordTablesSmoke } from "./smoke-password-tables";
 import { createKdbx, openKdbx } from "./keepass-format";
 import { AI_REDACTED_BODY } from "@corvus/webscope";
 import type { BrowserWindowCtl } from "./window";
@@ -242,14 +244,14 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   const page = win.createTab("corvus://passwords");
   await delay(1400);
   const shown = await page.view.webContents.executeJavaScript(
-    `Boolean(window.corvusInternal) && document.querySelector(".list-row") && document.body.innerText.includes("alice")`,
+    `Boolean(window.corvusInternal) && document.querySelector(".pw-list .pt-row") && document.body.innerText.includes("alice")`,
   );
   check("corvus://passwords lists saved logins", shown === true, shown);
   const liveCode = String(await page.view.webContents.executeJavaScript(`document.querySelector(".pw-totp-code")?.textContent ?? ""`)).replace(/\s/g, "");
   const warned = await page.view.webContents.executeJavaScript(`document.body.innerText.includes("turns two factors into one")`);
   check("corvus://passwords shows the live 2FA code and the warning", (await nearbyCodes()).includes(liveCode) && warned === true, { warned, length: liveCode.length });
   const ring = await page.view.webContents.executeJavaScript(
-    `(() => { const r = document.querySelector(".pw-totp .tf-ring")?.getBoundingClientRect(); return { ring: r ? r.width : 0, secs: document.querySelector(".pw-totp .tf-secs")?.textContent ?? "" }; })()`,
+    `(() => { const r = document.querySelector(".pw-list .pt-code .tf-ring")?.getBoundingClientRect(); return { ring: r ? r.width : 0, secs: document.querySelector(".pw-list .pt-code .tf-secs")?.textContent ?? "" }; })()`,
   );
   check("corvus://passwords shows each 2FA code's countdown ring, as the 2FA codes tab does", ring.ring >= 16 && /^\d+$/.test(ring.secs), ring);
   await capture("passwords", page.view.webContents);
@@ -259,6 +261,8 @@ export async function runCredentialsSmoke(ctx: AppContext, { url, win, check, ca
   if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await agentTotpSmoke(ctx, base, vaultTarget, { url, win, check, capture });
   await autoSignInSmoke(ctx, base, seeded.id, { url, win, check, capture });
   await keepassSmoke(ctx, base, { url, win, check, capture });
+  await runTotpEditSmoke(ctx, { win, check, capture });
+  await runPasswordTablesSmoke(ctx, { url, win, check, capture });
   await runSavePromptSmoke(ctx, { url, win, check, capture });
 }
 

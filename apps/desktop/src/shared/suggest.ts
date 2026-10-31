@@ -11,6 +11,8 @@ export interface Suggestion {
   detail?: string;
   /** The browser a history page is only known from ("chrome"), read live from its history. */
   source?: string;
+  /** That browser's own icon on this computer (a PNG data URL); without it, its letter mark shows. */
+  sourceIcon?: string;
 }
 
 const DAY = 86_400_000;

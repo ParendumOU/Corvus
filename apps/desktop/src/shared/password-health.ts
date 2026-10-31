@@ -92,3 +92,9 @@ export function checkupSummary(items: readonly PasswordHealth[]): { breached: nu
     weak: items.filter((i) => i.weak).length,
   };
 }
+
+/** Logins with the most breached passwords first; the others keep their order. */
+export function sortByBreaches<T extends { id: string }>(items: readonly T[], health: ReadonlyMap<string, PasswordHealth>): T[] {
+  const breaches = (id: string): number => health.get(id)?.breaches ?? 0;
+  return [...items].sort((a, b) => breaches(b.id) - breaches(a.id));
+}

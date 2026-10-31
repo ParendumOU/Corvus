@@ -10,6 +10,7 @@
  * agent's page snapshot never reports their value; agent fills also mask them on screen.
  */
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
+import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 
 /** Separate from the agent (1717), reader (1721) and assist worlds. */
 export const AUTOFILL_WORLD_ID = 1723;
@@ -138,7 +139,29 @@ const SET_VALUE = `
   };
 `;
 
-const PRELUDE = `${IS_VISIBLE}${FIND_OTP}${FIND_LOGIN}${SET_VALUE}`;
+/**
+ * The password field under the dropdown (`box`, the click's box in the page's viewport): the focused
+ * one, since the dropdown leaves the keyboard in the field, else the one at the box's middle. With its
+ * form's password fields and the part of each (see shared/password-fields.ts).
+ */
+const PASSWORD_FIELD = `
+  const passwordFieldFacts = ${String(passwordFieldFacts)};
+  const passwordRoles = ${String(passwordRoles)};
+  const isPasswordInput = (el) => Boolean(el) && el.tagName === "INPUT" && typeOf(el) === "password";
+  const fieldAt = (box) => {
+    const active = document.activeElement;
+    if (isPasswordInput(active)) return active;
+    const el = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return isPasswordInput(el) ? el : null;
+  };
+  const passwordFieldsOf = (anchor) => {
+    const fields = Array.prototype.slice.call((anchor.form || document).querySelectorAll("input[type=password]"))
+      .filter((el) => el === anchor || (!el.disabled && !el.readOnly && isVisible(el) && !isOtpField(el)));
+    return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
+  };
+`;
+
+const PRELUDE = `${IS_VISIBLE}${FIND_OTP}${FIND_LOGIN}${SET_VALUE}${PASSWORD_FIELD}`;
 
 const findRef = (ref: string): string =>
   `document.querySelector('[data-corvus-ref="' + ${JSON.stringify(ref)}.replace(/["\\\\]/g, "") + '"]')`;
@@ -243,5 +266,39 @@ export function fillLoginByRefScript(ref: string | null, username: string, passw
   const filledUser = Boolean(user && name);
   if (!filledUser && !pass) return { ok: false, reason: "no-form" };
   return { ok: true, user: filledUser, pass: Boolean(pass) };
+})()`;
+}
+
+/** What a generated password's fill wrote: how many fields, and the username next to them (to offer saving). */
+export interface GeneratedFill {
+  filled: number;
+  username: string;
+}
+
+/**
+ * Fills a generated password (the person's Use in the dropdown) into the form of the password field at
+ * `box`: its new password and every confirmation, never its current password. A lone password field
+ * gets it itself. The fields are marked secret, so agents' snapshots never report it.
+ */
+export function fillGeneratedScript(password: string, box: { x: number; y: number; width: number; height: number }): string {
+  return `(() => {${PRELUDE}
+  const anchor = fieldAt(${JSON.stringify(box)});
+  if (!anchor) return { filled: 0, username: "" };
+  const { fields, roles } = passwordFieldsOf(anchor);
+  const targets = fields.length === 1 ? fields : fields.filter((el, i) => roles[i] === "new" || roles[i] === "confirm");
+  for (const el of targets) {
+    setValue(el, ${JSON.stringify(password)});
+    markSecret(el, false);
+  }
+  const user = targets.length ? userFor(targets[0]) : null;
+  return { filled: targets.length, username: user ? String(user.value || "") : "" };
+})()`;
+}
+
+/** What the password field at `box` holds ("Copy password", the person's click only), or null when it holds nothing. */
+export function readPasswordFieldScript(box: { x: number; y: number; width: number; height: number }): string {
+  return `(() => {${PRELUDE}
+  const el = fieldAt(${JSON.stringify(box)});
+  return el && el.value ? String(el.value) : null;
 })()`;
 }

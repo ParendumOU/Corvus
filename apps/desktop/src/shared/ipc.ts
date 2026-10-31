@@ -500,7 +500,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "bookmarks.update"(id: string, patch: { title?: string; url?: string }): void;
   "bookmarks.move"(id: string, parentId: string, index?: number): void;
   "bookmarks.remove"(id: string): void;
-  "history.query"(query: string, offset: number, limit: number): { entries: HistoryRecord[]; total: number };
+  /** A page of the history, with the own icons of the browsers some of its pages come from (by mark, PNG data URLs). */
+  "history.query"(query: string, offset: number, limit: number): { entries: HistoryRecord[]; total: number; sourceIcons: Record<string, string> };
   "history.remove"(ids: string[]): void;
   "history.clear"(): void;
   /** How many entries "Clear history" would remove with this filter. */
@@ -679,6 +680,8 @@ export type InternalEvent =
   | { type: "credentials-changed" }
   | { type: "keepass-changed" }
   | { type: "annotations-changed" }
+  /** What a profile reads live from the other browsers changed (Settings shows it again). */
+  | { type: "live-history-changed" }
   | BrowserInternalEvent
   | WatchInternalEvent
   | ScheduleInternalEvent

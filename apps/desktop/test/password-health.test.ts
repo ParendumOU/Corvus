@@ -5,7 +5,7 @@ vi.mock("electron", () => ({ net: { fetch: async () => new Response("") } }));
 
 import { PasswordCheckupService } from "../src/main/password-checkup";
 import type { ProfileRuntime } from "../src/main/profiles";
-import { breachCount, checkupSummary, isWeakPassword, reuseCounts } from "../src/shared/password-health";
+import { breachCount, checkupSummary, isWeakPassword, reuseCounts, sortByBreaches } from "../src/shared/password-health";
 
 const sha1 = (s: string): string => createHash("sha1").update(s, "utf8").digest("hex").toUpperCase();
 
@@ -25,6 +25,15 @@ describe("password health rules", () => {
     for (const weak of ["abc12", "password123", "Password1!", "qwerty2024", "aaaaaaaaaaaa", "12345678", "abcdefgh", "87654321", "zxcvbnmq"])
       expect(isWeakPassword(weak), weak).toBe(true);
     for (const strong of ["Tr0ub4dor&3xyzzy!", "correct horse battery staple", "k9#Lm2$pQ8vR", "x8Fq2LmN0pZ7"]) expect(isWeakPassword(strong), strong).toBe(false);
+  });
+
+  it("sorts logins by breach count, keeping the order of the rest", () => {
+    const health = new Map([
+      ["b", { id: "b", breaches: 2, reusedWith: 0, weak: false }],
+      ["d", { id: "d", breaches: 40, reusedWith: 0, weak: false }],
+      ["c", { id: "c", breaches: null, reusedWith: 0, weak: true }],
+    ]);
+    expect(sortByBreaches([{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }, { id: "e" }], health).map((i) => i.id)).toEqual(["d", "b", "a", "c", "e"]);
   });
 
   it("counts reuse across logins, never for empty passwords", () => {

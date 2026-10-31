@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { Menu, app, nativeTheme, safeStorage, session } from "electron";
+import { Menu, app, nativeImage, nativeTheme, safeStorage, session } from "electron";
 import { ElectronChromeExtensions } from "electron-chrome-extensions";
 import { AdblockService } from "./adblock";
 import { CleanExitTracker } from "./clean-exit";
@@ -30,6 +30,7 @@ import { BackupReminder } from "./backup-reminder";
 import { DefaultBrowser } from "./default-browser";
 import { DownloadManager } from "./downloads";
 import { DownloadQueue } from "./download-queue";
+import { BrowserIcons } from "./browser-icons";
 import { BrowserImport } from "./browser-import";
 import { LiveHistoryService } from "./live-history";
 import { LinkGrabber } from "./link-grabber";
@@ -259,6 +260,21 @@ async function main(): Promise<void> {
   ctx.grabber = new LinkGrabber(ctx);
   ctx.queue = new DownloadQueue(ctx);
   ctx.browserImport = new BrowserImport();
+  ctx.browserIcons = new BrowserIcons(
+    () => ({ ...ctx.browserImport.dataRoots(), programFiles: [...new Set([process.env.ProgramW6432, process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter((d): d is string => !!d))] }),
+    {
+      // 32 px, shown at about 14: sharp on high-density screens too.
+      program: async (file) => {
+        const image = await app.getFileIcon(file, { size: "normal" });
+        return image.isEmpty() ? null : image.toDataURL();
+      },
+      image: async (file) => {
+        const image = nativeImage.createFromPath(file);
+        if (image.isEmpty()) return null;
+        return (image.getSize().width > 32 ? image.resize({ width: 32, height: 32, quality: "best" }) : image).toDataURL();
+      },
+    },
+  );
   ctx.liveHistory = new LiveHistoryService(ctx);
   ctx.defaultBrowser = new DefaultBrowser(ctx);
   ctx.backupReminder = new BackupReminder(ctx);
@@ -300,6 +316,9 @@ async function main(): Promise<void> {
   profiles.onCreated((runtime) => ctx.flows.attach(runtime));
   profiles.onCreated((runtime) => ctx.keepass.attach(runtime));
   profiles.onCreated((runtime) => ctx.liveHistory.attach(runtime));
+  ctx.liveHistory.onChange((runtime) => {
+    for (const win of ctx.windows.forProfile(runtime.profile.id)) win.notifyInternalPages({ type: "live-history-changed" }, ["settings"]);
+  });
   profiles.onCreated((runtime) =>
     runtime.agentRuns.onChange(() => {
       for (const win of ctx.windows.forProfile(runtime.profile.id)) win.notifyInternalPages({ type: "agent-runs-changed" }, ["agent-runs"]);
@@ -379,7 +398,7 @@ async function main(): Promise<void> {
   ctx.telegram.start();
   ctx.grabber.start();
   ctx.tabSleeper.start();
-  ctx.liveHistory.start();
+  ctx.liveHistory.start({ announce: !automated });
   ctx.updater.startupCheck();
 
   // The smoke test and the marketing capture are chunks of their own: normal starts never load them.

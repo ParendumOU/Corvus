@@ -9,6 +9,8 @@ import { BrowserWindowCtl, type TabRuntime } from "./window";
 export class WindowManager implements PermissionHost {
   private windows: BrowserWindowCtl[] = [];
   private lastFocused: BrowserWindowCtl | null = null;
+  /** The window that has the system's focus now (null while another app has it). */
+  private front: BrowserWindowCtl | null = null;
   private readonly focusListeners = new Set<(win: BrowserWindowCtl) => void>();
 
   constructor(private readonly ctx: AppContext) {}
@@ -81,7 +83,17 @@ export class WindowManager implements PermissionHost {
 
   noteFocus(win: BrowserWindowCtl): void {
     this.lastFocused = win;
+    this.front = win;
     for (const listener of this.focusListeners) listener(win);
+  }
+
+  noteBlur(win: BrowserWindowCtl): void {
+    if (this.front === win) this.front = null;
+  }
+
+  /** The Corvus window in front of the other apps, if one is. */
+  inFront(): BrowserWindowCtl | null {
+    return this.front;
   }
 
   /**
@@ -113,6 +125,7 @@ export class WindowManager implements PermissionHost {
       void win.profile.endPrivateSession();
     }
     if (this.lastFocused === win) this.lastFocused = this.windows[this.windows.length - 1] ?? null;
+    if (this.front === win) this.front = null;
     if (this.windows.length === 0 && process.platform !== "darwin") app.quit();
   }
 

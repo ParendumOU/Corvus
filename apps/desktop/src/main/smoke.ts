@@ -36,7 +36,10 @@ import { runSiteMemorySmoke } from "./smoke-site-memory";
 import { runSyncLearnedSmoke } from "./smoke-sync-learned";
 import { runBuiltinSyncSmoke } from "./smoke-builtin-sync";
 import { runCredentialsSmoke, runSavePromptSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
+import { runTotpEditSmoke } from "./smoke-totp-edit";
+import { runPasswordTablesSmoke } from "./smoke-password-tables";
 import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
+import { runPasswordGeneratorSmoke, servePasswordGeneratorSmokeRoute } from "./smoke-pwgen";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { narrowLayout, narrowWindow, runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
@@ -102,6 +105,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveBrowserSmokeRoute(req, res)) return;
     if (serveCredentialsSmokeRoute(req, res)) return;
     if (serveOtpFillSmokeRoute(req, res)) return;
+    if (servePasswordGeneratorSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
     if (serveMediaSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
@@ -233,9 +237,24 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=2faedit: only Edit and Delete in the 2FA codes tab (two-step delete, blurred secret fields), EN and ES.
+    if (process.env.CORVUS_SMOKE_ONLY === "2faedit") {
+      await runTotpEditSmoke(ctx, { win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=tables: only the layout of the three lists of corvus://passwords (logins, KeePass, 2FA codes), EN and ES, 480 to 1280 px, light and dark.
+    if (process.env.CORVUS_SMOKE_ONLY === "tables") {
+      await runPasswordTablesSmoke(ctx, { url, win, check, capture }, true);
+      return;
+    }
     // CORVUS_SMOKE_ONLY=otpfill: only the checks of filling the 2FA code with the login (field menus, key panel).
     if (process.env.CORVUS_SMOKE_ONLY === "otpfill") {
       await runOtpFillSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=pwgen: only the checks of the strong password generator under password fields (with screenshots).
+    if (process.env.CORVUS_SMOKE_ONLY === "pwgen") {
+      await runPasswordGeneratorSmoke(ctx, { url, win, check });
       return;
     }
     // CORVUS_SMOKE_ONLY=backup: only the backup reminder and Back up now checks.
@@ -355,6 +374,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runCredentialsSmoke(ctx, { url, win, check, capture });
     await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
     await runOtpFillSmoke(ctx, { url, win, check, capture });
+    await runPasswordGeneratorSmoke(ctx, { url, win, check });
     await runBackupSmoke(ctx, { win, check, capture });
     await runAnnotationsSmoke(ctx, { url, win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });

@@ -17,12 +17,13 @@ import {
   type TotpQrImport,
 } from "../shared/credentials-ipc";
 import type { InternalPage } from "../shared/internal-urls";
-import type { KeePassExportResult, KeePassEntryInput, KeePassRpc, KeePassState } from "../shared/keepass-ipc";
+import type { KeePassExportResult, KeePassRpc, KeePassState } from "../shared/keepass-ipc";
+import { parsePasswordFieldClick } from "../shared/password-rules";
 import { buildOtpauthUri, parseTotpInput, totpCode, type TotpConfig } from "../shared/totp";
 import { addPhotos, applyAuthenticatorImport, authenticatorPreview, discardAuthenticatorImport, pickPhotos, readAuthenticatorPhoto, type ImportLogins } from "./authenticator-import";
 import type { AppContext } from "./context";
 import type { CredentialPatch } from "./credential-store";
-import { createKdbx, vaultExportEntries } from "./keepass-format";
+import { createKdbx, vaultExportEntries, type EntryInput } from "./keepass-format";
 import type { ProfileRuntime } from "./profiles";
 import { decodeQrBitmap, totpFromQrText } from "./qr-decode";
 import type { BrowserWindowCtl } from "./window";
@@ -314,23 +315,27 @@ function parseFieldClick(raw: unknown): FieldClick | null {
   const v = raw as Record<string, unknown>;
   const num = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= MAX_COORD;
   if ((v.kind !== "login" && v.kind !== "otp") || !num(v.x) || !num(v.y) || !num(v.width) || !num(v.height)) return null;
-  return { kind: v.kind, x: v.x, y: v.y, width: v.width, height: v.height };
+  const password = v.kind === "login" ? parsePasswordFieldClick(v.password) : null;
+  return { kind: v.kind, x: v.x, y: v.y, width: v.width, height: v.height, ...(password ? { password } : {}) };
 }
 
 // ------------------------------------------------------------------------- KeePass
 
 /** An entry from the passwords page: known fields only, with their types and sizes checked. */
-function keepassInput(value: unknown): KeePassEntryInput {
+function keepassInput(value: unknown): EntryInput {
   const v = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
   const field = (name: string, max: number): string => (typeof v[name] === "string" ? (v[name] as string).slice(0, max) : "");
   const title = field("title", 500).trim();
   if (!title) throw new Error(tr("Give the entry a title."));
+  // An empty 2FA field keeps the entry's 2FA (removing it is its own call, keepass.removeTotp).
+  const totp = typeof v.totp === "string" && v.totp.trim() ? totpField(v.totp) : undefined;
   return {
     ...(typeof v.uuid === "string" && /^[A-Za-z0-9+/=_-]{8,64}$/.test(v.uuid) ? { uuid: v.uuid } : {}),
     group: field("group", 1000),
     title,
     username: field("username", 500),
     ...(typeof v.password === "string" ? { password: v.password.slice(0, 4096) } : {}),
+    ...(totp ? { totp } : {}),
     url: field("url", 4096).trim(),
     notes: field("notes", 20_000),
   };
@@ -348,6 +353,8 @@ export const KEEPASS_INTERNAL_PERMISSIONS: Record<keyof KeePassRpc, readonly Int
   "keepass.groups": ["passwords"],
   "keepass.details": ["passwords"],
   "keepass.saveEntry": ["passwords"],
+  "keepass.deleteEntry": ["passwords"],
+  "keepass.removeTotp": ["passwords"],
   "keepass.reveal": ["passwords"],
   "keepass.copyPassword": ["passwords"],
   "keepass.totpCode": ["passwords"],
@@ -431,6 +438,8 @@ export function keepassInternalHandlers(ctx: AppContext): InternalHandlers<KeePa
     "keepass.groups": (c, dbId) => c.profile.keepass.groups(str(dbId, "database", 64)),
     "keepass.details": (c, id) => c.profile.keepass.details(str(id, "entry", 256)),
     "keepass.saveEntry": (c, dbId, input) => c.profile.keepass.saveEntry(str(dbId, "database", 64), keepassInput(input)),
+    "keepass.deleteEntry": (c, id) => c.profile.keepass.deleteEntry(entry(c, id).id),
+    "keepass.removeTotp": (c, id) => c.profile.keepass.removeTotp(entry(c, id).id),
     "keepass.reveal": (c, id) => entry(c, id).password,
     "keepass.copyPassword": (c, id) => clipboard.writeText(entry(c, id).password),
     "keepass.totpCode": async (c, id) => {

@@ -166,8 +166,14 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "groups.close": (w, id) => w.closeGroup(str(id, "group")),
     "groups.move": (w, id, toIndex) => w.moveGroup(str(id, "group"), num(toIndex, "index")),
     "groups.newTab": (w, id) => w.newTabInGroup(str(id, "group")),
-    "omnibox.suggest": (w, input) =>
-      buildSuggestions(str(input, "input", 2048), w.profile.history.all(), w.profile.bookmarks.list(), Date.now(), w.profile.siteSearch.list()),
+    "omnibox.suggest": async (w, input) => {
+      const text = str(input, "input", 2048);
+      // Pages just visited in the browsers Corvus follows come in first (never for a private window).
+      if (!w.isPrivate) await ctx.liveHistory.fresh(w.profile);
+      const list = buildSuggestions(text, w.profile.history.all(), w.profile.bookmarks.list(), Date.now(), w.profile.siteSearch.list());
+      const icons = await ctx.browserIcons.icons(list.flatMap((s) => (s.source ? [s.source] : [])));
+      return list.map((s) => (s.source && icons[s.source] ? { ...s, sourceIcon: icons[s.source] } : s));
+    },
     "bookmarks.toggleActive": (w) => w.toggleBookmark(),
     "translate.toggle": (w) => ctx.translate.toggle(w),
     "bookmarks.addToBar": (w, url, title, index) => {
@@ -498,8 +504,11 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "bookmarks.move": (c, id, parentId, index) =>
       c.profile.bookmarks.move(str(id, "id"), str(parentId, "parent"), index === undefined ? undefined : num(index, "index")),
     "bookmarks.remove": (c, id) => c.profile.bookmarks.remove(str(id, "id")),
-    "history.query": (c, q, offset, limit) =>
-      c.profile.history.query(str(q, "query", 512), Math.max(0, num(offset, "offset")), Math.min(500, Math.max(1, num(limit, "limit")))),
+    "history.query": async (c, q, offset, limit) => {
+      const page = c.profile.history.query(str(q, "query", 512), Math.max(0, num(offset, "offset")), Math.min(500, Math.max(1, num(limit, "limit"))));
+      // The own icons of the browsers some of these pages come from.
+      return { ...page, sourceIcons: await ctx.browserIcons.icons(page.entries.flatMap((e) => (e.source ? [e.source] : []))) };
+    },
     "history.remove": (c, ids) => c.profile.history.remove(strArray(ids, "ids")),
     "history.clear": (c) => c.profile.history.clear(),
     "history.countMatching": (c, filter) => c.profile.history.countMatching(historyFilter(filter)),
@@ -943,7 +952,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const p = (typeof patch === "object" && patch !== null ? patch : {}) as Record<string, unknown>;
       return ctx.liveHistory.set(c.profile, {
         ...(typeof p.enabled === "boolean" ? { enabled: p.enabled } : {}),
-        ...(p.sources !== undefined ? { sources: strArray(p.sources, "sources").map((s) => str(s, "source", 1100)) } : {}),
+        ...(p.sources === null ? { sources: null } : p.sources !== undefined ? { sources: strArray(p.sources, "sources").map((s) => str(s, "source", 1100)) } : {}),
       });
     },
     "liveHistory.forget": (c, mark) => ctx.liveHistory.forget(c.profile, str(mark, "browser", 64)),

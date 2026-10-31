@@ -16,6 +16,7 @@ import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
 import type { BackupReminder } from "./backup-reminder";
 import type { DefaultBrowser } from "./default-browser";
+import type { BrowserIcons } from "./browser-icons";
 import type { BrowserImport } from "./browser-import";
 import type { LiveHistoryService } from "./live-history";
 import type { DownloadQueue } from "./download-queue";
@@ -78,6 +79,8 @@ export interface AppContext {
   queue: DownloadQueue;
   /** Bookmarks and history from the other browsers installed here. */
   browserImport: BrowserImport;
+  /** The other browsers' own icons, for the mark of the pages that come from them. */
+  browserIcons: BrowserIcons;
   /** History read live from the other browsers a profile follows (local only). */
   liveHistory: LiveHistoryService;
   sessionRestore: SessionRestore;

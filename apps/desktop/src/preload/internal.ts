@@ -5,6 +5,8 @@ import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, 
 import { ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
 import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
+import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
+import { probePattern, type PasswordFieldClick } from "../shared/password-rules";
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
 import { INTERNAL_EVENT, INTERNAL_RPC, type InternalBridge, type InternalEvent } from "../shared/ipc";
 
@@ -35,11 +37,26 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const hint = `${el.name || ""} ${el.id || ""} ${el.getAttribute("autocomplete") || ""} ${el.getAttribute("type") || ""}`.toLowerCase();
     return /email|user|login|account|phone|tel/.test(hint);
   };
+  // The password fields of a form that matter (the one at hand always does) and the part of each:
+  // current password, new one or confirmation, as the autofill scripts decide (shared/password-fields.ts).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const passwordFieldsOf = (scope: any, anchor: unknown): { fields: any[]; roles: string[] } => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fields = Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).filter((el: any) => {
+      if (el === anchor) return true;
+      const r = el.getBoundingClientRect();
+      const s = document.defaultView.getComputedStyle(el);
+      return !el.disabled && !el.readOnly && r.width >= 1 && r.height >= 1 && s.visibility !== "hidden" && s.display !== "none" && !isOtpFacts(otpFieldFacts(el));
+    });
+    return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const captureFrom = (scope: any): void => {
     try {
-      const passwords = Array.prototype.slice.call(scope.querySelectorAll("input[type=password]"));
-      const pass = passwords.find((p: any) => p.value);
+      // A sign-up or change form sets its new password (never its current one); a sign-in, its only one.
+      const { fields: passwords, roles } = passwordFieldsOf(scope, null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pass = passwords.find((p: any, i: number) => p.value && roles[i] === "new") || Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).find((p: any) => p.value);
       if (!pass) return;
       const fields = Array.prototype.slice
         .call((pass.form || scope).querySelectorAll("input[type=text], input[type=email], input[type=tel], input:not([type])"))
@@ -79,12 +96,40 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     if (!TEXT_TYPES.includes(type)) return null;
     return type === "password" || (el.form || document).querySelector("input[type=password]") ? "login" : null;
   };
+  // A password field: its part in its form, whether it holds something (never what) and what it takes.
+  // Its pattern is probed here, with the page's own pattern matching (on a detached copy of the field),
+  // so a pattern that takes ages to match only slows this page.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const passwordFacts = (el: any): PasswordFieldClick => {
+    const { fields, roles } = passwordFieldsOf(el.form || document, el);
+    let pattern: PasswordFieldClick["rules"]["pattern"] = null;
+    if (el.getAttribute("pattern")) {
+      const probe = document.createElement("input");
+      probe.setAttribute("pattern", el.getAttribute("pattern"));
+      pattern = probePattern((value) => {
+        probe.value = value;
+        return !probe.validity.patternMismatch;
+      }) ?? "none";
+    }
+    return {
+      role: (roles[fields.indexOf(el)] ?? "current") as PasswordFieldClick["role"],
+      fields: fields.length,
+      filled: Boolean(el.value),
+      rules: {
+        minLength: el.minLength > 0 ? el.minLength : 0,
+        maxLength: el.maxLength > 0 ? el.maxLength : 0,
+        numeric: ["numeric", "decimal", "tel"].includes(String(el.getAttribute("inputmode") || "").toLowerCase()),
+        pattern,
+      },
+    };
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const report = (el: any): void => {
     const kind = fieldKind(el);
     if (!kind) return;
     const r = el.getBoundingClientRect();
-    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height });
+    const password = kind === "login" && String(el.getAttribute("type") || "").toLowerCase() === "password" ? passwordFacts(el) : undefined;
+    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height, password });
   };
   document.addEventListener(
     "click",

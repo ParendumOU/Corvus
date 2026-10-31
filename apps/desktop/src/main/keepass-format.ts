@@ -2,9 +2,10 @@
  * KDBX 3.1 and 4 reading and writing through kdbxweb (MIT), with Argon2d/Argon2id from hash-wasm
  * (MIT, WebAssembly, no native build). Both load lazily, so they cost nothing until KeePass is used.
  *
- * Corvus writes to a person's database only to add or edit an entry they asked for on the passwords
- * page (`saveKdbxEntry`; the store keeps a .bak copy of the file first). `createKdbx` writes a
- * brand-new file for the export of the built-in vault (and builds fixtures in tests).
+ * Corvus writes to a person's database only to add, edit or delete an entry they asked for on the
+ * passwords page (`saveKdbxEntry`, `deleteKdbxEntry`; the store keeps a .bak copy of the file first).
+ * `createKdbx` writes a brand-new file for the export of the built-in vault (and builds fixtures in
+ * tests).
  */
 import type * as Kdbxweb from "kdbxweb";
 import { tr } from "./menu-i18n";
@@ -53,13 +54,15 @@ export interface OpenedDatabase {
   groups: string[];
 }
 
-/** An entry to add (no uuid) or to change (its uuid); a password left out stays as it is. */
+/** An entry to add (no uuid) or to change (its uuid); a password or 2FA left out stays as it is. */
 export interface EntryInput {
   uuid?: string;
   group: string;
   title: string;
   username: string;
   password?: string;
+  /** A new 2FA for the entry; null removes it. */
+  totp?: TotpConfig | null;
   url: string;
   notes: string;
 }
@@ -104,20 +107,22 @@ async function loadDb(kdbxweb: KdbxwebModule, data: Uint8Array, password: string
   }
 }
 
+/** Whether a group is the database's Recycle Bin or inside it (what is there counts as deleted). */
+function inRecycleBin(db: Kdbxweb.Kdbx, group: Kdbxweb.KdbxGroup | undefined): boolean {
+  const recycleBin = db.meta.recycleBinEnabled !== false ? db.meta.recycleBinUuid : undefined;
+  if (!recycleBin || recycleBin.empty) return false;
+  for (let g = group; g; g = g.parentGroup) if (g.uuid.equals(recycleBin)) return true;
+  return false;
+}
+
 /** Decrypts a database and returns its logins (Recycle Bin excluded). */
 export async function openKdbx(data: Uint8Array, password: string, keyFile: Uint8Array | null): Promise<OpenedDatabase> {
   const kdbxweb = await loadKdbxweb();
   const db = await loadDb(kdbxweb, data, password, keyFile);
-  const recycleBin = db.meta.recycleBinEnabled !== false ? db.meta.recycleBinUuid : undefined;
-  const inRecycleBin = (entry: Kdbxweb.KdbxEntry): boolean => {
-    if (!recycleBin || recycleBin.empty) return false;
-    for (let g = entry.parentGroup; g; g = g.parentGroup) if (g.uuid.equals(recycleBin)) return true;
-    return false;
-  };
   const entries: KeePassEntry[] = [];
   for (const root of db.groups) {
     for (const entry of root.allEntries()) {
-      if (inRecycleBin(entry)) continue;
+      if (inRecycleBin(db, entry.parentGroup)) continue;
       const field = (name: string): string => text(entry.fields.get(name));
       const urls = [field("URL"), ...additionalUrlFields(entry.fields.keys()).map(field)].map((u) => u.trim()).filter(Boolean);
       const totp = totpFromFields(field);
@@ -134,15 +139,10 @@ export async function openKdbx(data: Uint8Array, password: string, keyFile: Uint
       });
     }
   }
-  const inRecycleBinGroup = (group: Kdbxweb.KdbxGroup): boolean => {
-    if (!recycleBin || recycleBin.empty) return false;
-    for (let g: Kdbxweb.KdbxGroup | undefined = group; g; g = g.parentGroup) if (g.uuid.equals(recycleBin)) return true;
-    return false;
-  };
   const groups: string[] = [""];
   for (const root of db.groups) {
     for (const group of root.allGroups()) {
-      if (group === root || inRecycleBinGroup(group)) continue;
+      if (group === root || inRecycleBin(db, group)) continue;
       const p = groupPath(group);
       if (p) groups.push(p);
     }
@@ -173,23 +173,65 @@ export async function saveKdbxEntry(data: Uint8Array, password: string, keyFile:
   entry.fields.set("URL", input.url);
   entry.fields.set("Notes", input.notes);
   if (input.password !== undefined) entry.fields.set("Password", kdbxweb.ProtectedValue.fromString(input.password));
+  if (input.totp !== undefined) writeTotp(kdbxweb, entry, input.totp);
   entry.times.update();
   const saved = await db.save();
   return { data: new Uint8Array(saved), uuid: entry.uuid.id };
 }
 
-/** A 2FA for an entry of a database, by the entry's uuid. */
+/**
+ * Opens a database and deletes one entry as KeePass does: into the database's Recycle Bin (made if it
+ * has none yet), or for good when the database has the Recycle Bin turned off. Returns the file to
+ * write and whether the entry went to the Recycle Bin.
+ */
+export async function deleteKdbxEntry(data: Uint8Array, password: string, keyFile: Uint8Array | null, uuid: string): Promise<{ data: Uint8Array; recycled: boolean }> {
+  const kdbxweb = await loadKdbxweb();
+  const db = await loadDb(kdbxweb, data, password, keyFile);
+  const entry = [...db.getDefaultGroup().allEntries()].find((e) => e.uuid.id === uuid && !inRecycleBin(db, e.parentGroup));
+  if (!entry) throw new Error(tr("The entry is no longer in the database."));
+  const recycled = db.meta.recycleBinEnabled !== false;
+  if (recycled) {
+    db.createRecycleBin();
+    db.move(entry, db.getGroup(db.meta.recycleBinUuid!));
+  } else {
+    db.move(entry, null);
+  }
+  return { data: new Uint8Array(await db.save()), recycled };
+}
+
+/** A 2FA for an entry of a database, by the entry's uuid; null removes the entry's 2FA. */
 export interface EntryTotp {
   uuid: string;
-  totp: TotpConfig;
+  totp: TotpConfig | null;
 }
 
 /**
- * Opens a database, gives entries their 2FA (each edit keeps the previous version in the entry's
- * history) and returns the file to write. Written as KeePassXC does, an otpauth:// link in the "otp"
- * field named after the entry's title and username; an entry that also keeps the 2FA in KeePass 2's
- * TimeOtp-* fields or KeePassXC's older "TOTP Seed" pair gets those changed too, so every app that
- * opens it shows the same code.
+ * Gives an entry its 2FA, or removes it (null). Written as KeePassXC does, an otpauth:// link in the
+ * "otp" field named after the entry's title and username; an entry that also keeps the 2FA in KeePass
+ * 2's TimeOtp-* fields or KeePassXC's older "TOTP Seed" pair gets those changed too, so every app that
+ * opens it shows the same code (or none).
+ */
+function writeTotp(kdbxweb: KdbxwebModule, entry: Kdbxweb.KdbxEntry, totp: TotpConfig | null): void {
+  const fields = [...entry.fields.keys()];
+  if (!totp) {
+    for (const f of fields) if (f === "otp" || f === "TOTP Seed" || f === "TOTP Settings" || f.startsWith("TimeOtp-")) entry.fields.delete(f);
+    return;
+  }
+  const uri = buildOtpauthUri(totp, { issuer: text(entry.fields.get("Title")), account: text(entry.fields.get("UserName")) });
+  entry.fields.set("otp", kdbxweb.ProtectedValue.fromString(uri));
+  if (fields.some((f) => f.startsWith("TimeOtp-Secret"))) {
+    for (const f of fields) if (f.startsWith("TimeOtp-Secret")) entry.fields.delete(f);
+    setTimeOtp(kdbxweb, entry, totp);
+  }
+  if (fields.includes("TOTP Seed")) {
+    entry.fields.set("TOTP Seed", kdbxweb.ProtectedValue.fromString(totp.secret));
+    entry.fields.set("TOTP Settings", `${totp.period};${totp.digits}`);
+  }
+}
+
+/**
+ * Opens a database, gives entries their 2FA or removes it (see writeTotp; each edit keeps the previous
+ * version in the entry's history) and returns the file to write.
  */
 export async function setKdbxTotps(data: Uint8Array, password: string, keyFile: Uint8Array | null, changes: readonly EntryTotp[]): Promise<Uint8Array> {
   const kdbxweb = await loadKdbxweb();
@@ -198,20 +240,10 @@ export async function setKdbxTotps(data: Uint8Array, password: string, keyFile: 
   const done = new Set<string>();
   for (const entry of db.getDefaultGroup().allEntries()) {
     const totp = wanted.get(entry.uuid.id);
-    if (!totp || done.has(entry.uuid.id)) continue;
+    if (totp === undefined || done.has(entry.uuid.id)) continue;
     done.add(entry.uuid.id);
     entry.pushHistory();
-    const fields = [...entry.fields.keys()];
-    const uri = buildOtpauthUri(totp, { issuer: text(entry.fields.get("Title")), account: text(entry.fields.get("UserName")) });
-    entry.fields.set("otp", kdbxweb.ProtectedValue.fromString(uri));
-    if (fields.some((f) => f.startsWith("TimeOtp-Secret"))) {
-      for (const f of fields) if (f.startsWith("TimeOtp-Secret")) entry.fields.delete(f);
-      setTimeOtp(kdbxweb, entry, totp);
-    }
-    if (fields.includes("TOTP Seed")) {
-      entry.fields.set("TOTP Seed", kdbxweb.ProtectedValue.fromString(totp.secret));
-      entry.fields.set("TOTP Settings", `${totp.period};${totp.digits}`);
-    }
+    writeTotp(kdbxweb, entry, totp);
     entry.times.update();
   }
   if (done.size !== wanted.size) throw new Error(tr("The entry is no longer in the database."));

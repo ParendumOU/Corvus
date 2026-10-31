@@ -228,6 +228,11 @@ export const ES: Record<string, string> = {
   "See the pages you open in Chrome, Edge, Brave, Opera, Vivaldi or Firefox in Corvus's history and address bar suggestions as soon as you switch to Corvus, without importing again.":
     "Ve las páginas que abres en Chrome, Edge, Brave, Opera, Vivaldi o Firefox en el historial de Corvus y en las sugerencias de la barra de direcciones en cuanto vuelves a Corvus, sin volver a importar.",
   "Follow other browsers' history": "Seguir el historial de otros navegadores",
+  "On by default: Corvus follows each browser's default profile. Pick others below, or turn it off.":
+    "Activado de forma predeterminada: Corvus sigue el perfil predeterminado de cada navegador. Elige otros abajo o desactívalo.",
+  "Corvus now also suggests the pages you visit in {browsers} when you type in the address bar.":
+    "Corvus ahora también sugiere las páginas que visitas en {browsers} cuando escribes en la barra de direcciones.",
+  "They stay on this computer and are not synced.": "Se quedan en este ordenador y no se sincronizan.",
   "Those browsers save their history to disk every few seconds, so a page you just opened can take a few seconds to show up. Their files are only read, from a copy, and only when they changed.":
     "Esos navegadores guardan su historial en el disco cada pocos segundos, así que una página que acabas de abrir puede tardar unos segundos en aparecer. Sus archivos solo se leen, de una copia, y solo cuando han cambiado.",
   "Could not read it at {time}: {error}": "No se pudo leer a las {time}: {error}",

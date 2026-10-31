@@ -80,20 +80,38 @@ function readError(err: unknown, browser: string): string {
   return `Could not read it (${err instanceof Error ? err.message : String(err)}).`;
 }
 
+/** The start of a rollback journal SQLite plays back: a commit was being written (an open transaction's journal starts with zeros). */
+const HOT_JOURNAL = Buffer.from([0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7]);
+
+async function isHotJournal(file: string): Promise<boolean> {
+  const handle = await fs.promises.open(file, "r").catch(() => null);
+  if (!handle) return false;
+  try {
+    const head = Buffer.alloc(HOT_JOURNAL.length);
+    const { bytesRead } = await handle.read(head, 0, head.length, 0);
+    return bytesRead === head.length && head.equals(HOT_JOURNAL);
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
- * Reads a browser's SQLite database from a private copy (with its write-ahead log), so a running
- * browser's open file is never touched and Corvus never writes to another browser's data.
+ * Reads a browser's SQLite database from a private copy (with its write-ahead log or journal), so a
+ * running browser's open file is never touched and Corvus never writes to another browser's data.
+ * The database is copied first: a commit half written into the copy is then undone by the copied
+ * journal (`journalHot`), never read.
  */
-export async function withDatabase<T>(file: string, read: (db: DatabaseSync) => T): Promise<T> {
+export async function withDatabase<T>(file: string, read: (db: DatabaseSync, copied: { journalHot: boolean }) => T): Promise<T> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "corvus-import-"));
   try {
     // Copied without blocking: a browser's history can be hundreds of megabytes.
     const copy = path.join(dir, "db.sqlite");
     await fs.promises.copyFile(file, copy);
     for (const suffix of ["-wal", "-journal"]) if (exists(file + suffix)) await fs.promises.copyFile(file + suffix, copy + suffix);
+    const journalHot = await isHotJournal(copy + "-journal");
     const db = new DatabaseSync(copy);
     try {
-      return read(db);
+      return read(db, { journalHot });
     } finally {
       db.close();
     }
@@ -143,7 +161,8 @@ export class BrowserImport {
     this.testRoots = roots;
   }
 
-  private roots(): DataRoots {
+  /** Where this user's browsers keep their data (the fake folders while a test set them). */
+  dataRoots(): DataRoots {
     if (this.testRoots) return this.testRoots;
     const home = os.homedir();
     return {
@@ -169,7 +188,7 @@ export class BrowserImport {
   /** Every installed browser with at least one profile, and the profiles' folders: no file is opened. */
   locate(): Array<BrowserInfo & { profiles: LocatedProfile[] }> {
     const found: Array<BrowserInfo & { profiles: LocatedProfile[] }> = [];
-    for (const loc of browserLocations(this.roots())) {
+    for (const loc of browserLocations(this.dataRoots())) {
       if (!exists(loc.dir) || found.some((s) => s.id === loc.id)) continue;
       const profiles = loc.family === "chromium" ? this.chromiumProfiles(loc.dir, loc.singleProfile === true, loc.name) : this.firefoxProfiles(loc.dir);
       if (profiles.length > 0) found.push({ id: loc.id, name: loc.name, family: loc.family, profiles });

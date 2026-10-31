@@ -356,7 +356,7 @@ export async function runAuthenticatorImportSmoke(ctx: AppContext, { url, win, c
       wiki?.username === "wiki-smoke@example.org" && wiki.origin === "https://wiki.example.net" && wiki.password === "" && (await same(wiki.totp, config(fakeSecret(10)))),
       { username: wiki?.username, origin: wiki?.origin },
     );
-    const list = await until(() => js<boolean>(wc, `document.querySelectorAll(".pw-list > .list-row").length === 25 && document.querySelector(".pw-list .pager .muted")?.textContent === "1-25 of ${vault.all().length}"`).then(Boolean));
+    const list = await until(() => js<boolean>(wc, `document.querySelectorAll(".pw-list .pt-row").length === 25 && document.querySelector(".pw-list .pager .muted")?.textContent === "1-25 of ${vault.all().length}"`).then(Boolean));
     check("Passwords list shows the imported logins, 25 at a time", list, await js<string>(wc, `document.querySelector(".pw-list .pager .muted")?.textContent ?? ""`));
     await passwordsTabsSmoke(tab, { win, check, capture });
 
@@ -613,7 +613,7 @@ async function passwordsTabsSmoke(tab: TabRuntime, { win, check, capture }: Omit
 
   // "Show login" goes to the Passwords tab with the login's site searched.
   await js(wc, `[...document.querySelectorAll(".tf-row")].find((r) => r.querySelector(".tf-host").textContent === "svc42.example").querySelector(".tf-show").click()`);
-  const shownLogin = await until(() => js<boolean>(wc, `document.getElementById("pw-tab-passwords").getAttribute("aria-selected") === "true" && document.querySelector(".page-toolbar .input").value === "svc42.example" && document.querySelectorAll(".pw-list > .list-row").length === 1`).then(Boolean), 5000);
+  const shownLogin = await until(() => js<boolean>(wc, `document.getElementById("pw-tab-passwords").getAttribute("aria-selected") === "true" && document.querySelector(".page-toolbar .input").value === "svc42.example" && document.querySelectorAll(".pw-list .pt-row").length === 1`).then(Boolean), 5000);
   check("Show login opens the login in the Passwords tab", shownLogin);
 
   // The keyboard moves between the tabs; a link opens the 2FA tab.

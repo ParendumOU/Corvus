@@ -23,11 +23,23 @@ export function LiveHistorySection() {
   const [view, setView] = useState<LiveHistoryView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Shown again when what Corvus reads changes, and when the page is sent to this section (a bar's Settings button).
   useEffect(() => {
-    api
-      .call("liveHistory.view")
-      .then(setView)
-      .catch((e: unknown) => setError(errorMessage(e)));
+    const load = (): void =>
+      void api
+        .call("liveHistory.view")
+        .then(setView)
+        .catch((e: unknown) => setError(errorMessage(e)));
+    load();
+    const onHash = (): void => {
+      if (location.hash === "#live-history") load();
+    };
+    window.addEventListener("hashchange", onHash);
+    const off = api.onEvent((e) => e.type === "live-history-changed" && load());
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      off();
+    };
   }, [api]);
 
   const run = (p: Promise<LiveHistoryView>): void => {
@@ -39,11 +51,10 @@ export function LiveHistorySection() {
   };
   const set = (patch: LiveHistoryPatch): void => run(api.call("liveHistory.set", patch));
   const followed = view ? view.sources.filter((s) => s.followed).map((s) => s.key) : [];
-  // Turned on with nothing chosen yet: each browser's default profile.
+  // Turned on with nothing chosen: each browser's default profile.
   const turn = (on: boolean): void => {
     if (!view) return;
-    const defaults = view.sources.filter((s) => s.isDefault || !view.sources.some((o) => o.browser === s.browser && o.isDefault)).map((s) => s.key);
-    set(on && followed.length === 0 ? { enabled: true, sources: defaults } : { enabled: on });
+    set(on && followed.length === 0 ? { enabled: true, sources: null } : { enabled: on });
   };
   const choose = (key: string, on: boolean): void => set({ sources: on ? [...followed, key] : followed.filter((k) => k !== key) });
   const marks = view ? Object.keys(view.counts).filter((m) => (view.counts[m] ?? 0) > 0) : [];
@@ -61,6 +72,7 @@ export function LiveHistorySection() {
         >
           <Toggle checked={view?.enabled === true} disabled={!view || busy} onChange={turn} label={t("Follow other browsers' history")} />
         </Row>
+        {view?.byDefault && view.sources.length > 0 && <p className="muted small live-default" data-live-default>{t("On by default: Corvus follows each browser's default profile. Pick others below, or turn it off.")}</p>}
         {view && view.sources.length === 0 && (
           <Row label={t("No other browsers found for this user.")} />
         )}
@@ -69,7 +81,7 @@ export function LiveHistorySection() {
             {view.sources.map((s) => (
               <label key={s.key} className={`live-source ${view.enabled ? "" : "off"}`} data-live-source={s.key}>
                 <input type="checkbox" checked={s.followed} disabled={!view.enabled || busy} onChange={(e) => choose(s.key, e.target.checked)} />
-                <SourceBadge source={s.mark} size={16} />
+                <SourceBadge source={s.mark} size={16} icon={view.icons[s.mark]} />
                 <span className="grow">
                   <span className="live-source-name">
                     {s.profileName === s.browserName ? s.browserName : `${s.browserName} · ${s.profileName}`}
@@ -86,7 +98,7 @@ export function LiveHistorySection() {
             key={mark}
             label={
               <span className="live-count" data-live-count={mark}>
-                <SourceBadge source={mark} size={16} />
+                <SourceBadge source={mark} size={16} icon={view!.icons[mark]} />
                 {view!.counts[mark] === 1 ? t("1 page from {browser} in your history", { browser: liveSourceName(mark) }) : t("{n} pages from {browser} in your history", { n: (view!.counts[mark] ?? 0).toLocaleString(), browser: liveSourceName(mark) })}
               </span>
             }

@@ -6,6 +6,7 @@
 import type { AuthenticatorImportResult, AuthenticatorPick, AuthenticatorPreview, PhotoReport } from "./authenticator-import";
 import type { CredentialMatch, CredentialSummary, PasswordOptions } from "./credentials";
 import type { PasswordCheckupView } from "./password-health";
+import type { ClassFlags, GeneratorNote, PasswordClass, PasswordFieldClick } from "./password-rules";
 import type { UiLanguage } from "./settings";
 import type { TotpCode } from "./totp";
 
@@ -149,8 +150,9 @@ export const AUTOFILL_CAPTURE_CHANNEL = "corvus:autofill-captured";
 
 /**
  * One-way channel: the tab preload reports a click in a login field or a one-time-code field (which
- * kind, and its box in CSS pixels of the page's viewport, nothing else) so the main process can list
- * the saved accounts under it.
+ * kind, its box in CSS pixels of the page's viewport and, for a password field, its part in its form
+ * and what it takes, never its value) so the main process can list the saved accounts under it, and
+ * suggest a strong password or copy the one typed.
  */
 export const AUTOFILL_FIELD_CHANNEL = "corvus:autofill-field";
 
@@ -163,6 +165,8 @@ export interface FieldClick {
   y: number;
   width: number;
   height: number;
+  /** A password field's facts (absent for other fields). */
+  password?: PasswordFieldClick;
 }
 
 export interface CapturedSubmit {
@@ -200,6 +204,28 @@ export interface FieldDropdownState {
   maxWidth: number;
   /** The highlighted entry (see dropdownEntries), moved by the arrow keys and the mouse. */
   highlight: number | null;
+  /** "Copy password" for the password field under it, which holds something: "copied" once copied. Null when not offered. */
+  copy: "offer" | "copied" | null;
+  /** The strong password suggested for the field, null when none is. */
+  generator: GeneratorState | null;
+}
+
+/** The suggested password and its generator (opened from the suggestion row), as the dropdown shows them. */
+export interface GeneratorState {
+  /** The generator's panel takes the dropdown's place. */
+  open: boolean;
+  password: string;
+  /** What it was made with: the person's choices, adapted to the field. */
+  options: PasswordOptions;
+  /** The lengths the field takes. */
+  minLength: number;
+  maxLength: number;
+  /** Classes the field forbids or asks for: their boxes are not the person's to change. */
+  fixed: ClassFlags;
+  /** How it adapted to the field. */
+  notes: GeneratorNote[];
+  /** Its Copy button says "Copied" for a moment. */
+  copied: boolean;
 }
 
 /** What the dropdown view's preload exposes to it (window.corvusFieldMenu). */
@@ -211,4 +237,12 @@ export interface FieldMenuBridge {
 export type DropdownAction =
   | { type: "size"; token: number; width: number; height: number }
   | { type: "hover"; token: number; index: number }
-  | { type: "activate"; token: number; index: number };
+  | { type: "activate"; token: number; index: number }
+  /** A press in the view (which then has the keyboard): `keyboard` when it was in the generator's length, which keeps it. */
+  | { type: "press"; token: number; keyboard: boolean }
+  /** Escape while the view has the keyboard. */
+  | { type: "escape"; token: number }
+  /** The generator: a new length, a class on or off, a new password, its Copy and Use buttons. */
+  | { type: "length"; token: number; length: number }
+  | { type: "toggle"; token: number; option: PasswordClass }
+  | { type: "regenerate" | "copy" | "use"; token: number };

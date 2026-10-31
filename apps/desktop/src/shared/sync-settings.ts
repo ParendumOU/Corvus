@@ -34,6 +34,11 @@ export const SYNCED_SETTINGS = [
   "reader.font",
   "reader.translateLanguage",
   "pdf.openInViewer",
+  "passwords.generatorLength",
+  "passwords.generatorLowercase",
+  "passwords.generatorUppercase",
+  "passwords.generatorDigits",
+  "passwords.generatorSymbols",
 ] as const;
 
 /** Machine-specific URLs that sync only when the user opts in. */

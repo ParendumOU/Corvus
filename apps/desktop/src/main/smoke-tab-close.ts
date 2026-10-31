@@ -448,7 +448,7 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     const assistTranslating = await open(article, { activate: false });
     ctx.assist.runPage(w, assistTranslating, "translate-page");
     await sleep(400);
-    const started = w.state().translate?.state === "translating";
+    const started = await until(() => w.state().translate?.state === "translating", 5000);
     w.closeTabs([translating.id, summarizing.id, assistTranslating.id]);
     // Longer than the provider takes to answer: whatever kept going has ended by now.
     await sleep(2500);

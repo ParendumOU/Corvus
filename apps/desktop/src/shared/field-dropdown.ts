@@ -6,6 +6,7 @@
  */
 import { accountDetails, LABEL_SEPARATOR, middleEllipsis, type CredentialMatch } from "./credentials";
 import type { AutofillFieldKind, DropdownAction, FieldDropdownState } from "./credentials-ipc";
+import { PASSWORD_CLASSES, type PasswordClass } from "./password-rules";
 
 /** Space between the field and the dropdown. */
 export const DROPDOWN_GAP = 2;
@@ -14,16 +15,24 @@ export const DROPDOWN_WIDTH = 360;
 /** Longest username or site a row shows in full; longer ones are cut in the middle. */
 export const DROPDOWN_LABEL_MAX = 40;
 
-export type DropdownEntry = { type: "account"; account: CredentialMatch } | { type: "others" } | { type: "manage" };
+export type DropdownEntry = { type: "account"; account: CredentialMatch } | { type: "others" } | { type: "manage" } | { type: "copy" } | { type: "suggest" };
 
-/** What the dropdown lists, top to bottom: the first accounts, the folded section and its accounts when open, "Manage passwords". */
-export function dropdownEntries(state: Pick<FieldDropdownState, "first" | "others" | "othersOpen">): DropdownEntry[] {
+/**
+ * What the dropdown lists, top to bottom: "Copy password" (a password field that holds something), the
+ * suggested strong password, the first accounts, the folded section and its accounts when open, then
+ * "Manage passwords" (unless all it offers is the copy). Nothing while the generator's panel is open.
+ */
+export function dropdownEntries(state: Pick<FieldDropdownState, "first" | "others" | "othersOpen"> & Partial<Pick<FieldDropdownState, "copy" | "generator">>): DropdownEntry[] {
+  if (state.generator?.open) return [];
   const account = (m: CredentialMatch): DropdownEntry => ({ type: "account", account: m });
+  const offers = state.first.length + state.others.length > 0 || Boolean(state.generator);
   return [
+    ...(state.copy ? [{ type: "copy" } as const] : []),
+    ...(state.generator ? [{ type: "suggest" } as const] : []),
     ...state.first.map(account),
     ...(state.others.length > 0 ? [{ type: "others" } as const] : []),
     ...(state.othersOpen ? state.others.map(account) : []),
-    { type: "manage" },
+    ...(offers ? [{ type: "manage" } as const] : []),
   ];
 }
 
@@ -70,9 +79,13 @@ export function dropdownAccounts(kind: AutofillFieldKind, matches: CredentialMat
   return kind === "login" ? matches : matches.filter((m) => m.hasTotp);
 }
 
-/** Whether a page with these fields and saved accounts can show the dropdown (its window then loads the dropdown's view ahead). */
+/**
+ * Whether a page with these fields and saved accounts can show the dropdown (its window then loads the
+ * dropdown's view ahead): any password field can (its accounts, a suggested password or "Copy
+ * password"), a code field when an account has a 2FA.
+ */
 export function dropdownMayOpen(fields: { login: boolean; otp: boolean }, matches: CredentialMatch[]): boolean {
-  return (fields.login && dropdownAccounts("login", matches).length > 0) || (fields.otp && dropdownAccounts("otp", matches).length > 0);
+  return fields.login || (fields.otp && dropdownAccounts("otp", matches).length > 0);
 }
 
 /** The words a row needs, in the UI's language: t("…") in the dropdown, tr("…") in the main process. */
@@ -105,7 +118,12 @@ export function parseDropdownAction(raw: unknown): DropdownAction | null {
   const v = raw as Record<string, unknown>;
   const int = (n: unknown, max: number): n is number => typeof n === "number" && Number.isSafeInteger(n) && n >= 0 && n <= max;
   if (!int(v.token, Number.MAX_SAFE_INTEGER)) return null;
-  if (v.type === "size" && int(v.width, 10_000) && int(v.height, 10_000)) return { type: "size", token: v.token, width: v.width, height: v.height };
-  if ((v.type === "hover" || v.type === "activate") && int(v.index, 10_000)) return { type: v.type, token: v.token, index: v.index };
+  const token = v.token;
+  if (v.type === "size" && int(v.width, 10_000) && int(v.height, 10_000)) return { type: "size", token, width: v.width, height: v.height };
+  if ((v.type === "hover" || v.type === "activate") && int(v.index, 10_000)) return { type: v.type, token, index: v.index };
+  if (v.type === "press" && typeof v.keyboard === "boolean") return { type: "press", token, keyboard: v.keyboard };
+  if (v.type === "length" && int(v.length, 10_000)) return { type: "length", token, length: v.length };
+  if (v.type === "toggle" && PASSWORD_CLASSES.includes(v.option as PasswordClass)) return { type: "toggle", token, option: v.option as PasswordClass };
+  if (v.type === "escape" || v.type === "regenerate" || v.type === "copy" || v.type === "use") return { type: v.type, token };
   return null;
 }
