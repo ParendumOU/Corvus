@@ -115,3 +115,64 @@
   flex-basis: 100%;
   margin-top: 0;
 }
+/* Passwords: the note under the kinds, the result with its review and reasons, the guided export. */
+.import-passwords-note {
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.import-password-result {
+  margin-top: 8px;
+}
+.import-review,
+.import-guided {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.import-review ul,
+.import-reason ul {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+}
+.import-review li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.import-review li .grow {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.import-reasons {
+  margin-top: 6px;
+}
+.import-reasons summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+.import-reason {
+  margin: 6px 0 0 12px;
+}
+.import-reason li {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.import-guided-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+.import-delete-csv {
+  font-size: 12px;
+}
+.import-passwords .import-delete-csv {
+  display: block;
+  margin-top: 6px;
+}

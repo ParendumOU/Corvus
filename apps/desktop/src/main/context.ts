@@ -18,6 +18,7 @@ import type { BackupReminder } from "./backup-reminder";
 import type { DefaultBrowser } from "./default-browser";
 import type { BrowserIcons } from "./browser-icons";
 import type { BrowserImport } from "./browser-import";
+import type { PasswordExports } from "./password-export";
 import type { LiveHistoryService } from "./live-history";
 import type { DownloadQueue } from "./download-queue";
 import type { LinkGrabber } from "./link-grabber";
@@ -77,8 +78,10 @@ export interface AppContext {
   backupReminder: BackupReminder;
   /** Corvus's own download queue (packages from the link grabber). */
   queue: DownloadQueue;
-  /** Bookmarks and history from the other browsers installed here. */
+  /** Bookmarks, history and saved logins from the other browsers installed here. */
   browserImport: BrowserImport;
+  /** A browser's own password export, guided from the Import click (one at a time). */
+  passwordExports: PasswordExports;
   /** The other browsers' own icons, for the mark of the pages that come from them. */
   browserIcons: BrowserIcons;
   /** History read live from the other browsers a profile follows (local only). */

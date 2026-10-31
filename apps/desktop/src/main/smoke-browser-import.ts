@@ -38,6 +38,7 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
   const historyBefore = new Set(profile.history.all().map((e) => e.url));
   const workspacesBefore = new Set(profile.workspaces.list().map((w) => w.id));
   const shortcutsBefore = new Set(profile.siteSearch.list().map((s) => s.keyword));
+  const loginsBefore = new Set(profile.credentials.all().map((c) => c.id));
   let tabId: string | null = null;
   try {
     ctx.browserImport.setTestRoots(writeBrowserFixtures(root));
@@ -113,6 +114,8 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
     profile.history.remove(profile.history.all().filter((e) => !historyBefore.has(e.url)).map((e) => e.id));
     for (const w of profile.workspaces.list().filter((x) => !workspacesBefore.has(x.id))) profile.workspaces.remove(w.id);
     for (const x of profile.siteSearch.list().filter((y) => !shortcutsBefore.has(y.keyword))) profile.siteSearch.remove(x.keyword);
+    // Passwords are ticked by default too (smoke-password-import.ts checks them); removed as a sync would, leaving no deletion memory.
+    profile.credentials.applyRemote(profile.credentials.all().filter((c) => !loginsBefore.has(c.id)).map((c) => ({ id: c.id, cred: null })));
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

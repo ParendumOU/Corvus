@@ -19,7 +19,7 @@ import {
 import type { LocalItem, SyncAdapter } from "@corvus/sync-core";
 import { isAnnotation, type Annotation } from "../shared/annotations";
 import { ROOT_IDS } from "../shared/bookmark-tree";
-import { isValidCredential, type Credential } from "../shared/credentials";
+import { isDeletedLoginMemory, isValidCredential, type Credential, type DeletedLoginMemory } from "../shared/credentials";
 import { parseDeviceExtensions, type DeviceExtensions } from "../shared/extension-suggestions";
 import { parseSyncedHistory, toSyncedHistory, type SyncedHistoryEntry } from "../shared/history-ops";
 import { isSyncedWatch, type SyncedWatch } from "../shared/page-watch";
@@ -95,6 +95,8 @@ export function historyAdapter(store: HistoryStore): SyncAdapter<SyncedHistoryEn
 export interface CredentialStore {
   all(): Credential[];
   applyRemote(changes: Array<{ id: string; cred: Credential | null }>): void;
+  deletionItems(): Array<{ id: string; memory: DeletedLoginMemory }>;
+  applyRemoteDeletions(changes: Array<{ id: string; memory: DeletedLoginMemory | null }>): void;
 }
 
 /** Logins are keyed by their stable id; the full record (including the password) is the synced payload. */
@@ -108,6 +110,21 @@ export function credentialsAdapter(store: CredentialStore): SyncAdapter<Credenti
         else if (isValidCredential(item.payload)) changes.push({ id: item.id, cred: { ...item.payload, id: item.id } });
       }
       store.applyRemote(changes);
+    },
+  };
+}
+
+/** Deleted-login memory, keyed by its stable natural id, merged by union. */
+export function credentialDeletionsAdapter(store: CredentialStore): SyncAdapter<DeletedLoginMemory> {
+  return {
+    list: () => store.deletionItems().map((d) => ({ id: d.id, payload: d.memory })),
+    apply: (items) => {
+      const changes: Array<{ id: string; memory: DeletedLoginMemory | null }> = [];
+      for (const item of items) {
+        if (item.deleted) changes.push({ id: item.id, memory: null });
+        else if (isDeletedLoginMemory(item.payload)) changes.push({ id: item.id, memory: item.payload });
+      }
+      store.applyRemoteDeletions(changes);
     },
   };
 }
@@ -565,6 +582,7 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
     bookmarks: bookmarksAdapter(src.bookmarks),
     history: historyAdapter(src.history),
     credentials: credentialsAdapter(src.credentials),
+    credential_deletions: credentialDeletionsAdapter(src.credentials),
     reading: readingAdapter(src.reading),
     watches: watchesAdapter(src.watches),
     workspaces: workspacesAdapter(src.workspaces),

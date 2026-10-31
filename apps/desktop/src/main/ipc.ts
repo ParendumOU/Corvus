@@ -10,8 +10,7 @@ import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
 import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from "../shared/browser-import";
 import { SHOWN_COMMAND_RECENTS } from "../shared/command-history";
 import { PROXY_KINDS, type ConnectionChoice } from "../shared/connections";
-import { parsePasswordCsv } from "../shared/password-import";
-import { isBigChange } from "../shared/backup-reminder";
+import { importPasswordCsv } from "./password-export";
 import type { BookmarkImportResult, ConnectionsView, PasswordImportResult } from "../shared/ipc";
 import { CHROME_RPC, INTERNAL_RPC, type ChromeRpc, type InternalRpc } from "../shared/ipc";
 import { internalPageOf, type InternalPage } from "../shared/internal-urls";
@@ -421,6 +420,9 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "import.scan": ["settings", "welcome"],
   "import.run": ["settings", "welcome"],
   "import.passwordCsv": ["settings", "welcome"],
+  "import.passwordExport": ["settings", "welcome"],
+  "import.passwordExportCancel": ["settings", "welcome"],
+  "import.passwordReview": ["settings", "welcome"],
   "import.installExtension": ["settings", "welcome"],
   "liveHistory.view": ["settings"],
   "liveHistory.set": ["settings"],
@@ -959,7 +961,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "siteSearch.list": (c) => c.profile.siteSearch.list(),
     "siteSearch.save": (c, shortcut) => c.profile.siteSearch.save(shortcut),
     "siteSearch.remove": (c, keyword) => c.profile.siteSearch.remove(str(keyword, "keyword", 64)),
-    "import.passwordCsv": async (c): Promise<PasswordImportResult> => {
+    "import.passwordCsv": async (c, deleteAfter): Promise<PasswordImportResult> => {
       const options: Electron.OpenDialogOptions = {
         title: "Import passwords from a CSV file",
         properties: ["openFile"],
@@ -971,20 +973,22 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const parent = c.window?.win;
       const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
       const file = picked.filePaths[0];
-      if (picked.canceled || !file) return { imported: 0, duplicates: 0, skipped: 0, canceled: true };
-      const { logins, skipped } = parsePasswordCsv(await fs.readFile(file, "utf8"));
-      let imported = 0;
-      let duplicates = 0;
-      for (const login of logins) {
-        if (c.profile.credentials.findByLogin(login.origin, login.username)) {
-          duplicates++;
-          continue;
-        }
-        c.profile.credentials.add({ origin: login.origin, username: login.username, password: login.password });
-        imported++;
-      }
-      if (isBigChange(imported)) c.profile.backup.noteBigChange();
-      return { imported, duplicates, skipped, canceled: false };
+      if (picked.canceled || !file) return { canceled: true };
+      const done = await importPasswordCsv(ctx.browserImport, c.profile, file, deleteAfter === true);
+      return { canceled: false, summary: done.summary, file: done.file, deleted: done.deleted };
+    },
+    "import.passwordExport": async (c, sourceId, deleteAfter) => {
+      const id = str(sourceId, "browser", 64);
+      const source = ctx.browserImport.locate().find((s) => s.id === id);
+      if (!source) throw new IpcError("That browser is no longer there.");
+      const outcome = await ctx.passwordExports.run(ctx.browserImport, c.profile, source, deleteAfter === true);
+      if (outcome.status !== "imported") return { status: outcome.status, opened: outcome.opened };
+      return { status: "imported", opened: outcome.opened, summary: outcome.import.summary, file: outcome.import.file, deleted: outcome.import.deleted };
+    },
+    "import.passwordExportCancel": () => ctx.passwordExports.cancel(),
+    "import.passwordReview": (c, token, which) => {
+      const chosen = which === "all" ? "all" : Array.isArray(which) ? which.filter((i): i is number => Number.isInteger(i)).slice(0, 10_000) : [];
+      return { updated: ctx.browserImport.applyReview(c.profile, str(token, "token", 64), chosen) };
     },
     "import.run": (c, sourceId, profileDir, kinds) => {
       if (!Array.isArray(kinds) || kinds.some((k) => !IMPORT_KINDS.includes(k as ImportKind))) throw new IpcError("Invalid import kinds");

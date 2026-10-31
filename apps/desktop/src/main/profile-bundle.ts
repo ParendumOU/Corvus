@@ -59,8 +59,13 @@ function keyFor(password: string, salt: Buffer, params: { N: number; r: number; 
   return scryptSync(password.normalize("NFC"), salt, 32, { ...params, maxmem: SCRYPT.maxmem });
 }
 
-/** The profile's files and logins, as they are on disk now (missing files are left out). */
-export function collectProfile(dataDir: string, profile: { name: string; avatar?: string }, credentials: Credential[]): BundleContents {
+/**
+ * The profile's files and logins, as they are on disk now (missing files are left out). A login's
+ * history of retired passwords stays in the vault: even as keyed hashes it could confirm a guess at
+ * an old password, and the restored profile does not need it.
+ */
+export function collectProfile(dataDir: string, profile: { name: string; avatar?: string }, logins: Credential[]): BundleContents {
+  const credentials = logins.map(({ passwordHistory: _history, ...login }) => login);
   const files: Record<string, string> = {};
   for (const name of BUNDLE_FILES) {
     const file = path.join(dataDir, name);

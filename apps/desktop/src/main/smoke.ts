@@ -51,6 +51,7 @@ import { runCookieConsentSmoke } from "./smoke-cookie-consent";
 import { runGrabberSmoke } from "./smoke-grabber";
 import { runDefaultBrowserSmoke } from "./smoke-default-browser";
 import { runBrowserImportSmoke } from "./smoke-browser-import";
+import { runPasswordImportSmoke } from "./smoke-password-import";
 import { runLiveHistorySmoke } from "./smoke-live-history";
 import { runDownloadAiSmoke } from "./smoke-download-ai";
 import { runDownloadsSmoke } from "./smoke-downloads";
@@ -234,6 +235,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runSavePromptSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=pwimport: only the passwords from other browsers (Import click, result, guided export), EN and ES.
+    if (process.env.CORVUS_SMOKE_ONLY === "pwimport") {
+      await runPasswordImportSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=authenticator: only the Import from Google Authenticator checks.
     if (process.env.CORVUS_SMOKE_ONLY === "authenticator") {
       await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
@@ -373,6 +379,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runCookieConsentSmoke(ctx, { win, check, capture });
     await runDefaultBrowserSmoke(ctx, { win, check, capture });
     await runBrowserImportSmoke(ctx, { win, check, capture });
+    await runPasswordImportSmoke(ctx, { win, check, capture });
     await runLiveHistorySmoke(ctx, { win, check, capture });
     await runDownloadAiSmoke(ctx, { win, check, capture });
     await runProfileTransferSmoke(ctx, { win, check, capture });

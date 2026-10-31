@@ -15,6 +15,7 @@ export type SyncCollection =
   | "profiles"
   | "extensions"
   | "credentials"
+  | "credential_deletions"
   | "reading"
   | "watches"
   | "workspaces"

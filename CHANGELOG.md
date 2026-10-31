@@ -12,6 +12,15 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.34.0
+
+### Passwords and 2FA
+- **Passwords from your other browsers come in with the Import button.** Settings > Import from another browser (and the Welcome page) now lists **Passwords** for each browser profile, with how many it holds, ticked by default. Pressing Import reads the passwords saved in Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer once, at that moment, into Corvus's encrypted vault: nothing runs in the background, and the other browser's files are only read, from a private copy that is deleted afterwards. On a Mac the system asks you first. The other browser keeps its own copy.
+- **Chrome's protected passwords come through Chrome's own export.** Chrome on Windows protects its saved passwords so that no other app can read them, and Corvus does not try. The Passwords row says how many are protected and offers **Open Google Chrome's export**: Corvus opens Chrome's password settings, waits a few minutes for the file you export into Downloads, imports it the same way and then deletes it for good, since it holds your passwords in plain text (you can untick that). The same works for Firefox when it has a primary password.
+- **Importing never overwrites a newer password or brings back a login you deleted.** Each saved login now remembers its previous passwords, as one-way fingerprints and never the passwords themselves, so a browser that still holds an old password leaves the login alone instead of overwriting it or adding a second entry; a newer password from the browser updates it. A login you deleted in Corvus stays deleted while the browser still holds the same password. Importing the same browser twice adds and changes nothing. This memory syncs with your logins between your computers and is left out of exports.
+- **The result says what happened to each login**: how many are new, updated, already saved, older and left alone, deleted in Corvus and left out, protected by the browser, or skipped, with the sites and usernames behind each (never a password), such as app logins, sites where you chose never to save, and sign-ins through another account.
+- **A password CSV goes through the same checks.** When a CSV holds a different password for a login you have and nothing says which one is newer, Corvus keeps its own and lists those logins with **Update** and **Update all**. Firefox's export dates tell which password is newer. Corvus can delete the CSV for good once it is imported (on by default).
+
 ## v0.33.1
 
 ### Passwords and 2FA

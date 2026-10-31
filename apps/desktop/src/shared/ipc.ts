@@ -6,7 +6,7 @@
  * Web content never gets either API.
  */
 import type { HistoryFilter } from "./history-ops";
-import type { ImportKind, ImportResult, ImportScan } from "./browser-import";
+import type { ImportKind, ImportResult, ImportScan, PasswordImportSummary } from "./browser-import";
 import type { LiveHistoryPatch, LiveHistoryView } from "./live-history";
 import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, PhoneServerAddress, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
@@ -631,8 +631,17 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "import.scan"(): ImportScan;
   /** Imports the chosen kinds of one browser profile into this Corvus profile. */
   "import.run"(sourceId: string, profileDir: string, kinds: ImportKind[]): ImportResult;
-  /** Pick a password CSV the user exported from another browser and import the logins. */
-  "import.passwordCsv"(): PasswordImportResult;
+  /** Pick a password CSV the user exported from another browser and import the logins (deleted afterwards when `deleteAfter`). */
+  "import.passwordCsv"(deleteAfter?: boolean): PasswordImportResult;
+  /**
+   * Opens a browser at its own password export and waits (a few minutes at most) for the CSV it saves
+   * in Downloads, then imports it like a picked file.
+   */
+  "import.passwordExport"(sourceId: string, deleteAfter: boolean): PasswordExportResult;
+  /** Stops waiting for a browser's export. */
+  "import.passwordExportCancel"(): void;
+  /** Applies the person's Update for undated differences of an earlier password import (by index, or all). */
+  "import.passwordReview"(token: string, which: number[] | "all"): { updated: number };
   /** Install an extension found in another browser from the Chrome Web Store (the user confirms). */
   "import.installExtension"(id: string): ExtensionInfo | null;
   /** Live history from other browsers in this profile: on or off, the browser profiles it can follow, and what each brought. */
@@ -648,13 +657,23 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "siteSearch.remove"(keyword: string): SiteSearch[];
 }
 
+/** A password CSV picked by hand: what the import did, and whether Corvus deleted the file. */
 export interface PasswordImportResult {
-  imported: number;
-  /** Logins already saved (same site and username). */
-  duplicates: number;
-  /** Rows with no usable site or password. */
-  skipped: number;
   canceled: boolean;
+  summary?: PasswordImportSummary;
+  /** The file's name (no folder). */
+  file?: string;
+  deleted?: boolean;
+}
+
+/** A guided export: imported, or no export appeared in time, or the person stopped waiting. */
+export interface PasswordExportResult {
+  status: "imported" | "timeout" | "canceled";
+  /** Corvus could open the browser at its password page (else the person opens it). */
+  opened: boolean;
+  summary?: PasswordImportSummary;
+  file?: string;
+  deleted?: boolean;
 }
 
 export interface OnboardingState {

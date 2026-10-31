@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DataRoots } from "../shared/browser-import";
+import { writePasswordFixtures } from "./smoke-password-fixtures";
 
 /** Chromium time: microseconds since 1601-01-01. */
 const chromium = (ms: number): number => (ms + 11_644_473_600_000) * 1000;
@@ -241,6 +242,8 @@ export function writeBrowserFixtures(root: string): DataRoots {
     path.join(profile, "sessionstore-backups", "recovery.jsonlz4"),
     mozLz4(JSON.stringify({ windows: [{ tabs: [{ entries: [{ url: "https://firefox.example/", title: "Firefox page" }], index: 1 }], groups: [] }] })),
   );
+
+  writePasswordFixtures(path.join(chrome, "Default"), profile, FIXTURE_NOW);
 
   return { platform: "linux", home: root, localAppData: "", appData: "", config };
 }

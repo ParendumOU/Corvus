@@ -15,8 +15,8 @@ export interface BrowserInfo {
 }
 
 /** What can be imported from a profile (more kinds join as Corvus learns to read them). */
-export type ImportKind = "bookmarks" | "history" | "tabs" | "search";
-export const IMPORT_KINDS: readonly ImportKind[] = ["bookmarks", "history", "tabs", "search"];
+export type ImportKind = "bookmarks" | "history" | "tabs" | "search" | "passwords";
+export const IMPORT_KINDS: readonly ImportKind[] = ["bookmarks", "history", "tabs", "search", "passwords"];
 
 export interface ImportProfile {
   /** Folder name inside the browser's data folder ("Default", "Profile 1", "abcd.default-release"). */
@@ -25,10 +25,72 @@ export interface ImportProfile {
   name: string;
   path: string;
   isDefault: boolean;
-  /** How many of each kind it holds (null when it could not be counted). */
+  /** How many of each kind it holds (null when it could not be counted). Passwords: rows, none decrypted. */
   counts: Partial<Record<ImportKind, number | null>>;
+  /** Saved passwords the browser protects itself (Chrome's app-bound encryption): only its own export brings them. */
+  protectedPasswords?: number;
   /** Extensions the person installed there, to add to Corvus one by one. */
   extensions: ImportExtension[];
+}
+
+/**
+ * Why a saved login was not brought in as is. Protected: "app-bound" (the browser's own encryption),
+ * "keyring" (the system did not hand over the key), "primary-password" (Firefox). Skipped: "never-save"
+ * (a "Never for this site" entry), "android" (an app's login), "federated" (signs in through another
+ * site), "no-password", "not-web" (not a website), "unreadable". Merge outcomes: "older" (an old or
+ * older password; the login was left alone), "deleted" (deleted in Corvus), "review" (an undated
+ * difference to confirm).
+ */
+export type PasswordNoteReason =
+  | "app-bound"
+  | "keyring"
+  | "primary-password"
+  | "never-save"
+  | "android"
+  | "federated"
+  | "no-password"
+  | "not-web"
+  | "unreadable"
+  | "older"
+  | "deleted"
+  | "review";
+
+/** One login named in the result's reasons: site and username only, never a password. */
+export interface PasswordNote {
+  site: string;
+  username: string;
+  reason: PasswordNoteReason;
+}
+
+/** What a password import (from a browser or a CSV) did, as the person reads it. */
+export interface PasswordImportSummary {
+  added: number;
+  updated: number;
+  alreadySaved: number;
+  olderLeftAlone: number;
+  deletedLeftOut: number;
+  protected: number;
+  skipped: number;
+  /** Undated differences waiting for the person (Update / Update all), by index in this list. */
+  review: Array<{ site: string; username: string }>;
+  /** Handle for applying the review in the main process (the passwords never leave it). */
+  reviewToken?: string;
+  /** The logins behind the counts above that were not added or updated, capped. */
+  notes: PasswordNote[];
+  /** The browser the passwords came from, to remind that it keeps its own copy. */
+  browser?: string;
+}
+
+/** The most notes a result lists. */
+export const MAX_PASSWORD_NOTES = 300;
+
+/** The page of a browser where its own password export is (typed in its address bar). */
+export function passwordExportPage(sourceId: string): string {
+  if (sourceId.startsWith("firefox")) return "about:logins";
+  if (sourceId === "edge") return "edge://settings/passwords";
+  if (sourceId === "brave") return "brave://password-manager/settings";
+  if (sourceId === "opera" || sourceId === "opera-gx") return "opera://settings/passwords";
+  return "chrome://password-manager/settings";
 }
 
 /** An extension found in another browser. */
@@ -56,6 +118,8 @@ export interface ImportResult {
   tabs?: { windows: number; tabs: number };
   /** Search shortcuts added (keywords Corvus did not have yet). */
   search?: { imported: number };
+  /** Saved logins brought into the vault through the one merge path. */
+  passwords?: PasswordImportSummary;
   /** Why a kind could not be read (e.g. the browser keeps its file locked). */
   errors: Partial<Record<ImportKind, string>>;
 }

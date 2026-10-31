@@ -28,6 +28,22 @@ import {
 import { MAX_HISTORY_ENTRIES } from "../shared/history-ops";
 import { chromiumSession, decodeMozLz4, firefoxSession, type ImportedWindow } from "../shared/browser-sessions";
 import { chromiumSiteSearches, cleanSiteSearches, firefoxKeyword, firefoxSearchEngines, type SiteSearch } from "../shared/site-search";
+import { isBigChange } from "../shared/backup-reminder";
+import type { PasswordImportSummary, PasswordNote } from "../shared/browser-import";
+import { systemKeyProviders, type KeyProviders } from "./browser-keys";
+import {
+  PasswordReviews,
+  chromiumKeys,
+  countChromiumPasswords,
+  countFirefoxPasswords,
+  hasChromiumPasswords,
+  hasFirefoxPasswords,
+  passwordSummary,
+  readChromiumPasswords,
+  readFirefoxPasswords,
+  siteOf,
+  type BrowserPasswords,
+} from "./browser-passwords";
 import type { ProfileRuntime } from "./profiles";
 
 type Family = ImportSource["family"];
@@ -155,10 +171,18 @@ const FIREFOX_HISTORY_COUNT = "SELECT count(*) AS n FROM moz_places WHERE visit_
  */
 export class BrowserImport {
   private testRoots: DataRoots | null = null;
+  private testKeys: KeyProviders | null = null;
+  /** Undated password differences waiting for the person's Update (passwords stay here). */
+  readonly reviews = new PasswordReviews();
 
   /** Smoke tests point the scan at fake browser folders. */
   setTestRoots(roots: DataRoots | null): void {
     this.testRoots = roots;
+  }
+
+  /** Tests hand in the system's key sources (none: only Linux's fixed "v10" key opens values). */
+  setTestKeyProviders(providers: KeyProviders | null): void {
+    this.testKeys = providers;
   }
 
   /** Where this user's browsers keep their data (the fake folders while a test set them). */
@@ -179,7 +203,10 @@ export class BrowserImport {
     const sources: ImportSource[] = [];
     for (const loc of this.locate()) {
       const counted: ImportProfile[] = [];
-      for (const p of loc.profiles) counted.push({ ...p, counts: await this.counts(loc.family, p.path), extensions: this.extensions(loc.family, p.path) });
+      for (const p of loc.profiles) {
+        const { protectedPasswords, ...counts } = await this.counts(loc.family, p.path);
+        counted.push({ ...p, counts, ...(protectedPasswords ? { protectedPasswords } : {}), extensions: this.extensions(loc.family, p.path) });
+      }
       sources.push({ ...loc, profiles: counted });
     }
     return { sources };
@@ -240,7 +267,7 @@ export class BrowserImport {
     return found.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private async counts(family: Family, dir: string): Promise<ImportProfile["counts"]> {
+  private async counts(family: Family, dir: string): Promise<ImportProfile["counts"] & { protectedPasswords?: number }> {
     const safe = async (fn: () => number | Promise<number>): Promise<number | null> => {
       try {
         return await fn();
@@ -250,6 +277,15 @@ export class BrowserImport {
     };
     const tabs = await safe(async () => (await this.sessionWindows(family, dir)).reduce((n, w) => n + w.tabs.length, 0));
     if (family === "chromium") {
+      // Saved logins are counted from their rows; nothing is decrypted until the person imports.
+      let protectedPasswords = 0;
+      const passwords = hasChromiumPasswords(dir)
+        ? await safe(async () => {
+            const found = await countChromiumPasswords(dir, withDatabase);
+            protectedPasswords = found.protected;
+            return found.total;
+          })
+        : 0;
       return {
         tabs,
         bookmarks: hasChromiumBookmarks(dir) ? await safe(async () => {
@@ -258,8 +294,11 @@ export class BrowserImport {
         }) : 0,
         history: exists(path.join(dir, "History")) ? await safe(() => withDatabase(path.join(dir, "History"), (db) => count(db, CHROMIUM_HISTORY_COUNT))) : 0,
         search: exists(path.join(dir, "Web Data")) ? await safe(async () => (await this.searches(family, dir)).length) : 0,
+        passwords,
+        ...(protectedPasswords ? { protectedPasswords } : {}),
       };
     }
+    const passwords = hasFirefoxPasswords(dir) ? await safe(() => countFirefoxPasswords(dir)) : 0;
     try {
       // One copy of places.sqlite serves the bookmark, history and keyword counts.
       const { keywords, ...counts } = await withDatabase(path.join(dir, "places.sqlite"), (db) => ({
@@ -267,10 +306,52 @@ export class BrowserImport {
         history: count(db, FIREFOX_HISTORY_COUNT),
         keywords: firefoxKeywords(db),
       }));
-      return { ...counts, tabs, search: cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]).length };
+      return { ...counts, tabs, search: cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]).length, passwords };
     } catch {
-      return { bookmarks: null, history: null, tabs, search: null };
+      return { bookmarks: null, history: null, tabs, search: null, passwords };
     }
+  }
+
+  /**
+   * Reads a profile's saved logins (Chromium: with its key from the system, dropped afterwards;
+   * Firefox: with its key4.db) and brings them into `runtime`'s vault through the one merge path.
+   */
+  private async importPasswords(runtime: ProfileRuntime, source: ImportSource, profile: ImportProfile): Promise<PasswordImportSummary> {
+    let read: BrowserPasswords;
+    if (source.family === "firefox") {
+      read = await readFirefoxPasswords(profile.path, withDatabase);
+    } else {
+      const own = path.join(profile.path, "Local State");
+      const platform = this.dataRoots().platform;
+      const { keys, dispose } = await chromiumKeys(source.id, platform, readText(exists(own) ? own : path.join(path.dirname(profile.path), "Local State")), this.testKeys ?? systemKeyProviders(platform));
+      try {
+        read = await readChromiumPasswords(profile.path, keys, withDatabase);
+      } finally {
+        dispose();
+      }
+    }
+    return this.mergePasswords(runtime, read, source.name);
+  }
+
+  /** Brings logins read from a browser or a CSV into the vault, and words the result. */
+  mergePasswords(runtime: ProfileRuntime, read: BrowserPasswords, browser?: string): PasswordImportSummary {
+    const { tally, review, leftAlone, leftOut } = runtime.credentials.importLogins(read.logins);
+    read.logins.length = 0;
+    if (isBigChange(tally.added + tally.updated)) runtime.backup.noteBigChange();
+    const note = (reason: PasswordNote["reason"]) => (l: { origin: string; username: string }): PasswordNote => ({ site: siteOf(l.origin), username: l.username, reason });
+    const reviewToken = this.reviews.add(runtime.profile.id, review);
+    return passwordSummary(tally, review, read, { older: leftAlone.map(note("older")), deleted: leftOut.map(note("deleted")) }, { ...(reviewToken ? { reviewToken } : {}), ...(browser ? { browser } : {}) });
+  }
+
+  /** Applies the person's Update (chosen review items, or all) for an earlier import. */
+  applyReview(runtime: ProfileRuntime, token: string, which: number[] | "all"): number {
+    let updated = 0;
+    runtime.credentials.batch(() => {
+      for (const item of this.reviews.take(runtime.profile.id, token, which)) {
+        if (runtime.credentials.updatePasswordForLogin(item.origin, item.username, item.password)) updated++;
+      }
+    });
+    return updated;
   }
 
   /**
@@ -322,6 +403,13 @@ export class BrowserImport {
         result.search = { imported: runtime.siteSearch.importMany(await this.searches(source.family, profile.path)) };
       } catch (err) {
         result.errors.search = readError(err, source.name);
+      }
+    }
+    if (kinds.includes("passwords")) {
+      try {
+        result.passwords = await this.importPasswords(runtime, source, profile);
+      } catch (err) {
+        result.errors.passwords = readError(err, source.name);
       }
     }
     if (kinds.includes("tabs")) {

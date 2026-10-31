@@ -25,7 +25,7 @@ export function ImportSection() {
     <Section
       id="import"
       title={t("Import from another browser")}
-      description={t("Bring bookmarks, history, open tabs and search shortcuts over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer, and add its extensions. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.")}
+      description={t("Bring bookmarks, history, open tabs, search shortcuts and saved passwords over from Chrome, Edge, Brave, Vivaldi, Opera or Firefox on this computer, and add its extensions. Open tabs are saved as workspaces, with their tab groups, to open when you like. The other browser's files are only read, never changed; if it is open, close it first.")}
     >
       <BrowserImportPanel />
     </Section>

@@ -62,3 +62,11 @@ describe("profile bundle", () => {
     expect(BUNDLE_FILES).not.toContain("credentials.json");
   });
 });
+
+describe("password history in a profile export", () => {
+  it("stays behind: the bundle carries the login without its retired-password hashes", () => {
+    const login = { id: "h1", origin: "https://example.com", username: "ana", password: "now", passwordHistory: [{ salt: "c2FsdA==", hash: "aGFzaA==", at: 1 }], passwordChangedAt: 5, createdAt: 1, updatedAt: 5 };
+    const contents = collectProfile(fs.mkdtempSync(path.join(os.tmpdir(), "corvus-bundle-history-")), { name: "P" }, [login]);
+    expect(contents.credentials).toEqual([{ id: "h1", origin: "https://example.com", username: "ana", password: "now", passwordChangedAt: 5, createdAt: 1, updatedAt: 5 }]);
+  });
+});

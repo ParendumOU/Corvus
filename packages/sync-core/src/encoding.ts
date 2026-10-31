@@ -10,6 +10,7 @@ export const SYNC_COLLECTIONS = [
   "profiles",
   "extensions",
   "credentials",
+  "credential_deletions",
   "reading",
   "watches",
   "workspaces",

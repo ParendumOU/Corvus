@@ -56,8 +56,9 @@ export default defineConfig({
           "sync-server-worker": resolve(import.meta.dirname, "src/main/sync-server-worker.ts"),
         },
         // Keep the Ghostery adblocker external: it resolves its content-script preload from disk at
-        // runtime (require.resolve), which bundling would break. 7-Zip loads its .wasm next to itself.
-        external: [/^@ghostery\//, /^tldts/, /^7z-wasm/],
+        // runtime (require.resolve), which bundling would break. 7-Zip loads its .wasm next to itself;
+        // koffi (Windows DPAPI for the password import) loads its native binary next to itself.
+        external: [/^@ghostery\//, /^tldts/, /^7z-wasm/, /^koffi/],
       },
     },
   },

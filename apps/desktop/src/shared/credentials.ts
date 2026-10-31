@@ -7,6 +7,51 @@ import { PASSWORD_CHARSETS } from "./password-rules";
 import { siteOf } from "./tab-organizer";
 import { isValidTotpConfig, type TotpConfig } from "./totp";
 
+/**
+ * A password this login used to have, kept as a keyed hash so the plaintext is never stored. Each
+ * entry carries its own random salt, so histories from several devices can be merged by union and
+ * every entry stays verifiable with its own salt (see password-history.ts).
+ */
+export interface PasswordHistoryEntry {
+  /** base64 random salt, unique to this entry. */
+  salt: string;
+  /** base64 HMAC-SHA256(key = salt, message = utf8(password)). */
+  hash: string;
+  /** ms since 1970 when this password stopped being the current one. */
+  at: number;
+}
+
+/** The most retired passwords kept behind one login (oldest dropped past this). */
+export const MAX_PASSWORD_HISTORY = 20;
+
+/**
+ * Memory of a login the person deleted in Corvus, kept so a re-import does not bring it back while the
+ * browser still holds a password it was deleted with. Keyed hashes only, never plaintext; synced as
+ * its own collection so it outlives the deleted login. Capped per device.
+ */
+export interface DeletedLoginMemory {
+  origin: string;
+  username: string;
+  hashes: PasswordHistoryEntry[];
+  /** ms of the most recent deletion for this origin + username. */
+  at: number;
+}
+
+/** The most deleted-login memories one device keeps (oldest dropped past this). */
+export const MAX_DELETED_LOGINS = 500;
+
+export function isDeletedLoginMemory(value: unknown): value is DeletedLoginMemory {
+  const v = value as Partial<DeletedLoginMemory> | null;
+  return (
+    typeof v?.origin === "string" &&
+    typeof v.username === "string" &&
+    typeof v.at === "number" &&
+    Number.isFinite(v.at) &&
+    Array.isArray(v.hashes) &&
+    v.hashes.every(isPasswordHistoryEntry)
+  );
+}
+
 /** A stored login. Synced as the `credentials` collection; password/notes/totp are secret. */
 export interface Credential {
   id: string;
@@ -21,8 +66,31 @@ export interface Credential {
   agentTotp?: boolean;
   /** Opt-in: AI agents may sign in with this login (filled by reference, never shown to them). Default off. */
   agentSignIn?: boolean;
+  /**
+   * Passwords this login used to have, as keyed hashes (never plaintext). Lets a re-import from a
+   * browser recognise a password that has since changed in Corvus, so it neither overwrites the login
+   * nor adds a duplicate. Merged by union across devices, capped, and never shown or exported.
+   */
+  passwordHistory?: PasswordHistoryEntry[];
+  /**
+   * ms when this login's password last changed (not just any edit). The import compares it with the
+   * browser's change date to tell which password is the newer one. Older records without it fall back
+   * to updatedAt, then createdAt.
+   */
+  passwordChangedAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+/** The ms the merge treats as a login's last password change. */
+export function passwordChangedAtOf(c: Pick<Credential, "passwordChangedAt" | "updatedAt" | "createdAt">): number {
+  return c.passwordChangedAt ?? c.updatedAt ?? c.createdAt ?? 0;
+}
+
+/** A single keyed-hash entry is well-formed. */
+export function isPasswordHistoryEntry(value: unknown): value is PasswordHistoryEntry {
+  const v = value as Partial<PasswordHistoryEntry> | null;
+  return typeof v?.salt === "string" && typeof v.hash === "string" && typeof v.at === "number" && Number.isFinite(v.at);
 }
 
 /** List/search view: never carries the password, notes body or 2FA secret. */
@@ -170,6 +238,8 @@ export function isValidCredential(value: unknown): value is Credential {
     (v.totp === undefined || isValidTotpConfig(v.totp)) &&
     (v.agentTotp === undefined || typeof v.agentTotp === "boolean") &&
     (v.agentSignIn === undefined || typeof v.agentSignIn === "boolean") &&
+    (v.passwordHistory === undefined || (Array.isArray(v.passwordHistory) && v.passwordHistory.every(isPasswordHistoryEntry))) &&
+    (v.passwordChangedAt === undefined || typeof v.passwordChangedAt === "number") &&
     typeof v.createdAt === "number" &&
     typeof v.updatedAt === "number"
   );

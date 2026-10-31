@@ -182,11 +182,11 @@ describe("BrowserImport", () => {
       {
         id: "chrome",
         profiles: [
-          { dir: "Default", name: "Personal", isDefault: true, counts: { bookmarks: 3, history: 2, tabs: 3, search: 3 } },
-          { dir: "Profile 1", name: "Work", isDefault: false, counts: { bookmarks: 1, history: 0, tabs: 0, search: 0 } },
+          { dir: "Default", name: "Personal", isDefault: true, counts: { bookmarks: 3, history: 2, tabs: 3, search: 3, passwords: 5 } },
+          { dir: "Profile 1", name: "Work", isDefault: false, counts: { bookmarks: 1, history: 0, tabs: 0, search: 0, passwords: 0 } },
         ],
       },
-      { id: "firefox", profiles: [{ dir: "abcd1234.default-release", name: "default-release", isDefault: true, counts: { bookmarks: 2, history: 1, tabs: 1, search: 3 } }] },
+      { id: "firefox", profiles: [{ dir: "abcd1234.default-release", name: "default-release", isDefault: true, counts: { bookmarks: 2, history: 1, tabs: 1, search: 3, passwords: 2 } }] },
     ]);
     expect(scan.sources.map((s) => s.profiles.map((p) => p.extensions))).toEqual([
       [

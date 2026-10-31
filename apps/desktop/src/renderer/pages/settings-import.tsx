@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
-import type { ImportExtension, ImportKind, ImportProfile, ImportResult, ImportScan, ImportSource } from "../../shared/browser-import";
+import {
+  passwordExportPage,
+  type ImportExtension,
+  type ImportKind,
+  type ImportProfile,
+  type ImportResult,
+  type ImportScan,
+  type ImportSource,
+  type PasswordImportSummary,
+  type PasswordNoteReason,
+} from "../../shared/browser-import";
 import type { PasswordImportResult } from "../../shared/ipc";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
@@ -13,8 +23,198 @@ function countsLine(counts: ImportProfile["counts"], extensions: number): string
   if (typeof counts.history === "number") parts.push(counts.history === 1 ? t("1 page in history") : t("{n} pages in history", { n: n(counts.history) }));
   if (typeof counts.tabs === "number") parts.push(counts.tabs === 1 ? t("1 open tab") : t("{n} open tabs", { n: n(counts.tabs) }));
   if (typeof counts.search === "number" && counts.search > 0) parts.push(counts.search === 1 ? t("1 search shortcut") : t("{n} search shortcuts", { n: n(counts.search) }));
+  if (typeof counts.passwords === "number" && counts.passwords > 0) parts.push(counts.passwords === 1 ? t("1 saved password") : t("{n} saved passwords", { n: n(counts.passwords) }));
   if (extensions > 0) parts.push(extensions === 1 ? t("1 extension") : t("{n} extensions", { n: n(extensions) }));
   return parts.join(" · ") || t("Nothing to import");
+}
+
+/** The counts of a password import, as one sentence (only the parts that happened). */
+function passwordCounts(s: PasswordImportSummary): string {
+  const parts = [
+    s.added > 0 ? t("{n} new", { n: n(s.added) }) : "",
+    s.updated > 0 ? t("{n} updated", { n: n(s.updated) }) : "",
+    s.alreadySaved > 0 ? t("{n} already saved", { n: n(s.alreadySaved) }) : "",
+    s.olderLeftAlone > 0 ? t("{n} older left alone", { n: n(s.olderLeftAlone) }) : "",
+    s.deletedLeftOut > 0 ? t("{n} deleted in Corvus left out", { n: n(s.deletedLeftOut) }) : "",
+    s.review.length > 0 ? t("{n} to review", { n: n(s.review.length) }) : "",
+    s.protected > 0 ? t("{n} protected by the browser", { n: n(s.protected) }) : "",
+    s.skipped > 0 ? t("{n} skipped", { n: n(s.skipped) }) : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? t("Passwords: {what}.", { what: parts.join(", ") }) : t("No saved passwords were found.");
+}
+
+/** What each reason means, for the person. */
+function reasonText(reason: PasswordNoteReason): string {
+  switch (reason) {
+    case "app-bound":
+      return t("Protected by the browser: only its own export can bring these.");
+    case "keyring":
+      return t("The system did not hand over the browser's key: use the browser's own export.");
+    case "primary-password":
+      return t("Firefox keeps these behind its primary password: use Firefox's own export.");
+    case "never-save":
+      return t("Sites where you chose never to save a password.");
+    case "android":
+      return t("Logins of Android apps, not of websites.");
+    case "federated":
+      return t("Sign in through another account, with no password of their own.");
+    case "no-password":
+      return t("Saved without a password.");
+    case "not-web":
+      return t("Not a website.");
+    case "unreadable":
+      return t("Could not be read.");
+    case "older":
+      return t("An older password than the one in Corvus: Corvus kept its own and remembers this one.");
+    case "deleted":
+      return t("You deleted these in Corvus: they stay deleted.");
+    case "review":
+      return t("Different from Corvus, with no date to tell which is newer: not changed until you choose.");
+  }
+}
+
+const REASON_ORDER: PasswordNoteReason[] = ["review", "app-bound", "keyring", "primary-password", "older", "deleted", "never-save", "android", "federated", "no-password", "not-web", "unreadable"];
+
+/** The result of a password import: counts, the logins to review, the reasons, and the reminder. */
+function PasswordResult({ summary }: { summary: PasswordImportSummary }) {
+  const [updated, setUpdated] = useState<Set<number>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const apply = (which: number[] | "all"): void => {
+    if (!summary.reviewToken) return;
+    internalApi()
+      .call("import.passwordReview", summary.reviewToken, which)
+      .then(() => setUpdated(new Set([...updated, ...(which === "all" ? summary.review.map((_, i) => i) : which)])))
+      .catch((e: unknown) => setError(errorMessage(e)));
+  };
+  const groups = REASON_ORDER.map((reason) => ({ reason, notes: summary.notes.filter((note) => note.reason === reason && reason !== "review") })).filter((g) => g.notes.length > 0);
+  const pending = summary.review.filter((_, i) => !updated.has(i)).length;
+  return (
+    <div className="import-password-result" data-import-password-result>
+      <div className="notice ok" data-import-password-counts>
+        {passwordCounts(summary)}
+        {summary.browser && summary.added + summary.updated > 0 ? ` ${t("{browser} still keeps its own copy of these passwords.", { browser: summary.browser })}` : ""}
+      </div>
+      {summary.review.length > 0 && (
+        <div className="import-review" data-import-review>
+          <div className="sub">
+            {pending > 0
+              ? t("These passwords differ from the ones in Corvus and nothing says which is newer, so Corvus left its own. Update the ones you want.")
+              : t("Updated. The previous passwords stay in each login's history.")}
+          </div>
+          <ul>
+            {summary.review.map((r, i) => (
+              <li key={`${r.site}\n${r.username}`} data-import-review-row={i}>
+                <span className="grow">
+                  {r.site}
+                  {r.username ? <span className="muted">{` · ${r.username}`}</span> : null}
+                </span>
+                {updated.has(i) ? <span className="pill">{t("Updated")}</span> : <button className="btn small" onClick={() => apply([i])}>{t("Update")}</button>}
+              </li>
+            ))}
+          </ul>
+          {pending > 1 && (
+            <button className="btn small" data-import-review-all onClick={() => apply("all")}>
+              {t("Update all")}
+            </button>
+          )}
+        </div>
+      )}
+      {groups.length > 0 && (
+        <details className="import-reasons" data-import-reasons>
+          <summary>{t("Why some logins were not added or changed")}</summary>
+          {groups.map((g) => (
+            <div key={g.reason} className="import-reason" data-import-reason={g.reason}>
+              <div className="sub">{reasonText(g.reason)}</div>
+              <ul>
+                {g.notes.map((note, i) => (
+                  <li key={i}>
+                    {note.site}
+                    {note.username ? <span className="muted">{` · ${note.username}`}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </details>
+      )}
+      {error && <div className="notice error">{error}</div>}
+    </div>
+  );
+}
+
+/** A checkbox, on by default, to delete an exported CSV for good once imported. */
+function DeleteCsvChoice({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="check import-delete-csv">
+      <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} data-import-delete-csv />
+      {t("Delete the exported file for good once imported (it holds your passwords in plain text)")}
+    </label>
+  );
+}
+
+/**
+ * Passwords a browser protects itself come through its own export, from the same click: Corvus opens
+ * the browser's password page, then waits a few minutes for the file it saves in Downloads.
+ */
+function GuidedExport({ source, count }: { source: ImportSource; count: number }) {
+  const [deleteAfter, setDeleteAfter] = useState(true);
+  const [waiting, setWaiting] = useState(false);
+  const [opened, setOpened] = useState<boolean | null>(null);
+  const [result, setResult] = useState<PasswordImportSummary | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const page = passwordExportPage(source.id);
+  const firefox = source.family === "firefox";
+  const start = (): void => {
+    setWaiting(true);
+    setResult(null);
+    setMessage(null);
+    setOpened(null);
+    internalApi()
+      .call("import.passwordExport", source.id, deleteAfter)
+      .then((r) => {
+        setOpened(r.opened);
+        if (r.status === "imported" && r.summary) {
+          setResult(r.summary);
+          setMessage(r.deleted ? t("{file} was imported and deleted.", { file: r.file ?? "" }) : t("{file} was imported. Delete it when you are done: it holds your passwords in plain text.", { file: r.file ?? "" }));
+        } else if (r.status === "timeout") setMessage(t("No export appeared in Downloads. Try again, or pick the file below."));
+      })
+      .catch((e: unknown) => setMessage(errorMessage(e)))
+      .finally(() => setWaiting(false));
+  };
+  const how = firefox
+    ? t("In Firefox, open {page} in the address bar, open the menu with three dots, choose Export passwords and save the file in your Downloads folder.", { page })
+    : t("In {browser}, open {page} in the address bar, choose Export passwords and save the file in your Downloads folder.", { browser: source.name, page });
+  return (
+    <div className="import-guided" data-import-guided={source.id}>
+      <div className="sub">
+        {count > 0
+          ? count === 1
+            ? t("{browser} protects 1 saved password; Corvus can import it from {browser}'s own export.", { browser: source.name })
+            : t("{browser} protects {n} saved passwords; Corvus can import them from {browser}'s own export.", { browser: source.name, n: n(count) })
+          : t("Some passwords stayed protected; Corvus can import them from {browser}'s own export.", { browser: source.name })}
+      </div>
+      <div className="import-guided-actions">
+        {waiting ? (
+          <button className="btn small" data-import-export-cancel onClick={() => void internalApi().call("import.passwordExportCancel")}>
+            {t("Stop waiting")}
+          </button>
+        ) : (
+          <button className="btn small" data-import-export onClick={start}>
+            {t("Open {browser}'s export", { browser: source.name })}
+          </button>
+        )}
+        <DeleteCsvChoice value={deleteAfter} onChange={setDeleteAfter} />
+      </div>
+      {(waiting || opened === false) && (
+        <div className="sub" data-import-export-waiting>
+          {waiting ? `${t("Waiting for the export in your Downloads folder (a few minutes at most).")} ` : ""}
+          {how}
+        </div>
+      )}
+      {message && <div className="notice">{message}</div>}
+      {result && <PasswordResult summary={result} />}
+    </div>
+  );
 }
 
 function resultLine(result: ImportResult): string {
@@ -39,6 +239,7 @@ function ProfileRow({ source, profile }: { source: ImportSource; profile: Import
     history: available("history"),
     tabs: available("tabs"),
     search: available("search"),
+    passwords: available("passwords"),
   });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -54,7 +255,8 @@ function ProfileRow({ source, profile }: { source: ImportSource; profile: Import
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false));
   };
-  const label: Record<ImportKind, string> = { bookmarks: t("Bookmarks"), history: t("History"), tabs: t("Open tabs"), search: t("Search shortcuts") };
+  const label: Record<ImportKind, string> = { bookmarks: t("Bookmarks"), history: t("History"), tabs: t("Open tabs"), search: t("Search shortcuts"), passwords: t("Passwords") };
+  const stillProtected = Math.max(profile.protectedPasswords ?? 0, result?.passwords?.protected ?? 0);
   return (
     <div className="import-profile" data-import-profile={profile.dir}>
       <div className="import-profile-head">
@@ -71,13 +273,20 @@ function ProfileRow({ source, profile }: { source: ImportSource; profile: Import
       </div>
       <div className="import-kinds">
         {(Object.keys(kinds) as ImportKind[]).map((kind) => (
-          <label key={kind} className="check">
+          <label key={kind} className="check" data-import-kind={kind}>
             <input type="checkbox" checked={kinds[kind]} disabled={!available(kind)} onChange={(e) => setKinds({ ...kinds, [kind]: e.target.checked })} />
             {label[kind]}
           </label>
         ))}
       </div>
+      {kinds.passwords && available("passwords") && (
+        <div className="sub import-passwords-note" data-import-passwords-note>
+          {t("Corvus reads the passwords saved in {browser} on this computer once, now, into its encrypted vault.", { browser: source.name })}
+        </div>
+      )}
       {result && resultLine(result) && <div className="notice ok" data-import-result>{resultLine(result)}</div>}
+      {result?.passwords && <PasswordResult summary={result.passwords} />}
+      {stillProtected > 0 && <GuidedExport source={source} count={stillProtected} />}
       {result &&
         Object.entries(result.errors).map(([kind, message]) => (
           <div key={kind} className="notice error">
@@ -189,34 +398,40 @@ export function BrowserImportPanel() {
 function PasswordCsvImport() {
   const [result, setResult] = useState<PasswordImportResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [deleteAfter, setDeleteAfter] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const run = (): void => {
     setBusy(true);
     setError(null);
+    setResult(null);
     internalApi()
-      .call("import.passwordCsv")
+      .call("import.passwordCsv", deleteAfter)
       .then(setResult)
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false));
   };
-  const extra = result && !result.canceled ? [result.duplicates > 0 ? t("{n} already saved.", { n: n(result.duplicates) }) : "", result.skipped > 0 ? t("{n} rows skipped.", { n: n(result.skipped) }) : ""].filter(Boolean).join(" ") : "";
   return (
     <div className="import-passwords">
       <div className="import-passwords-head">
         <div className="grow">
-          <div className="title">{t("Passwords")}</div>
+          <div className="title">{t("Passwords from a file")}</div>
           <div className="sub">
-            {t("Export your logins to a CSV in the other browser (its password settings have an Export passwords option), then pick the file here. The file holds your passwords in plain text — delete it when you are done.")}
+            {t("Another browser or password manager can export its logins to a CSV (its password settings have an Export passwords option). Pick the file here: it goes through the same checks, so nothing older overwrites Corvus.")}
           </div>
         </div>
         <button className="btn small" disabled={busy} data-import-passwords onClick={run}>
           {busy ? t("Importing…") : t("Import a CSV…")}
         </button>
       </div>
-      {result && !result.canceled && (
-        <div className="notice ok" data-import-passwords-result>
-          {result.imported > 0 ? t("Imported {n} logins.", { n: n(result.imported) }) : t("No new logins imported.")}
-          {extra ? ` ${extra}` : ""}
+      <DeleteCsvChoice value={deleteAfter} onChange={setDeleteAfter} />
+      {result && !result.canceled && result.summary && (
+        <div data-import-passwords-result>
+          {result.file && (
+            <div className="sub">
+              {result.deleted ? t("{file} was imported and deleted.", { file: result.file }) : t("{file} was imported. Delete it when you are done: it holds your passwords in plain text.", { file: result.file })}
+            </div>
+          )}
+          <PasswordResult summary={result.summary} />
         </div>
       )}
       {error && <div className="notice error">{error}</div>}
