@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.36.0
+
+### Passwords and 2FA
+- **Logins saved for the same site under another ending.** On a site whose name matches one you have logins for under another ending (example.es, example.co.uk or example.it when you saved example.com), the list under the login or 2FA code field now has a folded section **Saved for example.com**, marked with a warning, instead of offering nothing. A look-alike name (examp1e.com, example-login.com) never counts. Picking one of its logins asks first, since a site with the same name can belong to someone else, and fills it only once you confirm; after you sign in, the save prompt offers to keep it for this site. Under a 2FA code field, picking its code (after the same question) also saves a copy of the login for this site with the same 2FA, so the next sign-in here offers it as this site's own. AI agents and automatic sign-in never use these logins.
+
 ## v0.35.0
 
 ### AI agents (MCP)

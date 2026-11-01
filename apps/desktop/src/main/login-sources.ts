@@ -10,7 +10,7 @@
  * account. Agents and auto sign-in keep the page's own logins (`records`, `forPage`): their opt-ins
  * are per login, and a wider match must not widen what they may use.
  */
-import { loginFit, matchCredentials, type CredentialMatch, type CredentialSource } from "../shared/credentials";
+import { loginFit, matchCredentials, similarFit, type CredentialMatch, type CredentialSource } from "../shared/credentials";
 import type { TotpConfig } from "../shared/totp";
 import type { CredentialVault } from "./credential-store";
 
@@ -34,8 +34,8 @@ export interface LoginRecord {
 /** A login saved for the page's site. */
 export interface LoginCandidate {
   record: LoginRecord;
-  /** "exact": saved for the page's own origin; "domain": for another host of the same registrable domain. */
-  fit: "exact" | "domain";
+  /** "exact": saved for the page's own origin; "domain": for another host of the same registrable domain; "similar": for a site of the same name under another suffix (see similarFit). */
+  fit: "exact" | "domain" | "similar";
   /** Host (and port) it is saved for, without the protocol. */
   host: string;
 }
@@ -45,6 +45,8 @@ export interface LoginProvider {
   matches(url: string): LoginRecord[];
   /** Logins saved for the page's site: its own origin and the other hosts of its registrable domain. */
   candidates(url: string): LoginCandidate[];
+  /** Logins saved for sites of the page's name under another suffix ("example.com" on "example.es"), offered apart. */
+  similar(url: string): LoginCandidate[];
   get(id: string): LoginRecord | undefined;
 }
 
@@ -80,6 +82,11 @@ export function vaultProvider(vault: CredentialVault): LoginProvider {
         const entry = originEntry(c.origin);
         const fit = entry ? loginFit(entry, url) : null;
         return entry && fit ? [{ record: toRecord(c), fit, host: entry.port ? `${entry.host}:${entry.port}` : entry.host }] : [];
+      }),
+    similar: (url) =>
+      vault.all().flatMap((c) => {
+        const entry = originEntry(c.origin);
+        return entry && similarFit(entry, url) ? [{ record: toRecord(c), fit: "similar" as const, host: entry.port ? `${entry.host}:${entry.port}` : entry.host }] : [];
       }),
     get: (id) => {
       const c = vault.get(id);
@@ -144,7 +151,7 @@ export function toMatch(account: LoginAccount): CredentialMatch {
     hasTotp: Boolean(account.totp),
     source: r.source,
     ...(r.sourceName ? { sourceName: r.sourceName } : {}),
-    fit: account.entries.some((e) => e.fit === "exact") ? "exact" : "domain",
+    fit: account.entries.some((e) => e.fit === "exact") ? "exact" : account.entries.some((e) => e.fit === "domain") ? "domain" : "similar",
   };
 }
 
@@ -169,6 +176,19 @@ export class LoginSources {
   /** The account an id (of any of its logins) names, only if it belongs to the page. */
   accountFor(id: string, url: string): LoginAccount | undefined {
     return this.accounts(url).find((a) => a.entries.some((e) => e.record.id === id));
+  }
+
+  /**
+   * The accounts of sites of the page's name under another suffix (see similarFit), for the person's
+   * autofill only, in their own section and after a confirmation: never for agents or auto sign-in.
+   */
+  similarAccounts(url: string): LoginAccount[] {
+    return groupAccounts(this.providers().flatMap((p) => p.similar(url)));
+  }
+
+  /** The similar site's account an id names, only if it is one for the page (see similarAccounts). */
+  similarAccountFor(id: string, url: string): LoginAccount | undefined {
+    return this.similarAccounts(url).find((a) => a.entries.some((e) => e.record.id === id));
   }
 
   get(id: string): LoginRecord | undefined {

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { KeePassDbStatus, KeePassDbView, KeePassEntrySummary, KeePassSourceKind, KeePassSourceView, KeePassUnlockResult } from "../shared/keepass-ipc";
 import { JsonFile } from "./json-file";
-import { entryFit, entryMatchScore, entrySite, type KeePassEntry } from "./keepass-entries";
+import { entryFit, entryMatchScore, entrySimilar, entrySite, type KeePassEntry } from "./keepass-entries";
 import { deleteKdbxEntry, openKdbx, saveKdbxEntry, setKdbxTotps, type EntryInput, type EntryTotp } from "./keepass-format";
 import type { LoginCandidate, LoginProvider, LoginRecord } from "./login-sources";
 import type { SecretCipher } from "./settings-store";
@@ -521,6 +521,17 @@ export class KeePassStore {
           for (const e of db.entries) {
             const fit = entryFit(e, url);
             if (fit) found.push({ record: this.record(db, e), ...fit });
+          }
+        }
+        return found;
+      },
+      similar: (url) => {
+        const found: LoginCandidate[] = [];
+        for (const db of this.dbs.values()) {
+          if (db.status !== "unlocked") continue;
+          for (const e of db.entries) {
+            const host = entrySimilar(e, url);
+            if (host) found.push({ record: this.record(db, e), fit: "similar", host });
           }
         }
         return found;

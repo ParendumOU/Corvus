@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CredentialMatch } from "../src/shared/credentials";
 import type { GeneratorState } from "../src/shared/credentials-ipc";
-import { DROPDOWN_GAP, dropdownAccounts, dropdownBounds, dropdownEntries, dropdownLabel, dropdownLines, dropdownMayOpen, dropdownStays, dropdownTwoFaOnly, moveHighlight, parseDropdownAction } from "../src/shared/field-dropdown";
+import { DROPDOWN_GAP, dropdownAccounts, dropdownBounds, dropdownEntries, dropdownLabel, dropdownLines, dropdownMayOpen, dropdownStays, dropdownTwoFaOnly, moveHighlight, parseDropdownAction, similarSitesLabel } from "../src/shared/field-dropdown";
 import { translate } from "../src/shared/i18n-es";
 
 const match = (id: string, extra: Partial<CredentialMatch> = {}): CredentialMatch => ({ id, username: `${id}@example.com`, site: "central.example.com", hasPassword: true, hasTotp: false, source: "corvus", fit: "exact", ...extra });
@@ -16,6 +16,21 @@ describe("the field dropdown's entries", () => {
     expect(dropdownEntries({ first, others, othersOpen: false }).map((e) => (e.type === "account" ? e.account.id : e.type))).toEqual(["a", "b", "others", "manage"]);
     expect(dropdownEntries({ first, others, othersOpen: true }).map((e) => (e.type === "account" ? e.account.id : e.type))).toEqual(["a", "b", "others", "c", "manage"]);
     expect(dropdownEntries({ first, others: [], othersOpen: true }).map((e) => e.type)).toEqual(["account", "account", "manage"]);
+  });
+
+  it("folds similar sites' accounts into a section of their own, after the page's, also when they are all it has", () => {
+    const ids = (state: Parameters<typeof dropdownEntries>[0]) => dropdownEntries(state).map((e) => (e.type === "account" ? e.account.id : e.type));
+    const similar = [match("s", { fit: "similar", site: "example.com" })];
+    expect(ids({ first: [match("a")], others: [], othersOpen: false, similar, similarOpen: false })).toEqual(["a", "similar", "manage"]);
+    expect(ids({ first: [], others: [], othersOpen: false, similar, similarOpen: false })).toEqual(["similar", "manage"]);
+    expect(ids({ first: [], others: [match("c", { fit: "domain" })], othersOpen: true, similar, similarOpen: true })).toEqual(["others", "c", "similar", "s", "manage"]);
+  });
+
+  it("names the similar sites by their domains, two at most", () => {
+    const at = (site: string) => match(site, { fit: "similar", site });
+    expect(similarSitesLabel([at("accounts.example.com"), at("example.com")])).toBe("example.com");
+    expect(similarSitesLabel([at("example.com"), at("example.it:8443")])).toBe("example.com, example.it");
+    expect(similarSitesLabel([at("example.com"), at("example.it"), at("example.de")])).toBe("example.com, example.it, …");
   });
 
   it("moves the highlight with the arrows, wrapping around", () => {

@@ -81,8 +81,9 @@ installUserAgents();
 // and a stand-in YouTube watch page (video features key on youtube.com).
 if (process.env.CORVUS_SMOKE_TEST === "1") {
   // corvus-smoke.dev is HSTS-preloaded (all of .dev is), for the certificate error checks.
-  // Hosts under corvus-smoke.test stand in for the subdomains of one site (logins shared across them).
-  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP *.corvus-smoke.test 127.0.0.1, MAP corvus-smoke.dev 127.0.0.1, MAP www.youtube.com 127.0.0.1");
+  // Hosts under corvus-smoke.test stand in for the subdomains of one site (logins shared across them),
+  // corvus-smoke.example for a site of the same name under another suffix.
+  app.commandLine.appendSwitch("host-resolver-rules", "MAP corvus-smoke.test 127.0.0.1, MAP *.corvus-smoke.test 127.0.0.1, MAP corvus-smoke.example 127.0.0.1, MAP corvus-smoke.dev 127.0.0.1, MAP www.youtube.com 127.0.0.1");
   // The external apps checks' site (smoke-external-apps.ts) counts as a public one for Chromium's
   // local network access rules, like a government portal that talks to Autofirma on 127.0.0.1.
   app.commandLine.appendSwitch("ip-address-space-overrides", "127.0.0.1:47851=public");

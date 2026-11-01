@@ -2,10 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { accountDetails, loginDomainOf, loginFit, middleEllipsis, splitAccounts, type CredentialMatch } from "../src/shared/credentials";
+import { accountDetails, loginDomainOf, loginFit, middleEllipsis, similarFit, splitAccounts, type CredentialMatch } from "../src/shared/credentials";
 import type { TotpConfig } from "../src/shared/totp";
 import { CredentialVault } from "../src/main/credential-store";
-import { entryFit } from "../src/main/keepass-entries";
+import { entryFit, entrySimilar } from "../src/main/keepass-entries";
 import { lastUsedFirst, LoginSources, vaultProvider, type LoginProvider, type LoginRecord } from "../src/main/login-sources";
 import type { SecretCipher } from "../src/main/settings-store";
 
@@ -48,6 +48,10 @@ function keepass(entries: Array<{ id: string; username: string; password: string
     candidates: (url) => entries.flatMap((e) => {
       const fit = entryFit(e, url);
       return fit ? [{ record: record(e), ...fit }] : [];
+    }),
+    similar: (url) => entries.flatMap((e) => {
+      const host = entrySimilar(e, url);
+      return host ? [{ record: record(e), fit: "similar" as const, host }] : [];
     }),
     get: (id) => {
       const e = entries.find((x) => x.id === id);
@@ -180,6 +184,46 @@ describe("LoginSources accounts", () => {
     expect(logins.accountFor(domain, "https://central.example.com/")?.id).toBe(exact);
   });
 });
+
+describe("similar sites", () => {
+  const at = (scheme: "http:" | "https:" | null, host: string) => ({ scheme, host });
+
+  it("are sites of the page's name under another suffix, never look-alikes", () => {
+    expect(similarFit(at("https:", "example.com"), "https://example.es/login")).toBe(true);
+    expect(similarFit(at("https:", "accounts.example.com"), "https://www.example.co.uk/")).toBe(true);
+    expect(similarFit(at(null, "example.it"), "https://shop.example.de/")).toBe(true);
+    expect(similarFit(at("https:", "example.com"), "https://example.com/")).toBe(false);
+    expect(similarFit(at("https:", "example.com"), "https://central.example.com/")).toBe(false);
+    for (const page of ["https://examp1e.es/", "https://example-login.com/", "https://my-example.es/", "https://example.es.evil.com/", "https://xn--exmple-cua.es/"]) {
+      expect(similarFit(at("https:", "example.com"), page), page).toBe(false);
+    }
+    expect(similarFit(at("https:", "a.github.io"), "https://a.gitlab.io/")).toBe(false);
+    expect(similarFit(at("http:", "127.0.0.1"), "http://127.0.0.2/")).toBe(false);
+    expect(similarFit(at("https:", "example.com"), "http://example.es/")).toBe(false);
+    expect(similarFit(at("http:", "example.com"), "https://example.es/")).toBe(true);
+    expect(similarFit(at("https:", "example.com"), "corvus://passwords")).toBe(false);
+  });
+
+  it("are offered apart from the page's accounts, from the vault and KeePass, and never to agents", () => {
+    const v = vault();
+    const com = add(v, "https://example.com", "ana@example.com", "pw", 1, TOTP);
+    add(v, "https://examp1e.com", "ana@example.com", "phish", 2);
+    const kp = keepass([{ id: "kp:db:1", username: "ops", password: "kp", urls: ["https://example.it"] }]);
+    const logins = new LoginSources(() => [vaultProvider(v), kp]);
+    const page = "https://www.example.es/login";
+    expect(logins.matchesFor(page)).toEqual([]);
+    expect(logins.similarAccounts(page).map((a) => [a.username, a.primary.host, a.primary.fit])).toEqual([
+      ["ana@example.com", "example.com", "similar"],
+      ["ops", "example.it", "similar"],
+    ]);
+    expect(logins.similarAccountFor(com, page)?.totp?.record.totp).toEqual(TOTP);
+    expect(logins.accountFor(com, page)).toBeUndefined();
+    expect(logins.records(page)).toEqual([]);
+    expect(logins.forPage(com, page)).toBeUndefined();
+    expect(logins.similarAccountFor(com, "https://example.com/")).toBeUndefined();
+  });
+});
+
 
 describe("accountDetails", () => {
   const match = (extra: Partial<CredentialMatch>): CredentialMatch => ({ id: "x", username: "info@example.com", site: "central.example.com", hasPassword: true, hasTotp: false, source: "corvus", fit: "exact", ...extra });

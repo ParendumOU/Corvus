@@ -39,6 +39,11 @@ body,
 .fd-menu .af-others.active {
   color: var(--text);
 }
+/* Similar sites' accounts: another site's logins, marked as such. */
+.fd-menu .fd-similar svg:nth-of-type(2) {
+  flex: none;
+  color: var(--warning);
+}
 .fd-menu .af-manage {
   margin: 2px -6px -6px;
   padding: 9px 14px;

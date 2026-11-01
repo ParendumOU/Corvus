@@ -11,6 +11,7 @@ import { codeToFill, totpCode } from "../shared/totp";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillIdentifierScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
 import { FieldDropdown, pageOf, type FieldBox, type PasswordOffer } from "./field-dropdown";
+import { toMatch, type LoginAccount } from "./login-sources";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
 
@@ -26,6 +27,18 @@ export interface AutoSignInRequest {
   username: string;
 }
 export type AutoSignInApprover = (win: BrowserWindowCtl, request: AutoSignInRequest) => Promise<{ approved: boolean; stopOffering: boolean }>;
+
+/** What the prompt for a similar site's login (see similarFit) shows. Resolves true to use it. */
+export interface SimilarLoginRequest {
+  /** The page's host. */
+  host: string;
+  /** The host the login is saved for. */
+  site: string;
+  username: string;
+  /** Its 2FA is used: the login is also saved for the page's site. */
+  saveCopy: boolean;
+}
+export type SimilarApprover = (win: BrowserWindowCtl, request: SimilarLoginRequest) => Promise<boolean>;
 
 interface PendingSave {
   id: number;
@@ -95,6 +108,9 @@ export class AutofillService {
   /** Per tab: origin -> when auto sign-in last asked. */
   private readonly autoAsked = new Map<TabId, Map<string, number>>();
   private autoApprover: AutoSignInApprover | null = null;
+  private similarApprover: SimilarApprover | null = null;
+  /** Per tab: the similar sites' accounts the person approved on a site (origin -> login ids), so a two-step sign-in asks once. */
+  private readonly similarApproved = new Map<TabId, { origin: string; ids: Set<string> }>();
   /** Per window: the account dropdown under a field, made once a page of the window can show it. */
   private readonly dropdowns = new Map<BrowserWindowCtl, FieldDropdown>();
   /** A private window's password generator choices: they last as long as the window, never saved. */
@@ -227,6 +243,7 @@ export class AutofillService {
 
   forgetTab(id: TabId): void {
     this.detected.delete(id);
+    this.similarApproved.delete(id);
     this.pending.delete(id);
     this.identifiers.delete(id);
     this.autoAsked.delete(id);
@@ -358,9 +375,21 @@ export class AutofillService {
       copy: field?.filled === true,
       generator: field && offersGenerator(field, matches.length > 0) ? { prefs: this.generatorPrefs(win), rules: field.rules } : null,
     };
+    const similar = this.similarMatches(win, url, click.kind, matches);
     const page = pageOf(tab);
-    if (!page || !active() || (matches.length === 0 && !offer.copy && !offer.generator)) return;
-    this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches, offer);
+    if (!page || !active() || (matches.length === 0 && similar.length === 0 && !offer.copy && !offer.generator)) return;
+    this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches, offer, similar);
+  }
+
+  /**
+   * The accounts of similar sites (see similarFit) the dropdown offers apart under a field: under a code
+   * field those with a 2FA, under a login field all, less a username the page's own accounts already
+   * offer for that field.
+   */
+  private similarMatches(win: BrowserWindowCtl, url: string, kind: FieldClick["kind"], matches: CredentialMatch[]): CredentialMatch[] {
+    const user = (m: CredentialMatch): string => m.username.trim().toLowerCase();
+    const offered = new Set(matches.filter((m) => (kind === "otp" ? m.hasTotp : m.hasPassword)).map(user));
+    return dropdownAccounts(kind, win.profile.logins.similarAccounts(url).map(toMatch)).filter((m) => !offered.has(user(m)));
   }
 
   /** The password generator's choices: the person's last ones (a private window's own while it is open). */
@@ -413,13 +442,85 @@ export class AutofillService {
     if (!tab) return;
     const url = this.pageUrl(tab);
     const account = win.profile.logins.accountFor(id, url);
-    if (!account) return;
+    if (account) await this.fillAccount(win, tab, url, account, pick);
+    else await this.fillSimilar(win, tab, url, id, pick);
+  }
+
+  /**
+   * An account of a similar site (see similarFit), picked in the dropdown's own section for it: only
+   * once the person confirms, since a site of the same name can belong to someone else, and only while
+   * the page is still where it was. Picked for the 2FA code, the login is also saved for the page's
+   * site with the same 2FA (see copyLogin); picked for the login, the save prompt that follows the
+   * sign-in offers to keep it for this site.
+   */
+  private async fillSimilar(win: BrowserWindowCtl, tab: TabRuntime, url: string, id: string, pick: AccountPick): Promise<void> {
+    const account = win.profile.logins.similarAccountFor(id, url);
+    const origin = originKeyOf(url);
+    if (!account || !origin || tab.agentControlled) return;
+    const saveCopy = pick === "code" && Boolean(account.totp) && !win.isPrivate;
+    const approved = this.similarApproved.get(tab.id);
+    const known = approved?.origin === origin && account.entries.some((e) => approved.ids.has(e.record.id));
+    // Once approved in the tab, the login is not asked again; saving it here with its 2FA always is.
+    if ((!known || saveCopy) && !(await this.askSimilar(win, { host: hostOf(origin), site: account.primary.host, username: account.username, saveCopy }))) return;
+    if (win.activeTab()?.id !== tab.id || this.pageUrl(tab) !== url) return;
+    this.similarApproved.set(tab.id, { origin, ids: new Set([...(approved?.origin === origin ? approved.ids : []), ...account.entries.map((e) => e.record.id)]) });
+    if (saveCopy) this.copyLogin(win, tab, origin, account);
+    await this.fillAccount(win, tab, url, account, pick, { note: false });
+  }
+
+  private async askSimilar(win: BrowserWindowCtl, req: SimilarLoginRequest): Promise<boolean> {
+    if (this.similarApprover) return this.similarApprover(win, req);
+    const { response } = await this.ctx.dialogs.messageBox({
+      type: "warning",
+      buttons: [tr("Cancel"), tr("Use this login")],
+      defaultId: 0,
+      cancelId: 0,
+      title: tr("A login from another site"),
+      message: tr("Use the login saved for {site} on {host}?", { site: req.site, host: req.host }),
+      detail: [
+        tr("{host} has the same name as {site} but is another site. Use this login only if you know both belong to the same company: a fake site with a similar name could steal it.", { host: req.host, site: req.site }),
+        ...(req.saveCopy ? [tr("Corvus also saves a copy of this login, with its 2FA, for {host}.", { host: req.host })] : []),
+      ].join("\n\n"),
+    }, win);
+    return response === 1;
+  }
+
+  /** Smoke tests answer the similar site prompt; null restores the dialog. */
+  setSimilarApprover(approver: SimilarApprover | null): void {
+    this.similarApprover = approver;
+  }
+
+  /**
+   * The person used a similar site's 2FA here: its login is saved for this site too, with the same 2FA,
+   * so the next sign-in here offers it as this site's own. A login of the same username already saved
+   * here gets the 2FA when it has none; one with its own 2FA is left as it is. A save waiting in the tab
+   * for that same login is then done.
+   */
+  private copyLogin(win: BrowserWindowCtl, tab: TabRuntime, origin: string, account: LoginAccount): void {
+    const totp = account.totp?.record.totp;
+    if (!totp) return;
+    const password = account.password?.record.password ?? "";
+    const existing = win.profile.credentials.findByLogin(origin, account.username);
+    if (existing) {
+      if (!existing.totp) win.profile.credentials.update(existing.id, { totp });
+    } else {
+      win.profile.credentials.add({ origin, username: account.username, password, totp });
+    }
+    const save = this.pending.get(tab.id);
+    if (save && save.origin === origin && save.username === account.username && save.password === (existing?.password ?? password)) {
+      this.pending.delete(tab.id);
+      win.pushState();
+    }
+  }
+
+  /** Fills an account of the page as fill() says; `note: false` leaves the site's last used account as it was. */
+  private async fillAccount(win: BrowserWindowCtl, tab: TabRuntime, url: string, account: LoginAccount, pick: AccountPick, opts: { note?: boolean } = {}): Promise<void> {
     const page = await this.run<LoginDetection>(tab, detectLoginScript());
     const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, { login: page?.hasPassword === true, identifier: page?.hasIdentifier === true, otp: page?.hasOtp === true });
     const totp = plan.code ? account.totp?.record.totp : undefined;
     const code = totp ? await codeToFill(totp) : null;
     if (plan.login === "none" && !code) return;
-    this.noteUsed(win, url, account.id);
+    if (opts.note !== false) this.noteUsed(win, url, account.id);
     // A two-step sign-in's first step gets the username alone; its next step offers the account first.
     if (plan.usernameOnly) {
       this.identifiers.set(tab.id, { site: autofillSiteOf(url), username: account.username, accountId: account.id, at: Date.now() });

@@ -211,6 +211,13 @@ export interface FieldDropdownState {
   first: CredentialMatch[];
   others: CredentialMatch[];
   othersOpen: boolean;
+  /**
+   * Accounts of sites of the page's name under another suffix ("example.com" on "example.es"), in a
+   * folded section of their own that names those sites; picking one asks the person first.
+   */
+  similar: CredentialMatch[];
+  similarSites: string;
+  similarOpen: boolean;
   /** Width the dropdown may take (the page's width, less its margins). */
   maxWidth: number;
   /** The highlighted entry (see dropdownEntries), moved by the arrow keys and the mouse. */

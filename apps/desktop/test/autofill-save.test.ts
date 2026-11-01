@@ -263,3 +263,57 @@ describe("the save-password IPC", () => {
     expect(vault.all().map((c) => [c.username, c.password])).toEqual([["", "pw-edited"]]);
   });
 });
+
+describe("a similar site's login (example.com on example.es)", () => {
+  const TOTP = { secret: "JBSWY3DPEHPK3PXPJBSWY3DP", algorithm: "SHA1" as const, digits: 6, period: 30 };
+  const ES = "https://example.es";
+
+  function onEs() {
+    const s = setup();
+    s.tabs.get("t1")!.url = `${ES}/login`;
+    const com = s.vault.add({ origin: SITE, username: "ana@example.com", password: "pw-com", totp: TOTP });
+    const asked: Array<{ host: string; site: string; saveCopy: boolean }> = [];
+    let answer = true;
+    s.autofill.setSimilarApprover(async (_win, req) => {
+      asked.push({ host: req.host, site: req.site, saveCopy: req.saveCopy });
+      return answer;
+    });
+    return { ...s, com, asked, decline: () => void (answer = false) };
+  }
+
+  it("is used only once the person confirms, and its 2FA saves a copy of the login for the site", async () => {
+    const { vault, win, autofill, com, asked } = onEs();
+    await autofill.fill(win, com.id, "code");
+    expect(asked).toEqual([{ host: "example.es", site: "example.com", saveCopy: true }]);
+    const copy = vault.findByLogin(ES, "ana@example.com");
+    expect([copy?.password, copy?.totp?.secret, copy?.agentTotp, copy?.agentSignIn]).toEqual(["pw-com", TOTP.secret, undefined, undefined]);
+    expect(vault.get(com.id)?.origin).toBe(SITE);
+  });
+
+  it("adds its 2FA to a login already saved for the site without one, and finishes the save waiting for it", async () => {
+    const { vault, win, autofill, com, tabs } = onEs();
+    autofill.onSubmitCaptured(win, tabs.get("t1")!, { origin: `${ES}/login`, username: "ana@example.com", password: "pw-com" });
+    expect(autofill.stateFor(win).canSave).toBe(true);
+    vault.add({ origin: ES, username: "ana@example.com", password: "pw-com" });
+    await autofill.fill(win, com.id, "code");
+    expect(vault.all().filter((c) => c.origin === ES).map((c) => c.totp?.secret)).toEqual([TOTP.secret]);
+    expect(autofill.stateFor(win).canSave).toBe(false);
+  });
+
+  it("saves nothing when the person declines, or when only the login was used", async () => {
+    const { vault, win, autofill, com, asked, decline } = onEs();
+    await autofill.fill(win, com.id, "account");
+    expect(asked).toEqual([{ host: "example.es", site: "example.com", saveCopy: false }]);
+    decline();
+    await autofill.fill(win, com.id, "code");
+    expect(vault.all().map((c) => c.origin)).toEqual([SITE]);
+  });
+
+  it("never reaches a look-alike site", async () => {
+    const { vault, win, autofill, asked } = onEs();
+    const phish = vault.add({ origin: "https://examp1e.com", username: "ana@example.com", password: "pw", totp: TOTP });
+    await autofill.fill(win, phish.id, "code");
+    expect(asked).toEqual([]);
+    expect(vault.all()).toHaveLength(2);
+  });
+});

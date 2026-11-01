@@ -4,7 +4,7 @@
  * Ctrl+A go to the field). The main process owns its state and pushes it to the view; the view only
  * draws it and reports the person's mouse. Pure helpers, shared by both and unit-tested.
  */
-import { accountDetails, LABEL_SEPARATOR, middleEllipsis, type CredentialMatch } from "./credentials";
+import { accountDetails, LABEL_SEPARATOR, loginDomainOf, middleEllipsis, type CredentialMatch } from "./credentials";
 import type { AutofillFieldKind, DropdownAction, FieldDropdownState } from "./credentials-ipc";
 import { PASSWORD_CLASSES, type PasswordClass } from "./password-rules";
 
@@ -15,25 +15,41 @@ export const DROPDOWN_WIDTH = 360;
 /** Longest username or site a row shows in full; longer ones are cut in the middle. */
 export const DROPDOWN_LABEL_MAX = 40;
 
-export type DropdownEntry = { type: "account"; account: CredentialMatch } | { type: "others" } | { type: "manage" } | { type: "copy" } | { type: "suggest" };
+export type DropdownEntry = { type: "account"; account: CredentialMatch } | { type: "others" } | { type: "similar" } | { type: "manage" } | { type: "copy" } | { type: "suggest" };
 
 /**
  * What the dropdown lists, top to bottom: "Copy password" (a password field that holds something), the
- * suggested strong password, the first accounts, the folded section and its accounts when open, then
- * "Manage passwords" (unless all it offers is the copy). Nothing while the generator's panel is open.
+ * suggested strong password, the first accounts, the folded section of the domain's other hosts and
+ * its accounts when open, the folded section of similar sites (see similarFit) and its accounts when
+ * open, then "Manage passwords" (unless all it offers is the copy). Nothing while the generator's
+ * panel is open.
  */
-export function dropdownEntries(state: Pick<FieldDropdownState, "first" | "others" | "othersOpen"> & Partial<Pick<FieldDropdownState, "copy" | "generator">>): DropdownEntry[] {
+export function dropdownEntries(
+  state: Pick<FieldDropdownState, "first" | "others" | "othersOpen"> & Partial<Pick<FieldDropdownState, "copy" | "generator" | "similar" | "similarOpen">>,
+): DropdownEntry[] {
   if (state.generator?.open) return [];
   const account = (m: CredentialMatch): DropdownEntry => ({ type: "account", account: m });
-  const offers = state.first.length + state.others.length > 0 || Boolean(state.generator);
+  const similar = state.similar ?? [];
+  const offers = state.first.length + state.others.length + similar.length > 0 || Boolean(state.generator);
   return [
     ...(state.copy ? [{ type: "copy" } as const] : []),
     ...(state.generator ? [{ type: "suggest" } as const] : []),
     ...state.first.map(account),
     ...(state.others.length > 0 ? [{ type: "others" } as const] : []),
     ...(state.othersOpen ? state.others.map(account) : []),
+    ...(similar.length > 0 ? [{ type: "similar" } as const] : []),
+    ...(state.similarOpen ? similar.map(account) : []),
     ...(offers ? [{ type: "manage" } as const] : []),
   ];
+}
+
+/**
+ * The similar sites a dropdown section names: their domains (see loginDomainOf), the first two and
+ * "…" for more.
+ */
+export function similarSitesLabel(accounts: readonly CredentialMatch[]): string {
+  const domains = [...new Set(accounts.map((m) => loginDomainOf(m.site.replace(/:\d+$/, "")) || m.site))];
+  return domains.length > 2 ? `${domains.slice(0, 2).join(", ")}, …` : domains.join(", ");
 }
 
 /** The next entry down (1) or up (-1), wrapping around; the first or the last when none is highlighted. */

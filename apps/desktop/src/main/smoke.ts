@@ -39,6 +39,7 @@ import { runCredentialsSmoke, runSavePromptSmoke, serveCredentialsSmokeRoute } f
 import { runTotpEditSmoke } from "./smoke-totp-edit";
 import { runPasswordTablesSmoke } from "./smoke-password-tables";
 import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
+import { runSimilarLoginsSmoke } from "./smoke-similar-logins";
 import { runPasswordGeneratorSmoke, servePasswordGeneratorSmokeRoute } from "./smoke-pwgen";
 import { runIdentifierFirstSmoke, serveIdentifierFirstSmokeRoute } from "./smoke-idfirst";
 import { runFeaturesSmoke } from "./smoke-features";
@@ -392,6 +393,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runCredentialsSmoke(ctx, { url, win, check, capture });
     await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
     await runOtpFillSmoke(ctx, { url, win, check, capture });
+    await runSimilarLoginsSmoke(ctx, { url, win, check, capture });
     await runPasswordGeneratorSmoke(ctx, { url, win, check });
     await runIdentifierFirstSmoke(ctx, { url, win, check });
     await runBackupSmoke(ctx, { win, check, capture });

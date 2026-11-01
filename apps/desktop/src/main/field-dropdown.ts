@@ -1,7 +1,7 @@
 import { WebContentsView, type Rectangle, type WebContents } from "electron";
 import { generatePassword, splitAccounts, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
 import { AUTOFILL_DROPDOWN_CHANNEL, FIELD_MENU_EVENT, type AutofillFieldKind, type DropdownAction, type FieldDropdownState, type GeneratorState } from "../shared/credentials-ipc";
-import { DROPDOWN_WIDTH, dropdownBounds, dropdownEntries, dropdownStays, moveHighlight } from "../shared/field-dropdown";
+import { DROPDOWN_WIDTH, dropdownBounds, dropdownEntries, dropdownStays, moveHighlight, similarSitesLabel } from "../shared/field-dropdown";
 import { fitGenerator, GENERATED_MAX, GENERATED_MIN, toggleClass, type FieldPasswordRules } from "../shared/password-rules";
 import { uiLanguage } from "./menu-i18n";
 import { paths } from "./paths";
@@ -166,9 +166,10 @@ export class FieldDropdown {
 
   /**
    * Opens the dropdown (or moves it) under a field of the active tab, listing `matches` and, under a
-   * password field, what `offer` says: "Copy password" and a suggested strong password.
+   * password field, what `offer` says: "Copy password" and a suggested strong password, and `similar`,
+   * the accounts of similar sites (see similarFit), folded in a section of their own.
    */
-  show(tab: TabRuntime, page: WebContents, field: FieldBox, kind: AutofillFieldKind, domain: string, matches: CredentialMatch[], offer: PasswordOffer = NO_OFFER): void {
+  show(tab: TabRuntime, page: WebContents, field: FieldBox, kind: AutofillFieldKind, domain: string, matches: CredentialMatch[], offer: PasswordOffer = NO_OFFER, similar: CredentialMatch[] = []): void {
     if (this.tab !== tab) this.close();
     this.flushOptions();
     clearTimeout(this.copiedTimer);
@@ -188,6 +189,9 @@ export class FieldDropdown {
       first,
       others,
       othersOpen: false,
+      similar,
+      similarSites: similarSitesLabel(similar),
+      similarOpen: false,
       maxWidth: Math.max(160, Math.min(DROPDOWN_WIDTH, bounds.width)),
       highlight: null,
       copy: offer.copy ? "offer" : null,
@@ -357,8 +361,8 @@ export class FieldDropdown {
     const state = this.current;
     const entry = state ? dropdownEntries(state)[index] : undefined;
     if (!state || !entry) return;
-    if (entry.type === "others") {
-      this.current = { ...state, othersOpen: !state.othersOpen, highlight: index };
+    if (entry.type === "others" || entry.type === "similar") {
+      this.current = entry.type === "others" ? { ...state, othersOpen: !state.othersOpen, highlight: index } : { ...state, similarOpen: !state.similarOpen, highlight: index };
       this.post();
       return;
     }

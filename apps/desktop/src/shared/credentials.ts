@@ -128,8 +128,8 @@ export interface CredentialMatch {
   source: CredentialSource;
   /** KeePass database name for KeePass logins. */
   sourceName?: string;
-  /** "exact": a login of the account is saved for the page's own host; "domain": only for other hosts of its domain. */
-  fit: "exact" | "domain";
+  /** "exact": a login of the account is saved for the page's own host; "domain": only for other hosts of its domain; "similar": only for a site of the same name under another suffix (see similarFit). */
+  fit: "exact" | "domain" | "similar";
 }
 
 /** Between the parts of an account's label in menus. */
@@ -206,6 +206,30 @@ export function loginFit(entry: { scheme: "http:" | "https:" | null; host: strin
   if (host === entry.host && port === entry.port && (entry.scheme === null || entry.scheme === page.protocol)) return "exact";
   const domain = loginDomainOf(host);
   return domain && domain === loginDomainOf(entry.host) ? "domain" : null;
+}
+
+/**
+ * Whether a login saved for `entry` was saved for a site of the page's name under another suffix:
+ * "example.com" for a page of "example.es" or "example.co.uk" (any of their hosts). A look-alike name
+ * ("examp1e.com", "example-login.com") never is. Such a site can still belong to someone else, so the
+ * person's autofill offers these logins apart and fills one only once they confirm; agents and auto
+ * sign-in never use them. False for the page's own domain (see loginFit), for hosts that keep their
+ * logins to themselves (see loginDomainOf) and for a login saved over https on an http page.
+ */
+export function similarFit(entry: { scheme: "http:" | "https:" | null; host: string }, pageUrl: string): boolean {
+  let page: URL;
+  try {
+    page = new URL(pageUrl);
+  } catch {
+    return false;
+  }
+  if (page.protocol !== "http:" && page.protocol !== "https:") return false;
+  if (entry.scheme === "https:" && page.protocol === "http:") return false;
+  const pageDomain = loginDomainOf(page.hostname);
+  const entryDomain = loginDomainOf(entry.host);
+  if (!pageDomain || !entryDomain || pageDomain === entryDomain) return false;
+  const name = (domain: string): string => domain.slice(0, domain.indexOf("."));
+  return name(pageDomain) === name(entryDomain);
 }
 
 /**

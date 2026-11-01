@@ -4,7 +4,7 @@ import type { FieldDropdownState, FieldMenuBridge, GeneratorState } from "../../
 import { dropdownEntries, dropdownLabel, dropdownLines, dropdownTwoFaOnly } from "../../shared/field-dropdown";
 import { PASSWORD_CHARSETS, PASSWORD_CLASSES, type GeneratorNote, type PasswordClass } from "../../shared/password-rules";
 import { setUiLanguage, t } from "../common/i18n";
-import { IconCheck, IconChevronDown, IconChevronRight, IconClock, IconCopy, IconLock, IconReload, IconSparkle } from "../common/icons";
+import { IconCheck, IconChevronDown, IconChevronRight, IconClock, IconCopy, IconLock, IconReload, IconSparkle, IconWarning } from "../common/icons";
 import "../common/theme.css";
 import "../common/account-rows.css";
 import "./field-menu.css";
@@ -291,6 +291,24 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
                 {state.othersOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
                 <span className="af-others-title">{t("Other {domain} accounts", { domain: state.domain })}</span>
                 <span className="af-count">{state.others.length}</span>
+              </div>
+            );
+          }
+          if (entry.type === "similar") {
+            return (
+              <div
+                key="similar"
+                role="option"
+                aria-selected={state.highlight === index}
+                aria-expanded={state.similarOpen}
+                title={t("Saved for another site with this name. Use them only if you trust this site.")}
+                {...p}
+                className={`af-others fd-similar ${p.className}`}
+              >
+                {state.similarOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+                <IconWarning size={13} />
+                <span className="af-others-title">{t("Saved for {sites}", { sites: state.similarSites })}</span>
+                <span className="af-count">{state.similar.length}</span>
               </div>
             );
           }
