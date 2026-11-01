@@ -23,7 +23,7 @@ import { GROUP_COLORS, type GroupPatch } from "../shared/tab-strip";
 import type { SecretKey, SettingsPatch } from "../shared/settings";
 import { toRecordView } from "./agent-run-store";
 import { ANNOTATIONS_INTERNAL_PERMISSIONS, annotationsInternalHandlers, registerAnnotationCapture } from "./ipc-annotations";
-import { openBookmarkFolder, siteIcons } from "./bookmark-actions";
+import { openAllAsking, openBookmarkFolder, siteIcons } from "./bookmark-actions";
 import { checkConnection, testProxy, type ProxyInput } from "./connections";
 import { networkHelp, openNetworkSettings } from "./network-help";
 import type { AppContext } from "./context";
@@ -335,6 +335,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   "sync.openNetworkSettings": ["settings"],
   "sync.wipe": ["settings"],
   "sync.remoteTabs": ["history"],
+  "sync.openRemoteTabs": ["history"],
   "sync.extensionSuggestions": ["settings"],
   "sync.installExtension": ["settings"],
   "sync.dismissExtension": ["settings"],
@@ -676,6 +677,13 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     "sync.pairingCode": (c, address) => ctx.sync.pairingCode(c.profile, address === undefined || address === null ? undefined : str(address, "address", 300)),
     "sync.wipe": (c, confirmation) => ctx.sync.wipe(c.profile, str(confirmation, "confirmation", 64)),
     "sync.remoteTabs": (c) => ctx.sync.remoteTabs(c.profile),
+    "sync.openRemoteTabs": async (c, deviceId) => {
+      if (!c.window) throw new IpcError("No browser window");
+      const id = str(deviceId, "device", 64);
+      const device = (await ctx.sync.remoteTabs(c.profile)).find((d) => d.deviceId === id);
+      if (!device) return 0;
+      return openAllAsking(ctx, c.window, device.tabs, tr("Every tab open on “{device}” opens in a new tab.", { device: device.device }));
+    },
     "sync.extensionSuggestions": (c) => ctx.sync.extensionSuggestions(c.profile),
     "sync.installExtension": (c, id) => ctx.sync.installExtension(c.profile, str(id, "extension", 64)),
     "sync.dismissExtension": (c, id) => ctx.sync.dismissExtension(c.profile, str(id, "extension", 64)),

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.36.2
+
+### Sync
+- **Open a device's tabs with one click.** In History, each device under **Tabs from other devices** now has an **Open all tabs** button that opens all of that device's tabs in background tabs of this window, like **Open all** on a bookmarks folder (the first few load at once, the rest when you get to them; more than 15 asks first).
+
 ## v0.36.1
 
 ### AI agents (MCP)

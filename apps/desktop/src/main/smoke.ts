@@ -5,6 +5,7 @@ import path from "node:path";
 import { app, webContents } from "electron";
 import { decodePairing, linkOnlyReadingItem, newAsk, parseAsk, parseDeviceWatchStatus, stoppedAsk, type Ask, type SearchEvent } from "@corvus/shared";
 import { createSyncClient } from "@corvus/sync-core";
+import { openAllAsking } from "./bookmark-actions";
 import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
 import { runAgentRunsSmoke } from "./smoke-agent-runs";
@@ -507,6 +508,12 @@ async function smokeSync(
   await ctx.sync.syncNow(profile);
   const remote = await ctx.sync.remoteTabs(profile);
   check("sync remote tabs", remote.some((d) => d.device === "Smoke phone" && d.tabs[0]?.url === "https://example.org/remote"), remote);
+  const phoneTabs = remote.find((d) => d.device === "Smoke phone")?.tabs ?? [];
+  const tabsBefore = new Set(win.listTabs().map((t) => t.id));
+  const openedRemote = await openAllAsking(ctx, win, phoneTabs, "smoke");
+  const newRemote = win.listTabs().filter((t) => !tabsBefore.has(t.id));
+  check("open all tabs from another device", openedRemote === 1 && newRemote.length === 1 && newRemote[0]?.url === "https://example.org/remote", newRemote.map((t) => t.url));
+  for (const t of newRemote) win.closeTab(t.id, { remember: false });
   const suggestions = await ctx.sync.extensionSuggestions(profile);
   check("sync extension suggestions", suggestions.some((s) => s.id === extId), suggestions);
 

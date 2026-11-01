@@ -554,6 +554,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "sync.pairingCode"(address?: string): PairingCodeView;
   "sync.wipe"(confirmation: string): SyncStatus;
   "sync.remoteTabs"(): RemoteDeviceTabs[];
+  /** "Open all" on a device of "Tabs from other devices": its tabs in background tabs of this window. Returns how many opened. */
+  "sync.openRemoteTabs"(deviceId: string): number;
   "sync.extensionSuggestions"(): ExtensionSuggestion[];
   "sync.installExtension"(id: string): ExtensionSuggestion[];
   "sync.dismissExtension"(id: string): ExtensionSuggestion[];

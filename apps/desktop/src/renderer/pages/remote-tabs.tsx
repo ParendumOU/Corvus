@@ -30,6 +30,14 @@ export function RemoteTabs() {
           <div className="list-row">
             <strong>{d.device}</strong>
             <span className="muted small grow">{tx("{platform} · updated {updated}", { platform: d.platform, updated: updated(d.updatedAt) })}</span>
+            <button
+              className="btn small"
+              data-open-remote-tabs={d.deviceId}
+              title={tx("Open these {count} tabs here", { count: d.tabs.length })}
+              onClick={() => void internalApi().call("sync.openRemoteTabs", d.deviceId).catch(() => undefined)}
+            >
+              {tx("Open all tabs")}
+            </button>
           </div>
           {d.tabs.map((t, i) => (
             <div key={`${i}-${t.url}`} className="list-row">

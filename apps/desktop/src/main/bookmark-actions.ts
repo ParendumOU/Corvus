@@ -50,13 +50,27 @@ export async function openBookmarkFolder(ctx: AppContext, win: BrowserWindowCtl,
   const folder = win.profile.bookmarks.get(folderId);
   if (folder?.kind !== "folder") return 0;
   const pages = folderPages(win.profile.bookmarks.list(), folderId);
+  return openAllAsking(ctx, win, pages, tr("Every bookmark in “{folder}” opens in a new tab.", { folder: folder.title }));
+}
+
+/**
+ * Pages in background tabs as "Open all" opens them, after asking (with `detail` saying what opens)
+ * when there are more than OPEN_ALL_ASK_ABOVE. Returns how many were opened.
+ */
+export async function openAllAsking(
+  ctx: AppContext,
+  win: BrowserWindowCtl,
+  pages: ReadonlyArray<{ url: string; title: string }>,
+  detail: string,
+): Promise<number> {
+  if (pages.length === 0) return 0;
   if (pages.length > OPEN_ALL_ASK_ABOVE) {
     const { button } = await ctx.dialogs.ask(
       {
         tone: "question",
         title: tr("Open {count} tabs?", { count: pages.length }),
         message: tr("Open {count} tabs?", { count: pages.length }),
-        detail: tr("Every bookmark in “{folder}” opens in a new tab.", { folder: folder.title }),
+        detail,
         buttons: [tr("Cancel"), tr("Open all")],
         defaultId: 1,
         cancelId: 0,
