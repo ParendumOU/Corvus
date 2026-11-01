@@ -70,6 +70,8 @@ export interface PasswordImportSummary {
   olderLeftAlone: number;
   deletedLeftOut: number;
   protected: number;
+  /** Of `protected`: the ones Corvus could not read here (the system kept the key, or its reader failed). */
+  locked: number;
   skipped: number;
   /** Undated differences waiting for the person (Update / Update all), by index in this list. */
   review: Array<{ site: string; username: string }>;

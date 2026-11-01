@@ -49,7 +49,7 @@ function reasonText(reason: PasswordNoteReason): string {
     case "app-bound":
       return t("Protected by the browser: only its own export can bring these.");
     case "keyring":
-      return t("The system did not hand over the browser's key: use the browser's own export.");
+      return t("Corvus could not read these on this computer. The browser's own export brings them in.");
     case "primary-password":
       return t("Firefox keeps these behind its primary password: use Firefox's own export.");
     case "never-save":
@@ -94,6 +94,13 @@ function PasswordResult({ summary }: { summary: PasswordImportSummary }) {
         {passwordCounts(summary)}
         {summary.browser && summary.added + summary.updated > 0 ? ` ${t("{browser} still keeps its own copy of these passwords.", { browser: summary.browser })}` : ""}
       </div>
+      {summary.locked > 0 && summary.browser && (
+        <div className="notice" data-import-password-locked>
+          {summary.locked === 1
+            ? t("Corvus could not read 1 of these passwords on this computer, so it was left out. {browser}'s own export below brings it in.", { browser: summary.browser })
+            : t("Corvus could not read {n} of these passwords on this computer, so they were left out. {browser}'s own export below brings them in.", { n: n(summary.locked), browser: summary.browser })}
+        </div>
+      )}
       {summary.review.length > 0 && (
         <div className="import-review" data-import-review>
           <div className="sub">
@@ -286,7 +293,7 @@ function ProfileRow({ source, profile }: { source: ImportSource; profile: Import
       )}
       {result && resultLine(result) && <div className="notice ok" data-import-result>{resultLine(result)}</div>}
       {result?.passwords && <PasswordResult summary={result.passwords} />}
-      {stillProtected > 0 && <GuidedExport source={source} count={stillProtected} />}
+      {stillProtected > 0 && <GuidedExport source={source} count={result?.passwords?.locked ? 0 : stillProtected} />}
       {result &&
         Object.entries(result.errors).map(([kind, message]) => (
           <div key={kind} className="notice error">

@@ -3,12 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { BrowserImport } from "../src/main/browser-import";
+import type { KeyProviders } from "../src/main/browser-keys";
 import { PasswordReviews } from "../src/main/browser-passwords";
 import { CredentialVault } from "../src/main/credential-store";
 import type { ProfileRuntime } from "../src/main/profiles";
 import type { SecretCipher } from "../src/main/settings-store";
 import { writeBrowserFixtures } from "../src/main/smoke-import-fixtures";
-import { FIXTURE_PASSWORDS, FIXTURE_SECRETS } from "../src/main/smoke-password-fixtures";
+import { FIXTURE_PASSWORDS, FIXTURE_SECRETS, FIXTURE_WINDOWS_PASSWORDS, fakeDpapi, writeWindowsFixtures } from "../src/main/smoke-password-fixtures";
 
 const keychain: SecretCipher = {
   isEncryptionAvailable: () => true,
@@ -111,5 +112,57 @@ describe("review of undated differences", () => {
     now = 31 * 60_000;
     expect(reviews.take("p1", token, "all")).toEqual([]);
     expect(reviews.add("p1", [])).toBeUndefined();
+  });
+});
+
+describe("passwords on Windows, through the DPAPI worker", () => {
+  function windows(dpapi: KeyProviders["dpapi"]) {
+    const root = tempDir();
+    const service = new BrowserImport();
+    service.setTestRoots(writeWindowsFixtures(root, Date.now()));
+    let closed = 0;
+    service.setTestKeyProviders({ ...(dpapi ? { dpapi } : {}), close: () => closed++ });
+    const vault = new CredentialVault(tempDir(), keychain);
+    const runtime = { credentials: vault, backup: { noteBigChange: () => {} }, profile: { id: "p1" } } as unknown as ProfileRuntime;
+    return { root, service, vault, runtime, closed: () => closed };
+  }
+  const { current, old } = FIXTURE_WINDOWS_PASSWORDS;
+
+  it("unwraps the key and the rows from before v10, and ends the worker", async () => {
+    const asked: number[] = [];
+    const { service, vault, runtime, closed } = windows(async (blob) => {
+      asked.push(blob.length);
+      return fakeDpapi(blob);
+    });
+    const p = (await service.run(runtime, "brave", "Default", ["passwords"])).passwords!;
+    expect({ added: p.added, protected: p.protected, locked: p.locked }).toEqual({ added: 2, protected: 0, locked: 0 });
+    expect(vault.findByLogin(current.origin, current.username)?.password).toBe(current.password);
+    expect(vault.findByLogin(old.origin, old.username)?.password).toBe(old.password);
+    expect(asked).toHaveLength(2); // the key once, the old row once: not once per login
+    expect(closed()).toBe(1);
+  });
+
+  it("when the worker gives nothing, the logins count as protected, and the result says Corvus could not read them", async () => {
+    const { service, vault, runtime, closed } = windows(async () => null);
+    const result = await service.run(runtime, "brave", "Default", ["passwords"]);
+    const p = result.passwords!;
+    expect({ added: p.added, protected: p.protected, locked: p.locked, errors: result.errors }).toEqual({ added: 0, protected: 2, locked: 2, errors: {} });
+    expect(p.notes.map((n) => n.reason)).toEqual(["keyring", "keyring"]);
+    expect(p.browser).toBe("Brave");
+    expect(vault.all()).toHaveLength(0);
+    expect(closed()).toBe(1);
+  });
+
+  it("a key of the wrong size is dropped, not used", async () => {
+    const { service, runtime } = windows(async (blob) => (blob.length === 32 ? Buffer.alloc(16, 1) : null));
+    expect((await service.run(runtime, "brave", "Default", ["passwords"])).passwords!.locked).toBe(2);
+  });
+
+  it("the worker ends when the reading fails too", async () => {
+    const { root, service, runtime, closed } = windows(async (blob) => fakeDpapi(blob));
+    fs.writeFileSync(path.join(root, "AppData", "Local", "BraveSoftware", "Brave-Browser", "User Data", "Default", "Login Data"), "not a database");
+    const result = await service.run(runtime, "brave", "Default", ["passwords"]);
+    expect(result.errors.passwords).toBeTruthy();
+    expect(closed()).toBe(1);
   });
 });

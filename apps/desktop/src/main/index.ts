@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { Menu, app, nativeImage, nativeTheme, safeStorage, session } from "electron";
+import { Menu, app, nativeImage, nativeTheme, safeStorage, session, utilityProcess } from "electron";
 import { ElectronChromeExtensions } from "electron-chrome-extensions";
 import { AdblockService } from "./adblock";
 import { CleanExitTracker } from "./clean-exit";
@@ -33,6 +33,7 @@ import { DownloadQueue } from "./download-queue";
 import { BrowserIcons } from "./browser-icons";
 import { BrowserImport } from "./browser-import";
 import { PasswordExports } from "./password-export";
+import { paths } from "./paths";
 import { LiveHistoryService } from "./live-history";
 import { LinkGrabber } from "./link-grabber";
 import { ExtensionWindowBridge } from "./extension-windows";
@@ -260,7 +261,7 @@ async function main(): Promise<void> {
   ctx.downloads = new DownloadManager(ctx);
   ctx.grabber = new LinkGrabber(ctx);
   ctx.queue = new DownloadQueue(ctx);
-  ctx.browserImport = new BrowserImport();
+  ctx.browserImport = new BrowserImport(() => utilityProcess.fork(paths.dpapiWorker, [], { serviceName: "Corvus password import", stdio: "ignore" }));
   ctx.passwordExports = new PasswordExports(() => app.getPath("downloads"));
   ctx.browserIcons = new BrowserIcons(
     () => ({ ...ctx.browserImport.dataRoots(), programFiles: [...new Set([process.env.ProgramW6432, process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter((d): d is string => !!d))] }),

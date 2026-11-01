@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { DataRoots } from "../shared/browser-import";
 import { LINUX_V10_SECRET, OID, chromiumCbcKey, type ChromiumKey } from "./password-decrypt";
 
 /** Chromium time: microseconds since 1601-01-01. */
@@ -196,4 +197,32 @@ export function writePasswordFixtures(chromeProfile: string, firefoxProfile: str
     { hostname: chromeMail.origin, username: chromeMail.username, password: chromeMail.password, changed: now - 10 * day },
     { hostname: "chrome://FirefoxAccounts", username: "fox@example.org", password: "fixture-sync-token", changed: now - day },
   ]);
+}
+
+/** What the stand-in for DPAPI does, both ways: every byte XOR 0x5a. */
+export const fakeDpapi = (bytes: Uint8Array): Buffer => Buffer.from(Uint8Array.from(bytes, (byte) => byte ^ 0x5a));
+
+export const FIXTURE_WINDOWS_PASSWORDS = {
+  current: { origin: "https://vault.example.com", username: "ana@example.com", password: "fixture-windows-pw" },
+  old: { origin: "https://old.example.org", username: "bob", password: "fixture-old-row-pw" },
+} as const;
+
+/**
+ * A Brave profile in the Windows layout: Local State holds the key wrapped by the stand-in DPAPI, one
+ * login is "v10" (AES-256-GCM under that key), one is from before "v10" (the whole value wrapped).
+ */
+export function writeWindowsFixtures(root: string, now: number): DataRoots {
+  const localAppData = path.join(root, "AppData", "Local");
+  const data = path.join(localAppData, "BraveSoftware", "Brave-Browser", "User Data");
+  const profile = path.join(data, "Default");
+  fs.mkdirSync(profile, { recursive: true });
+  const key = crypto.randomBytes(32);
+  fs.writeFileSync(path.join(data, "Local State"), JSON.stringify({ os_crypt: { encrypted_key: Buffer.concat([Buffer.from("DPAPI"), fakeDpapi(key)]).toString("base64") }, profile: { info_cache: { Default: { name: "Personal" } }, last_used: "Default" } }));
+  fs.writeFileSync(path.join(profile, "Bookmarks"), JSON.stringify({ roots: {} }));
+  const { current, old } = FIXTURE_WINDOWS_PASSWORDS;
+  writeChromiumLogins(path.join(profile, "Login Data"), [
+    { origin: `${current.origin}/`, username: current.username, value: chromiumValue(current.password, { kind: "gcm", key }), modified: now - 86_400_000 },
+    { origin: `${old.origin}/`, username: old.username, value: fakeDpapi(Buffer.from(old.password, "utf8")), modified: now - 2 * 86_400_000 },
+  ]);
+  return { platform: "win32", home: root, localAppData, appData: path.join(root, "AppData", "Roaming"), config: "" };
 }

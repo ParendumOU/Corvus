@@ -23,7 +23,7 @@ export interface ChromiumKeys {
   v10?: ChromiumKey;
   v11?: ChromiumKey;
   /** Windows: unprotects a whole value as the current user (values saved before "v10"). */
-  dpapi?: (blob: Buffer) => Buffer | null;
+  dpapi?: (blob: Buffer) => Promise<Buffer | null>;
 }
 
 /** Why a value could not be read: protected by the browser (a newer version), key unavailable, or damaged. */
@@ -40,8 +40,8 @@ export function chromiumCbcKey(secret: string, iterations: number): Buffer {
 /** Linux's fixed "v10" secret, used when no keyring is available. */
 export const LINUX_V10_SECRET = "peanuts";
 
-/** One stored password_value. Never throws. */
-export function decryptChromiumValue(value: Uint8Array, keys: ChromiumKeys): ValueResult {
+/** One stored password_value. Never rejects. */
+export async function decryptChromiumValue(value: Uint8Array, keys: ChromiumKeys): Promise<ValueResult> {
   const v = Buffer.from(value);
   if (v.length === 0) return { ok: true, password: "" };
   const prefix = v.subarray(0, 3).toString("latin1");
@@ -64,8 +64,11 @@ export function decryptChromiumValue(value: Uint8Array, keys: ChromiumKeys): Val
     }
   }
   if (!keys.dpapi) return { ok: false, reason: "unreadable" };
-  const plain = keys.dpapi(v);
-  return plain ? { ok: true, password: plain.toString("utf8") } : { ok: false, reason: "locked" };
+  const plain = await keys.dpapi(v);
+  if (!plain) return { ok: false, reason: "locked" };
+  const password = plain.toString("utf8");
+  plain.fill(0);
+  return { ok: true, password };
 }
 
 /** The DPAPI blob inside Local State's os_crypt.encrypted_key ("DPAPI" + blob), or null. */

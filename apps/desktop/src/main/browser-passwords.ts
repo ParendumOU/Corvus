@@ -105,8 +105,9 @@ export async function chromiumKeys(sourceId: string, platform: string, localStat
   const names = chromiumKeyNames(sourceId);
   if (platform === "win32") {
     const wrapped = dpapiWrappedKey(localState);
-    const key = wrapped && providers.dpapi ? providers.dpapi(wrapped) : null;
-    if (key && key.length === 32) keys.v10 = { kind: "gcm", key };
+    const key = wrapped && providers.dpapi ? await providers.dpapi(wrapped) : null;
+    if (key?.length === 32) keys.v10 = { kind: "gcm", key };
+    else key?.fill(0);
     if (providers.dpapi) keys.dpapi = providers.dpapi;
   } else if (platform === "darwin") {
     const secret = providers.keychain ? await providers.keychain(names.service, names.account) : null;
@@ -162,7 +163,7 @@ export async function readChromiumPasswords(dir: string, keys: ChromiumKeys, wit
         continue;
       }
       const origin = originKeyOf(r.origin_url);
-      const result = decryptChromiumValue(value, keys);
+      const result = await decryptChromiumValue(value, keys);
       if (!result.ok) {
         if (result.reason === "unreadable") note(out.skipped, origin, username, "unreadable");
         else note(out.protected, origin, username, result.reason === "app-bound" ? "app-bound" : "keyring");
@@ -271,6 +272,7 @@ export function passwordSummary(
     olderLeftAlone: tally.olderLeftAlone,
     deletedLeftOut: tally.deletedLeftOut,
     protected: read.protected.length,
+    locked: read.protected.filter((note) => note.reason === "keyring").length,
     skipped: read.skipped.length,
     review: review.map((r) => ({ site: siteOf(r.origin), username: r.username })),
     ...(extra.reviewToken ? { reviewToken: extra.reviewToken } : {}),

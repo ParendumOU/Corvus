@@ -12,6 +12,12 @@
 - Android: when Corvus had been opened from a link in another app and Android rebuilt its screen, Corvus opened the link again or closed; it now stays where you were.
 - Android: after Android rebuilt Corvus's screen while it was open (a change of font size, for example), tapping something that opens another screen did nothing until Corvus was closed; it works again.
 
+## v0.34.1
+
+### Passwords and 2FA
+- Fixed: importing passwords from another browser closed Corvus on Windows.
+- If Corvus cannot read the passwords a browser saved on this computer, the import still finishes: it says how many it could not read, and that browser's own export, offered right there, brings them in. Corvus reads them in a separate process, so a failure there can no longer close the browser.
+
 ## v0.34.0
 
 ### Passwords and 2FA

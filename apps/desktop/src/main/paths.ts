@@ -17,6 +17,8 @@ export const paths = {
   archiveWorker: path.join(here, "archive-worker.js"),
   /** Entry of the QR decoder utility process (photos of authenticator export codes). */
   qrWorker: path.join(here, "qr-worker.js"),
+  /** Entry of the DPAPI worker utility process, alive only while a password import reads a browser on Windows. */
+  dpapiWorker: path.join(here, "dpapi-worker.js"),
   /** Entry of the sync server built into Corvus ("This computer"), one utility process per profile using it. */
   syncServerWorker: path.join(here, "sync-server-worker.js"),
   rendererDir: path.join(here, "../renderer"),

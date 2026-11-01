@@ -26,44 +26,44 @@ afterEach(() => {
 });
 
 describe("Chromium values", () => {
-  it("reads Windows v10 (AES-256-GCM, 12-byte nonce, 16-byte tag)", () => {
+  it("reads Windows v10 (AES-256-GCM, 12-byte nonce, 16-byte tag)", async () => {
     const key = { kind: "gcm", key: crypto.randomBytes(32) } as const;
-    expect(decryptChromiumValue(chromiumValue("made-up-gcm", key), { v10: key })).toEqual({ ok: true, password: "made-up-gcm" });
+    expect(await decryptChromiumValue(chromiumValue("made-up-gcm", key), { v10: key })).toEqual({ ok: true, password: "made-up-gcm" });
   });
 
-  it("reads macOS v10 (Keychain secret, PBKDF2-SHA1 1003 rounds, AES-128-CBC)", () => {
+  it("reads macOS v10 (Keychain secret, PBKDF2-SHA1 1003 rounds, AES-128-CBC)", async () => {
     const key = { kind: "cbc", key: chromiumCbcKey("keychain-secret", 1003) } as const;
-    expect(decryptChromiumValue(chromiumValue("made-up-mac", key), { v10: key })).toEqual({ ok: true, password: "made-up-mac" });
+    expect(await decryptChromiumValue(chromiumValue("made-up-mac", key), { v10: key })).toEqual({ ok: true, password: "made-up-mac" });
   });
 
-  it("reads Linux v10 (fixed key) and v11 (keyring secret)", () => {
+  it("reads Linux v10 (fixed key) and v11 (keyring secret)", async () => {
     const v10 = { kind: "cbc", key: chromiumCbcKey(LINUX_V10_SECRET, 1) } as const;
     const v11 = { kind: "cbc", key: chromiumCbcKey("keyring-secret", 1) } as const;
-    expect(decryptChromiumValue(chromiumValue("made-up-v10", v10), { v10, v11 })).toEqual({ ok: true, password: "made-up-v10" });
-    expect(decryptChromiumValue(chromiumValue("made-up-v11", v11, "v11"), { v10, v11 })).toEqual({ ok: true, password: "made-up-v11" });
+    expect(await decryptChromiumValue(chromiumValue("made-up-v10", v10), { v10, v11 })).toEqual({ ok: true, password: "made-up-v10" });
+    expect(await decryptChromiumValue(chromiumValue("made-up-v11", v11, "v11"), { v10, v11 })).toEqual({ ok: true, password: "made-up-v11" });
     // Without the keyring, v11 is locked, not guessed.
-    expect(decryptChromiumValue(chromiumValue("made-up-v11", v11, "v11"), { v10 })).toEqual({ ok: false, reason: "locked" });
+    expect(await decryptChromiumValue(chromiumValue("made-up-v11", v11, "v11"), { v10 })).toEqual({ ok: false, reason: "locked" });
   });
 
-  it("never attempts app-bound values (v20 and newer)", () => {
+  it("never attempts app-bound values (v20 and newer)", async () => {
     const key = { kind: "gcm", key: crypto.randomBytes(32) } as const;
     for (const prefix of ["v20", "v21"]) {
-      expect(decryptChromiumValue(Buffer.concat([Buffer.from(prefix), crypto.randomBytes(40)]), { v10: key, v11: key })).toEqual({ ok: false, reason: "app-bound" });
+      expect(await decryptChromiumValue(Buffer.concat([Buffer.from(prefix), crypto.randomBytes(40)]), { v10: key, v11: key })).toEqual({ ok: false, reason: "app-bound" });
     }
   });
 
-  it("a wrong key or a damaged value is unreadable, never a wrong password", () => {
+  it("a wrong key or a damaged value is unreadable, never a wrong password", async () => {
     const key = { kind: "gcm", key: crypto.randomBytes(32) } as const;
     const other = { kind: "gcm", key: crypto.randomBytes(32) } as const;
-    expect(decryptChromiumValue(chromiumValue("x", key), { v10: other })).toEqual({ ok: false, reason: "unreadable" });
-    expect(decryptChromiumValue(Buffer.from("v10abc"), { v10: key })).toEqual({ ok: false, reason: "unreadable" });
+    expect(await decryptChromiumValue(chromiumValue("x", key), { v10: other })).toEqual({ ok: false, reason: "unreadable" });
+    expect(await decryptChromiumValue(Buffer.from("v10abc"), { v10: key })).toEqual({ ok: false, reason: "unreadable" });
   });
 
-  it("values without a version go through Windows DPAPI when it is there", () => {
+  it("values without a version go through Windows DPAPI when it is there", async () => {
     const blob = Buffer.from("opaque");
-    expect(decryptChromiumValue(blob, { dpapi: () => Buffer.from("made-up-legacy") })).toEqual({ ok: true, password: "made-up-legacy" });
-    expect(decryptChromiumValue(blob, { dpapi: () => null })).toEqual({ ok: false, reason: "locked" });
-    expect(decryptChromiumValue(blob, {})).toEqual({ ok: false, reason: "unreadable" });
+    expect(await decryptChromiumValue(blob, { dpapi: async () => Buffer.from("made-up-legacy") })).toEqual({ ok: true, password: "made-up-legacy" });
+    expect(await decryptChromiumValue(blob, { dpapi: async () => null })).toEqual({ ok: false, reason: "locked" });
+    expect(await decryptChromiumValue(blob, {})).toEqual({ ok: false, reason: "unreadable" });
   });
 
   it("finds the DPAPI-wrapped key in Local State", () => {
@@ -115,6 +115,14 @@ describe("Firefox key4.db and logins.json", () => {
     const salt = crypto.randomBytes(20);
     const rows = (legacy: boolean): Key4Rows => ({ globalSalt: salt, check: nssPbe(Buffer.from("password-check"), salt, "", legacy), privateKeys: [nssPbe(Buffer.alloc(24, 7), salt, "", legacy)] });
     for (const legacy of [false, true]) expect((firefoxLoginKey(rows(legacy)) as Buffer).equals(Buffer.alloc(24, 7))).toBe(true);
-    expect(() => decryptFirefoxField(firefoxField("x", Buffer.alloc(24, 1)), Buffer.alloc(24, 2))).toThrow();
+    // A wrong key throws on the padding, or by chance (1 in 256) passes it and gives garbage: never the value.
+    const withWrongKey = (): string | null => {
+      try {
+        return decryptFirefoxField(firefoxField("x", Buffer.alloc(24, 1)), Buffer.alloc(24, 2));
+      } catch {
+        return null;
+      }
+    };
+    expect(withWrongKey()).not.toBe("x");
   });
 });

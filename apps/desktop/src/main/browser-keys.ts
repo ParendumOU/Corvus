@@ -4,21 +4,32 @@
  * (the system asks the person first), and Linux's Secret Service. Used only while a password import
  * the person started runs; nothing is cached, and nothing read here is ever logged.
  *
- * Windows calls crypt32's CryptUnprotectData in-process through koffi (loaded on first use, only on
- * Windows) rather than spawning a shell: no script, nothing for a policy to block, and the key never
- * crosses a process boundary. When it cannot load, those logins count as protected and the person is
- * offered the browser's own export.
+ * Windows calls crypt32's CryptUnprotectData through koffi in a utility process (dpapi-worker.ts), one
+ * for the import and killed when it ends, rather than in the main process, where a native fault would
+ * close the browser, or by spawning a shell. If the worker crashes, exits, hangs or cannot load koffi,
+ * the answer is null: those logins count as protected and the person is offered the browser's own
+ * export. The bytes only cross the private channel to that child.
  */
 import { execFile } from "node:child_process";
-import { createRequire } from "node:module";
 
 export interface KeyProviders {
-  /** Windows: unprotects a DPAPI blob as the current user. */
-  dpapi?: (blob: Buffer) => Buffer | null;
+  /** Windows: unprotects a DPAPI blob as the current user, or null. Never rejects. */
+  dpapi?: (blob: Buffer) => Promise<Buffer | null>;
   /** macOS: a Keychain password (service, account); the system asks the person. */
   keychain?: (service: string, account: string) => Promise<string | null>;
   /** Linux: the Secret Service secret stored for an application name. */
   secretService?: (application: string) => Promise<string | null>;
+  /** Ends what the providers started (Windows' worker). Called when the import ends, whatever happened. */
+  close?: () => void;
+}
+
+/** The parts of Electron's UtilityProcess a DPAPI session uses. */
+export interface DpapiChild {
+  on(event: "spawn", listener: () => void): unknown;
+  on(event: "exit", listener: (code: number) => void): unknown;
+  on(event: "message", listener: (message: unknown) => void): unknown;
+  postMessage(message: unknown): void;
+  kill(): boolean;
 }
 
 /** Runs a program (no shell) and returns its trimmed output, or null. Its output is never logged. */
@@ -31,57 +42,82 @@ function output(file: string, args: string[], timeout: number): Promise<string |
   });
 }
 
-const CRYPTPROTECT_UI_FORBIDDEN = 0x1;
-let dpapiCall: ((blob: Buffer) => Buffer | null) | null | undefined;
+/** How long one answer may take, starting the worker included (an antivirus may scan koffi's binary). */
+export const DPAPI_TIMEOUT_MS = 20_000;
 
-/** crypt32!CryptUnprotectData through koffi, or null when it cannot be loaded. */
-function windowsDpapi(): ((blob: Buffer) => Buffer | null) | null {
-  if (dpapiCall !== undefined) return dpapiCall;
-  try {
-    const koffi = createRequire(import.meta.url)("koffi") as typeof import("koffi");
-    const crypt32 = koffi.load("crypt32.dll");
-    const kernel32 = koffi.load("kernel32.dll");
-    koffi.struct("CORVUS_DATA_BLOB", { cbData: "uint32_t", pbData: "void *" });
-    const unprotect = crypt32.func(
-      "bool __stdcall CryptUnprotectData(CORVUS_DATA_BLOB *pDataIn, void *ppszDataDescr, CORVUS_DATA_BLOB *pOptionalEntropy, void *pvReserved, void *pPromptStruct, uint32_t dwFlags, _Out_ CORVUS_DATA_BLOB *pDataOut)",
-    );
-    const localFree = kernel32.func("void * __stdcall LocalFree(void *hMem)");
-    dpapiCall = (blob) => {
-      if (blob.length === 0) return null;
-      const input = koffi.alloc("uint8_t", blob.length);
-      try {
-        new Uint8Array(koffi.view(input, blob.length)).set(blob);
-        const out: { cbData?: number; pbData?: unknown } = {};
-        if (!unprotect({ cbData: blob.length, pbData: input }, null, null, null, null, CRYPTPROTECT_UI_FORBIDDEN, out) || !out.pbData || !out.cbData) return null;
+/**
+ * One DPAPI worker for one import: started by the first request, killed by `close`. Once it crashed,
+ * exited or timed out it is over: what was waiting and every later request answer null at once, so a
+ * dead worker costs one timeout at most, however many logins the import reads.
+ */
+export function dpapiSession(fork: () => DpapiChild, timeoutMs = DPAPI_TIMEOUT_MS): { unprotect: (blob: Buffer) => Promise<Buffer | null>; close: () => void } {
+  let child: DpapiChild | null = null;
+  let spawned: Promise<void> = Promise.resolve();
+  let over = false;
+  let nextId = 1;
+  const waiting = new Map<number, { resolve: (value: Buffer | null) => void; timer: ReturnType<typeof setTimeout> }>();
+
+  const end = (): void => {
+    over = true;
+    for (const { resolve, timer } of waiting.values()) {
+      clearTimeout(timer);
+      resolve(null);
+    }
+    waiting.clear();
+    const gone = child;
+    child = null;
+    try {
+      gone?.kill();
+    } catch {
+      // Already gone.
+    }
+  };
+
+  const start = (): DpapiChild => {
+    const started = fork();
+    spawned = new Promise((resolve) => started.on("spawn", resolve));
+    started.on("exit", end);
+    started.on("message", (message) => {
+      const { id, data } = (message ?? {}) as { id?: number; data?: unknown };
+      const entry = typeof id === "number" ? waiting.get(id) : undefined;
+      if (!entry) return;
+      waiting.delete(id!);
+      clearTimeout(entry.timer);
+      if (!(ArrayBuffer.isView(data) && data.byteLength > 0)) return entry.resolve(null);
+      const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      const copy = Buffer.from(bytes);
+      bytes.fill(0);
+      entry.resolve(copy);
+    });
+    child = started;
+    return started;
+  };
+
+  return {
+    unprotect: (blob) =>
+      new Promise((resolve) => {
+        if (over || blob.length === 0) return resolve(null);
+        const id = nextId++;
+        waiting.set(id, { resolve, timer: setTimeout(end, timeoutMs) });
         try {
-          const view = new Uint8Array(koffi.view(out.pbData, out.cbData));
-          const copy = Buffer.from(view);
-          view.fill(0);
-          return copy;
-        } finally {
-          localFree(out.pbData);
+          const worker = child ?? start();
+          void spawned.then(() => {
+            if (waiting.has(id)) worker.postMessage({ id, blob: new Uint8Array(blob) });
+          });
+        } catch {
+          end();
         }
-      } catch {
-        return null;
-      } finally {
-        koffi.free(input);
-      }
-    };
-  } catch {
-    dpapiCall = null;
-  }
-  return dpapiCall;
+      }),
+    close: end,
+  };
 }
 
-/** This system's providers. */
-export function systemKeyProviders(platform: string = process.platform): KeyProviders {
+/** This system's providers. On Windows `forkDpapi` starts the worker (no worker: no DPAPI). */
+export function systemKeyProviders(platform: string = process.platform, forkDpapi?: () => DpapiChild, timeoutMs?: number): KeyProviders {
   if (platform === "win32") {
-    return {
-      dpapi: (blob) => {
-        const call = windowsDpapi();
-        return call ? call(blob) : null;
-      },
-    };
+    if (!forkDpapi) return {};
+    const session = dpapiSession(forkDpapi, timeoutMs);
+    return { dpapi: session.unprotect, close: session.close };
   }
   if (platform === "darwin") {
     // Two minutes: the system dialog waits for the person to answer.

@@ -30,7 +30,7 @@ import { chromiumSession, decodeMozLz4, firefoxSession, type ImportedWindow } fr
 import { chromiumSiteSearches, cleanSiteSearches, firefoxKeyword, firefoxSearchEngines, type SiteSearch } from "../shared/site-search";
 import { isBigChange } from "../shared/backup-reminder";
 import type { PasswordImportSummary, PasswordNote } from "../shared/browser-import";
-import { systemKeyProviders, type KeyProviders } from "./browser-keys";
+import { systemKeyProviders, type DpapiChild, type KeyProviders } from "./browser-keys";
 import {
   PasswordReviews,
   chromiumKeys,
@@ -172,8 +172,12 @@ const FIREFOX_HISTORY_COUNT = "SELECT count(*) AS n FROM moz_places WHERE visit_
 export class BrowserImport {
   private testRoots: DataRoots | null = null;
   private testKeys: KeyProviders | null = null;
+  private dpapiTimeoutMs: number | undefined;
   /** Undated password differences waiting for the person's Update (passwords stay here). */
   readonly reviews = new PasswordReviews();
+
+  /** `forkDpapi` starts the DPAPI worker for a password import on Windows (none: nothing is unprotected). */
+  constructor(private forkDpapi?: () => DpapiChild) {}
 
   /** Smoke tests point the scan at fake browser folders. */
   setTestRoots(roots: DataRoots | null): void {
@@ -183,6 +187,12 @@ export class BrowserImport {
   /** Tests hand in the system's key sources (none: only Linux's fixed "v10" key opens values). */
   setTestKeyProviders(providers: KeyProviders | null): void {
     this.testKeys = providers;
+  }
+
+  /** Smoke tests start a stand-in for the DPAPI worker (one that crashes or hangs), with a short timeout. */
+  setTestDpapi(fork: (() => DpapiChild) | undefined, timeoutMs?: number): void {
+    this.forkDpapi = fork;
+    this.dpapiTimeoutMs = timeoutMs;
   }
 
   /** Where this user's browsers keep their data (the fake folders while a test set them). */
@@ -323,11 +333,16 @@ export class BrowserImport {
     } else {
       const own = path.join(profile.path, "Local State");
       const platform = this.dataRoots().platform;
-      const { keys, dispose } = await chromiumKeys(source.id, platform, readText(exists(own) ? own : path.join(path.dirname(profile.path), "Local State")), this.testKeys ?? systemKeyProviders(platform));
+      const providers = this.testKeys ?? systemKeyProviders(platform, this.forkDpapi, this.dpapiTimeoutMs);
       try {
-        read = await readChromiumPasswords(profile.path, keys, withDatabase);
+        const { keys, dispose } = await chromiumKeys(source.id, platform, readText(exists(own) ? own : path.join(path.dirname(profile.path), "Local State")), providers);
+        try {
+          read = await readChromiumPasswords(profile.path, keys, withDatabase);
+        } finally {
+          dispose();
+        }
       } finally {
-        dispose();
+        providers.close?.();
       }
     }
     return this.mergePasswords(runtime, read, source.name);
