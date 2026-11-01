@@ -11,23 +11,51 @@ import type { Progress } from './refresh';
 export type ReplicaClient = Pick<CorvusSyncClient, 'cursor' | 'pullPages' | 'pullCollection' | 'forgetCollection'>;
 
 /** What the phone shows, in the order it was added to the app. */
-export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings', 'chain_server'];
+export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings', 'chain_server', 'credentials'];
+
+/**
+ * Encrypts the collections that hold secrets (the saved passwords) before they are written to the
+ * phone, and decrypts them when read: `aad` binds a blob to its collection. `open` throws when the
+ * blob cannot be opened (its key is gone).
+ */
+export interface Sealer {
+  collections: readonly SyncCollection[];
+  seal(text: string, aad: string): Promise<string>;
+  open(sealed: string, aad: string): Promise<string>;
+}
 
 export class Replica {
   private readonly cache = new Map<SyncCollection, Record<string, unknown>>();
   private readonly unsaved = new Set<SyncCollection>();
+  /** Sealed collections whose saved copy could not be opened: fetched again in full at the next sync. */
+  private readonly lost = new Set<SyncCollection>();
 
   /** `prefix` scopes the data to one chain, e.g. `corvus-sync/<chain id>/` (cleared on unpair). */
   constructor(
     private readonly storage: SyncStateStorage,
     private readonly prefix: string,
     readonly collections: readonly SyncCollection[] = PHONE_COLLECTIONS,
+    private readonly sealer?: Sealer,
   ) {}
+
+  private sealed(collection: SyncCollection): boolean {
+    return this.sealer?.collections.includes(collection) ?? false;
+  }
 
   async records(collection: SyncCollection): Promise<Record<string, unknown>> {
     let records = this.cache.get(collection);
     if (!records) {
-      records = parse(await this.storage.get(`${this.prefix}data/${collection}`));
+      const raw = await this.storage.get(`${this.prefix}data/${collection}`);
+      if (raw && this.sealer && this.sealed(collection)) {
+        try {
+          records = parse(await this.sealer.open(raw, collection));
+        } catch {
+          records = {};
+          this.lost.add(collection);
+        }
+      } else {
+        records = parse(raw);
+      }
       this.cache.set(collection, records);
     }
     return records;
@@ -40,6 +68,8 @@ export class Replica {
   async sync(client: ReplicaClient, progress: Progress = () => undefined): Promise<number> {
     progress({ kind: 'download' });
     const joined = new Set(parseList(await this.storage.get(`${this.prefix}data/joined`)));
+    for (const collection of this.collections) if (this.sealed(collection)) await this.records(collection);
+    for (const collection of this.lost) joined.delete(collection);
     let count = 0;
     const apply = async (items: SyncItem[]): Promise<void> => {
       const changed = new Set<SyncCollection>();
@@ -65,9 +95,11 @@ export class Replica {
         if (joined.has(collection)) continue;
         await client.forgetCollection(collection);
         await client.pullCollection(collection, apply);
+        this.lost.delete(collection);
       }
     }
     await client.pullPages(apply);
+    this.lost.clear();
     progress({ kind: 'finish' });
     await this.storage.set(`${this.prefix}data/joined`, JSON.stringify([...this.collections]));
     return count;
@@ -99,7 +131,8 @@ export class Replica {
 
   private async save(collection: SyncCollection): Promise<void> {
     this.unsaved.delete(collection);
-    await this.storage.set(`${this.prefix}data/${collection}`, JSON.stringify(await this.records(collection)));
+    const text = JSON.stringify(await this.records(collection));
+    await this.storage.set(`${this.prefix}data/${collection}`, this.sealer && this.sealed(collection) ? await this.sealer.seal(text, collection) : text);
   }
 }
 

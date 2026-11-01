@@ -37,6 +37,7 @@ export function registerHandoffTools({ controller, register, resolveTab }: ToolC
         const secs = Math.round(res.waitedMs / 1000);
         if (res.outcome === "done") return text(`done: the user finished after ${secs}s. Take a new page_snapshot or screenshot before continuing.`);
         if (res.outcome === "cancelled") return text(`cancelled: the user declined after ${secs}s. Do not retry this step without asking the user.`);
+        if (res.outcome === "closed") return text(`closed: the tab was closed after ${secs}s before the user answered. Use tabs_list to see what is open; ask the user in chat before trying again.`);
         return text(`timeout: no answer within ${a.timeoutSeconds}s. Ask the user in chat before trying again.`);
       } finally {
         if (timer) clearInterval(timer);

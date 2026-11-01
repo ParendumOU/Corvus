@@ -321,7 +321,11 @@ export class FlowService {
     }
     if (i.kind === "input") {
       if (!i.target) return;
-      if (last && last.kind === "type" && sameTarget(last.target, i.target)) {
+      if (last && last.kind === "type" && sameTarget(last.target, i.target) && last.submit) {
+        // After Enter: the page cleared the field (tag and combobox inputs), or the browser's change
+        // event reports the value Enter already recorded. Neither is something new typed.
+        if (i.secret ? last.secret : !i.value || i.value === last.value) return;
+      } else if (last && last.kind === "type" && sameTarget(last.target, i.target)) {
         last.secret = i.secret === true;
         if (last.secret) delete last.value;
         else last.value = i.value ?? "";
@@ -333,7 +337,8 @@ export class FlowService {
       this.pushStep(rec, step);
       return;
     }
-    // submit
+    // submit: a click on a submit button and Enter in a field already recorded it once.
+    if (i.target && last && ((last.kind === "click" && sameTarget(last.target, i.target)) || (last.kind === "type" && last.submit))) return;
     if (i.target) {
       this.pushStep(rec, { kind: "click", url: i.url, label: "", target: i.target });
     } else if (last && last.kind === "type") {

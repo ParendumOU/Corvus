@@ -104,6 +104,23 @@ export default function SettingsScreen() {
         </View>
       )}
 
+      {session.pairing && (
+        <View style={styles.section}>
+          <SectionHeader title={t('Passwords')} />
+          <ListGroup>
+            <ListRow
+              leading={<IconTile name="lock" />}
+              title={t('Saved passwords')}
+              subtitle={t('The passwords saved in Corvus on your computers')}
+              wrap
+              chevron
+              onPress={() => nav.push('/passwords')}
+              testID="settings-passwords"
+            />
+          </ListGroup>
+        </View>
+      )}
+
       {session.pairing && Platform.OS !== 'web' && (
         <View style={styles.section}>
           <SectionHeader title={t('Notifications')} />

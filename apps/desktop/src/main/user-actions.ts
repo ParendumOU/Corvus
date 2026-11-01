@@ -46,7 +46,7 @@ interface Waiting {
   tabId: TabId;
   /** The window that held the tab when it asked (its bar and taskbar flash). */
   window: BrowserWindowCtl;
-  /** Ends the request as cancelled (its tab closed). */
+  /** Ends the request as closed (its tab closed). */
   cancel: () => void;
 }
 
@@ -66,7 +66,7 @@ export class UserActionService {
     return [...this.waiting].some((w) => w.tabId === tabId);
   }
 
-  /** The tab closed: what was asked in it ends as cancelled. */
+  /** The tab closed: what was asked in it ends as closed. */
   forgetTab(tabId: TabId): void {
     for (const w of [...this.waiting]) if (w.tabId === tabId) w.cancel();
   }
@@ -74,7 +74,7 @@ export class UserActionService {
   /** Shows the request in the tab's window until the person answers, the timeout passes, `signal` aborts or the tab closes. */
   async ask(tabId: TabId, prompt: UserActionPrompt, timeoutMs: number, signal?: AbortSignal): Promise<UserActionResult> {
     const window = this.ctx.windows.findTab(tabId)?.window;
-    if (!window) return { outcome: "cancelled", waitedMs: 0 };
+    if (!window) return { outcome: "closed", waitedMs: 0 };
     const started = Date.now();
     const controller = new AbortController();
     const stop = (): void => controller.abort();
@@ -104,7 +104,7 @@ export class UserActionService {
         window,
         controller.signal,
       );
-      const outcome = closed ? "cancelled" : controller.signal.aborted ? "timeout" : res.button === 1 ? "done" : "cancelled";
+      const outcome = closed ? "closed" : controller.signal.aborted ? "timeout" : res.button === 1 ? "done" : "cancelled";
       return { outcome, waitedMs: Date.now() - started };
     } finally {
       clearTimeout(timer);

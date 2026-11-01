@@ -17,7 +17,7 @@ The user chooses what you may do (Corvus → Settings → AI agents). Tools you 
 
 - **Read-only** — look only: `tabs_list`, `page_snapshot`, `screenshot`, `get_text`, `extract`, `get_html`, `find`, `wait_for`, `console_messages`, `network_requests`, `bookmarks_list`, `history_search`, `web_search`.
 - **Standard** (default) — also act: open/close/activate tabs, `navigate`, `back`/`forward`/`reload`, `click`/`type_text`/`hover`/`scroll_at`, `click_at`/`double_click_at`/`right_click_at`/`hover_at`/`drag`, `press_keys`, `fill_form`, `select_option`, `check`, `focus`, `handle_dialog`, `set_viewport`, `zoom`, group tabs, `request_user_action`.
-- **Full** — also `evaluate` (run JavaScript in the page), `upload_file`, `pdf`, `downloads_list`, and the download queue: `download_queue`, `download_queue_add`, `download_queue_control`.
+- **Full** — also `evaluate` (run JavaScript in the page), `upload_file`, `pdf`, `downloads_list`, `wait_for_download`, and the download queue: `download_queue`, `download_queue_add`, `download_queue_control`.
 
 ## Core workflow
 
@@ -36,6 +36,7 @@ The user chooses what you may do (Corvus → Settings → AI agents). Tools you 
 - A page that opens `alert`/`confirm` waits for an answer: `page_snapshot` shows the question (`dialog`), other actions on that tab are refused, and `handle_dialog` answers it (the user can also answer it in the browser). Accepting a question that spends money asks the user first. Corvus answers `prompt()` with Cancel by itself.
 - `upload_file` (Full) sets a file input from a local path the user gave you.
 - `pdf` (Full) saves the current page to the Downloads folder.
+- `wait_for_download` (Full) waits after a click that starts a download until the file is complete, and returns its path. Filter with `urlContains` or `filenameContains` when several downloads run. `blocked` means Corvus holds the file (a program, for example) until the user keeps or discards it: tell the user, do not retry.
 - `download_queue_add` (Full) hands files to Corvus's download queue: direct links (every volume of a split archive), a package name and the archive password if the page gives one. The user approves the list in the browser first, and programs are never queued. The queue downloads a few files at a time, resumes, checks `.sfv`/`.md5` lists and extracts archives once a package is complete. Follow it with `download_queue`; pause, resume, retry, remove or extract with `download_queue_control`. On a file host, use its free download button to reach the direct link; if it asks for a sign-in or a premium account, or shows a CAPTCHA, call `request_user_action` for that file and go on with the others.
 
 ## CAPTCHAs and human checks
@@ -45,7 +46,7 @@ Corvus is a real browser with the user's session, so most challenges pass on the
 1. Click the checkbox or widget once (`click_at` its center), then wait for it to settle.
 2. Re-read the page (`page_snapshot`) and take a screenshot. If it shows an image or tile grid, read the prompt, click the centers of exactly the cells it asks for with `click_at`, then click Verify.
 3. Re-read after each attempt and retry once on a new grid. Do not reload the page or resubmit the form to "reset" it — that usually triggers a harder challenge.
-4. Give up after two failed attempts, or immediately if it asks for a phone number, an e-mail code, an ID document or another account factor. Then call `request_user_action` with a clear message ("The CAPTCHA on this page needs you — please finish it, then click Done") and wait. Continue only after the user finishes.
+4. Give up after two failed attempts, or immediately if it asks for a phone number, an e-mail code, an ID document or another account factor. Then call `request_user_action` with a clear message ("The CAPTCHA on this page needs you — please finish it, then click Done") and wait. Continue only after the user finishes. It answers `done`, `cancelled` (the user declined), `timeout`, or `closed` (the tab was closed before an answer: check `tabs_list` and ask the user in chat).
 
 2FA prompts and payment confirmations are always the user's: hand those over with `request_user_action` without trying to solve them.
 

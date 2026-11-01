@@ -234,7 +234,7 @@ export async function runUserActionSmoke(ctx: AppContext, { win, check, capture 
     w.closeTab(closing.id);
     const closed = await Promise.race([onClosing.done, sleep(4000).then(() => null)]);
     await sleep(150);
-    check("user action: closing the asking tab ends the request (cancelled) and its bar", closed?.outcome === "cancelled" && ctx.dialogs.bars(w).length === 0 && flagged().length === 0, { closed, flagged: flagged() });
+    check("user action: closing the asking tab ends the request (closed) and its bar", closed?.outcome === "closed" && ctx.dialogs.bars(w).length === 0 && flagged().length === 0, { closed, flagged: flagged() });
 
     // ------------------------------------------------------------ two requests at once
     const one = ask(asking.id);

@@ -2,7 +2,24 @@
 
 ## Unreleased
 
+## v0.35.0
+
+### AI agents (MCP)
+- New `wait_for_download` tool (Full access): after a click that starts a download, an agent waits until the file is complete and gets its path, instead of polling `downloads_list`. It can filter by address or file name, and says when Corvus holds the file for you to keep or discard.
+- `request_user_action` now tells the agent when you closed the tab it was waiting on (`closed`), apart from when you click Cancel (`cancelled`), so it does not take a closed tab as a refusal.
+
+### Highlights and notes
+- **The highlight toolbar shows properly on every site.** On sites whose security policy refuses added styles (GitHub and many local tools, for example), the toolbar that appears when you select text showed as plain, oversized buttons stuck in the top-left corner of the page; saved highlights did not show there either. Both now work on those sites too.
+- **A new look for the toolbar**: a compact bar with round color swatches and a Note button, light or dark with your theme, and the same for the box that opens on a saved highlight (its note, its color, Edit note and Delete). It is in Spanish when Corvus is, and each color says its name.
+- **No toolbar while an AI agent works on the page.** Its clicks and selections no longer open the toolbar or a highlight's box, which also kept them out of the agent's screenshots.
+
+### Recorded flows
+- **Values entered with Enter are recorded**: in fields that turn what you type into a chip and clear themselves (domain names, tags, multi-select comboboxes), the recording kept nothing, so replay skipped that field. Each value is now a step that types it and presses Enter.
+- A click on a form's submit button was recorded twice ("Click Save" two times), and replay submitted the form twice; it is now one step.
+
 ### Corvus for mobile
+- **The passwords saved in Corvus on your computers, on the phone.** A paired phone now gets your saved logins with the next sync, end-to-end encrypted as before, and keeps them encrypted again in its own storage with a key held by Android's Keystore or the iPhone's Keychain. Settings > **Saved passwords** lists them with search; copying or showing a password, or its notes, asks for the phone's lock (fingerprint, face or PIN) first, and a copied password is cleared from the clipboard after a minute. In the browser, the page menu offers **Fill password** on a site with a saved login, after the phone's lock. A login is only filled into its own site, never into another one the page moved to while you unlocked, and a login saved over https is never offered to the same site over plain http. The phone only reads them: add and change passwords on a computer. Unpairing the phone deletes them from it.
+- **Android: sites that ask for a username and password** (a router's or a printer's panel, an intranet with HTTP sign-in) now show a sign-in dialog, as Chrome does, instead of the site's "401 Unauthorized" error. It names the site and what it calls the area, warns when the connection is plain http, offers the passwords saved for that site in one tap, and says so when the site refused what you entered, with your username filled in again.
 - **Sites with an invalid certificate** (a router with a self-signed certificate, an expired certificate, one issued for another name) show "Your connection is not private" in the tab, with a sentence on what is wrong with the certificate, in English and Spanish, instead of a generic "This page could not be opened" with an English error ("SSL error: ...") on Android. **Back to safety**, like the back button, returns to the page you were on (before, back skipped it and went one page further), or closes a tab another app opened, as back does. Reload tries the site again. The address bar no longer keeps loading forever after such a page on Android. The phone offers no way past it, since Google Play refuses apps whose browser view skips certificate errors: for a device you trust, the page says to open it in Corvus on your computer, and **Send to a computer** sends it there when the phone is paired.
 - The address bar never shows the lock for such a site (the iPhone did): it says **Not secure** in red, with a warning sign on iPhone, and the site panel says the certificate is not valid.
 - Android: tapping a link to such a site did nothing (the page stayed as it was, with no word of why); it now shows that page too.

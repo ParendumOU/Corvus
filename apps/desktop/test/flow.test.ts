@@ -258,6 +258,60 @@ describe("FlowService recording", () => {
     expect(svc.recordingView("p1").phase).toBe("idle");
   });
 
+  it("records a click on a submit button once, not again for the form's submit event", () => {
+    const win = fakeWindow();
+    const svc = new FlowService(fakeContext(mockController(), win));
+    svc.attach(runtime);
+    svc.startRecording(win);
+    const cap = (i: CapturedInteraction): void => svc.onCaptured("tab1", "p1", i);
+    cap({ kind: "input", url: "https://a.test/", target: target("textbox", "Port"), value: "8080" });
+    cap({ kind: "click", url: "https://a.test/", target: target("button", "Save") });
+    cap({ kind: "submit", url: "https://a.test/", target: target("button", "Save") });
+    expect(svc.recordingView("p1").steps.map((s) => [s.kind, s.target?.name])).toEqual([["type", "Port"], ["click", "Save"]]);
+  });
+
+  it("keeps values entered with Enter in a tag field that clears itself, and skips the form submit that follows", () => {
+    const win = fakeWindow();
+    const svc = new FlowService(fakeContext(mockController(), win));
+    svc.attach(runtime);
+    svc.startRecording(win);
+    const cap = (i: CapturedInteraction): void => svc.onCaptured("tab1", "p1", i);
+    const field = target("combobox", "Domain Names");
+    // Enter: the preload sends the value, then a submit without a target; the page then empties the field.
+    cap({ kind: "input", url: "https://a.test/", target: field, value: "a.example.com" });
+    cap({ kind: "submit", url: "https://a.test/" });
+    cap({ kind: "input", url: "https://a.test/", target: field, value: "" });
+    cap({ kind: "input", url: "https://a.test/", target: field, value: "b.example.com" });
+    cap({ kind: "submit", url: "https://a.test/" });
+    cap({ kind: "submit", url: "https://a.test/", target: target("button", "Save") });
+    const steps = svc.recordingView("p1").steps;
+    expect(steps.map((s) => [s.kind, s.value, s.submit])).toEqual([
+      ["type", "a.example.com", true],
+      ["type", "b.example.com", true],
+    ]);
+  });
+
+  it("records Enter in a plain field once, though the browser's change event follows with the same value", () => {
+    const win = fakeWindow();
+    const svc = new FlowService(fakeContext(mockController(), win));
+    svc.attach(runtime);
+    svc.startRecording(win);
+    const cap = (i: CapturedInteraction): void => svc.onCaptured("tab1", "p1", i);
+    const search = target("searchbox", "Search");
+    const password = target("textbox", "Password");
+    cap({ kind: "input", url: "https://a.test/", target: search, value: "ravens" });
+    cap({ kind: "submit", url: "https://a.test/" });
+    cap({ kind: "input", url: "https://a.test/", target: search, value: "ravens" });
+    cap({ kind: "input", url: "https://a.test/", target: password, secret: true });
+    cap({ kind: "submit", url: "https://a.test/" });
+    cap({ kind: "input", url: "https://a.test/", target: password, secret: true });
+    const steps = svc.recordingView("p1").steps;
+    expect(steps.map((s) => [s.kind, s.target?.name, s.value, s.submit])).toEqual([
+      ["type", "Search", "ravens", true],
+      ["type", "Password", undefined, true],
+    ]);
+  });
+
   it("records a secret field without its value", () => {
     const win = fakeWindow();
     const svc = new FlowService(fakeContext(mockController(), win));

@@ -27,6 +27,7 @@ const FULL_TOOLS = new Set([
   "evaluate",
   "upload_file",
   "downloads_list",
+  "wait_for_download",
   "pdf",
   // WebScope security workbench: active traffic tooling, always gated to full + scope.
   "webscope_history",

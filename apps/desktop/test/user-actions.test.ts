@@ -71,13 +71,13 @@ describe("request_user_action", () => {
     expect(home.pushes).toBeGreaterThan(pushes);
   });
 
-  it("ends as cancelled when the tab closes, and as timeout when time runs out or the client goes away", async () => {
+  it("ends as closed when the tab closes, and as timeout when time runs out or the client goes away", async () => {
     vi.useFakeTimers();
     const home = fakeWindow();
     const { ctx, service } = setup({ t1: home }, home);
     const closing = service.ask("t1", prompt, 60_000);
     service.forgetTab("t1");
-    expect(await closing).toMatchObject({ outcome: "cancelled" });
+    expect(await closing).toMatchObject({ outcome: "closed" });
     expect(service.needsYou("t1")).toBe(false);
     expect(ctx.dialogs.bars(home)).toEqual([]);
 
@@ -107,7 +107,7 @@ describe("request_user_action", () => {
     expect(service.needsYou("t1")).toBe(true);
     expect(service.needsYou("t2")).toBe(false);
     service.forgetTab("t1");
-    expect((await first).outcome).toBe("cancelled");
+    expect((await first).outcome).toBe("closed");
   });
 
   it("flashes a window that is not focused until it gets focus or its last request ends", async () => {
@@ -134,10 +134,10 @@ describe("request_user_action", () => {
     expect(home.win.listenerCount("focus")).toBe(0);
   });
 
-  it("answers cancelled at once for a tab that is gone", async () => {
+  it("answers closed at once for a tab that is gone", async () => {
     const home = fakeWindow();
     const { service } = setup({}, home);
-    expect(await service.ask("t9", prompt, 60_000)).toEqual({ outcome: "cancelled", waitedMs: 0 });
+    expect(await service.ask("t9", prompt, 60_000)).toEqual({ outcome: "closed", waitedMs: 0 });
     expect(service.needsYou("t9")).toBe(false);
   });
 });

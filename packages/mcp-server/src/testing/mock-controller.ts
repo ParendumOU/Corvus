@@ -56,7 +56,7 @@ export interface MockPage {
 export interface PendingUserAction {
   tabId: TabId;
   request: UserActionRequest;
-  answer(outcome: "done" | "cancelled"): void;
+  answer(outcome: "done" | "cancelled" | "closed"): void;
 }
 
 export interface MockCall {

@@ -1,7 +1,8 @@
 import type { TabId } from "@corvus/shared";
 import { isAnnotatableUrl } from "../shared/annotations";
-import { ANNOTATION_APPLY_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
+import { ANNOTATION_AGENT_CHANNEL, ANNOTATION_APPLY_CHANNEL, type AnnotationApplyMessage, type AnnotationLabels } from "../shared/annotations-ipc";
 import type { AppContext } from "./context";
+import { tr } from "./menu-i18n";
 import type { ProfileRuntime } from "./profiles";
 import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
@@ -52,7 +53,27 @@ export class AnnotationService {
     const message: AnnotationApplyMessage = {
       annotations: profile.annotations.forUrl(url),
       ...(scrollToId ? { scrollToId } : {}),
+      labels: annotationLabels(),
     };
     wc.send(ANNOTATION_APPLY_CHANNEL, message);
   }
+
+  /** An AI agent acts on the tab: the page's toolbar ignores the clicks and selections that follow. */
+  agentActed(tab: TabRuntime): void {
+    pageOf(tab.view)?.send(ANNOTATION_AGENT_CHANNEL);
+  }
+}
+
+function annotationLabels(): AnnotationLabels {
+  return {
+    toolbar: tr("Highlight"),
+    colors: { yellow: tr("Yellow"), green: tr("Green"), blue: tr("Blue"), pink: tr("Pink"), orange: tr("Orange") },
+    note: tr("Note"),
+    notePlaceholder: tr("Add a note…"),
+    saveHighlight: tr("Save highlight"),
+    noNote: tr("No note"),
+    editNote: tr("Edit note"),
+    save: tr("Save"),
+    delete: tr("Delete"),
+  };
 }

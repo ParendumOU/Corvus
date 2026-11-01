@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AddressBar } from '@/components/browser/address-bar';
 import { FindBar } from '@/components/browser/find-bar';
-import { ComputerPicker, PageMenu, SitePanel, type PageMenuAction } from '@/components/browser/page-menu';
+import { ComputerPicker, LoginPicker, PageMenu, SitePanel, type PageMenuAction } from '@/components/browser/page-menu';
+import { SignInDialog } from '@/components/browser/sign-in-dialog';
 import { StartPage } from '@/components/browser/start-page';
 import { TabSwitcher } from '@/components/browser/tab-switcher';
 import { Toolbar } from '@/components/browser/toolbar';
@@ -18,6 +19,7 @@ import { addressTarget, engineById, isWebPage } from '@/lib/address';
 import { siteAllowed } from '@/lib/blocklist';
 import {
   activateTab,
+  browserState,
   allowCookieBanner,
   allowSite,
   closeAllTabs,
@@ -38,15 +40,19 @@ import {
 import { pageOf } from '@/lib/browser-views';
 import { configureBlocking, startBlocking } from '@/lib/content-blocking';
 import { leaveApp } from '@/lib/default-browser';
+import { SignInMemory, signInPrompt, type SignInPrompt } from '@/lib/http-auth';
 import { offerExternalLink } from '@/lib/external-links';
 import { t } from '@/lib/i18n';
+import { fillLoginScript, loginsFor, type Login } from '@/lib/passwords';
+import { savedLogins } from '@/lib/session';
+import { unlockPasswords } from '@/lib/unlock';
 import { PAGE_TEXT_SCRIPT, parsePageText } from '@/lib/page-ask';
 import { handOffPage } from '@/lib/page-handoff';
 import { tabHost } from '@/lib/replica';
 import { sendTargets } from '@/lib/send';
 import { activeTab, liveTabIds } from '@/lib/tabs';
 import { nav } from '@/lib/nav';
-import { BrowserKit, ConsentKit } from '../../modules/browser-kit';
+import { BrowserKit, ConsentKit, type HttpAuthRequestEvent } from '../../modules/browser-kit';
 
 /** The user agents to browse with (Android: the WebView's own, unmarked, and a desktop one). */
 const AGENTS = (() => {
@@ -56,6 +62,20 @@ const AGENTS = (() => {
     return null;
   }
 })();
+
+/** The usernames sent to sites that asked for one, filled in again when a site refuses them. */
+const signInMemory = new SignInMemory();
+
+/** A site's sign-in request on screen: the native request, its tab and what the dialog shows. */
+interface SignInAsk {
+  request: HttpAuthRequestEvent;
+  tabId: string;
+  prompt: SignInPrompt;
+  username: string;
+  refused: boolean;
+  /** Saved logins for the host asking. */
+  logins: Login[];
+}
 
 /** Leaves the browser for Corvus's Home. */
 function goHome(): void {
@@ -86,9 +106,28 @@ export default function BrowserScreen() {
   const [panel, setPanel] = useState(false);
   const [finding, setFinding] = useState(false);
   const [sendPicker, setSendPicker] = useState(false);
+  const [signIn, setSignIn] = useState<SignInAsk | null>(null);
+  const loginsNow = useRef<Login[]>([]);
+  const signIns = useRef<HttpAuthRequestEvent[]>([]);
+  const signInShown = useRef<SignInAsk | null>(null);
   const live = useMemo(() => liveTabIds(browser.tabs), [browser.tabs]);
   const url = tab?.url ?? '';
   const paired = session.status === 'paired';
+  // The saved passwords, read again after each sync; only the current site's are offered.
+  const [logins, setLogins] = useState<Login[]>([]);
+  const [loginPicker, setLoginPicker] = useState(false);
+  loginsNow.current = logins;
+  useEffect(() => {
+    if (!session.pairing || session.refreshing) return;
+    let live = true;
+    void savedLogins(session.pairing)
+      .then((all) => live && setLogins(all))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [session.pairing, session.refreshing]);
+  const pageLogins = useMemo(() => (tab && isWebPage(tab.url) ? loginsFor(logins, tab.url) : []), [logins, tab?.url]);
   const blocks = BrowserKit !== null;
   const answersBanners = ConsentKit !== null;
   const blockingHere = browser.prefs.blocking && !siteAllowed(tabHost(url), browser.prefs.allowedSites);
@@ -120,6 +159,10 @@ export default function BrowserScreen() {
       BrowserKit.addListener('onPermissionRequest', (e) =>
         showToast(t('{site} asked for the camera or microphone: Corvus does not give sites access to them.', { site: tabHost(e.origin) || e.origin }), 'info'),
       ),
+      BrowserKit.addListener('onHttpAuthRequest', (e) => {
+        signIns.current.push(e);
+        if (!signInShown.current) showSignIn(nextSignIn());
+      }),
     ];
     return () => subs.forEach((s) => s.remove());
   }, []);
@@ -165,6 +208,41 @@ export default function BrowserScreen() {
       setEditing(true);
     }
   }, [tab?.id, tab?.url, switcher]);
+
+  // The usernames sent from tabs that closed are forgotten.
+  useEffect(() => {
+    signInMemory.keepTabs(new Set(browser.tabs.tabs.map((x) => x.id)));
+  }, [browser.tabs.tabs]);
+
+  // The next site's sign-in request to ask about (one at a time); a closed tab's is cancelled.
+  const nextSignIn = (): SignInAsk | null => {
+    for (let e = signIns.current.shift(); e; e = signIns.current.shift()) {
+      const tabId = tabOfView(e.viewTag);
+      const page = tabId ? browserState().tabs.tabs.find((x) => x.id === tabId) : undefined;
+      if (!tabId || !page) {
+        void BrowserKit?.answerHttpAuth(e.id, null, null);
+        continue;
+      }
+      if (activeTab(browserState().tabs)?.id !== tabId) activateTab(tabId);
+      const { username, refused } = signInMemory.recall(tabId, e.host, e.realm, Date.now());
+      const prompt = signInPrompt(e.host, e.realm, page.url);
+      return { request: e, tabId, prompt, username, refused, logins: loginsFor(loginsNow.current, prompt.private ? e.host : `http://${e.host}`) };
+    }
+    return null;
+  };
+
+  const showSignIn = (ask: SignInAsk | null): void => {
+    signInShown.current = ask;
+    setSignIn(ask);
+  };
+
+  const answerSignIn = (credentials: { username: string; password: string } | null): void => {
+    const ask = signInShown.current;
+    if (!ask) return;
+    if (credentials) signInMemory.remember(ask.tabId, ask.request.host, ask.request.realm, credentials.username, Date.now());
+    void BrowserKit?.answerHttpAuth(ask.request.id, credentials?.username ?? null, credentials?.password ?? null);
+    showSignIn(nextSignIn());
+  };
 
   const stopEditing = (): void => {
     Keyboard.dismiss();
@@ -253,6 +331,14 @@ export default function BrowserScreen() {
     }
   };
 
+  // Fills a saved login into the page, after the phone's lock; only into the site it belongs to.
+  const fillLogin = async (login: Login): Promise<void> => {
+    setLoginPicker(false);
+    if (!tab || !loginsFor([login], tab.url).length) return;
+    if (!(await unlockPasswords())) return;
+    pageOf(tab.id)?.injectJavaScript(`${fillLoginScript(login)}\ntrue;`);
+  };
+
   const onAction = (action: PageMenuAction): void => {
     if (action !== 'desktop' && action !== 'blocking') setMenu(false);
     if (!tab) return;
@@ -299,6 +385,10 @@ export default function BrowserScreen() {
         break;
       case 'settings':
         nav.push('/browser-settings');
+        break;
+      case 'fill-password':
+        if (pageLogins.length === 1) void fillLogin(pageLogins[0]!);
+        else setLoginPicker(true);
         break;
     }
   };
@@ -419,6 +509,7 @@ export default function BrowserScreen() {
           canFind={blocks && rt?.viewTag != null}
           canBlock={blocks && browser.prefs.blocking}
           blockingHere={blockingHere}
+          logins={pageLogins.length}
           onAction={onAction}
           onClose={() => setMenu(false)}
         />
@@ -451,6 +542,10 @@ export default function BrowserScreen() {
         }}
         onClose={() => setPanel(false)}
       />
+
+      <LoginPicker open={loginPicker} logins={pageLogins} onPick={(l) => void fillLogin(l)} onClose={() => setLoginPicker(false)} />
+
+      {signIn ? <SignInDialog prompt={signIn.prompt} username={signIn.username} refused={signIn.refused} logins={signIn.refused ? [] : signIn.logins} onAnswer={answerSignIn} /> : null}
 
       <ComputerPicker
         open={sendPicker}

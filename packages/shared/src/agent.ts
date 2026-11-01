@@ -237,7 +237,8 @@ export interface UserActionRequest {
 }
 
 export interface UserActionResult {
-  outcome: "done" | "cancelled" | "timeout";
+  /** closed: the tab was closed before the person answered. */
+  outcome: "done" | "cancelled" | "timeout" | "closed";
   waitedMs: number;
 }
 

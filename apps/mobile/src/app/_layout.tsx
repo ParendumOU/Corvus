@@ -77,6 +77,7 @@ function Screens() {
         <Stack.Screen name="send" options={{ presentation: 'modal', title: t('Save or send a page') }} />
         <Stack.Screen name="open" options={{ presentation: 'modal', title: t('Open link') }} />
         <Stack.Screen name="watches" options={{ title: t('Watched pages') }} />
+        <Stack.Screen name="passwords" options={{ title: t('Passwords') }} />
         <Stack.Screen name="ask" options={{ title: t('Assist') }} />
         <Stack.Screen name="chat/[id]" options={{ title: t('Assist') }} />
         {/* One browser screen at most: links that come in while it is open go to it. Its title is what

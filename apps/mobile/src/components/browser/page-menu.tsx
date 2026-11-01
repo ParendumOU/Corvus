@@ -9,9 +9,10 @@ import { Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { isSecure, isWebPage } from '@/lib/address';
 import { t, tn } from '@/lib/i18n';
+import { loginHost, type Login } from '@/lib/passwords';
 import { tabHost } from '@/lib/replica';
 
-export type PageMenuAction = 'new-tab' | 'ask' | 'send' | 'read-later' | 'bookmark' | 'watch' | 'share' | 'find' | 'open-in' | 'desktop' | 'blocking' | 'settings';
+export type PageMenuAction = 'new-tab' | 'ask' | 'send' | 'read-later' | 'bookmark' | 'watch' | 'share' | 'find' | 'open-in' | 'desktop' | 'blocking' | 'settings' | 'fill-password';
 
 function MenuSwitch({ value, onChange, label }: { value: boolean; onChange: (on: boolean) => void; label: string }) {
   const theme = useTheme();
@@ -39,6 +40,7 @@ export function PageMenu({
   canFind,
   canBlock,
   blockingHere,
+  logins = 0,
   onAction,
   onClose,
 }: {
@@ -55,6 +57,8 @@ export function PageMenu({
   /** This phone blocks ads and trackers (Android) and blocking is on. */
   canBlock: boolean;
   blockingHere: boolean;
+  /** Saved passwords for this page's site (0: no fill row). */
+  logins?: number;
   onAction: (action: PageMenuAction) => void;
   onClose: () => void;
 }) {
@@ -100,6 +104,15 @@ export function PageMenu({
           <SheetRow icon="eye" label={t('Watch this page')} detail={needsPairing ?? t('Your computers check it for changes')} disabled={!paired} onPress={() => onAction('watch')} testID="menu-watch" />
           <View style={[styles.divider, { backgroundColor: theme.divider }]} />
           <SheetRow icon="share" label={t('Share')} onPress={() => onAction('share')} testID="menu-share" />
+          {web && logins > 0 ? (
+            <SheetRow
+              icon="lock"
+              label={t('Fill password')}
+              detail={tn(logins, '1 saved for this site', '{n} saved for this site')}
+              onPress={() => onAction('fill-password')}
+              testID="menu-fill-password"
+            />
+          ) : null}
           {canFind ? <SheetRow icon="search" label={t('Find in page')} onPress={() => onAction('find')} testID="menu-find" /> : null}
           {Platform.OS === 'android' ? <SheetRow icon="external" label={t('Open in…')} detail={t('Another browser, or send or keep the link')} onPress={() => onAction('open-in')} testID="menu-open-in" /> : null}
           {canDesktop ? <SheetRow icon="monitor" label={t('Desktop site')} onPress={() => onAction('desktop')} trailing={<MenuSwitch value={desktop} onChange={() => onAction('desktop')} label={t('Desktop site')} />} testID="menu-desktop" /> : null}
@@ -261,6 +274,17 @@ export function ComputerPicker({ open, computers, onPick, onClose }: { open: boo
     <Sheet open={open} onClose={onClose} header={<ThemedText type="title" style={styles.title}>{t('Send to a computer')}</ThemedText>} testID="send-picker">
       {computers.map((c) => (
         <SheetRow key={c.id} icon="screen" label={c.name} onPress={() => onPick(c.id)} testID={`send-pick-${c.name}`} />
+      ))}
+    </Sheet>
+  );
+}
+
+/** Which saved login to fill in, when the site has more than one. */
+export function LoginPicker({ open, logins, onPick, onClose }: { open: boolean; logins: readonly Login[]; onPick: (login: Login) => void; onClose: () => void }) {
+  return (
+    <Sheet open={open} onClose={onClose} header={<ThemedText type="title" style={styles.title}>{t('Fill password')}</ThemedText>} testID="login-picker">
+      {logins.map((l) => (
+        <SheetRow key={l.id} icon="lock" label={l.username || t('No username')} detail={loginHost(l.origin)} onPress={() => onPick(l)} testID={`login-pick-${l.id}`} />
       ))}
     </Sheet>
   );

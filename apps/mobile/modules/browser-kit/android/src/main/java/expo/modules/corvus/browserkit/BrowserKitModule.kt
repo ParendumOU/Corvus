@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -62,6 +63,10 @@ private class PageState {
  *   browsable activity of another app; pages never open file:, content: or top-level data: pages;
  * - denies the pages' camera and microphone requests (Corvus holds the camera for pairing, and the
  *   WebView would otherwise give it to any site silently) and reports them (onPermissionRequest);
+ * - asks the person when a site wants a username and password (HTTP Basic or Digest: a router's or
+ *   a device's panel): the request waits, reported once per tab, site and realm (onHttpAuthRequest),
+ *   until the app answers it (answerHttpAuth). Without this the WebView cancels it and the page
+ *   stays on the site's 401 error;
  * - answers cookie banners with DuckDuckGo Autoconsent and sends Global Privacy Control: scripts
  *   added at document start in every frame (consent/page.ts and GPC_PAGE_SCRIPT, built into the
  *   corvus-consent assets), the banner script's rules picked here per frame (ConsentRules), and what
@@ -74,6 +79,8 @@ private class PageState {
 class BrowserKitModule : Module() {
   private val main = Handler(Looper.getMainLooper())
   private val pages: MutableMap<WebView, PageState> = Collections.synchronizedMap(WeakHashMap())
+  /** Sign-in requests waiting for the person, by id; every request of the same tab, site and realm waits on one. Main thread. */
+  private val signIns = LinkedHashMap<String, SignIn>()
 
   @Volatile private var rules: ContentBlocker = ContentBlocker.EMPTY
   @Volatile private var enabled = true
@@ -93,7 +100,7 @@ class BrowserKitModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("CorvusBrowserKit")
 
-    Events("onBlocked", "onExternalLink", "onPermissionRequest", "onFindResult", "onConsent")
+    Events("onBlocked", "onExternalLink", "onPermissionRequest", "onFindResult", "onConsent", "onHttpAuthRequest")
 
     // The WebView's user agents: as a phone browser (the system WebView's, without the "wv" mark that
     // makes some sites, Google sign-in among them, refuse it as an app's embedded view) and as a
@@ -194,6 +201,16 @@ class BrowserKitModule : Module() {
     AsyncFunction("openExternal") { url: String ->
       openExternal(url)
     }.runOnQueue(Queues.MAIN)
+
+    // The person's answer to a sign-in request (onHttpAuthRequest): a username and password to send,
+    // or null to cancel (the page then shows the site's 401 error). False when it no longer waits.
+    AsyncFunction("answerHttpAuth") { id: String, username: String?, password: String? ->
+      val signIn = signIns.remove(id) ?: return@AsyncFunction false
+      for (handler in signIn.handlers) {
+        if (username != null && password != null) handler.proceed(username, password) else handler.cancel()
+      }
+      true
+    }.runOnQueue(Queues.MAIN)
   }
 
   private fun webView(viewTag: Int): WebView? {
@@ -281,6 +298,19 @@ class BrowserKitModule : Module() {
       }
       request.deny()
       sendEvent("onPermissionRequest", mapOf("viewTag" to tagOf(view), "origin" to request.origin.toString(), "kinds" to kinds))
+      true
+    }
+
+    RNCWebViewHooks.authHandler = RNCWebViewHooks.AuthHandler { view, handler, host, realm ->
+      val tag = tagOf(view)
+      val waiting = signIns.values.firstOrNull { it.viewTag == tag && it.host == host && it.realm == realm }
+      if (waiting != null) {
+        waiting.handlers.add(handler)
+      } else {
+        val signIn = SignIn(UUID.randomUUID().toString(), tag, host, realm ?: "", mutableListOf(handler))
+        signIns[signIn.id] = signIn
+        sendEvent("onHttpAuthRequest", mapOf("id" to signIn.id, "viewTag" to tag, "host" to host, "realm" to signIn.realm))
+      }
       true
     }
   }
@@ -373,6 +403,11 @@ class BrowserKitModule : Module() {
     RNCWebViewHooks.requestInterceptor = null
     RNCWebViewHooks.navigationHandler = null
     RNCWebViewHooks.permissionHandler = null
+    RNCWebViewHooks.authHandler = null
+    main.post {
+      signIns.values.forEach { signIn -> signIn.handlers.forEach { it.cancel() } }
+      signIns.clear()
+    }
   }
 
   private fun openExternal(url: String): String {
@@ -409,3 +444,6 @@ class BrowserKitModule : Module() {
 
   private fun isWeb(url: String): Boolean = url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
 }
+
+/** A site's sign-in request waiting for the person: the WebView's handlers it answers. */
+private class SignIn(val id: String, val viewTag: Int, val host: String, val realm: String, val handlers: MutableList<HttpAuthHandler>)

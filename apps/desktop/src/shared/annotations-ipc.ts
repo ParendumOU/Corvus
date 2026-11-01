@@ -17,6 +17,8 @@ export const ANNOTATION_UPDATE_CHANNEL = "corvus:annotation-update";
 export const ANNOTATION_DELETE_CHANNEL = "corvus:annotation-delete";
 /** Main -> preload: (re)apply the saved annotations for this page. */
 export const ANNOTATION_APPLY_CHANNEL = "corvus:annotation-apply";
+/** Main -> preload: an AI agent is acting on the page, so its clicks and selections are not the person's. */
+export const ANNOTATION_AGENT_CHANNEL = "corvus:annotation-agent";
 
 export interface AnnotationCreateRequest {
   url: string;
@@ -36,10 +38,24 @@ export interface AnnotationDeleteRequest {
   id: string;
 }
 
+/** The in-page toolbar's and popover's text, in Corvus's language. */
+export interface AnnotationLabels {
+  toolbar: string;
+  colors: Record<AnnotationColor, string>;
+  note: string;
+  notePlaceholder: string;
+  saveHighlight: string;
+  noNote: string;
+  editNote: string;
+  save: string;
+  delete: string;
+}
+
 /** What the preload renders. scrollToId (if present) is scrolled into view after re-anchoring. */
 export interface AnnotationApplyMessage {
   annotations: Annotation[];
   scrollToId?: string;
+  labels: AnnotationLabels;
 }
 
 /** Manager page (corvus://annotations) methods. */

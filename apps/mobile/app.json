@@ -2,14 +2,14 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.parendum.corvus.mobile",
-      "buildNumber": "12",
+      "buildNumber": "13",
       "icon": "./assets/images/icon.png",
       "supportsTablet": false,
       "infoPlist": {
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 12,
+      "versionCode": 13,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -66,6 +66,7 @@
       ],
       ["expo-localization", { "supportedLocales": { "android": ["en", "es"] } }],
       ["expo-secure-store", { "faceIDPermission": false }],
+      ["expo-local-authentication", { "faceIDPermission": "Corvus asks for Face ID before it shows or fills a saved password." }],
       [
         "expo-camera",
         {

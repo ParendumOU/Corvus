@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file is the one list of what is left to do; what shipped, release by release, is in [CHANGELOG.md](../CHANGELOG.md).
 
-Last updated: 2026-11-01 · current release: **v0.34.1** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.10.0** (Android preview)
+Last updated: 2026-11-01 · current release: **v0.35.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.11.0** (Android preview)
 
 ---
 
@@ -10,20 +10,19 @@ Last updated: 2026-11-01 · current release: **v0.34.1** (Windows + Linux unsign
 
 In order. Each item is one branch (`feat|fix/<name>`), validated and merged on its own.
 
-1. **Corvus for mobile 0.11.0** once Apple and Google approve 0.10.0 (the release script now publishes to both stores by itself): ships what is already on main: the certificate error page (no Proceed on the phone; Android link, back and reload fixes; failed loads kept out of history), Android language change without a restart (Settings > Apps > Corvus > Language) and coming back to the same screen after Android rebuilds or stops the app. Check the certificate page and the language on a real iPhone through TestFlight.
+Nothing queued: pick the next item from Later.
 
 ## Waiting on the owner or on the stores
 
-- **App Store**: Corvus for mobile 0.10.0 is waiting for App Review (submitted 2026-10-29; Apple releases it by itself after approval). On Google Play, 0.10.0 is live since 2026-10-29. France stays off until an encryption declaration (ANSSI) is filed, if France is wanted.
-- **On a real iPhone (TestFlight)**: cookie banners, pairing by QR code and the certificate error page.
+- **App Store and Google Play**: Corvus for mobile 0.11.0 is in review on both (submitted 2026-11-01; each store releases it by itself after approval). 0.10.0 is live on both. France stays off the App Store until an encryption declaration (ANSSI) is filed, if France is wanted.
+- **On a real iPhone (TestFlight)**: cookie banners, pairing by QR code, the certificate error page and the saved passwords (Face ID before showing or filling one).
 - **On a real Windows PC**: pressing Import with real browser profiles (only the owner can): whether Chrome, Edge and Brave passwords are readable or protected, the guided export, and whether antivirus complains; the browsers' own icons in the address bar suggestions and Settings.
 - **Windows**: confirm a taskbar pin survives a real automatic update (the in-place update shipped in v0.31.0).
 - **Code-signing certificate** for Windows: deferred, see Open decisions.
 
 ## Later
 
-- **Corvus for mobile**: saved passwords and 2FA codes on the phone; the agent on the phone; ad blocking on iOS (content rule lists); generic element hiding and scriptlets on Android.
-- **AI agent requests**: a tab closed while an agent waits answers "cancelled"; a separate "tab closed" outcome would tell the agent more.
+- **Corvus for mobile**: 2FA codes on the phone; saved passwords on iOS's HTTP sign-in (Android only today); sample saved logins in the demo chain for the stores' reviewers; the agent on the phone; ad blocking on iOS (content rule lists); generic element hiding and scriptlets on Android.
 - **Next Expo upgrade**: redo the expo-router patch (patches/expo-router@58.0.26.patch, the router binding after Android rebuilds the screen) and recheck Google Play's edge-to-edge warning (today it comes from library calls; the bitmap warning is a false positive).
 - **Demo sync chain**: Spanish sample content for reviewers who use the app in Spanish.
 - **Import from Google Authenticator**: AVIF photos (the decoder already reads them); a KeePass file blocked only by its access rights shows as writable until the write fails.

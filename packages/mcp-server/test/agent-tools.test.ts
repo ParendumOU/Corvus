@@ -422,6 +422,13 @@ describe("request_user_action", () => {
     expect(textOf(await pending)).toMatch(/^cancelled:/);
   });
 
+  it("reports a tab closed while waiting, apart from Cancel", async () => {
+    const pending = call(client, "request_user_action", { message: "Sign in" });
+    await waitPending();
+    controller.pendingUserActions[0]!.answer("closed");
+    expect(textOf(await pending)).toMatch(/^closed: the tab was closed/);
+  });
+
   it("times out", async () => {
     const real = controller.requestUserAction.bind(controller);
     controller.requestUserAction = (id, req, signal) => real(id, { ...req, timeoutMs: 50 }, signal);
@@ -430,5 +437,44 @@ describe("request_user_action", () => {
     } finally {
       controller.requestUserAction = real;
     }
+  });
+});
+
+describe("wait_for_download", () => {
+  const running = { id: "d2", url: "https://shop.example/report.zip", filename: "report.zip", path: "/dl/report.zip", state: "progressing", receivedBytes: 5, totalBytes: 20, startedAt: Date.now() };
+  let h: Harness;
+  let client: Client;
+
+  beforeAll(async () => {
+    const controller = new MockBrowserController({
+      initialTabs: [FORM_URL],
+      downloads: [running, { id: "d1", url: "https://shop.example/invoice.pdf", filename: "invoice.pdf", path: "/dl/invoice.pdf", state: "completed", receivedBytes: 10, totalBytes: 10, startedAt: 1 }],
+    });
+    h = await startHarness({ accessLevel: "full", rateLimit: false }, controller);
+    client = await h.connect();
+  });
+  afterAll(async () => h.close());
+
+  it("is a full-access tool", () => {
+    expect(requiredLevel("wait_for_download")).toBe("full");
+  });
+
+  it("waits for a running download to finish, ignoring old ones", async () => {
+    setTimeout(() => Object.assign(running, { state: "completed", receivedBytes: 20 }), 300);
+    const res = textOf(await call(client, "wait_for_download", { timeoutMs: 5000 }));
+    expect(res).toContain("completed:");
+    expect(res).toContain('"filename":"report.zip"');
+  });
+
+  it("times out with the progress, or with nothing matching", async () => {
+    Object.assign(running, { state: "progressing", receivedBytes: 7 });
+    expect(textOf(await call(client, "wait_for_download", { filenameContains: "REPORT", timeoutMs: 300 }))).toMatch(/timeout: still progressing after 300 ms \(7 of 20 bytes\)/);
+    expect(textOf(await call(client, "wait_for_download", { urlContains: "invoice", timeoutMs: 200 }))).toContain("timeout: no matching download started");
+    expect(textOf(await call(client, "wait_for_download", { urlContains: "invoice", sinceSeconds: 3600, timeoutMs: 200 }))).toContain("timeout: no matching download");
+  });
+
+  it("reports a file held for the user", async () => {
+    Object.assign(running, { state: "blocked" });
+    expect(textOf(await call(client, "wait_for_download", { timeoutMs: 1000 }))).toContain("blocked: the browser holds this file");
   });
 });

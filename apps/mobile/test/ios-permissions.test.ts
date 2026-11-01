@@ -6,11 +6,15 @@ type Plugin = string | [string, Record<string, unknown>];
 const read = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const { expo } = read('../app.json') as { expo: { ios: { infoPlist: Record<string, unknown> }; plugins: Plugin[]; locales: Record<string, string> } };
 
-/** The texts iOS shows when the app asks for a permission, as app.json sets them (Info.plist and expo-camera). */
+const plugin = (name: string) => expo.plugins.find((p): p is [string, Record<string, unknown>] => Array.isArray(p) && p[0] === name)?.[1];
+
+/** The texts iOS shows when the app asks for a permission, as app.json sets them (Info.plist, expo-camera and expo-local-authentication). */
 function permissionTexts(): Record<string, unknown> {
   const texts = Object.fromEntries(Object.entries(expo.ios.infoPlist).filter(([key]) => key.endsWith('UsageDescription')));
-  const camera = expo.plugins.find((p): p is [string, Record<string, unknown>] => Array.isArray(p) && p[0] === 'expo-camera');
-  if (camera?.[1].cameraPermission) texts.NSCameraUsageDescription = camera[1].cameraPermission;
+  const camera = plugin('expo-camera')?.cameraPermission;
+  if (camera) texts.NSCameraUsageDescription = camera;
+  const faceId = plugin('expo-local-authentication')?.faceIDPermission;
+  if (faceId) texts.NSFaceIDUsageDescription = faceId;
   return texts;
 }
 

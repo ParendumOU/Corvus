@@ -1971,6 +1971,7 @@ export class BrowserWindowCtl {
     const tab = this.tabs.get(id);
     if (!tab) return;
     tab.agentActedAt = Date.now();
+    this.ctx.annotations.agentActed(tab);
     if (!tab.agentControlled) {
       tab.agentControlled = true;
       this.pushState();

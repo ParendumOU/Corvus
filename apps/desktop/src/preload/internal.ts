@@ -1,8 +1,8 @@
 // Preload attached to every tab. It exposes window.corvusInternal only on corvus:// pages, so
 // regular web content never sees an IPC surface. The main process re-validates every call.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor } from "../shared/annotations";
-import { ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage } from "../shared/annotations-ipc";
+import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor, type AnnotationColor } from "../shared/annotations";
+import { ANNOTATION_AGENT_CHANNEL, ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage, type AnnotationLabels } from "../shared/annotations-ipc";
 import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, AUTOFILL_IDENTIFIER_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
 import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-field";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
@@ -337,25 +337,50 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     true,
   );
 
+  const SKIP_INPUT = ["checkbox", "radio", "button", "submit", "reset", "file", "range", "color", "image", "hidden"];
+  // A text field's current value as an "input" capture; false when the element is not a text field.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sendValue = (el: any): boolean => {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName;
+    const type = (el.getAttribute && (el.getAttribute("type") || "")).toLowerCase();
+    const textLike = (tag === "INPUT" && !SKIP_INPUT.includes(type)) || tag === "TEXTAREA" || el.isContentEditable;
+    if (!textLike) return false;
+    const desc = descriptorFor(el);
+    if (!desc) return false;
+    const hint = `${el.name || ""} ${el.id || ""} ${(el.getAttribute && el.getAttribute("autocomplete")) || ""} ${desc.name}`;
+    const secret = type === "password" || SECRET.test(hint);
+    const value = secret ? "" : String(el.isContentEditable ? el.innerText || "" : el.value || "").slice(0, 2000);
+    send("input", desc, value, secret);
+    return true;
+  };
+
   d.addEventListener(
     "change",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       if (!recording) return;
       try {
+        sendValue(e.target);
+      } catch {
+        // never let recording break the page
+      }
+    },
+    true,
+  );
+
+  // Enter in a single-line field: record the value before the page reacts (tag and combobox inputs such as
+  // react-select turn it into a chip and clear the field, so no change event ever carries it), then mark
+  // the step as submitted so replay presses Enter too.
+  d.addEventListener(
+    "keydown",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      if (!recording || e.key !== "Enter" || e.isComposing || e.shiftKey) return;
+      try {
         const el = e.target;
-        if (!el || !el.tagName) return;
-        const tag = el.tagName;
-        const type = (el.getAttribute && (el.getAttribute("type") || "")).toLowerCase();
-        const skipInput = ["checkbox", "radio", "button", "submit", "reset", "file", "range", "color", "image", "hidden"];
-        const textLike = (tag === "INPUT" && !skipInput.includes(type)) || tag === "TEXTAREA" || el.isContentEditable;
-        if (!textLike) return;
-        const desc = descriptorFor(el);
-        if (!desc) return;
-        const hint = `${el.name || ""} ${el.id || ""} ${(el.getAttribute && el.getAttribute("autocomplete")) || ""} ${desc.name}`;
-        const secret = type === "password" || SECRET.test(hint);
-        const value = secret ? "" : String(el.isContentEditable ? el.innerText || "" : el.value || "").slice(0, 2000);
-        send("input", desc, value, secret);
+        if (!el || el.tagName !== "INPUT" || !el.value) return;
+        if (sendValue(el)) send("submit", undefined);
       } catch {
         // never let recording break the page
       }
@@ -494,64 +519,138 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
   host.setAttribute(UI_ATTR, "");
   host.style.cssText = "all:initial;position:fixed;z-index:2147483647;top:0;left:0";
   const shadow = host.attachShadow({ mode: "closed" });
-  const style = d.createElement("style");
-  style.textContent = `
-    .bar,.pop{position:fixed;display:none;font:13px system-ui,sans-serif;background:#1f2430;color:#fff;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.35);padding:6px;gap:4px;align-items:center}
-    .bar{flex-direction:row}
-    .pop{flex-direction:column;max-width:280px;align-items:stretch}
-    .sw{width:20px;height:20px;border-radius:50%;border:2px solid rgba(255,255,255,.25);cursor:pointer;padding:0}
-    .btn{background:#39404f;color:#fff;border:0;border-radius:6px;padding:5px 9px;cursor:pointer;font:inherit}
-    .btn:hover{background:#4a5264}
+  // Constructed style sheets: a page's Content-Security-Policy (style-src 'self') blocks a <style>
+  // element added to it, which left the toolbar unstyled, but not these.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const adopt = (root: any, css: string): void => {
+    try {
+      const sheet = new w.CSSStyleSheet();
+      sheet.replaceSync(css);
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    } catch {
+      const style = d.createElement("style");
+      style.textContent = css;
+      (root === d ? d.head || d.documentElement : root).appendChild(style);
+    }
+  };
+  adopt(
+    shadow,
+    `
+    .bar,.pop{position:fixed;display:none;box-sizing:border-box;font:500 12.5px/1.25 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1d2230;background:#fff;border:1px solid rgba(15,20,30,.12);border-radius:12px;box-shadow:0 10px 28px rgba(15,20,30,.16),0 1px 3px rgba(15,20,30,.08);padding:5px;gap:2px;align-items:center;animation:corvus-in .12s ease-out}
+    @keyframes corvus-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .bar{flex-flow:row wrap;max-width:300px}
+    .pop{flex-direction:column;align-items:stretch;width:264px;padding:10px;gap:10px}
+    .sw{appearance:none;flex:none;width:20px;height:20px;margin:4px;border:0;border-radius:50%;padding:0;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.16);transition:transform .1s ease-out}
+    .sw:hover{transform:scale(1.18)}
+    .sw.on{box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 0 0 2px #fff,0 0 0 4px #3b6cf6}
+    .sep{flex:none;width:1px;height:20px;margin:0 3px;background:rgba(15,20,30,.12)}
+    .btn{appearance:none;display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;cursor:pointer;white-space:nowrap}
+    .btn:hover{background:rgba(15,20,30,.07)}
+    .btn.primary{background:#3b6cf6;color:#fff}
+    .btn.primary:hover{background:#2f5ad8}
+    .btn.danger{color:#c62828}
+    .btn svg{flex:none;width:14px;height:14px;fill:currentColor}
+    .sw:focus-visible,.btn:focus-visible{outline:2px solid #3b6cf6;outline-offset:2px}
     .row{display:flex;gap:4px;align-items:center}
-    textarea{width:100%;min-height:54px;resize:vertical;border-radius:6px;border:0;padding:6px;font:inherit;box-sizing:border-box}
-    .note{white-space:pre-wrap;padding:2px 2px 6px}
-  `;
-  shadow.appendChild(style);
+    .end{justify-content:flex-end}
+    .compose{display:none;flex:1 0 100%;flex-direction:column;gap:6px;padding:4px 2px 2px}
+    textarea{box-sizing:border-box;width:100%;min-height:64px;resize:vertical;margin:0;border:1px solid rgba(15,20,30,.18);border-radius:8px;background:#fff;color:inherit;padding:7px 9px;font:400 13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;outline:none}
+    textarea:focus{border-color:#3b6cf6;box-shadow:0 0 0 3px rgba(59,108,246,.2)}
+    .note{font-weight:400;font-size:13px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto}
+    .note.empty{color:rgba(29,34,48,.55)}
+    @media (prefers-color-scheme:dark){
+      .bar,.pop{color:#e8ebf1;background:#23272f;border-color:rgba(255,255,255,.1);box-shadow:0 10px 28px rgba(0,0,0,.5),0 1px 3px rgba(0,0,0,.3)}
+      .sep{background:rgba(255,255,255,.14)}
+      .btn:hover{background:rgba(255,255,255,.09)}
+      .btn.danger{color:#ff8a80}
+      .sw{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}
+      .sw.on{box-shadow:inset 0 0 0 1px rgba(255,255,255,.2),0 0 0 2px #23272f,0 0 0 4px #7aa2ff}
+      textarea{background:#181b21;border-color:rgba(255,255,255,.16)}
+      .note.empty{color:rgba(232,235,241,.55)}
+    }
+  `,
+  );
   const appendUi = (): void => {
     if (!host.isConnected && d.documentElement) d.documentElement.appendChild(host);
   };
 
-  // Selection toolbar
-  const bar = d.createElement("div");
-  bar.className = "bar";
-  const swatchRow = d.createElement("div");
-  swatchRow.className = "row";
-  bar.appendChild(swatchRow);
-  const noteBtn = d.createElement("button");
-  noteBtn.className = "btn";
-  noteBtn.textContent = "Note";
-  bar.appendChild(noteBtn);
-  const noteBox = d.createElement("div");
-  noteBox.style.display = "none";
-  const noteArea = d.createElement("textarea");
-  noteArea.placeholder = "Add a note…";
-  const noteSave = d.createElement("button");
-  noteSave.className = "btn";
-  noteSave.textContent = "Save highlight";
-  noteSave.style.marginTop = "4px";
-  noteBox.appendChild(noteArea);
-  noteBox.appendChild(noteSave);
-  bar.appendChild(noteBox);
+  // Its text arrives with the page's annotations, in Corvus's language (English until then).
+  let labels: AnnotationLabels = {
+    toolbar: "Highlight",
+    colors: { yellow: "Yellow", green: "Green", blue: "Blue", pink: "Pink", orange: "Orange" },
+    note: "Note",
+    notePlaceholder: "Add a note…",
+    saveHighlight: "Save highlight",
+    noNote: "No note",
+    editNote: "Edit note",
+    save: "Save",
+    delete: "Delete",
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const el = (tag: string, className: string, text?: string): any => {
+    const node = d.createElement(tag);
+    node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  // A pencil, drawn with DOM calls (a page's Trusted Types policy refuses innerHTML).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pencil = (): any => {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = d.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const path = d.createElementNS(ns, "path");
+    path.setAttribute("d", "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z");
+    svg.appendChild(path);
+    return svg;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const swatch = (color: AnnotationColor, onPick: () => void, current = false): any => {
+    const sw = el("button", current ? "sw on" : "sw");
+    sw.style.background = ANNOTATION_COLOR_HEX[color];
+    sw.title = labels.colors[color];
+    sw.setAttribute("aria-label", labels.colors[color]);
+    if (current) sw.setAttribute("aria-pressed", "true");
+    sw.addEventListener("mousedown", (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onPick();
+    });
+    return sw;
+  };
+
+  // Selection toolbar: the colors, then a note. Built again when it opens, in the current language.
+  const bar = el("div", "bar");
+  bar.setAttribute("role", "toolbar");
+  bar.style.display = "none";
   shadow.appendChild(bar);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let noteBox: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let noteArea: any = null;
 
   // Existing-highlight popover
-  const pop = d.createElement("div");
-  pop.className = "pop";
+  const pop = el("div", "pop");
+  pop.setAttribute("role", "dialog");
+  pop.style.display = "none";
   shadow.appendChild(pop);
 
   let pendingAnchor: { start: number; end: number } | null = null;
+  const composing = (): boolean => noteBox !== null && noteBox.style.display !== "none";
 
   const hideBar = (): void => {
     bar.style.display = "none";
-    noteBox.style.display = "none";
-    noteArea.value = "";
+    if (noteBox) noteBox.style.display = "none";
+    if (noteArea) noteArea.value = "";
     pendingAnchor = null;
   };
   const hidePop = (): void => {
     pop.style.display = "none";
   };
 
-  const sendCreate = (color: string, note: string): void => {
+  const sendCreate = (color: AnnotationColor, note: string): void => {
     if (!pendingAnchor) return;
     const text = buildText();
     const anchor = buildAnchor(text, pendingAnchor.start, pendingAnchor.end);
@@ -565,45 +664,64 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     if (sel && sel.removeAllRanges) sel.removeAllRanges();
   };
 
-  for (const color of ANNOTATION_COLORS) {
-    const sw = d.createElement("button");
-    sw.className = "sw";
-    sw.style.background = ANNOTATION_COLOR_HEX[color];
-    sw.title = color;
-    sw.addEventListener("mousedown", (e: any) => {
+  const buildBar = (): void => {
+    bar.textContent = "";
+    bar.setAttribute("aria-label", labels.toolbar);
+    for (const color of ANNOTATION_COLORS) bar.appendChild(swatch(color, () => sendCreate(color, "")));
+    bar.appendChild(el("span", "sep"));
+    const noteBtn = el("button", "btn");
+    noteBtn.appendChild(pencil());
+    noteBtn.appendChild(d.createTextNode(labels.note));
+    noteBtn.addEventListener("mousedown", (e: any) => {
       e.preventDefault();
       e.stopPropagation();
-      sendCreate(color, "");
+      const open = !composing();
+      noteBox.style.display = open ? "flex" : "none";
+      if (open) noteArea.focus();
     });
-    swatchRow.appendChild(sw);
-  }
-  noteBtn.addEventListener("mousedown", (e: any) => {
-    e.preventDefault();
-    e.stopPropagation();
-    noteBox.style.display = noteBox.style.display === "none" ? "block" : "none";
-    if (noteBox.style.display === "block") noteArea.focus();
-  });
-  noteSave.addEventListener("mousedown", (e: any) => {
-    e.preventDefault();
-    e.stopPropagation();
-    sendCreate(ANNOTATION_COLORS[0], noteArea.value);
-  });
+    bar.appendChild(noteBtn);
+    noteBox = el("div", "compose");
+    noteBox.style.display = "none";
+    noteArea = el("textarea", "");
+    noteArea.placeholder = labels.notePlaceholder;
+    const actions = el("div", "row end");
+    const noteSave = el("button", "btn primary", labels.saveHighlight);
+    noteSave.addEventListener("mousedown", (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sendCreate(ANNOTATION_COLORS[0], noteArea.value);
+    });
+    actions.appendChild(noteSave);
+    noteBox.appendChild(noteArea);
+    noteBox.appendChild(actions);
+    bar.appendChild(noteBox);
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const placeAt = (el: any, rect: { left: number; top: number; bottom: number }): void => {
+  const placeAt = (node: any, rect: { left: number; top: number; bottom: number }): void => {
     appendUi();
-    el.style.display = el === bar ? "flex" : "flex";
+    node.style.display = "flex";
     const vw = w.innerWidth || 1024;
-    const top = rect.top > 56 ? rect.top - (el.offsetHeight || 40) - 8 : rect.bottom + 8;
-    const left = Math.max(8, Math.min(rect.left, vw - (el.offsetWidth || 200) - 8));
-    el.style.left = `${left}px`;
-    el.style.top = `${Math.max(8, top)}px`;
+    const top = rect.top > 56 ? rect.top - (node.offsetHeight || 40) - 8 : rect.bottom + 8;
+    const left = Math.max(8, Math.min(rect.left, vw - (node.offsetWidth || 200) - 8));
+    node.style.left = `${left}px`;
+    node.style.top = `${Math.max(8, top)}px`;
   };
+
+  // An AI agent's clicks and selections are not the person's: no toolbar for them.
+  const AGENT_QUIET_MS = 2000;
+  let agentActedAt = 0;
+  const agentActing = (): boolean => Date.now() - agentActedAt < AGENT_QUIET_MS;
+  ipcRenderer.on(ANNOTATION_AGENT_CHANNEL, () => {
+    agentActedAt = Date.now();
+    if (!composing()) hideBar();
+    hidePop();
+  });
 
   const onSelect = (): void => {
     const sel = w.getSelection && w.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-      if (noteBox.style.display === "none") hideBar();
+      if (!composing()) hideBar();
       return;
     }
     const range = sel.getRangeAt(0);
@@ -619,16 +737,17 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     pendingAnchor = { start, end };
     const rect = range.getBoundingClientRect();
     hidePop();
+    if (!composing()) buildBar();
     placeAt(bar, rect);
   };
 
   // ---- rendering saved annotations ----
+  // The highlight colors, added to the page once (a constructed sheet, so its CSP lets them through).
+  let highlightStyled = false;
   const ensureStyle = (): void => {
-    if (shadow.getElementById && shadow.getElementById("hl")) return;
-    const s = d.createElement("style");
-    s.id = "hl";
-    s.textContent = ANNOTATION_COLORS.map((c) => `::highlight(corvus-anno-${c}){background-color:${ANNOTATION_COLOR_HEX[c]};color:inherit}`).join("");
-    (d.head || d.documentElement).appendChild(s);
+    if (highlightStyled) return;
+    highlightStyled = true;
+    adopt(d, ANNOTATION_COLORS.map((c) => `::highlight(corvus-anno-${c}){background-color:${ANNOTATION_COLOR_HEX[c]};color:inherit}`).join(""));
   };
 
   const render = (msg: AnnotationApplyMessage): void => {
@@ -667,54 +786,47 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
   };
 
   // ---- popover for an existing highlight ----
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const openPopover = (a: Applied, x: number, y: number): void => {
     pop.textContent = "";
-    const note = d.createElement("div");
-    note.className = "note";
-    note.textContent = a.note || "No note";
-    pop.appendChild(note);
-    const swRow = d.createElement("div");
-    swRow.className = "row";
+    pop.setAttribute("aria-label", labels.toolbar);
+    pop.appendChild(el("div", a.note ? "note" : "note empty", a.note || labels.noNote));
+    const swRow = el("div", "row");
     for (const color of ANNOTATION_COLORS) {
-      const sw = d.createElement("button");
-      sw.className = "sw";
-      sw.style.background = ANNOTATION_COLOR_HEX[color];
-      sw.addEventListener("mousedown", (e: any) => {
-        e.preventDefault();
-        ipcRenderer.send(ANNOTATION_UPDATE_CHANNEL, { id: a.id, color });
-        hidePop();
-      });
-      swRow.appendChild(sw);
+      swRow.appendChild(
+        swatch(
+          color,
+          () => {
+            ipcRenderer.send(ANNOTATION_UPDATE_CHANNEL, { id: a.id, color });
+            hidePop();
+          },
+          color === a.color,
+        ),
+      );
     }
     pop.appendChild(swRow);
-    const actions = d.createElement("div");
-    actions.className = "row";
-    actions.style.marginTop = "4px";
-    const edit = d.createElement("button");
-    edit.className = "btn";
-    edit.textContent = "Edit note";
+    const actions = el("div", "row end");
+    const edit = el("button", "btn");
+    edit.appendChild(pencil());
+    edit.appendChild(d.createTextNode(labels.editNote));
     edit.addEventListener("mousedown", (e: any) => {
       e.preventDefault();
-      const area = d.createElement("textarea");
+      const area = el("textarea", "");
       area.value = a.note;
-      const save = d.createElement("button");
-      save.className = "btn";
-      save.textContent = "Save";
-      save.style.marginTop = "4px";
+      area.placeholder = labels.notePlaceholder;
+      const row = el("div", "row end");
+      const save = el("button", "btn primary", labels.save);
       save.addEventListener("mousedown", (ev: any) => {
         ev.preventDefault();
         ipcRenderer.send(ANNOTATION_UPDATE_CHANNEL, { id: a.id, note: area.value });
         hidePop();
       });
+      row.appendChild(save);
       pop.textContent = "";
       pop.appendChild(area);
-      pop.appendChild(save);
+      pop.appendChild(row);
       area.focus();
     });
-    const del = d.createElement("button");
-    del.className = "btn";
-    del.textContent = "Delete";
+    const del = el("button", "btn danger", labels.delete);
     del.addEventListener("mousedown", (e: any) => {
       e.preventDefault();
       ipcRenderer.send(ANNOTATION_DELETE_CHANNEL, { id: a.id });
@@ -744,6 +856,8 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     "mouseup",
     (e: any) => {
       if (host.contains && host.contains(e.target)) return;
+      // A page's own synthetic events and an agent's clicks open nothing.
+      if (!e.isTrusted || agentActing()) return;
       const hit = hitTest(e.clientX, e.clientY);
       if (hit) {
         hideBar();
@@ -760,13 +874,14 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     (e: any) => {
       if (host.contains && host.contains(e.target)) return;
       hidePop();
-      if (noteBox.style.display === "none") hideBar();
+      if (!composing()) hideBar();
     },
     true,
   );
 
   ipcRenderer.on(ANNOTATION_APPLY_CHANNEL, (_e: IpcRendererEvent, msg: AnnotationApplyMessage) => {
     try {
+      labels = msg.labels;
       appendUi();
       render(msg);
     } catch {

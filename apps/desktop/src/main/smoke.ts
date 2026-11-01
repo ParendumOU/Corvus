@@ -8,7 +8,7 @@ import { createSyncClient } from "@corvus/sync-core";
 import type { AppContext } from "./context";
 import { runAgentSmoke } from "./smoke-agent";
 import { runAgentRunsSmoke } from "./smoke-agent-runs";
-import { runAnnotationsSmoke } from "./smoke-annotations";
+import { runAnnotationsSmoke, serveAnnotationsSmokeRoute } from "./smoke-annotations";
 import { runAuthenticatorImportSmoke } from "./smoke-authenticator-import";
 import { runBackupSmoke } from "./smoke-backup";
 import { runAssistSmoke } from "./smoke-assist";
@@ -114,6 +114,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveMediaSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
     if (serveSignInSmokeRoute(req, res)) return;
+    if (serveAnnotationsSmokeRoute(req, res)) return;
     const path = (req.url ?? "/").split("?")[0];
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(path === "/login" ? LOGIN_PAGE : path === "/after-login" ? "<!doctype html><title>Signed in</title><main>Welcome</main>" : PAGE);

@@ -41,7 +41,9 @@ import { bookmarkList, nextPosition } from '@/lib/library';
 import { Outbox } from '@/lib/outbox';
 import { isUnreachable, needsServerMessage } from '@/lib/reach';
 import type { Progress } from '@/lib/refresh';
-import { Replica } from '@/lib/replica';
+import { VAULT_KEY, vaultSealer } from '@/lib/password-vault';
+import { loginsOf, type Login } from '@/lib/passwords';
+import { PHONE_COLLECTIONS, Replica } from '@/lib/replica';
 import { secrets } from '@/lib/secrets';
 import { mergeVisit, retitled } from '@/lib/visits';
 import { watchFor } from '@/lib/watches';
@@ -110,10 +112,15 @@ function friendly(pairing: Pairing, err: unknown): unknown {
 export function replicaFor(pairing: Pairing): Replica {
   let replica = replicas.get(pairing.chainId);
   if (!replica) {
-    replica = new Replica(dataStore, `${pairing.chainId}/`);
+    replica = new Replica(dataStore, `${pairing.chainId}/`, PHONE_COLLECTIONS, vaultSealer(secrets));
     replicas.set(pairing.chainId, replica);
   }
   return replica;
+}
+
+/** The passwords saved on the computers, as last synced (read on demand, never kept in the view). */
+export async function savedLogins(pairing: Pairing): Promise<Login[]> {
+  return loginsOf(await replicaFor(pairing).records('credentials'));
 }
 
 /** Version 0.1.0 kept the replica in AsyncStorage; it now lives in files (fetched again once). */
@@ -493,6 +500,7 @@ export async function unpair(pairing: Pairing): Promise<void> {
     // Offline or already removed: the computer can remove this phone from its device list.
   }
   await secrets.remove(PAIRING_KEY);
+  await secrets.remove(VAULT_KEY);
   clients.delete(pairing.chainId);
   replicas.delete(pairing.chainId);
   outboxes.delete(pairing.chainId);

@@ -1,3 +1,4 @@
+import type http from "node:http";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
@@ -67,4 +68,93 @@ export async function runAnnotationsSmoke(ctx: AppContext, { url, win, check, ca
   check("deleting an annotation live-clears its highlight", cleared, await wc.executeJavaScript("document.documentElement.getAttribute('data-corvus-annotated')"));
 
   store.remove(orphan!.id);
+
+  await runToolbarSmoke(url, win, check, capture);
+}
+
+/** A page whose Content-Security-Policy refuses style elements, as many sites and local tools do. */
+const CSP_PAGE = `<!doctype html><html><head><title>Strict page</title></head><body>
+<p style="margin:260px 40px 0;font:20px sans-serif" id="quote">Ravens solve puzzles and remember faces.</p>
+</body></html>`;
+
+export function serveAnnotationsSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if ((req.url ?? "/").split("?")[0] !== "/annotations-csp") return false;
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": "default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'",
+  });
+  res.end(CSP_PAGE);
+  return true;
+}
+
+/** Where the yellow swatch's pixels are on the page (CSS px), or null when there are none. */
+async function yellowBox(wc: WebContents): Promise<{ top: number; bottom: number; count: number } | null> {
+  const image = await wc.capturePage();
+  const { width, height } = image.getSize();
+  const scale = width / Math.max(1, (await wc.executeJavaScript("innerWidth")) as number);
+  const bitmap = image.toBitmap();
+  const [r, g, b] = [0xff, 0xf1, 0x8c];
+  let top = Infinity;
+  let bottom = -1;
+  let count = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (Math.abs((bitmap[i + 2] ?? 0) - r) < 6 && Math.abs((bitmap[i + 1] ?? 0) - g) < 6 && Math.abs((bitmap[i] ?? 0) - b) < 6) {
+        count++;
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+  return count > 0 ? { top: top / scale, bottom: bottom / scale, count } : null;
+}
+
+/** Selects the page's quote with the mouse, as a person does (press, drag, release). */
+async function dragSelect(wc: WebContents): Promise<{ top: number }> {
+  const rect = (await wc.executeJavaScript(
+    "(() => { const r = document.getElementById('quote').firstChild; const range = document.createRange(); range.selectNodeContents(r); const b = range.getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, mid: b.top + b.height / 2 }; })()",
+  )) as { left: number; right: number; top: number; mid: number };
+  const y = Math.round(rect.mid);
+  wc.sendInputEvent({ type: "mouseMove", x: Math.round(rect.left) + 1, y });
+  wc.sendInputEvent({ type: "mouseDown", x: Math.round(rect.left) + 1, y, button: "left", clickCount: 1 });
+  for (let x = Math.round(rect.left) + 20; x < rect.right; x += 40) wc.sendInputEvent({ type: "mouseMove", x, y, button: "left" });
+  wc.sendInputEvent({ type: "mouseMove", x: Math.round(rect.right) - 1, y, button: "left" });
+  wc.sendInputEvent({ type: "mouseUp", x: Math.round(rect.right) - 1, y, button: "left", clickCount: 1 });
+  return { top: rect.top };
+}
+
+/**
+ * The selection toolbar on a page whose CSP refuses style elements: styled and placed just above the
+ * selection (it showed unstyled in the top-left corner), and not opened by an AI agent's selection.
+ */
+async function runToolbarSmoke(url: string, win: BrowserWindowCtl, check: SmokeCtx["check"], capture: SmokeCtx["capture"]): Promise<void> {
+  const tab = win.createTab(`${url}annotations-csp`);
+  const wc = tab.view.webContents;
+  try {
+    await poll(() => !wc.isDestroyed() && wc.getURL().endsWith("/annotations-csp") && !tab.loading);
+    await delay(500);
+    const { top } = await dragSelect(wc);
+    await delay(500);
+    const shown = await yellowBox(wc);
+    check(
+      "selection toolbar styled under a strict CSP, just above the selection",
+      shown !== null && shown.bottom < top && shown.top > top - 70 && shown.bottom - shown.top <= 24,
+      { shown, selectionTop: top },
+    );
+    await capture("annotations-toolbar", wc);
+
+    await wc.executeJavaScript("getSelection().removeAllRanges()");
+    wc.sendInputEvent({ type: "mouseDown", x: 5, y: 5, button: "left", clickCount: 1 });
+    wc.sendInputEvent({ type: "mouseUp", x: 5, y: 5, button: "left", clickCount: 1 });
+    await delay(300);
+    win.markAgent(tab.id);
+    await delay(100);
+    await dragSelect(wc);
+    await delay(500);
+    const forAgent = await yellowBox(wc);
+    check("an AI agent's selection opens no toolbar", forAgent === null, forAgent);
+  } finally {
+    win.closeTab(tab.id);
+  }
 }

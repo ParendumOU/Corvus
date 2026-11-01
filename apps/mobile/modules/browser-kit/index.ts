@@ -1,7 +1,8 @@
 /**
  * The browser's Android side (android/…/BrowserKitModule.kt), on top of react-native-webview's
  * WebView: ad and tracker blocking, cookie banners and Global Privacy Control, links to other apps,
- * the pages' camera and microphone requests, find in page and reading a page's text. On iOS and in
+ * the pages' camera and microphone requests, sites that ask for a username and password, find in
+ * page and reading a page's text. On iOS and in
  * the web build that module does not exist and `BrowserKit` is null: pages load without blocking,
  * and those features are left out. Cookie banners are answered on iOS too, by the iOS side
  * (ios/ConsentKitModule.swift): `ConsentKit` is whichever module does it (null in the web build).
@@ -25,6 +26,16 @@ export interface PermissionRequestEvent {
   origin: string;
   /** "camera", "microphone", "protected-media", "midi" or the WebView's own name. */
   kinds: string[];
+}
+
+/** A site asks for a username and password (HTTP Basic or Digest); it waits for answerHttpAuth. */
+export interface HttpAuthRequestEvent {
+  id: string;
+  viewTag: number;
+  /** The host that asks (with the port when it is not the default one). */
+  host: string;
+  /** The site's own name for what is behind the sign-in ("" when it gives none). */
+  realm: string;
 }
 
 /** What a frame's cookie banner script reported, validated natively (the app checks it again with parseConsentEvent). */
@@ -51,6 +62,7 @@ interface BrowserKitEvents {
   onPermissionRequest(event: PermissionRequestEvent): void;
   onFindResult(event: FindResultEvent): void;
   onConsent(event: ConsentNativeEvent): void;
+  onHttpAuthRequest(event: HttpAuthRequestEvent): void;
 }
 
 interface BrowserKitNative {
@@ -78,6 +90,8 @@ interface BrowserKitNative {
   clearBrowsingData(): Promise<boolean>;
   /** "opened", "web:<address>" (load that in the tab instead) or "none". */
   openExternal(url: string): Promise<string>;
+  /** Answers a sign-in request: the username and password to send, or nulls to cancel it. False when it no longer waits. */
+  answerHttpAuth(id: string, username: string | null, password: string | null): Promise<boolean>;
   addListener<K extends keyof BrowserKitEvents>(event: K, listener: BrowserKitEvents[K]): EventSubscription;
 }
 
