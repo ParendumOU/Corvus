@@ -211,8 +211,8 @@ describe("agent tools", () => {
   beforeAll(async () => {
     controller = controllerWithPages();
     h = await startHarness({ accessLevel: "full", rateLimit: false }, controller);
-    client = await h.connect({ name: "agent-suite" });
-    tabId = (await controller.listTabs())[0]!.id;
+    client = await h.agent({ name: "agent-suite" });
+    tabId = (await controller.listTabs()).at(-1)!.id;
   });
   afterAll(async () => h.close());
 

@@ -10,7 +10,8 @@ import type { DialogSpec } from "../src/shared/dialog";
 function fakeWindow(): BrowserWindowCtl & { pushes: number } {
   const w = {
     pushes: 0,
-    win: { isDestroyed: () => false, isMinimized: () => false, restore: vi.fn(), focus: vi.fn() },
+    win: { isDestroyed: () => false },
+    askForAttention: vi.fn(),
     focusChrome: vi.fn(),
     pushState() {
       w.pushes++;
@@ -36,6 +37,9 @@ describe("Corvus's dialogs", () => {
     expect((await second).button).toBe(0);
     expect(service.current(win)).toBeNull();
     expect(win.pushes).toBeGreaterThanOrEqual(3);
+    // Each modal takes the keyboard; a window out of the person's sight flashes for it instead of coming to the front.
+    expect(win.focusChrome).toHaveBeenCalled();
+    expect(win.askForAttention).toHaveBeenCalled();
   });
 
   it("keeps bars apart from modals, withdraws on abort and cancels all when the window closes", async () => {

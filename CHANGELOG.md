@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.36.1
+
+### AI agents (MCP)
+- **AI agents no longer take over your tab.** An agent connected over MCP (Claude Code, for example) now works in tabs of its own: without one yet, the first page it goes to opens in a new tab in the background, and its next steps stay there, while the tab you are on stays in front with your text and the keyboard, so you can keep typing. Its clicks, typing, keys, drags and screenshots all work in that background tab, with real mouse and keyboard events as in the tab in front (sites that ignore scripted clicks work too), and you can open it to watch at any time. It acts on one of your tabs only when it names that tab (when you ask it to); reading the page in front of you still works as before.
+- **Corvus stays where you left it while an agent works.** Minimized or behind another app, Corvus no longer comes to the front when an agent opens or drives tabs, shows you a tab or runs a recorded flow that needs your approval, nor for any other question Corvus asks while you are elsewhere: its taskbar button flashes instead, and the keyboard is in the right place when you come back.
+- `tab_open` opens tabs in the background unless an agent passes `background: false`, `drag` works in background tabs instead of asking the agent to switch tabs, and the instructions Corvus and its Claude Code skill give agents tell them never to switch tabs to work.
+
 ## v0.36.0
 
 ### Passwords and 2FA

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { actionLabel, assistAgentView, historyActions, resultLabel } from "../src/shared/assist-agent";
 import type { AgentRunStep, AgentRunView } from "../src/shared/command-bar-ipc";
 import { translate } from "../src/shared/i18n-es";
-import { describeFocusedScript, describePointScript, pointerFallbackScript, viewportScript } from "../src/main/page-scripts";
+import { describeFocusedScript, describePointScript, viewportScript } from "../src/main/page-scripts";
 
 function run(steps: AgentRunStep[], patch: Partial<AgentRunView> = {}): AgentRunView {
   return {
@@ -77,7 +77,7 @@ describe("assistAgentView", () => {
 
 describe("page scripts for the coordinate tools", () => {
   it("are valid JavaScript", () => {
-    for (const code of [describePointScript(10, 20), describeFocusedScript(), viewportScript(), pointerFallbackScript("click", 1, 2), pointerFallbackScript("scroll", 1, 2, 0, 300)]) {
+    for (const code of [describePointScript(10, 20), describeFocusedScript(), viewportScript()]) {
       expect(() => new Function(`return ${code}`)).not.toThrow();
     }
   });

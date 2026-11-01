@@ -37,8 +37,8 @@ Other exports:
 | Tool | Purpose |
 |---|---|
 | `tabs_list` | Tabs and groups |
-| `tab_open` | Open URL in a new tab (always `agent: true`, so the UI shows the AI badge); with `background` it does not take focus but still loads and renders, so `page_snapshot`, `screenshot` and the `*_at` tools work on it |
-| `tab_close`, `tab_activate` | Close / focus a tab |
+| `tab_open` | Open URL in a new tab of the session's (always `agent: true`, so the UI shows the AI badge), in the background unless `background: false`: it loads and renders all the same, so `page_snapshot`, `screenshot` and the `*_at` tools work on it |
+| `tab_close`, `tab_activate` | Close a tab / bring it to the front for the user (never needed to act on it) |
 | `navigate`, `back`, `forward`, `reload` | Navigation |
 | `group_create`, `ungroup` | Tab groups |
 | `page_snapshot` | Main text (`maxChars` default 4000, max 20000) + interactive elements with refs |
@@ -49,7 +49,7 @@ Other exports:
 | `web_search` | AI search (only when `search` is provided): answer + numbered results |
 | `evaluate` | Run JS in the page (only when `allowEvaluate` is set) |
 
-`tabId` is optional on page-level tools and defaults to the active tab. Outputs are compact (no pretty-printed JSON, empty/false fields dropped).
+`tabId` is optional on page-level tools and defaults to the latest tab the session opened (`navigate` without one opens it). With none, read-only tools use the active tab and the others refuse (they never take over the user's tab). Outputs are compact (no pretty-printed JSON, empty/false fields dropped).
 
 ## Security model
 

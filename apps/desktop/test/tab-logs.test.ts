@@ -191,4 +191,22 @@ describe("TabLogs", () => {
     expect(rows[0]?.url).toBe("https://shop.example/20");
     expect(logs.consoleMessages(wc, { limit: 1000 })).toHaveLength(300);
   });
+
+  it("forgets what a page had in flight once another page commits, a navigation it replaced included", () => {
+    const { logs, fake, wc } = setup();
+    request(fake, "nav1", "https://shop.example/next", { type: "Document" });
+    fake.debugger.event("Network.responseReceived", { requestId: "nav1", type: "Document", response: { status: 200 } });
+    request(fake, "img1", "https://shop.example/a.png", { type: "Image" });
+    request(fake, "nav2", "https://shop.example/", { type: "Document" });
+    expect(logs.inFlight(wc)).toBe(3);
+    fake.emit("did-navigate");
+    expect(logs.inFlight(wc)).toBe(1);
+    expect(logs.networkRequests(wc).map((r) => [r.url, r.failed])).toEqual([
+      ["https://shop.example/next", "canceled"],
+      ["https://shop.example/a.png", "canceled"],
+      ["https://shop.example/", undefined],
+    ]);
+    fake.debugger.event("Network.loadingFinished", { requestId: "nav2", timestamp: 100.02 });
+    expect(logs.inFlight(wc)).toBe(0);
+  });
 });

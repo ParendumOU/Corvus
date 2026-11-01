@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerOptions, McpToolResultEvent, SearchInsights, SearchResult, Tab, TabGroup } from "@corvus/shared";
@@ -8,6 +9,7 @@ import { RAW_PAGE_TOOLS, resolveAccessLevel, toolAllowed } from "./access.js";
 import { TokenBucket, type RateLimitOptions } from "./security.js";
 import { spendGate } from "./spend-gate.js";
 import { registerAgentTools, type FlowProvider, type Register, type SiteMemoryProvider, type ToolExtra, type WebScopeProvider } from "./tools/index.js";
+import { defined, optionalTabId } from "./tools/types.js";
 
 export const SERVER_NAME = "corvus";
 export const SERVER_VERSION = "0.1.0";
@@ -31,7 +33,6 @@ export interface CreateMcpServerOptions
 const GROUP_COLORS = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"] as const;
 
 const tabId = z.string().min(1).max(200);
-const optionalTabId = tabId.optional().describe("Tab id; defaults to the active tab");
 const tabIds = z.array(tabId).min(1).max(100);
 const ref = z.string().min(1).max(200).describe("Element ref from page_snapshot");
 const url = z.string().min(1).max(8192).describe("Absolute http(s) URL");
@@ -45,6 +46,16 @@ function untrusted(source: string, body: string): CallToolResult {
 }
 
 const OK = text("ok");
+
+/** Tabs one session remembers opening; calls without tabId work in the latest one still open. */
+const OWN_TABS_MAX = 50;
+
+/** What a tool call without tabId gets when the session has no tab of its own and may not use the user's. */
+export const NO_OWN_TAB =
+  "You have no tab of your own yet: open one with tab_open (it loads in the background and the user keeps their tab), or pass tabId to act on a tab the user asked you to use.";
+
+/** The tool call under way: whether it may fall back to the user's active tab (read-only tools may). */
+const callScope = new AsyncLocalStorage<{ personTab: boolean }>();
 
 function tabSummary(t: Tab) {
   return {
@@ -83,7 +94,9 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       instructions:
-        "Drives the user's Corvus browser (their logged-in session). Tools act on the active tab when tabId is omitted. " +
+        "Drives the user's Corvus browser (their logged-in session). Work in tabs of your own: tab_open opens one in the background (so does navigate without tabId when you have none), and calls without tabId use the latest one you opened. " +
+        "The user's tabs stay theirs: pass one's tabId only when they ask you to act on it (read-only tools without a tab of yours read the active tab). " +
+        "Every tool works on background tabs: never call tab_activate to interact, only to show the user a tab they asked to see. " +
         (controller.input
           ? "Prefer page_snapshot (text + element refs) over screenshot; use screenshot plus *_at coordinate tools when refs are not enough. "
           : "Prefer page_snapshot (text + element refs) over screenshot. ") +
@@ -121,8 +134,10 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
         let result: CallToolResult;
         try {
           opts.onToolCall?.({ client, tool: name, args, at, tabScoped });
-          const locked = RAW_PAGE_TOOLS.has(name) ? await secretFillLock(args) : null;
-          result = locked ? { isError: true, content: [{ type: "text", text: locked }] } : await run(args, extra.signal, extra);
+          result = await callScope.run({ personTab: config.readOnly === true || config.personTab === true }, async () => {
+            const locked = RAW_PAGE_TOOLS.has(name) ? await secretFillLock(args) : null;
+            return locked ? { isError: true, content: [{ type: "text", text: locked }] } : await run(args, extra.signal, extra);
+          });
         } catch (err) {
           result = { isError: true, content: [{ type: "text", text: `${name} failed: ${errorMessage(err)}` }] };
         }
@@ -152,11 +167,46 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
     return controller.secretFillLock(await resolveTab(typeof tabId === "string" ? tabId : undefined));
   }
 
+  /** Tabs this session opened, latest last. The user's own tabs are never in it. */
+  const own: string[] = [];
+
+  function adopt(id: string): void {
+    const at = own.indexOf(id);
+    if (at >= 0) own.splice(at, 1);
+    own.push(id);
+    if (own.length > OWN_TABS_MAX) own.shift();
+  }
+
+  /** The latest tab this session opened that is still open (closed ones are forgotten). */
+  function ownTab(tabs: Tab[]): string | null {
+    const open = new Set(tabs.map((t) => t.id));
+    while (own.length > 0 && !open.has(own[own.length - 1]!)) own.pop();
+    return own[own.length - 1] ?? null;
+  }
+
+  /**
+   * The tab a call works in: the one it names, else the latest tab this session opened. Without
+   * one, read-only tools read the user's active tab; the others never take it over (NO_OWN_TAB).
+   */
   async function resolveTab(id: string | undefined): Promise<string> {
-    if (id) return id;
-    const active = (await controller.listTabs()).find((t) => t.active);
+    if (id) {
+      if (own.includes(id)) adopt(id);
+      return id;
+    }
+    const tabs = await controller.listTabs();
+    const mine = ownTab(tabs);
+    if (mine) return mine;
+    if (!callScope.getStore()?.personTab) throw new Error(NO_OWN_TAB);
+    const active = tabs.find((t) => t.active);
     if (!active) throw new Error("No active tab; pass tabId");
     return active.id;
+  }
+
+  /** Opens a tab of this session's, in the background unless asked otherwise. */
+  async function openOwn(target: string, opts: { background?: boolean; groupId?: string } = {}): Promise<Tab> {
+    const tab = await controller.openTab(target, { agent: true, background: opts.background ?? true, ...(opts.groupId !== undefined ? { groupId: opts.groupId } : {}) });
+    adopt(tab.id);
+    return tab;
   }
 
   register("tabs_list", { description: "List open tabs and tab groups.", inputSchema: {}, readOnly: true }, async () => {
@@ -167,19 +217,15 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
   register(
     "tab_open",
     {
-      description: "Open a URL in a new tab (marked as agent-controlled). Background tabs load and render too (screenshot works).",
+      description: "Open a URL in a new tab of yours, in the background (it renders all the same); later calls without tabId use it.",
       inputSchema: {
         url,
-        background: z.boolean().optional().describe("Open without focusing (it loads and renders all the same)"),
+        background: z.boolean().optional().describe("Default true; false brings it to the front, only when the user asked to see it"),
         groupId: z.string().min(1).max(200).optional(),
       },
     },
     async (a) => {
-      const tab = await controller.openTab(checkAgentUrl(a.url), {
-        agent: true,
-        ...(a.background !== undefined ? { background: a.background } : {}),
-        ...(a.groupId !== undefined ? { groupId: a.groupId } : {}),
-      });
+      const tab = await openOwn(checkAgentUrl(a.url), defined({ background: a.background, groupId: a.groupId }));
       return untrusted(tab.url, compactJson(tabSummary(tab)));
     },
   );
@@ -189,14 +235,14 @@ export function createMcpServer(opts: CreateMcpServerOptions): McpServer {
     return OK;
   });
 
-  register("tab_activate", { description: "Focus a tab.", inputSchema: { tabId } }, async (a) => {
+  register("tab_activate", { description: "Bring a tab to the front for the user to see. Never needed to act on it: every tool works on background tabs.", inputSchema: { tabId } }, async (a) => {
     await controller.activateTab(a.tabId);
     return OK;
   });
 
-  register("navigate", { description: "Load a URL in a tab.", inputSchema: { url, tabId: optionalTabId } }, async (a) => {
+  register("navigate", { description: "Load a URL in a tab; without tabId and a tab of yours, opens one in the background.", inputSchema: { url, tabId: optionalTabId } }, async (a) => {
     const target = checkAgentUrl(a.url);
-    const tab = await controller.navigate(await resolveTab(a.tabId), target);
+    const tab = !a.tabId && !ownTab(await controller.listTabs()) ? await openOwn(target) : await controller.navigate(await resolveTab(a.tabId), target);
     return untrusted(tab.url, compactJson(tabSummary(tab)));
   });
 

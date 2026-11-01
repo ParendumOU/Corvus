@@ -252,6 +252,10 @@ export class BrowserWindowCtl {
   /** Where keyboard focus belongs: the chrome UI or a shown tab (restored after a stray grab). */
   private lastFocused: WebContents | null = null;
   private focusRestoreQueued = false;
+  /** Focus was asked for while the window was in the background (see giveKeyboard). */
+  private focusOnReturn = false;
+  /** The window has had the system's focus at least once. */
+  private focusedOnce = false;
   /** Memory of each renderer process by OS pid, in KB (refreshed by the tab sleeper). */
   private processMemory: ReadonlyMap<number, number> = new Map();
   /** A sleeping tab's view while the extensions layer is told about it (see sleepTab). */
@@ -337,7 +341,10 @@ export class BrowserWindowCtl {
       this.htmlFullscreen = false;
       reshape();
     });
-    this.win.on("focus", () => ctx.windows.noteFocus(this));
+    this.win.on("focus", () => {
+      ctx.windows.noteFocus(this);
+      this.onWindowFocus();
+    });
     this.win.on("blur", () => ctx.windows.noteBlur(this));
     // Private windows are never part of the saved session.
     this.win.on("close", () => (this.isPrivate ? undefined : ctx.sessionRestore.windowClosing(this)));
@@ -812,7 +819,35 @@ export class BrowserWindowCtl {
   private focusWebContents(wc: WebContents | null): void {
     if (!wc || wc.isDestroyed()) return;
     this.lastFocused = wc;
-    wc.focus();
+    this.giveKeyboard(wc);
+  }
+
+  /**
+   * Moves the keyboard only inside the window the person is in. On Windows, focusing a webContents
+   * activates its window (and restores it when minimized), so work in a window that is minimized or
+   * behind another app (an AI agent's tabs) would pull it to the front: such a window keeps where
+   * focus belongs and takes it when the person comes back. A window that just opened and was never
+   * focused takes it as it opens.
+   */
+  private giveKeyboard(wc: WebContents): void {
+    if (this.win.isFocused() || !this.focusedOnce) wc.focus();
+    else this.focusOnReturn = true;
+  }
+
+  /** Something waits for the person in this window: out of their sight, its taskbar button flashes until they come. */
+  askForAttention(): void {
+    if (this.win.isDestroyed() || this.win.isFocused()) return;
+    this.win.flashFrame(true);
+    this.win.once("focus", () => this.win.flashFrame(false));
+  }
+
+  /** The person came back to the window: focus asked for while it was in the background lands now. */
+  private onWindowFocus(): void {
+    this.focusedOnce = true;
+    if (!this.focusOnReturn) return;
+    this.focusOnReturn = false;
+    // After the activation itself, which hands focus back to the view that last had it.
+    setImmediate(() => this.restoreFocus());
   }
 
   /**
@@ -841,7 +876,7 @@ export class BrowserWindowCtl {
     if (this.disposed) return;
     const target = this.lastFocused;
     const shown = target && this.shownTabIds.some((id) => this.tabs.get(id)?.view.webContents === target);
-    if (target && !target.isDestroyed() && (target === this.chrome.webContents || shown)) target.focus();
+    if (target && !target.isDestroyed() && (target === this.chrome.webContents || shown)) this.giveKeyboard(target);
     else this.focusWebContents(this.chrome.webContents);
   }
 
@@ -1485,7 +1520,7 @@ export class BrowserWindowCtl {
     this.profile.adblock.forgetTab(wc.id);
     this.ctx.translate.forget(id);
     this.ctx.reader.forgetTab(id);
-    // Asleep it paints nothing (a capture loads it again, see paintForCapture).
+    // Asleep it paints nothing (a capture loads it again, see paintHidden).
     this.ctx.backgroundRender.forget(id);
     delete tab.paintHolds;
     delete tab.paintingSince;
@@ -1632,18 +1667,19 @@ export class BrowserWindowCtl {
   }
 
   /**
-   * Gets a tab that is not on screen ready to be captured without showing it: a sleeping or
-   * restored tab loads first, then its page paints at the window's size until it has drawn (and,
-   * when it only just started painting, until the images in view have loaded). Resolves to a
-   * release to call once the capture is taken. A tab on screen needs nothing.
+   * Gets a tab out of sight (behind another tab, or in a minimized window) ready to be captured, or
+   * to take real mouse events, without showing it: a sleeping or restored tab loads first, then its
+   * page paints at the window's size until it has drawn (and, when it only just started painting,
+   * until the images in view have loaded). Resolves to a release to call once the capture or input is
+   * done. A tab on screen needs nothing.
    */
-  async paintForCapture(id: TabId): Promise<() => void> {
+  async paintHidden(id: TabId): Promise<() => void> {
     const none = (): void => undefined;
     const tab = this.tabs.get(id);
     if (!tab || this.disposed) return none;
     if (tab.pendingUrl) await this.ensureLoaded(id);
     const wc = pageOf(tab.view);
-    if (!wc || this.tabs.get(id) !== tab || tab.view.getVisible()) return none;
+    if (!wc || this.tabs.get(id) !== tab || (tab.view.getVisible() && !this.win.isMinimized())) return none;
     this.setPaintHold(id, "capture", true);
     let held = true;
     const release = (): void => {

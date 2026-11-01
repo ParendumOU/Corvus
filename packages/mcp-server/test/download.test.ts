@@ -30,7 +30,7 @@ describe("download behavior", () => {
   it("fetches a URL and returns the download entry", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "full" }, c);
-    const res = await call(await harness.connect(), "download", { url: "https://files.example/report.pdf" });
+    const res = await call(await harness.agent(), "download", { url: "https://files.example/report.pdf" });
     expect(res.isError).toBeFalsy();
     const entry = untrustedJson<{ url: string; filename: string; state: string }>(res);
     expect(entry).toMatchObject({ url: "https://files.example/report.pdf", filename: "report.pdf", state: "completed" });
@@ -40,7 +40,7 @@ describe("download behavior", () => {
 
   it("caps the size via maxBytes", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const entry = untrustedJson<{ totalBytes: number }>(await call(await harness.connect(), "download", { url: "https://files.example/big.bin", maxBytes: 10 }));
+    const entry = untrustedJson<{ totalBytes: number }>(await call(await harness.agent(), "download", { url: "https://files.example/big.bin", maxBytes: 10 }));
     expect(entry.totalBytes).toBe(10);
   });
 

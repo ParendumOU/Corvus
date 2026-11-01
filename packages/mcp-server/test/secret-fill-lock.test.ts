@@ -29,7 +29,7 @@ describe("script lock after a credential fill", () => {
 
   it("refuses evaluate and raw reads on the filled tab until it navigates", async () => {
     harness = await startHarness({ accessLevel: "full", rateLimit: false }, controller());
-    const client = await harness.connect();
+    const client = await harness.agent();
     expect(textOf(await call(client, "evaluate", { expression: "1" }))).toContain("secret-from-the-page");
 
     expect(textOf(await call(client, "fill_login", {}))).toContain("Filled");
@@ -60,7 +60,7 @@ describe("script lock after a credential fill", () => {
   it("applies at every access level and only to the locked tab", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "read", rateLimit: false }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     const [tab] = await c.listTabs();
     c.lockedTabs.add(tab!.id);
     const refused = await call(client, "get_text", {});

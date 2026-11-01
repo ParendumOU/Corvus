@@ -87,9 +87,24 @@ export class TabLogs {
         created.cdp = false;
         created.inflight.clear();
       });
+      wc.on("did-navigate", () => this.dropReplaced(created));
       wc.once("destroyed", () => this.logs.delete(wc));
     }
     if (!log.cdp) this.attach(wc, log);
+  }
+
+  /**
+   * A new page committed: what the page before it still had in flight is gone, a navigation it
+   * replaced included (CDP often reports neither as finished nor failed, which would keep wait_for
+   * networkIdle waiting forever). Only the committed page's own document request stays.
+   */
+  private dropReplaced(log: TabLog): void {
+    const current = [...log.inflight].reverse().find(([, f]) => f.entry.type === "document")?.[0];
+    for (const [id, f] of log.inflight) {
+      if (id === current) continue;
+      f.entry.failed ??= "canceled";
+      log.inflight.delete(id);
+    }
   }
 
   private attach(wc: WebContents, log: TabLog): void {

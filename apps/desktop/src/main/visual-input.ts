@@ -15,7 +15,7 @@ import type { PointTarget } from "../shared/agent-safety";
 import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { cssToDip, fitShot, parseKey, type KeyPress, type Point, type ShotGeometry } from "../shared/visual-input";
 import type { AppContext } from "./context";
-import { AGENT_WORLD_ID, describeFocusedScript, describePointScript, pointerFallbackScript, rectScript, viewportInfoScript, viewportScript } from "./page-scripts";
+import { AGENT_WORLD_ID, describeFocusedScript, describePointScript, rectScript, viewportInfoScript, viewportScript } from "./page-scripts";
 import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl } from "./window";
 
@@ -66,9 +66,27 @@ function exec<T>(wc: WebContents, code: string): Promise<T> {
   return withTimeout(wc.executeJavaScriptInIsolatedWorld(AGENT_WORLD_ID, [{ code }]) as Promise<T>, SCRIPT_TIMEOUT_MS);
 }
 
-function foreground(win: BrowserWindowCtl, id: TabId): boolean {
-  return win.activeTab()?.id === id && win.win.isVisible() && !win.win.isMinimized();
+/** How long input waits at most for the page's next frame. */
+const FRAME_WAIT_MS = 1000;
+
+/**
+ * Mouse input with real events, whether the tab is on screen or not: a tab out of sight (behind the
+ * person's tab, or in a minimized window) paints at the window's size while `act` runs and the page
+ * reacts, so it takes the events as from the mouse without being shown. Chromium hands mouse moves
+ * to the page with its next frame, which an idle page out of sight draws seldom: one is asked for.
+ */
+async function withRealMouse(win: BrowserWindowCtl, id: TabId, wc: WebContents, settleMs: number, act: () => void | Promise<void>): Promise<void> {
+  const release = await win.paintHidden(id);
+  try {
+    await act();
+    await Promise.race([exec(wc, NEXT_FRAME_SCRIPT).catch(() => undefined), sleep(FRAME_WAIT_MS)]);
+    await sleep(settleMs);
+  } finally {
+    release();
+  }
 }
+
+const NEXT_FRAME_SCRIPT = "new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))";
 
 /**
  * A screenshot of the visible page sized to the viewport's CSS pixels (scaled down only past the
@@ -78,7 +96,7 @@ export async function agentScreenshot(ctx: AppContext, id: TabId): Promise<Agent
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "screenshot" });
-  const release = await win.paintForCapture(id);
+  const release = await win.paintHidden(id);
   let image: Electron.NativeImage;
   let view: { width: number; height: number };
   try {
@@ -108,20 +126,17 @@ export async function describeFocused(ctx: AppContext, id: TabId): Promise<Point
   return exec<PointTarget | null>(wc, describeFocusedScript()).catch(() => null);
 }
 
-/** Left click at a viewport point with real mouse events (synthetic events in a background tab). */
+/** Left click at a viewport point with real mouse events. */
 export async function clickAt(ctx: AppContext, id: TabId, p: Point, label: string): Promise<void> {
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "point", x: p.x, y: p.y, label, action: "click" });
-  if (foreground(win, id)) {
+  await withRealMouse(win, id, wc, SETTLE_MS, () => {
     const { x, y } = cssToDip(p, wc.getZoomFactor());
     wc.sendInputEvent({ type: "mouseMove", x, y });
     wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
     wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
-  } else if (!(await exec<boolean>(wc, pointerFallbackScript("click", p.x, p.y)))) {
-    throw new Error("Nothing to click at that point");
-  }
-  await sleep(SETTLE_MS);
+  });
 }
 
 /** Move the mouse to a viewport point (opens hover menus and tooltips). */
@@ -129,13 +144,10 @@ export async function hoverAt(ctx: AppContext, id: TabId, p: Point, label: strin
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "point", x: p.x, y: p.y, label, action: "hover" });
-  if (foreground(win, id)) {
+  await withRealMouse(win, id, wc, SETTLE_MS, () => {
     const { x, y } = cssToDip(p, wc.getZoomFactor());
     wc.sendInputEvent({ type: "mouseMove", x, y });
-  } else {
-    await exec<boolean>(wc, pointerFallbackScript("hover", p.x, p.y));
-  }
-  await sleep(SETTLE_MS);
+  });
 }
 
 /**
@@ -146,15 +158,12 @@ export async function scrollAt(ctx: AppContext, id: TabId, p: Point, delta: { de
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "point", x: p.x, y: p.y, label, action: "scroll" });
-  if (foreground(win, id)) {
+  await withRealMouse(win, id, wc, SETTLE_MS * 2, () => {
     const { x, y } = cssToDip(p, wc.getZoomFactor());
     wc.sendInputEvent({ type: "mouseMove", x, y });
     // Chromium wheel deltas point the other way from DOM WheelEvent.deltaY.
     wc.sendInputEvent({ type: "mouseWheel", x, y, deltaX: -delta.deltaX, deltaY: -delta.deltaY, canScroll: true });
-  } else {
-    await exec<boolean>(wc, pointerFallbackScript("scroll", p.x, p.y, delta.deltaX, delta.deltaY));
-  }
-  await sleep(SETTLE_MS * 2);
+  });
   return exec<{ scrollY: number; maxScrollY: number }>(wc, viewportScript()).catch(() => ({ scrollY: 0, maxScrollY: 0 }));
 }
 
@@ -189,7 +198,7 @@ function electronModifiers(modifiers: readonly string[] | undefined): HeldModifi
 
 /**
  * A click at a viewport point with any button, click count and held modifiers (click_at,
- * double_click_at, right_click_at over MCP). Background tabs get synthetic events.
+ * double_click_at, right_click_at over MCP).
  */
 export async function mouseClickAt(
   ctx: AppContext,
@@ -203,7 +212,7 @@ export async function mouseClickAt(
   await ctx.agents.beforeAction(win, id, wc, { kind: "point", x: p.x, y: p.y, label, action: "click" });
   const button = opts.button ?? "left";
   const count = Math.max(1, Math.min(3, Math.round(opts.clickCount ?? 1)));
-  if (foreground(win, id)) {
+  await withRealMouse(win, id, wc, SETTLE_MS, () => {
     const { x, y } = cssToDip(p, wc.getZoomFactor());
     const modifiers = electronModifiers(opts.modifiers);
     wc.sendInputEvent({ type: "mouseMove", x, y, modifiers });
@@ -211,33 +220,29 @@ export async function mouseClickAt(
       wc.sendInputEvent({ type: "mouseDown", x, y, button, clickCount: n, modifiers });
       wc.sendInputEvent({ type: "mouseUp", x, y, button, clickCount: n, modifiers });
     }
-  } else {
-    const action = button === "right" ? "right" : count > 1 ? "double" : "click";
-    if (!(await exec<boolean>(wc, pointerFallbackScript(action, p.x, p.y)))) throw new Error("Nothing to click at that point");
-  }
-  await sleep(SETTLE_MS);
+  });
 }
 
 /** Drag with the left button held from one viewport point to another, in `steps` moves. */
 export async function dragBetween(ctx: AppContext, id: TabId, from: Point, to: Point, steps: number, label: string): Promise<void> {
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
-  if (!foreground(win, id)) throw new Error("Dragging needs the tab in front: activate it (tab_activate) and retry.");
   await ctx.agents.beforeAction(win, id, wc, { kind: "point", x: from.x, y: from.y, label, action: "click" });
-  const zoom = wc.getZoomFactor();
-  const a = cssToDip(from, zoom);
-  const b = cssToDip(to, zoom);
-  const n = Math.max(1, Math.min(50, Math.round(steps)));
-  wc.sendInputEvent({ type: "mouseMove", x: a.x, y: a.y });
-  wc.sendInputEvent({ type: "mouseDown", x: a.x, y: a.y, button: "left", clickCount: 1 });
-  for (let i = 1; i <= n; i++) {
-    const x = Math.round(a.x + ((b.x - a.x) * i) / n);
-    const y = Math.round(a.y + ((b.y - a.y) * i) / n);
-    wc.sendInputEvent({ type: "mouseMove", x, y, modifiers: ["leftbuttondown"] });
-    await sleep(16);
-  }
-  wc.sendInputEvent({ type: "mouseUp", x: b.x, y: b.y, button: "left", clickCount: 1 });
-  await sleep(SETTLE_MS);
+  await withRealMouse(win, id, wc, SETTLE_MS, async () => {
+    const zoom = wc.getZoomFactor();
+    const a = cssToDip(from, zoom);
+    const b = cssToDip(to, zoom);
+    const n = Math.max(1, Math.min(50, Math.round(steps)));
+    wc.sendInputEvent({ type: "mouseMove", x: a.x, y: a.y });
+    wc.sendInputEvent({ type: "mouseDown", x: a.x, y: a.y, button: "left", clickCount: 1 });
+    for (let i = 1; i <= n; i++) {
+      const x = Math.round(a.x + ((b.x - a.x) * i) / n);
+      const y = Math.round(a.y + ((b.y - a.y) * i) / n);
+      wc.sendInputEvent({ type: "mouseMove", x, y, modifiers: ["leftbuttondown"] });
+      await sleep(16);
+    }
+    wc.sendInputEvent({ type: "mouseUp", x: b.x, y: b.y, button: "left", clickCount: 1 });
+  });
 }
 
 /** Keys or shortcuts pressed in order ("Control+A", "Enter", "Shift+Tab"); an unknown key fails before any is pressed. */
@@ -291,7 +296,7 @@ export async function captureTab(ctx: AppContext, id: TabId, opts: CaptureOption
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "screenshot" });
   // A tab out of sight is painted at the window's size for the capture, without showing it.
-  const release = await win.paintForCapture(id);
+  const release = await win.paintHidden(id);
   try {
     return await capturePainted(wc, opts);
   } finally {

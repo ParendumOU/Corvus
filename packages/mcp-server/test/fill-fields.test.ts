@@ -43,7 +43,7 @@ describe("fill_fields access gating", () => {
 describe("fill_fields behavior", () => {
   it("fills mixed fields matched by role/name", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const client = await harness.connect();
+    const client = await harness.agent();
     const res = await call(client, "fill_fields", {
       fields: [
         { name: "Email", value: "a@b.c" },
@@ -60,7 +60,7 @@ describe("fill_fields behavior", () => {
 
   it("reports unmatched fields as partial failures", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const res = await call(await harness.connect(), "fill_fields", {
+    const res = await call(await harness.agent(), "fill_fields", {
       fields: [
         { name: "Email", value: "x@y.z" },
         { name: "Nonexistent", value: "z" },
@@ -72,7 +72,7 @@ describe("fill_fields behavior", () => {
 
   it("errors when nothing matched and no submit requested", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const res = await call(await harness.connect(), "fill_fields", { fields: [{ name: "Nope", value: "z" }] });
+    const res = await call(await harness.agent(), "fill_fields", { fields: [{ name: "Nope", value: "z" }] });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain("filled 0/1");
   });
@@ -80,7 +80,7 @@ describe("fill_fields behavior", () => {
   it("submits through the click primitive, not a bypass", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "full" }, c);
-    const res = await call(await harness.connect(), "fill_fields", {
+    const res = await call(await harness.agent(), "fill_fields", {
       fields: [{ name: "Email", value: "a@b.c" }],
       submit: true,
       submitName: "Pay now",
@@ -93,7 +93,7 @@ describe("fill_fields behavior", () => {
 
   it("notes when no submit button is found", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const res = await call(await harness.connect(), "fill_fields", {
+    const res = await call(await harness.agent(), "fill_fields", {
       fields: [{ name: "Email", value: "a@b.c" }],
       submit: true,
       submitName: "Nonexistent button",

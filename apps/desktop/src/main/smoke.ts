@@ -16,6 +16,7 @@ import { runDictationSmoke } from "./smoke-dictation";
 import { runDialogsSmoke } from "./smoke-dialogs";
 import { runLibrarySmoke } from "./smoke-library";
 import { runAssistAgentSmoke } from "./smoke-assist-agent";
+import { runAgentIsolationSmoke } from "./smoke-agent-isolation";
 import { runBgTabsSmoke } from "./smoke-bgtabs";
 import { runBrowserSmoke, serveBrowserSmokeRoute } from "./smoke-browser";
 import { runCertErrorSmoke } from "./smoke-cert-errors";
@@ -299,6 +300,21 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runBgTabsSmoke(ctx, { win, check, capture, log });
       return;
     }
+    // CORVUS_SMOKE_ONLY=ux: only the keyboard focus, theme and page base checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "ux") {
+      await runUxSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=agent: only the Command Bar agent and MCP client checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "agent") {
+      await runAgentSmoke(ctx, { win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=isolation: only the checks that AI agents work in their own background tabs and never pull Corvus to the front.
+    if (process.env.CORVUS_SMOKE_ONLY === "isolation") {
+      await runAgentIsolationSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
     if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
@@ -405,6 +421,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runWorkflowsSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runSiteMemorySmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAssistAgentSmoke(ctx, { win, check, capture });
+    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentIsolationSmoke(ctx, { win, check, capture });
     await runWebscopeSmoke(ctx, { url, win, check, capture });
 
     await runExtensionSmoke(ctx, { check, capture, log });

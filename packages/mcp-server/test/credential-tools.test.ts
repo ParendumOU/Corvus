@@ -30,7 +30,7 @@ describe("fill_totp / fill_login access gating", () => {
 
   it("refuse calls below full without touching the browser", async () => {
     harness = await startHarness({ accessLevel: "standard" }, new MockBrowserController({ initialTabs: [URL_] }));
-    const res = await call(await harness.connect(), "fill_totp", { ref: "e1" });
+    const res = await call(await harness.agent(), "fill_totp", { ref: "e1" });
     expect(res.isError).toBe(true);
     expect(harness.controller.calls.some((c) => c.method === "fillTotp")).toBe(false);
   });
@@ -39,7 +39,7 @@ describe("fill_totp / fill_login access gating", () => {
 describe("fill_totp / fill_login behaviour", () => {
   it("hands off by default (no opt-in), as a normal result", async () => {
     harness = await startHarness({ accessLevel: "full" }, new MockBrowserController({ initialTabs: [URL_] }));
-    const res = await call(await harness.connect(), "fill_totp", { ref: "e4" });
+    const res = await call(await harness.agent(), "fill_totp", { ref: "e4" });
     expect(res.isError).toBeFalsy();
     expect(textOf(res)).toContain("request_user_action");
   });
@@ -50,7 +50,7 @@ describe("fill_totp / fill_login behaviour", () => {
       credentialFill: (kind, _tab, opts) => ({ status: "filled", message: `Filled the ${kind} for ${opts.username ?? "?"} into ${opts.ref ?? "the form"}.` }),
     });
     harness = await startHarness({ accessLevel: "full" }, controller);
-    const client = await harness.connect();
+    const client = await harness.agent();
     const totp = await call(client, "fill_totp", { ref: "e4", username: "alice" });
     expect(textOf(totp)).toBe("Filled the totp for alice into e4.");
     const login = await call(client, "fill_login", {});
@@ -63,7 +63,7 @@ describe("fill_totp / fill_login behaviour", () => {
     let status: "declined" | "error" = "declined";
     const controller = new MockBrowserController({ initialTabs: [URL_], credentialFill: () => ({ status, message: status }) });
     harness = await startHarness({ accessLevel: "full" }, controller);
-    const client = await harness.connect();
+    const client = await harness.agent();
     expect((await call(client, "fill_login", { ref: "e2" })).isError).toBeFalsy();
     status = "error";
     expect((await call(client, "fill_login", { ref: "e2" })).isError).toBe(true);
@@ -71,7 +71,7 @@ describe("fill_totp / fill_login behaviour", () => {
 
   it("validates the ref shape", async () => {
     harness = await startHarness({ accessLevel: "full" }, new MockBrowserController({ initialTabs: [URL_] }));
-    const res = await call(await harness.connect(), "fill_totp", {});
+    const res = await call(await harness.agent(), "fill_totp", {});
     expect(res.isError).toBe(true);
   });
 });

@@ -31159,6 +31159,9 @@ var DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
 // ../../node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.1_zod@4.6.7/node_modules/@modelcontextprotocol/sdk/dist/esm/server/sseKeepAlive.js
 var MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
+// src/server.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // ../../node_modules/.pnpm/zod-to-json-schema@3.25.2_zod@4.6.7/node_modules/zod-to-json-schema/dist/esm/Options.js
 var ignoreOverride = Symbol("Let zodToJsonSchema decide on which parser to use");
 
@@ -31732,7 +31735,7 @@ var KNOWN_TLDS = /* @__PURE__ */ new Set([...GENERIC, ...COUNTRY.split(" ")]);
 
 // src/tools/types.ts
 var tabId = external_exports.string().min(1).max(200);
-var optionalTabId = tabId.optional().describe("Tab id; defaults to the active tab");
+var optionalTabId = tabId.optional().describe("Tab id; default: the latest tab you opened");
 var ref = external_exports.string().min(1).max(200).describe("Element ref from page_snapshot or find");
 var coord = external_exports.number().min(0).max(1e5);
 function text(value) {
@@ -31807,7 +31810,6 @@ var payloadSetSchema = external_exports.object({
 
 // src/server.ts
 var tabId2 = external_exports.string().min(1).max(200);
-var optionalTabId2 = tabId2.optional().describe("Tab id; defaults to the active tab");
 var tabIds = external_exports.array(tabId2).min(1).max(100);
 var ref2 = external_exports.string().min(1).max(200).describe("Element ref from page_snapshot");
 var url2 = external_exports.string().min(1).max(8192).describe("Absolute http(s) URL");
@@ -31815,6 +31817,7 @@ function text2(value) {
   return { content: [{ type: "text", text: value }] };
 }
 var OK2 = text2("ok");
+var callScope = new AsyncLocalStorage();
 
 // src/http.ts
 var DEFAULT_MAX_BODY = 1024 * 1024;

@@ -40,8 +40,9 @@ function setup() {
 
 const { chromeMail, chromeShop, chromeAccount, firefoxForum } = FIXTURE_PASSWORDS;
 
-describe("passwords from other browsers", () => {
-  it("counts rows without decrypting, and the ones the browser protects", { timeout: 20_000 }, async () => {
+// Each test copies real databases: seconds on a busy machine.
+describe("passwords from other browsers", { timeout: 20_000 }, () => {
+  it("counts rows without decrypting, and the ones the browser protects", async () => {
     const { service } = setup();
     const scan = await service.scan();
     const chrome = scan.sources.find((s) => s.id === "chrome")!.profiles.find((p) => p.dir === "Default")!;

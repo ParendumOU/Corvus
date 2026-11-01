@@ -67,6 +67,8 @@ export interface ToolConfig<S extends z.ZodRawShape> {
   description: string;
   inputSchema: S;
   readOnly?: boolean;
+  /** Without a tab of its own, the call may use the user's active tab (read-only tools always may). */
+  personTab?: boolean;
   /** Optional browser capability the tool runs on; the tool is not offered when the controller lacks it. */
   requires?: keyof AgentCapabilities;
 }
@@ -93,7 +95,7 @@ export interface ToolContext {
 }
 
 export const tabId = z.string().min(1).max(200);
-export const optionalTabId = tabId.optional().describe("Tab id; defaults to the active tab");
+export const optionalTabId = tabId.optional().describe("Tab id; default: the latest tab you opened");
 export const ref = z.string().min(1).max(200).describe("Element ref from page_snapshot or find");
 export const coord = z.number().min(0).max(100000);
 

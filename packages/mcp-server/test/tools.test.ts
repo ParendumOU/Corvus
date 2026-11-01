@@ -116,11 +116,12 @@ describe("tools over HTTP", () => {
     expect(data.tabs[0]).not.toHaveProperty("pinned");
   });
 
-  it("tab_open opens agent-controlled tabs", async () => {
+  it("tab_open opens agent-controlled tabs in the background", async () => {
     const res = await call(client, "tab_open", { url: "https://a.example/" });
     const tab = untrustedJson<TabJson>(res);
-    expect(tab).toMatchObject({ url: "https://a.example/", agent: true, active: true });
-    expect(controller.calls.at(-1)).toEqual({ method: "openTab", args: ["https://a.example/", { agent: true }] });
+    expect(tab).toMatchObject({ url: "https://a.example/", agent: true });
+    expect(tab.active).toBeUndefined();
+    expect(controller.calls.at(-1)).toEqual({ method: "openTab", args: ["https://a.example/", { agent: true, background: true }] });
     expect(onToolCall).toHaveBeenCalledWith(
       expect.objectContaining({ client: "tools-suite", tool: "tab_open", args: { url: "https://a.example/" } }),
     );
@@ -271,7 +272,7 @@ describe("optional tools", () => {
     const controller = new MockBrowserController({ initialTabs: ["https://example.com/"], evaluate: () => ({ n: 42 }) });
     const h = await startHarness({ allowEvaluate: true }, controller);
     try {
-      const client = await h.connect();
+      const client = await h.agent();
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name);
       expect(names).toContain("evaluate");

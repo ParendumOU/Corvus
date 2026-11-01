@@ -74,6 +74,8 @@ const WAIT_MAX_MS = 120_000;
 /** wait_for networkIdle: no request in flight for this long. */
 const NETWORK_IDLE_MS = 500;
 const EVALUATE_TIMEOUT_MS = 10_000;
+/** A tab out of sight keeps painting this long after a click, while its page takes the events. */
+const CLICK_SETTLE_MS = 50;
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 5;
 /** upload_file: the most files and bytes an agent may put on one file input. */
@@ -280,10 +282,6 @@ export class Controller implements BrowserController {
     return this.dialogs.race(wc, run, dialogBlocked);
   }
 
-  private isForeground(window: BrowserWindowCtl, id: TabId): boolean {
-    return window.activeTab()?.id === id && window.win.isVisible() && !window.win.isMinimized();
-  }
-
   private validRef(ref: string): string {
     if (!REF_RE.test(ref)) throw new AgentError(`Invalid element ref "${ref}"; use refs from page_snapshot`);
     return ref;
@@ -405,7 +403,9 @@ export class Controller implements BrowserController {
     this.validRef(ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "click", ref });
-    if (this.isForeground(window, id)) {
+    // Real mouse events, also in a tab out of sight (it paints meanwhile, without being shown).
+    const release = await window.paintHidden(id);
+    try {
       const point = await this.exec<{ x: number; y: number; w: number; h: number } | null>(wc, locateScript(ref));
       if (!point) throw new AgentError(`Element ${ref} not found; take a new page_snapshot`);
       if (point.x >= 0 && point.y >= 0 && point.x <= point.w && point.y <= point.h) {
@@ -415,8 +415,11 @@ export class Controller implements BrowserController {
         wc.sendInputEvent({ type: "mouseMove", x, y });
         wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
         wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+        await new Promise((r) => setTimeout(r, CLICK_SETTLE_MS));
         return;
       }
+    } finally {
+      release();
     }
     const clicked = await this.exec<boolean>(wc, clickScript(ref));
     if (!clicked) throw new AgentError(`Element ${ref} not found; take a new page_snapshot`);
@@ -428,18 +431,17 @@ export class Controller implements BrowserController {
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "type", ref, text });
     const submit = opts.submit === true;
-    if (this.isForeground(window, id)) {
-      const mode = await this.exec<string | null>(wc, focusForTypingScript(ref));
-      if (mode === null) throw new AgentError(`Element ${ref} not found; take a new page_snapshot`);
-      if (mode === "input" || mode === "editable") {
-        await wc.insertText(text);
-        if (submit) {
-          wc.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
-          wc.sendInputEvent({ type: "char", keyCode: "\r" });
-          wc.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
-        }
-        return;
+    // Typed as from the keyboard, in a tab on screen or not.
+    const mode = await this.exec<string | null>(wc, focusForTypingScript(ref));
+    if (mode === null) throw new AgentError(`Element ${ref} not found; take a new page_snapshot`);
+    if (mode === "input" || mode === "editable") {
+      await wc.insertText(text);
+      if (submit) {
+        wc.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+        wc.sendInputEvent({ type: "char", keyCode: "\r" });
+        wc.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
       }
+      return;
     }
     const ok = await this.exec<boolean>(wc, setValueScript(ref, text, submit));
     if (!ok) throw new AgentError(`Element ${ref} is not a text field`);
@@ -457,7 +459,7 @@ export class Controller implements BrowserController {
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "screenshot" });
     // A tab out of sight is painted for the capture, without showing it.
-    const release = await window.paintForCapture(id);
+    const release = await window.paintHidden(id);
     try {
       const image = await wc.capturePage(undefined, { stayHidden: true });
       if (image.isEmpty()) throw new AgentError(NOT_PAINTED);

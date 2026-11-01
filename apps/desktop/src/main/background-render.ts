@@ -7,7 +7,7 @@ import type { BrowserWindowCtl } from "./window";
  * The agent tabs that keep painting while hidden (Settings > AI agents, "Let AI agents render pages
  * in the background"), across windows: the ones an agent used most recently, up to a cap that
  * drops when the computer is low on memory. A tab that falls out stops painting until an agent uses
- * it again; a capture of it still works (see BrowserWindowCtl.paintForCapture).
+ * it again; a capture of it still works (see BrowserWindowCtl.paintHidden).
  */
 export class BackgroundRender {
   private readonly entries = new Map<TabId, { win: BrowserWindowCtl; usedAt: number }>();

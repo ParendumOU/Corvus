@@ -632,7 +632,7 @@ describe("AgentRunner embedded (Assist) runs", () => {
       markAgent: vi.fn(() => (tab.agentControlled = true)),
       clearAgentMark: vi.fn(() => (tab.agentControlled = false)),
       activeTab: () => tab,
-      win: { isVisible: () => true, isMinimized: () => false },
+      paintHidden: async () => () => undefined,
       profile: { agentRuns: store, siteProfiles: { list: () => [] }, userMemory: { list: () => [] } },
     } as unknown as BrowserWindowCtl;
     return { tab, win, sent };

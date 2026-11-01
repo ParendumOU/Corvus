@@ -573,7 +573,7 @@ export async function runAgentTool(
         switchedTo(state, tab.id);
         return { content: `Opened tab ${tab.id} at ${tab.url} — ${tab.title}` };
       }
-      const tab = await c.openTab(argStr(input, "url"), { agent: true }, state.certErrors ?? "refuse");
+      const tab = await c.openTab(argStr(input, "url"), { agent: true, background: true }, state.certErrors ?? "refuse");
       state.tabId = tab.id;
       return { content: `Opened a new tab at ${tab.url} — ${tab.title}` };
     }

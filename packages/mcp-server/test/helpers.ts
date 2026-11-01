@@ -18,6 +18,11 @@ export interface Harness {
   handle: McpServerHandle;
   controller: MockBrowserController;
   connect(opts?: { name?: string; token?: string }): Promise<Client>;
+  /**
+   * A client that, as agents do, opens a tab of its own on the page in front: its calls without tabId
+   * reach that page. At the read-only level it opens none (its reads read the tab in front).
+   */
+  agent(opts?: { name?: string }): Promise<Client>;
   close(): Promise<void>;
 }
 
@@ -27,16 +32,27 @@ export async function startHarness(
 ): Promise<Harness> {
   const handle = await startMcpServer({ controller, token: TOKEN, ...overrides });
   const clients: Client[] = [];
+  const connect = async (opts: { name?: string; token?: string } = {}): Promise<Client> => {
+    const client = new Client({ name: opts.name ?? uniqueClientName(), version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(new URL(handle.url), {
+      requestInit: { headers: { Authorization: `Bearer ${opts.token ?? TOKEN}` } },
+    });
+    await client.connect(transport);
+    clients.push(client);
+    return client;
+  };
   return {
     handle,
     controller,
-    async connect(opts = {}) {
-      const client = new Client({ name: opts.name ?? uniqueClientName(), version: "1.0.0" });
-      const transport = new StreamableHTTPClientTransport(new URL(handle.url), {
-        requestInit: { headers: { Authorization: `Bearer ${opts.token ?? TOKEN}` } },
-      });
-      await client.connect(transport);
-      clients.push(client);
+    connect,
+    async agent(opts = {}) {
+      const client = await connect(opts);
+      const front = (await controller.listTabs()).find((t) => t.active);
+      const canOpen = (await client.listTools()).tools.some((t) => t.name === "tab_open");
+      if (front && canOpen) {
+        const res = await call(client, "tab_open", { url: front.url });
+        if (res.isError) throw new Error(textOf(res));
+      }
       return client;
     },
     async close() {

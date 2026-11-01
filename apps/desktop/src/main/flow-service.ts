@@ -530,7 +530,8 @@ export class FlowService {
 
   private async drive(r: Replay): Promise<void> {
     try {
-      r.tabId = r.win.createTab(r.flow.startUrl || NEW_TAB_URL, { activate: true, agent: true }).id;
+      // An agent's replay (MCP run_flow) works behind the person's tab; theirs comes to the front.
+      r.tabId = r.win.createTab(r.flow.startUrl || NEW_TAB_URL, { activate: r.by === "user", agent: true }).id;
       await sleep(400);
       for (let i = 0; i < r.flow.steps.length; i++) {
         if (r.abort.signal.aborted) throw new ReplayStop();
@@ -669,10 +670,14 @@ export class FlowService {
     });
   }
 
+  /**
+   * The person's own replay shows its tab; an agent's leaves the person where they are. Neither
+   * pulls the window to the front: the notification says what waits, and its taskbar button flashes.
+   */
   private surfaceForApproval(r: Replay, view: FlowApprovalView): void {
     if (r.tabId && !r.win.isDisposed() && r.win.hasTab(r.tabId)) {
-      r.win.activate(r.tabId);
-      if (!r.win.win.isDestroyed()) r.win.win.focus();
+      if (r.by === "user") r.win.activate(r.tabId);
+      r.win.askForAttention();
     }
     if (Notification.isSupported()) {
       const title = view.kind === "error" ? tr("Replay paused: {name}", { name: r.flow.name }) : tr("Approval needed: {name}", { name: r.flow.name });

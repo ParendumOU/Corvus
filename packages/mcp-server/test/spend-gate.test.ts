@@ -49,7 +49,7 @@ describe("spend gate: click", () => {
   it("asks the user before a click that spends money, and clicks once allowed", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const res = await call(await harness.connect(), "click", { ref: "e1" });
+    const res = await call(await harness.agent(), "click", { ref: "e1" });
     expect(res.isError).toBeFalsy();
     expect(textOf(res)).toBe("ok");
     expect(c.spendPrompts).toHaveLength(1);
@@ -60,7 +60,7 @@ describe("spend gate: click", () => {
   it("returns a clear tool error on Deny and clicks nothing", async () => {
     const c = controller({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const res = await call(await harness.connect(), "click", { ref: "e1" });
+    const res = await call(await harness.agent(), "click", { ref: "e1" });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain('The user declined: Click "Place order" on shop.example spends money');
     expect(textOf(res)).toContain("request_user_action");
@@ -71,7 +71,7 @@ describe("spend gate: click", () => {
     for (const accessLevel of ["standard", "full"] as const) {
       const c = controller({ spendApproval: () => false });
       harness = await startHarness({ accessLevel }, c);
-      const res = await call(await harness.connect(), "click", { ref: "e7" });
+      const res = await call(await harness.agent(), "click", { ref: "e7" });
       expect(res.isError, accessLevel).toBe(true);
       expect(c.spendPrompts.map((p) => p.request.action)).toEqual(['Click "Comprar" on shop.example']);
       await harness.close();
@@ -82,7 +82,7 @@ describe("spend gate: click", () => {
   it("catches Spanish and Estonian spend buttons", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     await call(client, "click", { ref: "e7" });
     await call(client, "click", { ref: "e8" });
     expect(c.spendPrompts.map((p) => p.request.action)).toEqual(['Click "Comprar" on shop.example', 'Click "Kinnita tellimus" on shop.example']);
@@ -91,7 +91,7 @@ describe("spend gate: click", () => {
   it("does not ask for Books, Order history or Add to cart", async () => {
     const c = controller({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     for (const ref of ["e2", "e3", "e4"]) expect((await call(client, "click", { ref })).isError, ref).toBeFalsy();
     expect(c.spendPrompts).toEqual([]);
     expect(clicks(c)).toEqual(["e2", "e3", "e4"]);
@@ -100,7 +100,7 @@ describe("spend gate: click", () => {
   it("fails closed when the browser cannot ask", async () => {
     const c = Object.assign(controller(), { confirmSpend: undefined });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const res = await call(await harness.connect(), "click", { ref: "e1" });
+    const res = await call(await harness.agent(), "click", { ref: "e1" });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain("cannot ask the user");
     expect(clicks(c)).toEqual([]);
@@ -109,7 +109,7 @@ describe("spend gate: click", () => {
   it("still classifies from a snapshot when the browser cannot read the target live", async () => {
     const c = Object.assign(controller({ spendApproval: () => false }), { describeTarget: undefined });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const res = await call(await harness.connect(), "click", { ref: "e1" });
+    const res = await call(await harness.agent(), "click", { ref: "e1" });
     expect(res.isError).toBe(true);
     expect(clicks(c)).toEqual([]);
   });
@@ -119,7 +119,7 @@ describe("spend gate: type with submit", () => {
   it("asks before Enter in a form whose default button spends money", async () => {
     const c = controller({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const res = await call(await harness.connect(), "type", { ref: "e6", text: "SPRING", submit: true });
+    const res = await call(await harness.agent(), "type", { ref: "e6", text: "SPRING", submit: true });
     expect(res.isError).toBe(true);
     expect(c.spendPrompts[0]!.request.action).toBe('Submit "Place order" on shop.example');
     expect(types(c)).toEqual([]);
@@ -128,7 +128,7 @@ describe("spend gate: type with submit", () => {
   it("asks before Enter on a checkout page, and types once allowed", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     await call(client, "navigate", { url: CHECKOUT });
     const res = await call(client, "type", { ref: "e1", text: "a@b.c", submit: true });
     expect(res.isError).toBeFalsy();
@@ -139,7 +139,7 @@ describe("spend gate: type with submit", () => {
   it("does not ask for a search submit or for typing without submit", async () => {
     const c = controller({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     expect((await call(client, "type", { ref: "e5", text: "umbrella", submit: true })).isError).toBeFalsy();
     expect((await call(client, "type", { ref: "e6", text: "SPRING" })).isError).toBeFalsy();
     expect(c.spendPrompts).toEqual([]);
@@ -151,7 +151,7 @@ describe("spend gate: fill_fields with submit", () => {
   it("asks before submitting on a checkout page; Deny fills but does not submit", async () => {
     const c = controller({ initialTabs: [CHECKOUT], spendApproval: () => false });
     harness = await startHarness({ accessLevel: "full" }, c);
-    const res = await call(await harness.connect(), "fill_fields", { fields: [{ name: "Email", value: "a@b.c" }], submit: true, submitName: "Continue" });
+    const res = await call(await harness.agent(), "fill_fields", { fields: [{ name: "Email", value: "a@b.c" }], submit: true, submitName: "Continue" });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain("filled 1/1; not submitted. The user declined");
     expect(c.spendPrompts.map((p) => p.request.action)).toEqual(['Click "Continue" on shop.example']);
@@ -161,7 +161,7 @@ describe("spend gate: fill_fields with submit", () => {
   it("submits once allowed", async () => {
     const c = controller({ initialTabs: [CHECKOUT] });
     harness = await startHarness({ accessLevel: "full" }, c);
-    const res = await call(await harness.connect(), "fill_fields", { fields: [{ name: "Email", value: "a@b.c" }], submit: true, submitName: "Continue" });
+    const res = await call(await harness.agent(), "fill_fields", { fields: [{ name: "Email", value: "a@b.c" }], submit: true, submitName: "Continue" });
     expect(textOf(res)).toBe('filled 1/1; submitted via "Continue"');
     expect(clicks(c)).toEqual(["e2"]);
   });
@@ -190,7 +190,7 @@ describe("spend gate: coordinates and keys", () => {
   it("asks before a click at coordinates on a spend button; Deny clicks nothing", async () => {
     const c = coords({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     const res = await call(client, "click_at", { x: 150, y: 120 });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toContain('The user declined: Click "Place order" on shop.example spends money');
@@ -202,7 +202,7 @@ describe("spend gate: coordinates and keys", () => {
   it("clicks once allowed; does not ask for other clicks or a right click", async () => {
     const c = coords();
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     expect((await call(client, "click_at", { x: 150, y: 120 })).isError).toBeFalsy();
     expect(c.spendPrompts).toHaveLength(1);
     expect((await call(client, "click_at", { x: 320, y: 110 })).isError).toBeFalsy();
@@ -218,7 +218,7 @@ describe("spend gate: coordinates and keys", () => {
   it("asks before a click inside a payment provider's frame", async () => {
     const c = coords({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const res = await call(await harness.connect(), "click_at", { x: 200, y: 450 });
+    const res = await call(await harness.agent(), "click_at", { x: 200, y: 450 });
     expect(res.isError).toBe(true);
     expect(c.spendPrompts.map((p) => p.request.action)).toEqual(["Click inside a payment form (js.stripe.com) on shop.example"]);
     expect(sent(c)).toEqual([]);
@@ -227,7 +227,7 @@ describe("spend gate: coordinates and keys", () => {
   it("asks before Enter submits a checkout form, after the keys before it; Space in a field types", async () => {
     const c = coords({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     expect((await call(client, "click_at", { x: 150, y: 270 })).isError).toBeFalsy();
     const res = await call(client, "press_keys", { keys: ["Control+A", "Space", "Enter", "Tab"] });
     expect(res.isError).toBe(true);
@@ -238,7 +238,7 @@ describe("spend gate: coordinates and keys", () => {
   it("asks before a line break in type_text submits; a search field does not ask", async () => {
     const c = coords({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     await call(client, "click_at", { x: 150, y: 270 });
     const res = await call(client, "type_text", { text: "SPRING\nmore" });
     expect(res.isError).toBe(true);
@@ -253,7 +253,7 @@ describe("spend gate: coordinates and keys", () => {
     const c = coords();
     Object.assign(c, { describePoint: undefined, describeFocused: undefined });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     const click = await call(client, "click_at", { x: 320, y: 110 });
     expect(click.isError).toBe(true);
     expect(textOf(click)).toContain("cannot check what is at (320, 110)");
@@ -280,7 +280,7 @@ describe("spend gate: page dialogs", () => {
   it("asks before accepting a question that spends; Deny leaves the dialog open", async () => {
     const c = dialogs({ spendApproval: () => false });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     await call(client, "navigate", { url: ASK_PAY });
     const res = await call(client, "handle_dialog", { accept: true });
     expect(res.isError).toBe(true);
@@ -295,7 +295,7 @@ describe("spend gate: page dialogs", () => {
   it("accepts a spending question once allowed, and a plain one without asking", async () => {
     const c = dialogs();
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     await call(client, "navigate", { url: ASK_PAY });
     expect(textOf(await call(client, "handle_dialog", { accept: true }))).toContain('"accepted":true');
     expect(c.spendPrompts).toHaveLength(1);
@@ -307,7 +307,7 @@ describe("spend gate: page dialogs", () => {
   it("refuses to accept when the browser cannot read the question", async () => {
     const c = Object.assign(dialogs(), { pendingDialog: undefined });
     harness = await startHarness({ accessLevel: "standard" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     await call(client, "navigate", { url: ASK_DELETE });
     const res = await call(client, "handle_dialog", { accept: true });
     expect(res.isError).toBe(true);

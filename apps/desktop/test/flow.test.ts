@@ -197,7 +197,8 @@ function fakeWindow() {
     isDisposed: () => false,
     openSingleton: vi.fn(),
     notifyInternalPages: vi.fn(),
-    win: { isDestroyed: () => false, focus: vi.fn() },
+    win: { isDestroyed: () => false },
+    askForAttention: vi.fn(),
   };
   return win as unknown as BrowserWindowCtl;
 }

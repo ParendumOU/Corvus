@@ -29,7 +29,7 @@ The user chooses what you may do (Corvus → Settings → AI agents). Tools you 
 
 ## Multi-tab work
 
-`tabs_list` shows open tabs (yours are marked `agent: true`). Open background tabs, switch with `tab_activate`, and close what you opened when done. Keep the user's own tabs intact.
+Work in tabs of your own and leave the user's alone: they may be typing in theirs while you work. `tab_open` opens a tab in the background (so does `navigate` without `tabId` when you have none), and every call without `tabId` then uses the latest tab you opened. Pages in background tabs load, render and take clicks, typing, drags and screenshots like the one in front, so never call `tab_activate` to work in a tab: it only brings a tab to the front for the user to see, when they ask. Act on one of the user's tabs (by its `tabId` from `tabs_list`) only when they ask you to; without a tab of your own, read-only tools read the tab in front. Close what you opened when done.
 
 ## Dialogs, downloads, uploads
 

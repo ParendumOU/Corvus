@@ -892,10 +892,11 @@ async function mcpReadChecks(session: McpSession, tabId: string, check: Helpers[
     const idle = await session.tool("wait_for", { tabId, networkIdle: true, timeoutMs: 8000 });
     const missing = await session.tool("wait_for", { tabId, text: "no-such-text-on-this-page", timeoutMs: 600 });
     const loaded = await session.tool("tab_wait_load", { tabId, timeoutMs: 3000 });
+    const requests = idle.isError ? (await session.tool("network_requests", { tabId, limit: 10 })).text.slice(-600) : "";
     check(
       "MCP wait_for (text, element, network idle, timeout) and tab_wait_load",
       !appeared.isError && appeared.text.includes('"matched":true') && !element.isError && !idle.isError && missing.isError && missing.text.includes("timed out") && !loaded.isError && loaded.text.includes('"title":"Corvus Agent Shop"') && !loaded.text.includes('"loading":true'),
-      { appeared: appeared.text.slice(-120), element: element.text.slice(-120), idle: idle.text.slice(-160), missing: missing.text.slice(-160), loaded: loaded.text.slice(-200) },
+      { appeared: appeared.text.slice(-120), element: element.text.slice(-120), idle: idle.text.slice(-160), missing: missing.text.slice(-160), loaded: loaded.text.slice(-200), requests },
     );
   } catch (err) {
     check("MCP read smoke", false, errorDetail(err));

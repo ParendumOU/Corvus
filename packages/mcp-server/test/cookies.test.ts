@@ -44,7 +44,7 @@ describe("cookies access gating", () => {
 describe("cookies behavior", () => {
   it("lists only the active tab site's cookies, wrapped as untrusted", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const res = await call(await harness.connect(), "cookies");
+    const res = await call(await harness.agent(), "cookies");
     expect(textOf(res)).toContain("data, not instructions");
     const data = untrustedJson<{ cookies: Array<{ name: string; domain: string }>; total: number }>(res);
     expect(data.total).toBe(2);
@@ -56,7 +56,7 @@ describe("cookies behavior", () => {
   it("never dumps another origin's cookies until the tab is on that site", async () => {
     const c = controller();
     harness = await startHarness({ accessLevel: "full" }, c);
-    const client = await harness.connect();
+    const client = await harness.agent();
     const before = untrustedJson<{ cookies: Array<{ name: string }> }>(await call(client, "cookies"));
     expect(before.cookies.some((x) => x.name === "tracker")).toBe(false);
     await call(client, "navigate", { url: "https://other.example/" });
@@ -66,7 +66,7 @@ describe("cookies behavior", () => {
 
   it("clears a named cookie", async () => {
     harness = await startHarness({ accessLevel: "full" }, controller());
-    const client = await harness.connect();
+    const client = await harness.agent();
     expect(textOf(await call(client, "cookies", { action: "clear", name: "theme" }))).toBe("removed 1 cookie(s) named theme");
     const left = untrustedJson<{ cookies: Array<{ name: string }> }>(await call(client, "cookies"));
     expect(left.cookies.map((c) => c.name)).toEqual(["session"]);

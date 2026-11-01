@@ -125,12 +125,16 @@ export class DialogService {
     this.show(win);
   }
 
+  /**
+   * A modal question takes the keyboard. In a window the person is not in (minimized, or behind
+   * another app while an AI agent works), it never pulls the window to the front: the taskbar button
+   * flashes and the question waits there.
+   */
   private show(win: BrowserWindowCtl): void {
     if (win.win.isDestroyed()) return;
     const current = this.current(win);
     if (current && !current.bar) {
-      if (win.win.isMinimized()) win.win.restore();
-      win.win.focus();
+      win.askForAttention();
       win.focusChrome();
     }
     win.pushState();
