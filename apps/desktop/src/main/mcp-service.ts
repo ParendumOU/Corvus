@@ -4,6 +4,7 @@ import path from "node:path";
 import { app } from "electron";
 import type { AccessLevel, McpClientInfo, McpServerHandle } from "@corvus/shared";
 import type { FlowRunner, FlowSummary, SiteMemoryReader, StartMcpServerOptions } from "@corvus/mcp-server";
+import { ENABLE_MCP_SWITCH } from "../shared/default-browser";
 import { memoryHints } from "../shared/site-memory";
 import type { SavedFlow } from "../shared/flow";
 import { findFlow, flowSites, normalizeSite, workflowsForHost } from "../shared/workflow";
@@ -17,9 +18,6 @@ import { tr } from "./menu-i18n";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const callKey = (e: { client: string; tool: string; at: number }): string => JSON.stringify([e.client, e.tool, e.at]);
-
-/** Turns the MCP server on at launch; the stdio bridge passes it when it starts Corvus for an agent. */
-export const ENABLE_MCP_SWITCH = "--enable-mcp";
 
 /**
  * Runs @corvus/mcp-server on 127.0.0.1 when enabled in settings. New clients must be approved

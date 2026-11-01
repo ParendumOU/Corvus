@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.36.3
+
+### AI agents (MCP)
+- **Starting an AI agent no longer pops Corvus up.** When Claude Code (or another MCP client) starts and Corvus is closed, Corvus now opens minimized, without taking focus or flashing its taskbar button; open it from the taskbar whenever you want (a window saved maximized opens maximized then). If Corvus is already open, it stays where you left it instead of coming to the front. Links you open with Corvus still bring it forward as before.
+
+### Translation
+- **Translating a page right as it finishes loading works.** Pressing Translate in the address bar while Corvus was still reading the page's language could lose the translation's progress in the button, and Stop or closing the tab then no longer stopped it.
+
 ## v0.36.2
 
 ### Sync

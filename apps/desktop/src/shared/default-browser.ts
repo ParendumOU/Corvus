@@ -118,6 +118,17 @@ export function linuxDesktopEntry(exec: string, icon: string): string {
   ].join("\n");
 }
 
+/** Turns the MCP server on at launch; the stdio bridge passes it when it starts Corvus for an AI agent. */
+export const ENABLE_MCP_SWITCH = "--enable-mcp";
+
+/**
+ * A launch only to serve an AI agent (the stdio bridge's --enable-mcp, no links or files): Corvus
+ * starts out of the way, minimized and without taking focus, and an open Corvus stays where it is.
+ */
+export function agentLaunch(argv: readonly string[], targets: readonly string[]): boolean {
+  return targets.length === 0 && argv.includes(ENABLE_MCP_SWITCH);
+}
+
 /**
  * The links and files a launch asks Corvus to open: http(s) addresses, and local files of the types
  * above that exist (as file:// URLs). Switches are ignored, and so is anything else on the line.

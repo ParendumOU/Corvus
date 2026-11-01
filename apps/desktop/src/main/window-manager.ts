@@ -4,7 +4,7 @@ import { NEW_TAB_URL } from "../shared/internal-urls";
 import type { SessionWindow } from "../shared/session-state";
 import type { AppContext } from "./context";
 import type { PermissionHost } from "./permissions";
-import { BrowserWindowCtl, type TabRuntime } from "./window";
+import { BrowserWindowCtl, type TabRuntime, type WindowOpenOptions } from "./window";
 
 export class WindowManager implements PermissionHost {
   private windows: BrowserWindowCtl[] = [];
@@ -15,10 +15,10 @@ export class WindowManager implements PermissionHost {
 
   constructor(private readonly ctx: AppContext) {}
 
-  open(profileId: ProfileId, urls?: string[]): BrowserWindowCtl {
+  open(profileId: ProfileId, urls?: string[], opts: Pick<WindowOpenOptions, "background"> = {}): BrowserWindowCtl {
     const runtime = this.ctx.profiles.get(profileId);
     this.ctx.profiles.manager.markUsed(profileId);
-    const win = new BrowserWindowCtl(this.ctx, runtime, urls && urls.length > 0 ? urls : [NEW_TAB_URL]);
+    const win = new BrowserWindowCtl(this.ctx, runtime, urls && urls.length > 0 ? urls : [NEW_TAB_URL], opts);
     this.windows.push(win);
     this.lastFocused = win;
     this.ctx.sessionRestore.resume();
@@ -35,11 +35,12 @@ export class WindowManager implements PermissionHost {
   }
 
   /** Reopen a window from the saved session. */
-  restore(saved: SessionWindow): BrowserWindowCtl {
+  restore(saved: SessionWindow, opts: Pick<WindowOpenOptions, "background"> = {}): BrowserWindowCtl {
     const runtime = this.ctx.profiles.get(saved.profileId);
     const win = new BrowserWindowCtl(this.ctx, runtime, [], {
       ...(saved.bounds ? { bounds: saved.bounds } : {}),
       maximized: saved.maximized,
+      ...opts,
     });
     this.windows.push(win);
     this.lastFocused = win;

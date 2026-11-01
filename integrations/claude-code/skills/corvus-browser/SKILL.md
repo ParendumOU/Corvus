@@ -9,7 +9,7 @@ The `corvus` MCP server drives the user's **Corvus** browser over their real, lo
 
 ## Connecting
 
-The server is provided by this plugin and connects by itself: it uses Corvus if it is running, and otherwise starts it in a visible window with its MCP server on. The first time, Corvus asks the user to approve the client. If Corvus restarts, the connection resumes on its own. If tools are missing or calls keep failing, ask the user to open Corvus (or reconnect the server with `/mcp`) and retry — do not ask them for a token.
+The server is provided by this plugin and connects by itself: it uses Corvus if it is running, and otherwise starts it minimized, without taking focus, with its MCP server on. The first time, Corvus asks the user to approve the client. If Corvus restarts, the connection resumes on its own. If tools are missing or calls keep failing, ask the user to open Corvus (or reconnect the server with `/mcp`) and retry — do not ask them for a token.
 
 ## Access levels
 

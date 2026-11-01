@@ -3,6 +3,7 @@ import {
   DEFAULT_BROWSER_EXTENSIONS,
   LINUX_MIME_TYPES,
   WINDOWS_REGISTRY_KEYS,
+  agentLaunch,
   launchTargets,
   linuxDesktopEntry,
   parseRegistered,
@@ -66,6 +67,12 @@ describe("what a launch opens", () => {
       "https://example.com/a",
       "file:///home/ana/page.html",
     ]);
+  });
+
+  it("starts quietly only when an AI agent's bridge launches it with nothing to open", () => {
+    expect(agentLaunch(["Corvus.exe", "--enable-mcp"], [])).toBe(true);
+    expect(agentLaunch(["Corvus.exe", "--enable-mcp", "https://example.com/"], ["https://example.com/"])).toBe(false);
+    expect(agentLaunch(["Corvus.exe"], [])).toBe(false);
   });
 
   it("takes what follows -- as links and files, never as switches", () => {

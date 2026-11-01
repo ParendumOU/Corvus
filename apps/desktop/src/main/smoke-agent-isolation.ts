@@ -183,6 +183,23 @@ export async function runAgentIsolationSmoke(ctx: AppContext, h: AgentIsolationS
     check("isolation: a question asked in the background flashes the taskbar button instead", flashed && Boolean(dialogId), { flash: flash.calls, dialogId });
     for (const s of spies.splice(0)) s.undo();
 
+    // Corvus started for an agent (the bridge's --enable-mcp): its window opens without taking the focus.
+    const quiet = ctx.windows.open(win.profile.profile.id, [], { background: true });
+    const quietFlash = spy(quiet.win as BrowserWindow, "flashFrame");
+    const revealed = await until(() => quiet.win.isVisible() || quiet.win.isMinimized(), 6000);
+    const quietAsk = ctx.dialogs.ask({ tone: "question", title: "Corvus", message: "Reopen?", buttons: ["No", "Yes"], defaultId: 0, cancelId: 0 }, quiet);
+    await sleep(500);
+    const quietDialog = ctx.dialogs.current(quiet)?.id;
+    if (quietDialog) ctx.dialogs.answer(quiet, quietDialog, { button: 0 });
+    await quietAsk;
+    quietFlash.undo();
+    check(
+      "isolation: a window opened for an agent shows without taking the focus or flashing",
+      revealed && !quiet.win.isFocused() && other.isFocused() && !quietFlash.calls.some((c) => c[0] === true),
+      { revealed, minimized: quiet.win.isMinimized(), quiet: quiet.win.isFocused(), other: other.isFocused(), flash: quietFlash.calls },
+    );
+    quiet.close();
+
     // The person comes back: the keyboard goes to the tab on screen (shown while they were away).
     other.close();
     other = null;

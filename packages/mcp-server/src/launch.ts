@@ -9,9 +9,10 @@ import type { BridgeTarget } from "./bridge.js";
  *
  * While its MCP server runs, Corvus writes `mcp.json` ({url, token, pid}) in its home folder
  * (~/.corvus, or $CORVUS_HOME); on every start it also records where its executable lives in
- * `app.json`. When no live server is found, the bridge starts Corvus with --enable-mcp (a normal,
- * visible window), or hands that switch to the running Corvus, which turns its server on, and waits
- * for the discovery file. A client still needs the person's approval in Corvus the first time.
+ * `app.json`. When no live server is found, the bridge starts Corvus with --enable-mcp (minimized,
+ * without taking focus), or hands that switch to the running Corvus, which turns its server on and
+ * stays where it is, and waits for the discovery file. A client still needs the person's approval
+ * in Corvus the first time.
  */
 
 /** Command-line switch that turns on Corvus's MCP server (kept in sync with apps/desktop). */
@@ -78,7 +79,7 @@ export async function corvusExecutable(
   return null;
 }
 
-/** Starts Corvus detached from the bridge, in a visible window, with its MCP server on. */
+/** Starts Corvus detached from the bridge with its MCP server on (it opens minimized, see apps/desktop agentLaunch). */
 export function startCorvus(exe: string, log: (message: string) => void): void {
   const child = spawn(exe, [ENABLE_MCP_SWITCH], { detached: true, stdio: "ignore" });
   child.once("error", (err) => log(`could not start Corvus (${exe}): ${err.message}`));

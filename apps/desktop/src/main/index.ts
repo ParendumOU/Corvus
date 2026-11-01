@@ -52,7 +52,7 @@ import { SearchService } from "./search-service";
 import { SemanticSearchService } from "./semantic-search-service";
 import { SessionRestore } from "./session-restore";
 import { restorePlan } from "../shared/session-state";
-import { launchTargets } from "../shared/default-browser";
+import { agentLaunch, launchTargets } from "../shared/default-browser";
 import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
 import { setMenuLanguage, tr } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
@@ -146,19 +146,20 @@ function setApplicationMenu(): void {
 /**
  * The first windows: the saved session when Corvus reopens it, else a new window. After a crash
  * with a session saved, Corvus asks in that new window whether to reopen the session, and closes
- * the new window again when it does (unless it holds pages Corvus was started with).
+ * the new window again when it does (unless it holds pages Corvus was started with). Started for an
+ * AI agent (`background`), the windows open minimized, without taking focus.
  */
-function openStartWindows(ctx: AppContext, unclean: boolean, profileId: string, startUrls: string[]): void {
+function openStartWindows(ctx: AppContext, unclean: boolean, profileId: string, startUrls: string[], background: boolean): void {
   if (ctx.settings.get().startup.mode === "restore") {
-    const first = ctx.sessionRestore.restore()[0];
+    const first = ctx.sessionRestore.restore(undefined, { background })[0];
     if (first) for (const url of startUrls) first.createTab(url);
-    else ctx.windows.open(profileId, startUrls);
+    else ctx.windows.open(profileId, startUrls, { background });
     return;
   }
   // Read before any window opens: the new window's own state is saved over it.
   const snapshot = ctx.sessionRestore.saved();
   const hasSession = restorePlan(snapshot, ctx.profiles.list().map((p) => p.id)).length > 0;
-  const win = ctx.windows.open(profileId, startUrls);
+  const win = ctx.windows.open(profileId, startUrls, { background });
   if (!unclean || !hasSession || process.env.CORVUS_SMOKE_TEST === "1") return;
   // Asked without holding up the rest of the start.
   void ctx.dialogs.ask(
@@ -356,7 +357,10 @@ async function main(): Promise<void> {
 
   app.on("second-instance", (_event, argv, workingDirectory) => {
     ctx.mcp.enableFromArgv(argv);
-    openUrls(ctx, urlsFromArgv(argv, workingDirectory));
+    const urls = urlsFromArgv(argv, workingDirectory);
+    // An AI agent's bridge only needs the server: the open windows stay where the person left them.
+    if (!agentLaunch(argv, urls)) openUrls(ctx, urls);
+    else if (ctx.windows.all().length === 0) ctx.windows.open(profiles.manager.lastUsed, [], { background: true });
   });
   app.on("activate", () => {
     if (ctx.windows.all().length === 0) ctx.windows.open(profiles.manager.lastUsed);
@@ -381,7 +385,7 @@ async function main(): Promise<void> {
   });
 
   const startUrls = urlsFromArgv(process.argv);
-  openStartWindows(ctx, uncleanShutdown, profiles.manager.lastUsed, startUrls);
+  openStartWindows(ctx, uncleanShutdown, profiles.manager.lastUsed, startUrls, agentLaunch(process.argv, startUrls));
   systemOpen = (urls) => openUrls(ctx, urls);
   if (pendingSystemOpens.length > 0) openUrls(ctx, pendingSystemOpens.splice(0));
   const automated = process.env.CORVUS_SMOKE_TEST === "1" || process.env.CORVUS_CAPTURE === "1";

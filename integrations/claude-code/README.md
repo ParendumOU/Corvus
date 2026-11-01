@@ -13,7 +13,7 @@ In Claude Code:
 
 To get new versions without updating by hand, turn on auto-update for the marketplace: in `/plugin`, open **Marketplaces**, choose it and **Enable auto-update** (or set `"autoUpdate": true` on its entry under `extraKnownMarketplaces` in `~/.claude/settings.json`).
 
-That's it: when Claude first needs the browser, the plugin uses Corvus if it is already running, or starts it (a normal, visible window) and turns on its MCP server. Approve the client the first time it connects. No token to copy. You can also turn the server on yourself in **Settings → AI agents (MCP) → "Enable MCP server"**, and off again there.
+That's it: when Claude first needs the browser, the plugin uses Corvus if it is already running, or starts it (minimized, without taking focus or flashing in the taskbar) and turns on its MCP server. Approve the client the first time it connects. No token to copy. You can also turn the server on yourself in **Settings → AI agents (MCP) → "Enable MCP server"**, and off again there.
 
 ## How the connection works
 

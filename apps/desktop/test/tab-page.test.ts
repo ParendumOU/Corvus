@@ -131,6 +131,22 @@ describe("background work on a tab that closes meanwhile", () => {
     expect(win.pushes).toBe(0);
   });
 
+  it("a translation asked for while the page's language was read is not overwritten by the offer", async () => {
+    const page = fakePage("https://example.de/", async () => {
+      void translate.translate(win, tab);
+      return "de";
+    });
+    const { tab } = fakeTab(page, "https://example.de/");
+    const win = fakeWindow(() => true);
+    let stop: AbortSignal | undefined;
+    const assist = { translateWholePage: (_w: unknown, _t: unknown, _l: string, _p: unknown, signal: AbortSignal) => ((stop = signal), new Promise(() => undefined)) };
+    const translate = new TranslateService({ ...ctx, assist } as unknown as AppContext);
+    await translate.onPageLoad(win, tab);
+    expect(translate.barState(tab)).toMatchObject({ state: "translating" });
+    translate.forget(tab.id);
+    expect(stop?.aborted).toBe(true);
+  });
+
   it("the translation offer shows for an open tab in another language", async () => {
     const { tab } = fakeTab(fakePage("https://example.de/", async () => "de"), "https://example.de/");
     const win = fakeWindow(() => true);

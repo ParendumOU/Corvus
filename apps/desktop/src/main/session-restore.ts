@@ -2,7 +2,7 @@ import path from "node:path";
 import { buildSnapshot, restorePlan, reviveSession, type SessionSnapshot } from "../shared/session-state";
 import type { AppContext } from "./context";
 import { JsonFile } from "./json-file";
-import type { BrowserWindowCtl } from "./window";
+import type { BrowserWindowCtl, WindowOpenOptions } from "./window";
 
 const SAVE_INTERVAL_MS = 3000;
 
@@ -83,12 +83,12 @@ export class SessionRestore {
   }
 
   /** Reopen the saved windows. Returns the windows opened (none when there was nothing to restore). */
-  restore(snapshot: SessionSnapshot | null = this.saved()): BrowserWindowCtl[] {
+  restore(snapshot: SessionSnapshot | null = this.saved(), opts: Pick<WindowOpenOptions, "background"> = {}): BrowserWindowCtl[] {
     const plan = restorePlan(snapshot, this.ctx.profiles.list().map((p) => p.id));
     const opened: BrowserWindowCtl[] = [];
     for (const sw of plan) {
       try {
-        opened.push(this.ctx.windows.restore(sw));
+        opened.push(this.ctx.windows.restore(sw, opts));
       } catch (err) {
         console.error("[corvus] could not restore a window:", err);
       }

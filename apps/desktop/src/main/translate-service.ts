@@ -70,8 +70,10 @@ export class TranslateService {
     const pageLang = (await wc.executeJavaScriptInIsolatedWorld(LANG_WORLD_ID, [{ code: LANG_SCRIPT }]).catch(() => "")) as unknown;
     const lang = typeof pageLang === "string" ? pageLang.slice(0, 35) : "";
     const target = this.target();
-    // Closed meanwhile: no offer is kept for it.
-    if (!win.hasTab(tab.id) || this.tabs.get(tab.id)?.state === "translated") return;
+    // Closed meanwhile: no offer is kept for it. Translated, or asked to translate while the language
+    // was read: that state (and the way to stop it) stays.
+    const now = this.tabs.get(tab.id)?.state;
+    if (!win.hasTab(tab.id) || now === "translating" || now === "translated") return;
     if (this.ctx.settings.get().translate.offer && shouldOfferTranslation(lang, target)) {
       this.tabs.set(tab.id, { state: "offer", pageLang: lang, target, translated: 0, abort: null });
     } else {

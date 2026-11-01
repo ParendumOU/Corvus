@@ -204,6 +204,11 @@ export interface WindowOpenOptions {
   maximized?: boolean;
   /** A private window: its tabs live in the profile's in-memory session, and nothing of it is kept. */
   private?: boolean;
+  /**
+   * Opened for an AI agent (see shared agentLaunch): shows minimized without taking focus, so it never
+   * comes up over what the person is doing. It takes the keyboard when the person comes to it.
+   */
+  background?: boolean;
 }
 
 function initialTitle(url: string): string {
@@ -247,6 +252,8 @@ export class BrowserWindowCtl {
   private chromeReady = false;
   private disposed = false;
   private readonly startMaximized: boolean;
+  /** Not shown to the person yet (see WindowOpenOptions.background): maximized when they first open it. */
+  private background: boolean;
   private readonly cleanups: Array<() => void> = [];
   private sidePanel: DockedPanel | null = null;
   /** Where keyboard focus belongs: the chrome UI or a shown tab (restored after a stray grab). */
@@ -279,6 +286,7 @@ export class BrowserWindowCtl {
     const mac = process.platform === "darwin";
     const bounds = visibleBounds(opts.bounds, screen.getAllDisplays().map((d) => d.workArea));
     this.startMaximized = opts.maximized === true;
+    this.background = opts.background === true;
     this.win = new BaseWindow({
       width: 1280,
       height: 840,
@@ -374,7 +382,11 @@ export class BrowserWindowCtl {
 
   private reveal(): void {
     if (this.disposed || this.win.isVisible()) return;
-    if (this.startMaximized) this.win.maximize();
+    if (this.background) {
+      // Shown without activation, then minimized: no window over the person's work, no flashing button.
+      this.win.showInactive();
+      this.win.minimize();
+    } else if (this.startMaximized) this.win.maximize();
     else this.win.show();
     // Focus requests made while the window was hidden (the omnibox of its first new tab) did not land.
     this.restoreFocus();
@@ -830,13 +842,16 @@ export class BrowserWindowCtl {
    * focused takes it as it opens.
    */
   private giveKeyboard(wc: WebContents): void {
-    if (this.win.isFocused() || !this.focusedOnce) wc.focus();
+    if (this.win.isFocused() || (!this.focusedOnce && !this.background)) wc.focus();
     else this.focusOnReturn = true;
   }
 
-  /** Something waits for the person in this window: out of their sight, its taskbar button flashes until they come. */
+  /**
+   * Something waits for the person in this window: out of their sight, its taskbar button flashes until
+   * they come. Not in a window started for an AI agent they have not opened yet: it waits there quietly.
+   */
   askForAttention(): void {
-    if (this.win.isDestroyed() || this.win.isFocused()) return;
+    if (this.win.isDestroyed() || this.win.isFocused() || this.background) return;
     this.win.flashFrame(true);
     this.win.once("focus", () => this.win.flashFrame(false));
   }
@@ -844,6 +859,10 @@ export class BrowserWindowCtl {
   /** The person came back to the window: focus asked for while it was in the background lands now. */
   private onWindowFocus(): void {
     this.focusedOnce = true;
+    if (this.background) {
+      this.background = false;
+      if (this.startMaximized) this.win.maximize();
+    }
     if (!this.focusOnReturn) return;
     this.focusOnReturn = false;
     // After the activation itself, which hands focus back to the view that last had it.

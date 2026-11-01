@@ -7,7 +7,7 @@ This repository holds the connector: a small, self-contained MCP stdio server (`
 ## Before you start
 
 1. Install Corvus from https://corvus.parendum.com.
-2. The connector uses Corvus if it is running, and otherwise starts it (a normal, visible window) with its MCP server on. You can also turn the server on yourself in **Settings > AI agents (MCP) > Enable MCP server**, and off again there.
+2. The connector uses Corvus if it is running, and otherwise starts it (minimized, without taking focus or flashing in the taskbar) with its MCP server on. You can also turn the server on yourself in **Settings > AI agents (MCP) > Enable MCP server**, and off again there.
 3. The first time a client connects, Corvus asks you to approve it. Approved clients are listed under **Approved clients**, where you can revoke them.
 4. For the `npx` and `pnpm dlx` setups below you need [Node.js](https://nodejs.org) 20 or newer and git on your PATH. The Claude Code plugin only needs Node.js.
 
