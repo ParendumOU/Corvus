@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.36.7
+
+### Sites with their own certificates
+- **Icons of sites whose certificate you accepted.** A site on your network with its own certificate (a router, a NAS, an internal `.internal` name with your own CA) showed no icon after you chose **Proceed**: Corvus fetches site icons itself, and those requests did not get your choice. They do now, for that site and that certificate only, and **Turn on warnings again** takes it back for them too.
+
 ## v0.36.6
 
 ### AI agents

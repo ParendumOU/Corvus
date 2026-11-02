@@ -24,11 +24,39 @@ const SMOKE_TRUSTED: ReadonlySet<string> = new Set(process.env.CORVUS_SMOKE_TEST
  * Certificate errors of pages. A main-frame load whose certificate fails is let fail (Chromium's
  * default) after noting what failed, so the tab can show Corvus's interstitial in its place; a
  * subresource with a bad certificate stays blocked, with no interstitial, as in Chrome. Certificates
- * a person accepted ("Proceed") are let through for their host in that session only.
+ * a person accepted ("Proceed") are let through for their host in that session only: for its pages,
+ * and for what Corvus itself fetches in that session (the site's icon), which never reaches the
+ * certificate-error event.
  */
 export class CertErrorService {
   readonly exceptions = new CertExceptions<Session>();
   private readonly failed = new WeakMap<WebContents, CertProblem>();
+  /** Sessions whose own requests check the person's exceptions (see allow). */
+  private readonly verifying = new WeakSet<Session>();
+
+  /** The person accepted this certificate for `host` ("Proceed"): its pages and Corvus's requests there go through. */
+  allow(session: Session, host: string, fingerprint: string, code: string): void {
+    this.exceptions.allow(session, host, fingerprint, code);
+    if (this.verifying.has(session)) return;
+    this.verifying.add(session);
+    this.verifyWithExceptions(session);
+  }
+
+  /** "Turn on warnings again" for `host`; returns whether it had exceptions. */
+  revoke(session: Session, host: string): boolean {
+    if (!this.exceptions.revoke(session, host)) return false;
+    // Set again, so no verdict given under the exception is reused.
+    if (this.verifying.has(session)) this.verifyWithExceptions(session);
+    return true;
+  }
+
+  private verifyWithExceptions(session: Session): void {
+    session.setCertificateVerifyProc((request, callback) => {
+      const name = request.hostname.includes(":") && !request.hostname.startsWith("[") ? `[${request.hostname}]` : request.hostname;
+      // 0 accepts the certificate; -3 keeps Chromium's own verdict.
+      callback(request.errorCode !== 0 && this.exceptions.allows(session, name.toLowerCase(), request.certificate.fingerprint) ? 0 : -3);
+    });
+  }
 
   install(): void {
     app.on("certificate-error", (event, wc, url, error, certificate, callback, isMainFrame) => {

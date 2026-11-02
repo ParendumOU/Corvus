@@ -206,6 +206,9 @@ export async function runCertErrorSmoke(ctx: AppContext, { win, check }: Helpers
       { refused, unreadable },
     );
 
+    const ownFetch = (): Promise<string> => tab.view.webContents.session.fetch(router.url).then((r) => String(r.status), (err: unknown) => (err instanceof Error ? err.message : String(err)));
+    const ownBefore = await ownFetch();
+
     // The person proceeds: the page loads with its own image, still Not secure, the error page gone from history.
     win.activate(tab.id);
     await js(tab.view.webContents, "document.querySelector('.cert-proceed')?.click()");
@@ -220,6 +223,8 @@ export async function runCertErrorSmoke(ctx: AppContext, { win, check }: Helpers
       { after, afterChip },
     );
     check("certificate errors: history keeps the site, not the error page", entries.length === 1 && entries[0] === router.url, entries);
+    const ownAfter = await ownFetch();
+    check("certificate errors: after Proceed, Corvus's own requests to the site (its icon) go through too, not before", ownBefore !== "200" && ownAfter === "200", { ownBefore, ownAfter });
     await windowShot(win, "cert-proceeded-en-light");
     win.chrome.webContents.executeJavaScript("document.querySelector('.site-chip')?.click()").catch(() => undefined);
     const offered = await until(async () => (await js<boolean>(win.chrome.webContents, "Boolean(document.querySelector('.site-cert-accepted .btn'))")) === true, 3000);
@@ -241,6 +246,8 @@ export async function runCertErrorSmoke(ctx: AppContext, { win, check }: Helpers
     win.restoreCertWarnings();
     const again = await errorPage(tab);
     check("certificate errors: Turn on warnings again shows the error page again", again?.code === "ERR_CERT_AUTHORITY_INVALID" && again.proceed, again);
+    const ownRevoked = await ownFetch();
+    check("certificate errors: Turn on warnings again stops Corvus's own requests there too", ownRevoked !== "200", ownRevoked);
 
     // HSTS: no Proceed for the person, and none for an agent even in full auto.
     const hstsTab = win.createTab(hsts.url);

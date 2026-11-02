@@ -1813,7 +1813,7 @@ export class BrowserWindowCtl {
       return false;
     }
     if (problem.block) return false;
-    this.ctx.certErrors.exceptions.allow(page.session, problem.host, problem.fingerprint, problem.code);
+    this.ctx.certErrors.allow(page.session, problem.host, problem.fingerprint, problem.code);
     this.loadUrl(tab.id, problem.url);
     return true;
   }
@@ -1830,7 +1830,7 @@ export class BrowserWindowCtl {
   restoreCertWarnings(): void {
     const tab = this.activeTab();
     const session = pageOf(tab?.view)?.session;
-    if (!tab || !session || !this.ctx.certErrors.exceptions.revoke(session, certHost(tab.url))) return;
+    if (!tab || !session || !this.ctx.certErrors.revoke(session, certHost(tab.url))) return;
     // Connections opened with the accepted certificate would otherwise carry on serving the site.
     void session.closeAllConnections().then(() => this.reload(tab.id));
   }
