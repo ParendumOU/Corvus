@@ -98,6 +98,11 @@ export function isSupportedPdfSource(src: string): boolean {
   }
 }
 
+/** True for a Content-Disposition that asks to save the file (`attachment`), not show it. */
+export function isAttachmentDisposition(header: string): boolean {
+  return /^\s*attachment\s*(;|$)/i.test(header);
+}
+
 /** URL whose path ends in `.pdf` on a supported scheme. */
 export function isPdfUrl(url: string): boolean {
   try {

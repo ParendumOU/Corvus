@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPdfMarkdown,
   capPagesForAi,
+  isAttachmentDisposition,
   isPdfUrl,
   isSupportedPdfSource,
   pdfCaptureFromViewer,
@@ -18,6 +19,17 @@ const pages: PdfPageText[] = [
   { page: 1, text: "Intro to ravens." },
   { page: 2, text: "Ravens are clever." },
 ];
+
+describe("isAttachmentDisposition", () => {
+  it("is true only when the site asks to save the file", () => {
+    expect(isAttachmentDisposition('attachment; filename="invoice.pdf"')).toBe(true);
+    expect(isAttachmentDisposition("Attachment")).toBe(true);
+    expect(isAttachmentDisposition(" attachment ;filename*=UTF-8''a.pdf")).toBe(true);
+    expect(isAttachmentDisposition('inline; filename="attachment.pdf"')).toBe(false);
+    expect(isAttachmentDisposition("attachments")).toBe(false);
+    expect(isAttachmentDisposition("")).toBe(false);
+  });
+});
 
 describe("isPdfUrl", () => {
   it("matches .pdf paths on supported schemes, ignoring query/hash", () => {

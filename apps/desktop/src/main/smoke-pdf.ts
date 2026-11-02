@@ -104,6 +104,14 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
       res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="cert.pdf"' });
       return void res.end(pdf);
     }
+    // Like a webmail: a page with a Download button for an attached PDF.
+    if (req.url?.startsWith("/mail")) {
+      return void res.writeHead(200, { "Content-Type": "text/html" }).end('<!doctype html><title>Inbox</title><a id="dl" href="/attachment?id=1">Download</a>');
+    }
+    if (req.url?.startsWith("/attachment")) {
+      res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="invoice.pdf"' });
+      return void res.end(pdf);
+    }
     if (req.url?.startsWith("/private.pdf") && !signedIn) return void res.writeHead(403, { "Content-Type": "text/html" }).end("<!doctype html><title>Sign in</title>");
     res.writeHead(200, { "Content-Type": "application/pdf" });
     res.end(pdf);
@@ -140,6 +148,23 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
       certServed,
     });
     win.closeTab(certTab.id);
+
+    // A PDF a page that stays sends as an attachment (a webmail's Download) is saved as a file, not opened in the viewer.
+    const attachmentsBefore = ctx.downloads.list(win.profile).length;
+    const attachmentTab = win.createTab(`${base}/mail`, { activate: true });
+    await poll(attachmentTab.view.webContents, "document.getElementById('dl')");
+    await attachmentTab.view.webContents.executeJavaScript("document.getElementById('dl').click()").catch(() => false);
+    let attachment: { filename: string; state: string; savePath: string } | undefined;
+    for (let i = 0; i < 50 && attachment?.state !== "completed"; i++) {
+      await sleep(150);
+      attachment = ctx.downloads.list(win.profile).length > attachmentsBefore ? ctx.downloads.list(win.profile).sort((x, y) => y.startedAt - x.startedAt)[0] : undefined;
+    }
+    const attachmentSaved = attachment?.state === "completed" && fs.existsSync(attachment.savePath) && fs.readFileSync(attachment.savePath).equals(pdf);
+    await sleep(300);
+    const mailUrl = attachmentTab.view?.webContents.getURL();
+    check("a PDF a page sends as an attachment downloads as a file and the page stays", attachmentSaved && attachment?.filename === "invoice.pdf" && mailUrl === `${base}/mail`, { attachment, mailUrl });
+    if (attachment?.savePath) fs.rmSync(attachment.savePath, { force: true });
+    win.closeTab(attachmentTab.id);
 
     // Fetched by the viewer itself: with the tab's cookies.
     const privateTab = win.createTab(pdfViewerUrl(`${base}/private.pdf`), { activate: true });

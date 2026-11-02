@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.36.8
+
+### PDF viewer
+- **Download buttons download PDFs again.** A PDF a site sends as an attachment (Gmail's **Download** on an attached PDF, any "download" link that asks for the file to be saved) opened in the PDF viewer instead of being saved, so getting the file took an extra step that looked like it saved it to the reading list. When the page you are on asks for the file to be saved, the PDF is now saved to your downloads and the page stays, as in other browsers. A link to a `.pdf`, and a PDF that opens in a tab of its own (a bank's one-time link), still open in the viewer.
+
 ## v0.36.7
 
 ### Sites with their own certificates
