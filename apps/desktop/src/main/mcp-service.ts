@@ -66,7 +66,7 @@ export class McpService {
   /** Records where this Corvus runs from, so the stdio bridge can start it when it is closed. */
   recordAppLocation(): void {
     if (!app.isPackaged) return;
-    // The portable build and the AppImage run from a temporary copy; launch the original.
+    // The portable build and the AppImage run from an unpacked copy; launch the original.
     const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.env.APPIMAGE || process.execPath;
     try {
       const file = path.join(this.homeDir(), "app.json");

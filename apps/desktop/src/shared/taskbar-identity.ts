@@ -4,9 +4,8 @@
  * electron-builder appId, so the installed app takes the same one: its windows then belong to those
  * shortcuts and to a pin made from them, whichever way Corvus was started.
  *
- * The portable build runs from a copy its launcher unpacks to a temporary folder, deleted when
- * Corvus quits and different for every version, so a pin of its window would start that copy and
- * break. Its windows name the portable file itself as what a pin starts (the self-update keeps that
+ * The portable build runs from a copy its launcher unpacks into a folder of each build's own,
+ * removed once another build has run, so a pin of its window would start that copy and break. Its windows name the portable file itself as what a pin starts (the self-update keeps that
  * file's name and place), under an ID of their own so they never mix with an installed Corvus.
  */
 

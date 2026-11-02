@@ -1,0 +1,73 @@
+diff --git a/templates/nsis/portable.nsi b/templates/nsis/portable.nsi
+index e5436bb..95d9a7c 100644
+--- a/templates/nsis/portable.nsi
++++ b/templates/nsis/portable.nsi
+@@ -32,7 +32,12 @@ Section
+ 
+   StrCpy $INSTDIR "$PLUGINSDIR\app"
+   !ifdef UNPACK_DIR_NAME
+-    StrCpy $INSTDIR "$TEMP\${UNPACK_DIR_NAME}"
++    # Corvus: each build unpacks once, into a folder that lasts, and later launches start from it.
++    # Unpacking the whole app into a temporary folder on every launch took most of a start (seconds).
++    StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCT_FILENAME}-portable\${UNPACK_DIR_NAME}"
++    IfFileExists "$INSTDIR\.unpacked" 0 unpack
++    IfFileExists "$INSTDIR\${APP_EXECUTABLE_FILENAME}" launch
++    unpack:
+   !endif
+ 
+   RMDir /r $INSTDIR
+@@ -74,6 +79,33 @@ Section
+     !endif
+   !endif
+ 
++  !ifdef UNPACK_DIR_NAME
++    # The unpack is complete: mark it, free the temporary copies the extraction left behind, and
++    # remove other builds' folders, except one still running (its executable cannot be opened).
++    FileOpen $R2 "$INSTDIR\.unpacked" w
++    FileClose $R2
++    RMDir /r "$PLUGINSDIR\7z-out"
++    Delete "$PLUGINSDIR\app-*.*"
++    FindFirst $R2 $R3 "$LOCALAPPDATA\${PRODUCT_FILENAME}-portable\*"
++    cleanup:
++      StrCmp $R3 "" cleanupDone
++      StrCmp $R3 "." cleanupNext
++      StrCmp $R3 ".." cleanupNext
++      StrCmp $R3 "${UNPACK_DIR_NAME}" cleanupNext
++      IfFileExists "$LOCALAPPDATA\${PRODUCT_FILENAME}-portable\$R3\*.*" 0 cleanupNext
++      ClearErrors
++      FileOpen $R4 "$LOCALAPPDATA\${PRODUCT_FILENAME}-portable\$R3\${APP_EXECUTABLE_FILENAME}" a
++      IfErrors cleanupNext
++      FileClose $R4
++      RMDir /r "$LOCALAPPDATA\${PRODUCT_FILENAME}-portable\$R3"
++    cleanupNext:
++      FindNext $R2 $R3
++      Goto cleanup
++    cleanupDone:
++    FindClose $R2
++    launch:
++  !endif
++
+   System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("PORTABLE_EXECUTABLE_DIR", "$EXEDIR").r0'
+   System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("PORTABLE_EXECUTABLE_FILE", "$EXEPATH").r0'
+   System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("PORTABLE_EXECUTABLE_APP_FILENAME", "${APP_FILENAME}").r0'
+@@ -83,9 +115,19 @@ Section
+     BgImage::Destroy
+   !endif
+ 
++  ClearErrors
+ 	ExecWait "$INSTDIR\${APP_EXECUTABLE_FILENAME} $R0" $0
++  !ifdef UNPACK_DIR_NAME
++    # The app could not start or failed: unpack again next time, in case a file of it was damaged.
++    ${if} ${Errors}
++    ${orIf} $0 <> 0
++      Delete "$INSTDIR\.unpacked"
++    ${endIf}
++  !endif
+   SetErrorLevel $0
+ 
+   SetOutPath $EXEDIR
+-	RMDir /r $INSTDIR
++  !ifndef UNPACK_DIR_NAME
++	  RMDir /r $INSTDIR
++  !endif
+ SectionEnd

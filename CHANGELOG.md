@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.36.5
+
+### Faster and smaller
+- **The portable Windows build opens in under a second.** Before, every start unpacked the whole browser (about 390 MB) into a temporary folder first, which took 5 to 15 seconds before the window showed, also for a link opened with Corvus while it was already running. Now each version unpacks once, into `%LOCALAPPDATA%\Corvus-portable`, on its first start, and later starts open straight from there. A new version removes the previous one's folder, and a damaged copy is unpacked again on the next start.
+- **Gigabytes back from the temp folder.** When Windows shut down with the portable Corvus open (or its launcher was stopped), the old launcher left about half a gigabyte in `%TEMP%` each time. The portable build now removes those leftovers a minute after it starts (never one a running Corvus uses).
+
 ## v0.36.4
 
 ### AI agents (MCP)

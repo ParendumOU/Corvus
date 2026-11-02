@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Menu, app, nativeImage, nativeTheme, safeStorage, session, utilityProcess } from "electron";
@@ -34,6 +35,8 @@ import { BrowserIcons } from "./browser-icons";
 import { BrowserImport } from "./browser-import";
 import { PasswordExports } from "./password-export";
 import { paths } from "./paths";
+import { removePortableLeftovers } from "./portable-leftovers";
+import { portableExecutable } from "./portable-updater";
 import { LiveHistoryService } from "./live-history";
 import { LinkGrabber } from "./link-grabber";
 import { ExtensionWindowBridge } from "./extension-windows";
@@ -408,6 +411,11 @@ async function main(): Promise<void> {
   ctx.tabSleeper.start();
   ctx.liveHistory.start({ announce: !automated });
   ctx.updater.startupCheck();
+  // Once the start is over: what older portable launchers left in the temp folder (GBs) goes.
+  if (portableExecutable()) {
+    const plainFs = createRequire(import.meta.url)("original-fs") as typeof fs;
+    setTimeout(() => void removePortableLeftovers(app.getPath("temp"), plainFs), 60_000);
+  }
 
   // The smoke test and the marketing capture are chunks of their own: normal starts never load them.
   if (process.env.CORVUS_SMOKE_TEST === "1") void import("./smoke").then((m) => m.runSmokeTest(ctx));
