@@ -176,7 +176,11 @@ function Segmented<T extends string>({ value, options, onChange }: { value: T; o
 const accessLevels = (): Array<{ level: AccessLevel; label: string; blurb: string }> => [
   { level: "read", label: t("Read-only"), blurb: t("Agents can look: read page text, list tabs and take screenshots. They cannot act on anything.") },
   { level: "standard", label: t("Standard"), blurb: t("Agents can navigate, click, type and fill in forms — enough to use most sites. The recommended default.") },
-  { level: "full", label: t("Full"), blurb: t("Everything in Standard, plus running JavaScript in pages, uploading files, reading downloads and saving PDFs.") },
+  {
+    level: "full",
+    label: t("Full"),
+    blurb: t("Everything in Standard, plus running JavaScript in pages, uploading files, reading downloads, saving PDFs and signing in with saved logins (without asking, if you allow it in Passwords)."),
+  },
 ];
 
 function AccessLevelControl({ value, onChange }: { value: AccessLevel; onChange: (v: AccessLevel) => void }) {
@@ -699,6 +703,16 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
       >
         <Toggle label={t("Let AI agents use logins you opt in")} checked={pw.agentAccess} onChange={(v) => update({ passwords: { agentAccess: v } })} />
       </Row>
+      <Row
+        label={t("Let trusted AI agents sign in without asking")}
+        hint={t("For agents you let work on their own: MCP clients at Full access (such as Claude Code) and the Command Bar agent with “Ask before risky actions” off. They sign in with any saved login of the site, fill its 2FA code, answer its sign-in box and open the apps it asks for, such as AutoFirma, without asking you. They never see the password or the code. Anything that spends money still asks. Off by default.")}
+      >
+        <Toggle
+          label={t("Let trusted AI agents sign in without asking")}
+          checked={pw.agentSignInWithoutAsking}
+          onChange={(v) => update({ passwords: { agentSignInWithoutAsking: v } })}
+        />
+      </Row>
       <Row label={t("Lock KeePass databases after")} hint={t("Minutes without keyboard or mouse activity. 0 keeps them unlocked until you lock them or quit.")}>
         <LazyInput
           value={String(pw.keepassAutoLockMinutes)}
@@ -867,7 +881,7 @@ function CommandAgentSection({ view, update }: { view: SettingsView; update: (p:
       </Row>
       <Row
         label={t("Ask before risky actions")}
-        hint={t("When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money, saved logins and 2FA codes still ask you each time, and card or password fields are always handed back to you. CAPTCHAs are solved by the agent and handed back only if it cannot finish.")}
+        hint={t("When on, Corvus asks before the agent submits a form, signs in or takes another risky step. When off, the agent runs on its own, but anything that spends money still asks you each time, saved logins and 2FA codes too unless you let trusted agents sign in without asking (Passwords, above), and card or password fields are always handed back to you. CAPTCHAs are solved by the agent and handed back only if it cannot finish.")}
       >
         <Toggle label={t("Ask before risky actions")} checked={agent.askBeforeRisky} onChange={(v) => update({ agent: { askBeforeRisky: v } })} />
       </Row>

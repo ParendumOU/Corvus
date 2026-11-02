@@ -97,6 +97,8 @@ export class DownloadManager {
   private readonly approved = new Map<string, string | null>();
   /** URLs downloaded through "Save … as": always ask where to save. */
   private readonly saveAsUrls = new Set<string>();
+  /** URLs the person chose to download from the PDF viewer: a file, not the viewer again. */
+  private readonly withoutViewerUrls = new Set<string>();
   /** `${profileId}|${url}`: downloads extensions asked for, until the browser starts them. */
   private readonly extensionRequests = new Map<string, ExtensionRequest[]>();
   private readonly listeners = new Set<DownloadListListener>();
@@ -137,6 +139,12 @@ export class DownloadManager {
   /** Download a URL from a tab, always asking where to save (context menu "Save … as"). */
   saveAs(wc: WebContents, url: string): void {
     this.saveAsUrls.add(url);
+    wc.downloadURL(url);
+  }
+
+  /** Download a URL from a tab as a file, even a PDF the viewer would open (its "Download the file"). */
+  downloadWithoutViewer(wc: WebContents, url: string): void {
+    this.withoutViewerUrls.add(url);
     wc.downloadURL(url);
   }
 
@@ -234,10 +242,8 @@ export class DownloadManager {
     if (tab && this.ctx.queue.claimDownload(runtime, tab.window, tab.tab.id, item)) return tidyTab();
     // Matched on the address the extension gave, before any redirect.
     const request = [...new Set([...item.getURLChain(), url])].reduce<ExtensionRequest | undefined>((found, u) => found ?? this.takeExtensionRequest(runtime.profile.id, u), undefined);
-    if (!request && maybeInterceptPdf(this.ctx, item, tab, this.saveAsUrls)) {
-      event.preventDefault();
-      return;
-    }
+    const withoutViewer = [url, ...item.getURLChain()].some((u) => this.withoutViewerUrls.delete(u));
+    if (!request && maybeInterceptPdf(this.ctx, item, tab, withoutViewer || this.saveAsUrls.has(url))) return;
     tidyTab();
     const approvalKey = `${runtime.profile.id}|${url}`;
     const approval = this.approved.get(approvalKey);

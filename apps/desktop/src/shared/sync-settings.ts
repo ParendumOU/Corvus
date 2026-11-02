@@ -69,6 +69,7 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "downloads.segments": "Depends on this machine's connection.",
   "downloads.archivePasswords": "Kept on this device with the files they open.",
   "passwords.agentAccess": "Lets AI agents use opted-in logins and 2FA codes on this device; a per-device security decision.",
+  "passwords.agentSignInWithoutAsking": "Lets trusted AI agents sign in on this device without asking; a per-device security decision.",
   "passwords.keepassAutoLockMinutes": "KeePass databases are local files; their lock timeout is chosen per device.",
   "passwords.passkeys": "Passkeys and security keys depend on this device's authenticators (Windows Hello, Touch ID, USB keys).",
   "passwords.backupReminder": "The backup reminder follows the backups made on this device.",

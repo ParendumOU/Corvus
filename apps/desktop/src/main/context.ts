@@ -14,6 +14,7 @@ import type { HttpAuthService } from "./http-auth";
 import type { Controller } from "./controller";
 import type { CrashReporter } from "./crash-log";
 import type { DownloadManager } from "./downloads";
+import type { PdfCaptures } from "./pdf-captures";
 import type { BackupReminder } from "./backup-reminder";
 import type { DefaultBrowser } from "./default-browser";
 import type { BrowserIcons } from "./browser-icons";
@@ -70,6 +71,8 @@ export interface AppContext {
   sync: SyncService;
   updater: UpdateService;
   downloads: DownloadManager;
+  /** PDFs downloaded for the viewer, kept so it never has to fetch them again. */
+  pdfCaptures: PdfCaptures;
   /** Download links collected from pages and copied text, waiting to be downloaded. */
   grabber: LinkGrabber;
   /** Corvus as the default browser: status, "Make default", and the once-per-launch offer. */

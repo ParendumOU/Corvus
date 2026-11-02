@@ -7,6 +7,7 @@ import path from "node:path";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
 import { windowShot } from "./smoke-cert-errors";
+import { trustAgents } from "./smoke-credentials";
 import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -358,6 +359,16 @@ async function externalAppChecks(
   await pressButton(win, 0);
   await sleep(300);
   settings.setExternalAppAllowed(SITE, "afirma", false);
+
+  // A trusted agent (the person lets agents sign in without asking) opens it with no question.
+  const untrust = trustAgents(ctx);
+  try {
+    if (ref) await ctx.controller.click(agentTab.id, ref);
+    const opened = await until(() => xdg.opened().length === 4);
+    check("external apps: a trusted agent's click opens Autofirma without asking", opened && win.state().dialog === null, { opened: xdg.opened(), dialog: win.state().dialog?.title });
+  } finally {
+    untrust();
+  }
   await ctx.controller.closeTab(agentTab.id).catch(() => undefined);
 }
 
@@ -552,6 +563,22 @@ async function signInChecks(ctx: AppContext, win: BrowserWindowCtl, check: Helpe
     const agentWc = pageOf(ctx.windows.findTab(agentTab.id)?.tab.view);
     const agentStatus = agentWc ? await js<string>(agentWc, "document.getElementById('s')?.textContent ?? ''") : null;
     check("sign-in: an agent signs in with a login opted in for agents, after the person's approval", agentStatus === "signed in to /auth/six" && approvals === 1 && win.state().dialog === null, { agentStatus, approvals });
+
+    // A trusted agent signs in with a saved login nobody opted in, and nobody is asked.
+    vault.remove(agentLogin.id);
+    const plainLogin = vault.add({ origin: SITE, username: USER, password: PASS });
+    ctx.settings.update({ passwords: { agentAccess: false } });
+    const untrust = trustAgents(ctx);
+    try {
+      await clearAuth();
+      await ctx.controller.navigate(agentTab.id, `${SITE}/auth/seven`);
+      const trustedWc = pageOf(ctx.windows.findTab(agentTab.id)?.tab.view);
+      const trustedStatus = trustedWc ? await js<string>(trustedWc, "document.getElementById('s')?.textContent ?? ''") : null;
+      check("sign-in: a trusted agent signs in with a saved login without asking", trustedStatus === "signed in to /auth/seven" && approvals === 1 && win.state().dialog === null, { trustedStatus, approvals });
+    } finally {
+      untrust();
+      vault.remove(plainLogin.id);
+    }
   } finally {
     ctx.agentCredentials.setTestApprover(null);
     ctx.settings.update({ passwords: { agentAccess: accessBefore } });

@@ -18,7 +18,7 @@ services:
       CORVUS_SYNC_URL: http://sync-server:8787
 
   searxng:
-    image: searxng/searxng:2026.10.17-1c10abe2d
+    image: searxng/searxng:2026.11.1-10db664f1
     ports: ["${CORVUS_SEARXNG_HOST_PORT:-8898}:8080"]
     volumes:
       - ./docker/searxng:/etc/searxng:ro

@@ -112,6 +112,8 @@ export async function runAgentIsolationSmoke(ctx: AppContext, h: AgentIsolationS
     win.focusContent();
     await sleep(200);
     await personWc.insertText("draft");
+    // Every moment the person's page loses the keyboard would close a menu or list they have open.
+    await personWc.executeJavaScript("window.__blurs = 0; addEventListener('blur', () => window.__blurs++); true");
 
     session = await openMcpSession(`http://127.0.0.1:${status.port}/mcp`, status.token, clientName);
     const opened = await session.tool("navigate", { url: `${server.base}agent` });
@@ -144,6 +146,8 @@ export async function runAgentIsolationSmoke(ctx: AppContext, h: AgentIsolationS
     const front = win.activeTab()?.id === personTab.id;
     const mine = (await personWc.executeJavaScript("({ value: document.getElementById('mine').value, focused: document.activeElement && document.activeElement.id })")) as { value: string; focused: string };
     check("isolation: the person's tab stayed in front, with their text and caret", front && personWc.isFocused() && mine.value === "draft" && mine.focused === "mine", { front, keyboard: personWc.isFocused(), mine });
+    const blurs = (await personWc.executeJavaScript("window.__blurs")) as number;
+    check("isolation: the person's page never lost the keyboard while the agent's tab loaded and worked", blurs === 0, { blurs });
     await personWc.insertText(" more");
     const after = (await personWc.executeJavaScript("document.getElementById('mine').value")) as string;
     check("isolation: the person keeps typing in their tab while the agent works", after === "draft more", after);

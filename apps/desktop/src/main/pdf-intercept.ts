@@ -1,5 +1,5 @@
 import type { DownloadItem } from "electron";
-import { isPdfUrl, pdfViewerUrl } from "../shared/pdf-ipc";
+import { PDF_MAX_BYTES, isPdfUrl, isSupportedPdfSource, pdfViewerUrl } from "../shared/pdf-ipc";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -16,25 +16,30 @@ export function pdfViewerRedirect(ctx: AppContext, agentControlled: boolean, url
 }
 
 /**
- * Fallback for PDFs served as an attachment (Content-Disposition), which download instead of
- * navigating. Redirect the originating tab to the viewer. Save-As and agent downloads are left
- * alone. Returns true when the caller should preventDefault() the download.
+ * PDFs that arrive as a download (Content-Disposition, a .aspx link, a form post): the download
+ * finishes into a capture (PdfCaptures) and the originating tab opens the viewer on those very
+ * bytes, so a one-time link or a session cookie is never needed twice. Save-As, "download without
+ * the viewer", agent downloads and PDFs over the size cap stay downloads. Returns true when the PDF
+ * went to the viewer (the caller then leaves the item alone: it is not listed as a download).
  */
 export function maybeInterceptPdf(
   ctx: AppContext,
   item: DownloadItem,
   located: { window: BrowserWindowCtl; tab: TabRuntime } | undefined,
-  saveAsUrls: ReadonlySet<string>,
+  keepAsDownload: boolean,
 ): boolean {
-  if (!located || located.tab.agentControlled) return false;
+  if (!located || located.tab.agentControlled || keepAsDownload) return false;
   if (!ctx.settings.get().pdf.openInViewer) return false;
   const url = item.getURL();
-  if (saveAsUrls.has(url)) return false;
+  // A file a page made itself (blob:, data:: a web app's export, the viewer's own Download) is meant to be saved.
+  if (!isSupportedPdfSource(url)) return false;
   if (item.getMimeType() !== "application/pdf" && !isPdfUrl(url)) return false;
+  if (item.getTotalBytes() > PDF_MAX_BYTES) return false;
   const { window, tab } = located;
-  // Defer: the download that triggered this is still being torn down on this webContents.
+  const capture = ctx.pdfCaptures.capture(item, window.profile.profile.id, url);
+  // Defer: the navigation that turned into this download is still being torn down on this webContents.
   setImmediate(() => {
-    if (!window.isDisposed()) window.loadUrl(tab.id, pdfViewerUrl(url));
+    if (!window.isDisposed()) window.loadUrl(tab.id, pdfViewerUrl(url, capture));
   });
   return true;
 }

@@ -1,7 +1,8 @@
 /**
  * Contract + pure helpers for the in-app PDF viewer (corvus://pdf). The viewer is a normal internal
- * page (a tab); the main process fetches the PDF bytes (internal-page CSP forbids cross-origin
- * fetch) and runs the EXISTING AI reading tools over the PDF, treating each page as one cited
+ * page (a tab); the main process hands it the PDF bytes (internal-page CSP forbids cross-origin
+ * fetch): the bytes of the download the browser already made when there is one (`capture`), else a
+ * fetch with the tab's own session (its cookies). It also runs the EXISTING AI reading tools over the PDF, treating each page as one cited
  * section. PDF text is untrusted and is fenced by runAssist like any other page content.
  */
 
@@ -78,7 +79,9 @@ export interface PdfSaveRequest {
 }
 
 export interface PdfRpc {
-  "pdf.fetch"(src: string): PdfFetchResult;
+  "pdf.fetch"(src: string, capture?: string): PdfFetchResult;
+  /** Downloads the source as a file, without the viewer. */
+  "pdf.download"(src: string): boolean;
   "pdf.ai"(req: PdfAiRequest): PdfAiResult;
   "pdf.save"(req: PdfSaveRequest): boolean;
   "pdf.isSaved"(src: string): boolean;
@@ -106,8 +109,19 @@ export function isPdfUrl(url: string): boolean {
   }
 }
 
-export function pdfViewerUrl(src: string): string {
-  return `corvus://pdf/?src=${encodeURIComponent(src)}`;
+/** The viewer for `src`; `capture` names the bytes of a download Corvus kept for it (PdfCaptures). */
+export function pdfViewerUrl(src: string, capture?: string): string {
+  return `corvus://pdf/?src=${encodeURIComponent(src)}${capture ? `&capture=${encodeURIComponent(capture)}` : ""}`;
+}
+
+/** The capture id in a corvus://pdf viewer URL, or null. */
+export function pdfCaptureFromViewer(url: string): string | null {
+  try {
+    const id = new URL(url).searchParams.get("capture");
+    return id && /^[0-9a-f-]{36}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Extracts and validates the source URL from a corvus://pdf viewer URL; null if not one. */
@@ -131,6 +145,12 @@ export function pdfTitleFromSource(src: string): string {
   } catch {
     return "PDF";
   }
+}
+
+/** The name the PDF is saved under: the server's or the source's, with a .pdf extension and no characters a file system refuses. */
+export function pdfFileName(name: string): string {
+  const base = name.replace(/[\/:*?"<>|\u0000-\u001f]+/g, " ").trim().replace(/\.(pdf|aspx?|php|jsp|cgi)$/i, "").slice(0, 120).trim() || "document";
+  return `${base}.pdf`;
 }
 
 /** Keeps contiguous leading pages within the character budget so citations stay page-aligned. */

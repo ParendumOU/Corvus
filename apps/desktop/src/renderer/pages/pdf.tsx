@@ -8,6 +8,8 @@ import {
   PDF_ZOOM_MAX,
   PDF_ZOOM_MIN,
   buildPdfMarkdown,
+  pdfCaptureFromViewer,
+  pdfFileName,
   pdfSrcFromViewer,
   pdfTitleFromSource,
   type PdfAiKind,
@@ -208,6 +210,7 @@ interface AiMessage {
 function PdfApp() {
   const api = internalApi();
   const src = pdfSrcFromViewer(window.location.href);
+  const capture = pdfCaptureFromViewer(window.location.href);
 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -232,6 +235,8 @@ function PdfApp() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pageEls = useRef<Array<HTMLDivElement | null>>([]);
   const pagesText = useRef<PdfPageText[]>([]);
+  /** The PDF as it came, for Download: saved as a file, not fetched again. */
+  const fileRef = useRef<{ blob: Blob; name: string } | null>(null);
   const textReady = useRef(false);
   const currentPageRef = useRef(1);
   currentPageRef.current = currentPage;
@@ -250,8 +255,10 @@ function PdfApp() {
     let loadedTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
     void (async () => {
       try {
-        const fetched = await api.call("pdf.fetch", src);
+        const fetched = await api.call("pdf.fetch", src, capture ?? undefined);
         if (disposed) return;
+        // Copied before pdf.js takes the bytes over to its worker.
+        fileRef.current = { blob: new Blob([new Uint8Array(fetched.data)], { type: "application/pdf" }), name: pdfFileName(fetched.filename) };
         const task = pdfjsLib.getDocument({ data: fetched.data });
         loadedTask = task;
         const pdf = await task.promise;
@@ -285,7 +292,7 @@ function PdfApp() {
       window.speechSynthesis.cancel();
       if (loadedTask) void loadedTask.destroy();
     };
-  }, [src, api]);
+  }, [src, capture, api]);
 
   // Track the top-most visible page for the page indicator.
   useEffect(() => {
@@ -403,6 +410,18 @@ function PdfApp() {
     })();
   }, [api, ensureText, messages, meta]);
 
+  /** Saves the PDF itself where downloads go, like a download from the page. */
+  const download = useCallback(() => {
+    const file = fileRef.current;
+    if (!file) return;
+    const url = URL.createObjectURL(file.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }, []);
+
   const toggleListen = useCallback(() => {
     if (speaking) {
       window.speechSynthesis.cancel();
@@ -462,8 +481,10 @@ function PdfApp() {
         <div className="pdf-state">
           <IconWarning size={28} />
           <div>{error}</div>
-          {src && (
-            <a className="pdf-btn" href={src}>{tx("Open the source URL")}</a>
+          {src && /^https?:/i.test(src) && (
+            <button className="pdf-btn" onClick={() => void api.call("pdf.download", src)}>
+              <IconDownload size={15} /> {tx("Download the file")}
+            </button>
           )}
         </div>
       </div>
@@ -515,8 +536,11 @@ function PdfApp() {
         <button className={`pdf-btn ${speaking ? "active" : ""}`} title={tx("Read aloud")} onClick={toggleListen}>
           <IconVolume size={15} />
         </button>
-        <button className="pdf-btn" disabled={saved} title={tx("Save to reading list")} onClick={save}>
-          <IconDownload size={15} /> {saved ? tx("Saved") : tx("Save")}
+        <button className="pdf-btn" title={tx("Download the PDF")} onClick={download}>
+          <IconDownload size={15} /> {tx("Download")}
+        </button>
+        <button className="pdf-btn" disabled={saved} title={tx("Save its text to the reading list")} onClick={save}>
+          <IconBook size={15} /> {saved ? tx("In reading list") : tx("Reading list")}
         </button>
         <button className={`pdf-btn ${aiOpen ? "active" : ""}`} title={tx("AI reading tools")} onClick={() => setAiOpen((v) => !v)}>
           <IconSparkle size={15} />{" "}{tx("AI")}</button>

@@ -6,6 +6,7 @@
  * Gates, in order: the global setting (off by default), the per-login opt-in (off by default), an
  * unambiguous login for the page, then the person's approval for this one use. Without them the
  * result tells the agent to hand the step to the person, which is the behaviour without this feature.
+ * A trusted agent (agent-credential-policy signsInWithoutAsking) only needs an unambiguous login.
  *
  * Nothing here logs, returns or stores a password, a code or a 2FA secret.
  */
@@ -13,7 +14,7 @@ import type { WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { totpCode } from "../shared/totp";
-import { approvalReason, pickAgentLogin, type CredentialUse } from "./agent-credential-policy";
+import { approvalReason, pickAgentLogin, signsInWithoutAsking, type CredentialUse } from "./agent-credential-policy";
 import { askNativeApproval } from "./approval-dialog";
 import { AUTOFILL_WORLD_ID, fillLoginByRefScript, fillOtpByRefScript, type FillOutcome } from "./credential-scripts";
 import type { AppContext } from "./context";
@@ -97,6 +98,14 @@ export class AgentCredentialService {
     return this.ctx.settings.get().passwords.agentAccess;
   }
 
+  /**
+   * Whether the agent signs in, answers sign-in boxes and opens apps without asking: by default the
+   * client of the latest tool call, for what a page asks on its own in an agent's tab.
+   */
+  trusted(client: string = this.ctx.agents.currentClient): boolean {
+    return signsInWithoutAsking(this.ctx.settings.get(), client);
+  }
+
   /** Smoke tests answer the MCP approval dialog without a person; null restores the dialog. */
   setTestApprover(approver: CredentialApprover | null): void {
     this.testApprover = approver;
@@ -138,23 +147,27 @@ export class AgentCredentialService {
     const page = this.locate(tabId);
     if (!page) return { ok: false, outcome: { status: "error", message: "That tab is not an http(s) page the agent can use." } };
     const host = hostOf(page.url);
+    const trusted = this.trusted(opts.client);
     const picked = pickAgentLogin(page.window.profile.logins.records(page.url), use, {
       globalOn: this.enabled,
+      trusted,
       host,
       handoffHint: opts.handoffHint,
       ...(opts.username ? { username: opts.username } : {}),
     });
     if (!picked.ok) return { ok: false, outcome: { status: picked.status, message: picked.message } };
 
-    const approved = await opts.approve({ use, host, username: picked.record.username, reason: approvalReason(use, picked.record, host), client: opts.client });
-    if (!approved) {
-      return { ok: false, outcome: { status: "declined", message: `The person declined. Do not try again; ${opts.handoffHint.charAt(0).toLowerCase()}${opts.handoffHint.slice(1)}` } };
+    if (!trusted) {
+      const approved = await opts.approve({ use, host, username: picked.record.username, reason: approvalReason(use, picked.record, host), client: opts.client });
+      if (!approved) {
+        return { ok: false, outcome: { status: "declined", message: `The person declined. Do not try again; ${opts.handoffHint.charAt(0).toLowerCase()}${opts.handoffHint.slice(1)}` } };
+      }
     }
 
     const after = this.locate(tabId);
     const record = after ? after.window.profile.logins.forPage(picked.record.id, after.url) : undefined;
     if (!after || !record) return { ok: false, outcome: { status: "error", message: "The page changed while waiting for approval. Take a new page_snapshot." } };
-    if (use === "totp" ? !(record.totp && record.agentTotp) : !record.agentSignIn) {
+    if (use === "totp" ? !(record.totp && (trusted || record.agentTotp)) : !(trusted || record.agentSignIn)) {
       return { ok: false, outcome: { status: "handoff", message: `The person no longer allows agents to use this login. ${opts.handoffHint}` } };
     }
     return { ok: true, record, window: after.window, wc: after.wc, url: after.url };

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { WebContents } from "electron";
@@ -93,12 +94,23 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
     ["Hello from the smoke PDF.", "The common raven is a large passerine bird."],
     ["Second page about ravens.", "Ravens are clever and playful."],
   ]);
-  const server = http.createServer((_req, res) => {
+  // Like a bank: the certificate comes once, from a one-time link, as an attachment, and only with
+  // the session cookie; a second request gets an HTML page.
+  let certServed = 0;
+  const server = http.createServer((req, res) => {
+    const signedIn = /(^|;\s*)bank=1(;|$)/.test(req.headers.cookie ?? "");
+    if (req.url?.startsWith("/cert.aspx")) {
+      if (!signedIn || certServed++ > 0) return void res.writeHead(200, { "Content-Type": "text/html" }).end("<!doctype html><title>Session expired</title>");
+      res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="cert.pdf"' });
+      return void res.end(pdf);
+    }
+    if (req.url?.startsWith("/private.pdf") && !signedIn) return void res.writeHead(403, { "Content-Type": "text/html" }).end("<!doctype html><title>Sign in</title>");
     res.writeHead(200, { "Content-Type": "application/pdf" });
     res.end(pdf);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const src = `http://127.0.0.1:${(server.address() as AddressInfo).port}/doc.pdf`;
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const src = `${base}/doc.pdf`;
 
   ctx.assist.setTestProvider(pdfFakeProvider());
   const before = win.profile.reading.list().length;
@@ -113,6 +125,34 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
     }
     check("navigating to a PDF is intercepted into corvus://pdf", redirected, navTab.view.webContents.getURL());
     win.closeTab(navTab.id);
+
+    // A PDF that downloads from a one-time link with the session cookie opens from that very download.
+    await win.profile.session.cookies.set({ url: base, name: "bank", value: "1" });
+    const certTab = win.createTab(`${base}/cert.aspx?k=once`, { activate: true });
+    let certViewer = false;
+    for (let i = 0; i < 50 && !certViewer; i++) {
+      certViewer = /^corvus:\/\/pdf\/\?src=.*&capture=/.test(certTab.view.webContents.getURL());
+      await sleep(150);
+    }
+    const certRendered = certViewer && (await poll(certTab.view.webContents, "document.querySelector('.pdf-page canvas')"));
+    check("a PDF from a one-time link with a session cookie opens in the viewer from the download itself", certRendered && certServed === 1, {
+      url: certTab.view.webContents.getURL(),
+      certServed,
+    });
+    win.closeTab(certTab.id);
+
+    // Fetched by the viewer itself: with the tab's cookies.
+    const privateTab = win.createTab(pdfViewerUrl(`${base}/private.pdf`), { activate: true });
+    check("the viewer fetches a PDF with the tab's cookies", await poll(privateTab.view.webContents, "document.querySelector('.pdf-page canvas')"));
+    win.closeTab(privateTab.id);
+
+    // The spent link is no PDF any more: the viewer says so and offers the file instead of a loop.
+    const spentTab = win.createTab(pdfViewerUrl(`${base}/cert.aspx?k=once`), { activate: true });
+    const offered = await poll(spentTab.view.webContents, "[...document.querySelectorAll('.pdf-state button')].some((b) => b.textContent.includes('Download the file'))");
+    check("a source that is not a PDF shows the error with Download the file", offered);
+    await capture("pdf-error", spentTab.view.webContents);
+    win.closeTab(spentTab.id);
+    await win.profile.session.cookies.remove(base, "bank");
 
     const tab = win.createTab(pdfViewerUrl(src), { activate: true });
     const wc = tab.view.webContents;
@@ -136,9 +176,21 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
     check("PDF citation labels a page (p.N)", /^p\.\d+$/.test(String(citeText).trim()), citeText);
     await capture("pdf-ai", wc);
 
-    // Save to the reading library (reused store).
-    await wc.executeJavaScript(clickByText(".pdf-toolbar .pdf-btn", "Save")).catch(() => false);
-    const saved = await poll(wc, "[...document.querySelectorAll('.pdf-toolbar .pdf-btn')].some((b) => b.textContent.includes('Saved'))", 4000);
+    // Download saves the PDF itself (not its text), as a download, and the viewer stays.
+    const downloadsBefore = ctx.downloads.list(win.profile).length;
+    await wc.executeJavaScript(clickByText(".pdf-toolbar .pdf-btn", "Download")).catch(() => false);
+    let file: { filename: string; state: string; savePath: string } | undefined;
+    for (let i = 0; i < 50 && file?.state !== "completed"; i++) {
+      await sleep(150);
+      file = ctx.downloads.list(win.profile).length > downloadsBefore ? ctx.downloads.list(win.profile).sort((x, y) => y.startedAt - x.startedAt)[0] : undefined;
+    }
+    const sameBytes = file?.state === "completed" && fs.existsSync(file.savePath) && fs.readFileSync(file.savePath).equals(pdf);
+    check("PDF Download saves the PDF file itself and the viewer stays", sameBytes && file?.filename === "doc.pdf" && wc.getURL().startsWith("corvus://pdf/"), { file, url: wc.getURL() });
+    if (file?.savePath) fs.rmSync(file.savePath, { force: true });
+
+    // Its text goes to the reading library (reused store) only from its own button.
+    await wc.executeJavaScript(clickByText(".pdf-toolbar .pdf-btn", "Reading list")).catch(() => false);
+    const saved = await poll(wc, "[...document.querySelectorAll('.pdf-toolbar .pdf-btn')].some((b) => b.textContent.includes('In reading list'))", 4000);
     const inLibrary = win.profile.reading.list().some((it) => it.url === src);
     check("PDF saved to the reading library", saved && inLibrary && win.profile.reading.list().length === before + 1, { saved, inLibrary });
 

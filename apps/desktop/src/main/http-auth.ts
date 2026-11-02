@@ -112,11 +112,16 @@ export class HttpAuthService {
     }
   }
 
-  /** An opted-in login of the site an agent may sign in with, once the person approved this use. */
+  /**
+   * An opted-in login of the site an agent may sign in with, once the person approved this use; for a
+   * trusted agent, the site's saved login without asking.
+   */
   private async agentLogin(win: BrowserWindowCtl, url: string): Promise<LoginRecord | null> {
     const host = httpAuthPrompt(url, "").site;
-    const picked = pickAgentLogin(win.profile.logins.records(url), "signIn", { globalOn: this.ctx.agentCredentials.enabled, host, handoffHint: "" });
+    const trusted = this.ctx.agentCredentials.trusted();
+    const picked = pickAgentLogin(win.profile.logins.records(url), "signIn", { globalOn: this.ctx.agentCredentials.enabled, trusted, host, handoffHint: "" });
     if (!picked.ok || !picked.record.password) return null;
+    if (trusted) return picked.record;
     const approved = await this.ctx.agentCredentials.dialogApprover()({
       use: "signIn",
       host,

@@ -11,7 +11,7 @@ const staticImports = (src: string): string[] => [...src.matchAll(/^import (?!ty
 describe("what a normal start loads", () => {
   it("leaves the self-test and the marketing capture out of the main entry", () => {
     const imports = staticImports(source("index.ts"));
-    expect(imports.filter((i) => /smoke|capture/.test(i))).toEqual([]);
+    expect(imports.filter((i) => /smoke|capture-marketing/.test(i))).toEqual([]);
   });
 
   it("loads the MCP server package only when the server starts", () => {

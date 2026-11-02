@@ -35,6 +35,7 @@ import { BrowserIcons } from "./browser-icons";
 import { BrowserImport } from "./browser-import";
 import { PasswordExports } from "./password-export";
 import { paths } from "./paths";
+import { PdfCaptures } from "./pdf-captures";
 import { removePortableLeftovers } from "./portable-leftovers";
 import { portableExecutable } from "./portable-updater";
 import { LiveHistoryService } from "./live-history";
@@ -264,6 +265,7 @@ async function main(): Promise<void> {
   ctx.updater = new UpdateService(ctx);
   ctx.sync = new SyncService(ctx, safeStorage, process.env.CORVUS_SYNC_URL || "http://localhost:8797");
   ctx.downloads = new DownloadManager(ctx);
+  ctx.pdfCaptures = new PdfCaptures(app.getPath("temp"));
   ctx.grabber = new LinkGrabber(ctx);
   ctx.queue = new DownloadQueue(ctx);
   ctx.browserImport = new BrowserImport(() => utilityProcess.fork(paths.dpapiWorker, [], { serviceName: "Corvus password import", stdio: "ignore" }));

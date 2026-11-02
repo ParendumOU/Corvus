@@ -29,6 +29,7 @@ import type {
 import type { AgentResumeResult } from "../shared/agent-run-ipc";
 import type { StoredAgentRun } from "./agent-run-store";
 import { TranscriptBuilder, normalizeResumeTranscript } from "./agent-transcript";
+import { COMMAND_BAR_CLIENT } from "./agent-credential-policy";
 import type { CredentialApprover } from "./agent-credentials";
 import { AGENT_SYSTEM, PER_TURN_TOKENS, TOOLS, agentSetupReason, agentToolset, argStr, capAgentTools, classifyToolCall, providerFromSettings, runAgentTool, stepPreview, type ProviderOverride } from "./agent-tools";
 import { applyPromptAddendum, capAccessLevel, matchSiteProfile } from "../shared/site-profiles";
@@ -42,7 +43,7 @@ import { captureAction, isWorkflowTool, learnFromRun, noteToolResult, runWorkflo
 import { tr } from "./menu-i18n";
 
 /** Name shown in the shared agent-activity timeline and in each page overlay caption. */
-const AGENT_CLIENT = "Corvus";
+const AGENT_CLIENT = COMMAND_BAR_CLIENT;
 /** Earlier Command Bar tasks a window lists (running ones are never dropped). */
 const MAX_OTHER_TASKS = 6;
 /** Steps after which the run history keeps a capture of the page (they change what it shows). */
@@ -185,8 +186,8 @@ export class AgentRunner {
     baseSystem?: string,
   ): { system: string; tools: AgentTool[]; override: ProviderOverride | undefined } {
     const profile = url ? matchSiteProfile(win.profile.siteProfiles.list(), url) : null;
-    // Credential tools only when Settings, Passwords allows agents to use opted-in logins.
-    const base = agentToolset(this.ctx.agentCredentials.enabled, baseSystem);
+    // Credential tools only when Settings, Passwords allows agents to use opted-in logins, or this agent signs in without asking.
+    const base = agentToolset(this.ctx.agentCredentials.enabled || this.ctx.agentCredentials.trusted(AGENT_CLIENT), baseSystem);
     // What the person told the agent to remember about them, added to every run of this profile.
     const memory = userMemoryPrompt(win.profile.userMemory.list());
     const withMemory = (system: string): string => (memory ? `${system}\n\n${memory}` : system);
@@ -787,8 +788,10 @@ export class AgentRunner {
 
   /**
    * fill_login / fill_totp: Corvus fills an opted-in saved login or 2FA code by reference after the
-   * person approves this one use in the run panel, whatever "ask before risky actions" says. The
-   * result only says what was filled; the secret never reaches the model, the transcript or history.
+   * person approves this one use in the run panel, whatever "ask before risky actions" says, unless
+   * they let trusted agents sign in without asking and this run is in auto mode (no approval, any saved
+   * login of the site). The result only says what was filled; the secret never reaches the model, the
+   * transcript or history.
    */
   private async executeCredential(win: BrowserWindowCtl, run: Run, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
     const at = Date.now();

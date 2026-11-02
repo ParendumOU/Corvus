@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { net } from "electron";
+import type { WebContents } from "electron";
 import { type AssistPage, type AssistTask, parseSummary, readingMinutes, runAssist } from "@corvus/ai-engine";
 import type { InternalPage } from "../shared/internal-urls";
 import {
@@ -29,6 +29,8 @@ import type { BrowserWindowCtl } from "./window";
 class IpcError extends Error {}
 
 interface InternalContext {
+  /** The viewer's tab: its session holds the site's cookies. */
+  sender: WebContents;
   profile: ProfileRuntime;
   window: BrowserWindowCtl | undefined;
 }
@@ -39,6 +41,7 @@ type InternalHandlers<T> = {
 
 export const PDF_INTERNAL_PERMISSIONS: Record<keyof PdfRpc, readonly InternalPage[]> = {
   "pdf.fetch": ["pdf"],
+  "pdf.download": ["pdf"],
   "pdf.ai": ["pdf"],
   "pdf.save": ["pdf"],
   "pdf.isSaved": ["pdf"],
@@ -97,8 +100,14 @@ function parseSaveRequest(value: unknown): PdfSaveRequest {
   return { doc: parseDoc(v.doc), pages: parsePages(v.pages), keyPoints };
 }
 
-async function fetchPdf(src: string): Promise<PdfFetchResult> {
+/**
+ * The PDF's bytes: those of the download the browser already made for the viewer (PdfCaptures),
+ * else fetched with the tab's own session, so the site's cookies go with the request.
+ */
+async function fetchPdf(ctx: AppContext, c: InternalContext, src: string, capture: string | undefined): Promise<PdfFetchResult> {
   if (!isSupportedPdfSource(src)) throw new IpcError("Unsupported PDF source");
+  const captured = capture ? ctx.pdfCaptures.get(capture, c.profile.profile.id, src) : null;
+  if (captured) return { data: await captured.bytes, contentType: "application/pdf", filename: captured.filename || pdfTitleFromSource(src) };
   if (new URL(src).protocol === "file:") {
     const filePath = fileURLToPath(src);
     const stat = await fs.stat(filePath);
@@ -106,7 +115,7 @@ async function fetchPdf(src: string): Promise<PdfFetchResult> {
     const buf = await fs.readFile(filePath);
     return { data: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength), contentType: "application/pdf", filename: path.basename(filePath) };
   }
-  const res = await net.fetch(src, { redirect: "follow" });
+  const res = await c.sender.session.fetch(src, { redirect: "follow", credentials: "include" });
   if (!res.ok) throw new IpcError(`Could not load the PDF (HTTP ${res.status}).`);
   const declared = Number(res.headers.get("content-length") ?? "");
   if (Number.isFinite(declared) && declared > PDF_MAX_BYTES) throw new IpcError("This PDF is too large to open.");
@@ -184,7 +193,13 @@ function savePdf(c: InternalContext, req: PdfSaveRequest): boolean {
 
 export function pdfInternalHandlers(ctx: AppContext): InternalHandlers<PdfRpc> {
   return {
-    "pdf.fetch": (_c, src) => fetchPdf(str(src, "src", 4096)),
+    "pdf.fetch": (c, src, capture) => fetchPdf(ctx, c, str(src, "src", 4096), typeof capture === "string" ? str(capture, "capture", 64) : undefined),
+    "pdf.download": (c, src) => {
+      const url = str(src, "src", 4096);
+      if (!/^https?:\/\//i.test(url)) throw new IpcError("Unsupported PDF source");
+      ctx.downloads.downloadWithoutViewer(c.sender, url);
+      return true;
+    },
     "pdf.ai": (_c, req) => runPdfAi(ctx, parseAiRequest(req)),
     "pdf.save": (c, req) => savePdf(c, parseSaveRequest(req)),
     "pdf.isSaved": (c, src) => c.profile.reading.hasUrl(str(src, "src", 4096)),

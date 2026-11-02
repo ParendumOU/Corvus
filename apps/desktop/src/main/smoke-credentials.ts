@@ -61,6 +61,21 @@ function servePwnedRange(pathname: string, req: http.IncomingMessage, res: http.
 }
 
 /** Extra pages for the credentials smoke, served by the shared smoke server. */
+/**
+ * Makes every agent trusted for a check ("sign in without asking" on, the Command Bar agent in auto
+ * mode, MCP at Full access) and returns what puts the settings back.
+ */
+export function trustAgents(ctx: AppContext): () => void {
+  const { passwords, agent, mcp } = ctx.settings.get();
+  const before = {
+    passwords: { agentSignInWithoutAsking: passwords.agentSignInWithoutAsking },
+    agent: { askBeforeRisky: agent.askBeforeRisky },
+    mcp: { accessLevel: mcp.accessLevel, allowEvaluate: mcp.allowEvaluate },
+  };
+  ctx.settings.update({ passwords: { agentSignInWithoutAsking: true }, agent: { askBeforeRisky: false }, mcp: { allowEvaluate: true } });
+  return () => ctx.settings.update(before);
+}
+
 export function serveCredentialsSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
   if (pathname.startsWith("/pwned/range/")) {
@@ -738,6 +753,28 @@ async function keepassSmoke(ctx: AppContext, base: string, { url, win, check, ca
           !snap.includes(KP_PASSWORD),
         { blocked: blocked.status, allowed: allowed.status, asked },
       );
+
+      // A trusted agent signs in with a login nobody opted in, and nobody is asked.
+      kp.setOptIn(entryId, { signIn: false });
+      ctx.settings.update({ passwords: { agentAccess: false } });
+      const untrust = trustAgents(ctx);
+      try {
+        const trustedTab = await ctx.controller.openTab(`${base}/login`);
+        await delay(300);
+        const trustedFill = await ctx.controller.fillLogin!(trustedTab.id, { username: "kp-user" });
+        const trustedFound = ctx.windows.findTab(trustedTab.id);
+        const trustedValues = trustedFound ? await trustedFound.tab.view.webContents.executeJavaScript(`document.getElementById("u").value + "/" + document.getElementById("p").value`) : "";
+        check(
+          "a trusted agent signs in with any saved login, without the opt-ins or a question",
+          trustedFill.status === "filled" && asked === 1 && trustedValues === `kp-user/${KP_PASSWORD}` && !trustedFill.message.includes(KP_PASSWORD),
+          { status: trustedFill.status, asked },
+        );
+        await ctx.controller.closeTab(trustedTab.id);
+      } finally {
+        untrust();
+        ctx.settings.update({ passwords: { agentAccess: true } });
+        kp.setOptIn(entryId, { signIn: true });
+      }
 
       // Script access is locked on that tab after the fill, and comes back on a new document.
       const evalBefore = ctx.settings.get().mcp.allowEvaluate;

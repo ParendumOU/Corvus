@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { approvalReason, pickAgentLogin } from "../src/main/agent-credential-policy";
+import { COMMAND_BAR_CLIENT, approvalReason, pickAgentLogin, signsInWithoutAsking } from "../src/main/agent-credential-policy";
 import type { LoginRecord } from "../src/main/login-sources";
+import type { Settings } from "../src/shared/settings";
 
 const TOTP = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };
 
@@ -72,6 +73,32 @@ describe("pickAgentLogin", () => {
         }
       }
     }
+  });
+});
+
+describe("trusted agents", () => {
+  it("use any saved login of the site, without the setting or the opt-in", () => {
+    const trusted = { ...base, globalOn: false, trusted: true };
+    expect(pickAgentLogin([rec({ id: "x" })], "signIn", trusted)).toMatchObject({ ok: true, record: { id: "x" } });
+    expect(pickAgentLogin([rec({ id: "x", totp: TOTP })], "totp", trusted)).toMatchObject({ ok: true, record: { id: "x" } });
+    expect(pickAgentLogin([rec({ id: "x" })], "totp", trusted)).toMatchObject({ ok: false, status: "handoff" });
+    expect(pickAgentLogin([rec({ id: "x" }), rec({ id: "y", username: "bob" })], "signIn", trusted)).toMatchObject({ ok: false, status: "error" });
+    expect(pickAgentLogin([rec({ id: "x" }), rec({ id: "y", username: "bob" })], "signIn", { ...trusted, username: "bob" })).toMatchObject({ ok: true, record: { id: "y" } });
+  });
+
+  const settings = (agentSignInWithoutAsking: boolean, askBeforeRisky: boolean, accessLevel: "read" | "standard" | "full") => ({
+    passwords: { agentSignInWithoutAsking } as Settings["passwords"],
+    agent: { askBeforeRisky } as Settings["agent"],
+    mcp: { accessLevel, allowEvaluate: accessLevel === "full" } as Settings["mcp"],
+  });
+
+  it("are MCP clients at Full access and the Command Bar agent in auto mode, once the person allows it", () => {
+    expect(signsInWithoutAsking(settings(true, true, "full"), "claude-code")).toBe(true);
+    expect(signsInWithoutAsking(settings(true, true, "standard"), "claude-code")).toBe(false);
+    expect(signsInWithoutAsking(settings(true, false, "standard"), COMMAND_BAR_CLIENT)).toBe(true);
+    expect(signsInWithoutAsking(settings(true, true, "full"), COMMAND_BAR_CLIENT)).toBe(false);
+    expect(signsInWithoutAsking(settings(false, false, "full"), "claude-code")).toBe(false);
+    expect(signsInWithoutAsking(settings(false, false, "full"), COMMAND_BAR_CLIENT)).toBe(false);
   });
 });
 

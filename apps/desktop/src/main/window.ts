@@ -76,6 +76,7 @@ import { showPageContextMenu } from "./menus";
 import { paths } from "./paths";
 import { attachUiContextMenu } from "./ui-context-menu";
 import { SplitSession } from "./split-view";
+import { tr } from "./menu-i18n";
 import { pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
 import { applyWindowTaskbarIdentity } from "./taskbar";
@@ -263,6 +264,8 @@ export class BrowserWindowCtl {
   private focusOnReturn = false;
   /** The window has had the system's focus at least once. */
   private focusedOnce = false;
+  /** The person was told that Corvus cannot start pages any more (once per window). */
+  private launchFailedTold = false;
   /** Memory of each renderer process by OS pid, in KB (refreshed by the tab sleeper). */
   private processMemory: ReadonlyMap<number, number> = new Map();
   /** A sleeping tab's view while the extensions layer is told about it (see sleepTab). */
@@ -950,6 +953,10 @@ export class BrowserWindowCtl {
         allowRunningInsecureContent: false,
         safeDialogs: true,
         spellcheck: true,
+        // Corvus gives the keyboard to a page itself (the active tab, after the address bar). By
+        // default each navigation took it: an agent's background tab loading pulled it from the
+        // address bar (its selection gone) and from the page the person was using (menus closed).
+        focusOnNavigation: false,
         ...this.siteFeatures(),
       },
     });
@@ -1159,7 +1166,9 @@ export class BrowserWindowCtl {
       if (details.reason === "clean-exit" || this.disposed || !this.tabs.has(tab.id) || tab.view.webContents !== wc) return;
       this.clearUnresponsive(tab);
       this.ctx.crashReporter.record("tab-renderer-gone", { url: tab.url, reason: details.reason, exitCode: details.exitCode });
-      this.enterCrashed(tab, details.reason);
+      if (details.reason === "launch-failed") this.warnLaunchFailed();
+      // The recovery page's own process went too: loading it again would only repeat that, forever.
+      if (!tab.crashed) this.enterCrashed(tab, details.reason);
       push();
     });
     wc.on("unresponsive", () => {
@@ -1720,6 +1729,28 @@ export class BrowserWindowCtl {
   setProcessMemory(byPid: ReadonlyMap<number, number>): void {
     this.processMemory = byPid;
     this.pushState();
+  }
+
+  /**
+   * A page's process could not even start: Corvus's program files are damaged or gone (an old
+   * portable launcher removed them under a running copy). No page opens until Corvus restarts, and
+   * the recovery page cannot show either, so a bar says so, once.
+   */
+  private warnLaunchFailed(): void {
+    if (this.launchFailedTold) return;
+    this.launchFailedTold = true;
+    void this.ctx.dialogs.ask(
+      {
+        tone: "warning",
+        title: tr("Corvus cannot open pages"),
+        message: tr("Corvus cannot open pages: some of its files are missing. Quit Corvus and open it again."),
+        buttons: [tr("Dismiss")],
+        defaultId: 0,
+        cancelId: 0,
+        bar: true,
+      },
+      this,
+    );
   }
 
   /** Show the in-tab recovery page over a crashed/hung renderer, keeping the tab's real URL. */

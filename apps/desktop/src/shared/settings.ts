@@ -91,6 +91,12 @@ export interface Settings {
      * only for logins the user opted in one by one, always after an approval prompt. Off by default.
      */
     agentAccess: boolean;
+    /**
+     * Trusted agents (MCP clients at Full access, the Command Bar agent with "Ask before risky
+     * actions" off) sign in with any saved login of the site, fill its 2FA code, answer its sign-in
+     * box and open the apps it asks for (AutoFirma), without asking. Off by default.
+     */
+    agentSignInWithoutAsking: boolean;
     /** Lock unlocked KeePass databases after this many idle minutes. 0 = never. */
     keepassAutoLockMinutes: number;
     /**
@@ -288,6 +294,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     agent: { maxSteps: 15, askBeforeRisky: true, siteMemory: true, rememberCommands: true, runScreenshots: true, renderInBackground: true },
     passwords: {
       agentAccess: false,
+      agentSignInWithoutAsking: false,
       keepassAutoLockMinutes: 15,
       passkeys: false,
       backupReminder: true,

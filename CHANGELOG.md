@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.36.6
+
+### AI agents
+- **Let trusted AI agents sign in without asking.** New in Settings → Passwords, off by default. When it is on, agents you already let work on their own (Claude Code and other MCP clients at Full access, and the Command Bar agent with "Ask before risky actions" off) sign in with any saved login of the site and fill its 2FA code without asking you, also without opting each login in. They also answer the site's own sign-in box and open the apps a page asks for to sign you in, such as AutoFirma for a digital certificate. They still never see the password or the code, and anything that spends money still asks. Useful when an agent works for you while you are away.
+- Agents now try the saved login before asking you to sign in.
+- **Your clicks and the address bar work while an agent works.** Every time a tab of an agent loaded a page in the background, it took the keyboard for a moment: a selection in the address bar was lost, and a menu or list you had open in a page closed by itself. Tabs no longer take the keyboard when they load; Corvus gives it to the tab you are in.
+
+### Reliability
+- **No more endless "tab crashed" loop.** When Corvus could not start a page at all (some of its files missing), it reloaded its crash page in that tab over and over, keeping the computer busy and blank tabs loading forever. It now shows the crash page once and tells you to quit and open Corvus again. Those files went missing under the portable build before 0.36.5, whose launcher deleted them when it was started a second time (by a link or an AI agent) while Corvus was open.
+
+### PDF viewer
+- **PDFs from banks and sign-in portals open again.** A PDF that a site hands over as a download (a bank's certificate, a `.aspx` or one-time link, a form) showed "Invalid PDF structure": the viewer fetched it a second time, without the site's cookies, and a one-time link no longer gave the PDF. The viewer now shows the very file the browser downloaded, and when it does need to fetch a PDF itself it sends the tab's cookies. When something is still not a PDF, **Download the file** saves it instead of reopening the viewer.
+- **Download saves the PDF.** The viewer's download-looking **Save** button put the PDF's text in the reading list, so a PDF could only be kept as Markdown. **Download** now saves the PDF file itself to your downloads (the very file the viewer shows, so one-time links work too), and the reading list has its own **Reading list** button.
+- A PDF a web app makes and hands you as a download (an export, an invoice) is saved as a file again instead of opening in a viewer that could not show it.
+
 ## v0.36.5
 
 ### Faster and smaller

@@ -79,6 +79,7 @@ function fakeCredentials(enabled: boolean) {
     page,
     service: {
       enabled,
+      trusted: () => false,
       fillTotp: vi.fn((_tab: string, _ref: string, opts: CredentialFillOptions) => fill(opts, "424242", "the current 2FA code")),
       fillLogin: vi.fn((_tab: string, _ref: string | null, opts: CredentialFillOptions) => fill(opts, "hunter2-secret", "the password")),
     },

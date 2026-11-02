@@ -56,7 +56,8 @@ function webOrigin(...urls: string[]): string {
  * and scheme in the profile's site settings (Settings > Site permissions lists them). A page may ask
  * once per thing the person does in it (Chrome's flood rule, per tab); more is blocked with a quiet
  * bar that can still open the app. Never without asking in a private window or a tab an AI agent
- * drives, and never for schemes the browser loads itself or that ran code from a link.
+ * drives (unless the person lets trusted agents sign in without asking), and never for schemes the
+ * browser loads itself or that ran code from a link.
  */
 export class ExternalAppService {
   system: ExternalAppSystem = systemApps;
@@ -136,6 +137,8 @@ export class ExternalAppService {
     if (wc.isDestroyed()) return;
     if (!allowed) return this.showBlocked(win, tab, wc, url, requestingUrl, origin, target);
     if (remember && win.profile.siteSettings.externalAppAllowed(origin, scheme)) return this.open(url);
+    // A trusted agent opens what its page asks for, such as AutoFirma to sign in with a certificate.
+    if (agent && !win.isPrivate && this.ctx.agentCredentials.trusted()) return this.open(url);
 
     const site = origin || tr("This page");
     const name = target.name;

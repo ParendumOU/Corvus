@@ -265,6 +265,14 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     for (const t of [crashed, crashedBack]) t.view.webContents.forcefullyCrashRenderer();
     await until(() => crashed.crashed && crashedBack.crashed && crashedBack.view.webContents.getURL().startsWith("corvus://crash/"));
     await verify("crashed tabs");
+    // The recovery page's own process going too does not load it again (a loop when no page can start).
+    let reloads = 0;
+    const countLoad = (): void => void reloads++;
+    crashedBack.view.webContents.on("did-start-loading", countLoad);
+    crashedBack.view.webContents.forcefullyCrashRenderer();
+    await sleep(1500);
+    crashedBack.view.webContents.removeListener("did-start-loading", countLoad);
+    check("tab close: a crash of the recovery page itself does not load it again", reloads === 0 && crashedBack.crashed, { reloads });
     w.activate(crashed.id);
     await sleep(300);
     w.closeTab(crashedBack.id);

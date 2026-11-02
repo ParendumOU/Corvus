@@ -4,6 +4,8 @@ import {
   capPagesForAi,
   isPdfUrl,
   isSupportedPdfSource,
+  pdfCaptureFromViewer,
+  pdfFileName,
   pdfExcerpt,
   pdfSrcFromViewer,
   pdfTitleFromSource,
@@ -42,6 +44,18 @@ describe("viewer url round-trip", () => {
     expect(pdfSrcFromViewer("corvus://reading/")).toBeNull();
     expect(pdfSrcFromViewer("https://example.org/")).toBeNull();
     expect(pdfSrcFromViewer(`corvus://pdf/?src=${encodeURIComponent("javascript:alert(1)")}`)).toBeNull();
+  });
+});
+
+describe("captured downloads", () => {
+  it("carry the capture id in the viewer url, next to the source", () => {
+    const src = "https://bank.example/Certificado.aspx?k=123";
+    const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const viewer = pdfViewerUrl(src, id);
+    expect(pdfSrcFromViewer(viewer)).toBe(src);
+    expect(pdfCaptureFromViewer(viewer)).toBe(id);
+    expect(pdfCaptureFromViewer(pdfViewerUrl(src))).toBeNull();
+    expect(pdfCaptureFromViewer(`${pdfViewerUrl(src)}&capture=../../etc`)).toBeNull();
   });
 });
 
@@ -111,5 +125,14 @@ describe("pdfExcerpt", () => {
   it("takes the first non-empty page and caps length", () => {
     expect(pdfExcerpt([{ page: 1, text: "   " }, { page: 2, text: "Hello world" }])).toBe("Hello world");
     expect(pdfExcerpt([{ page: 1, text: "x".repeat(400) }], 20).length).toBe(20);
+  });
+});
+
+describe("pdfFileName", () => {
+  it("saves under the server's or the source's name, as a .pdf a file system accepts", () => {
+    expect(pdfFileName("cert.pdf")).toBe("cert.pdf");
+    expect(pdfFileName("WELE200M_CertificadoTitularidad_Res.aspx")).toBe("WELE200M_CertificadoTitularidad_Res.pdf");
+    expect(pdfFileName('a/b:c*?"<>|.pdf')).toBe("a b c.pdf");
+    expect(pdfFileName("")).toBe("document.pdf");
   });
 });

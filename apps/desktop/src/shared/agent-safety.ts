@@ -10,7 +10,8 @@
  * - anything that spends money (a click on "Buy now", "Place order", "Pagar", "Kinnita tellimus",
  *   or submitting a checkout or payment form), classified by the shared rules in @corvus/shared;
  * - the credential tools (fill_login, fill_totp): Corvus fills an opted-in saved login or 2FA code
- *   itself, by reference.
+ *   itself, by reference (AgentRunner skips the question when the person lets trusted agents sign in
+ *   without asking and the run is in auto mode).
  */
 import { isSpendClick, isSpendSubmit, spendHost, type SpendContext } from "@corvus/shared";
 import { filenameOf } from "./link-grabber";
@@ -18,7 +19,7 @@ import { isActivationKey, parseKey } from "./visual-input";
 
 export type { SpendContext } from "@corvus/shared";
 
-/** Tools that fill a saved secret by reference. Always approved one use at a time. */
+/** Tools that fill a saved secret by reference. Approved one use at a time, except for trusted agents. */
 export const CREDENTIAL_TOOLS: ReadonlySet<string> = new Set(["fill_login", "fill_totp"]);
 
 /** Tools that only read or move around, never commit a change. */

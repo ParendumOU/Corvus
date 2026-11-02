@@ -1,12 +1,26 @@
 /**
  * Who may an AI agent sign in as, or whose 2FA code may it fill, on this page? Pure so the gates can
  * be unit-tested: the global setting, then the per-login opt-in, then an unambiguous choice. The
- * approval prompt comes after this, in AgentCredentialService. Messages go to the model, so they name
- * usernames and hosts (not secret) but never a password, a code or a 2FA secret.
+ * approval prompt comes after this, in AgentCredentialService. A trusted agent (signsInWithoutAsking)
+ * skips the setting, the opt-in and the prompt. Messages go to the model, so they name usernames and
+ * hosts (not secret) but never a password, a code or a 2FA secret.
  */
+import { resolveMcpAccessLevel, type Settings } from "../shared/settings";
 import type { LoginRecord } from "./login-sources";
 
 export type CredentialUse = "totp" | "signIn";
+
+/** The Command Bar agent's client name; MCP clients go by their own. */
+export const COMMAND_BAR_CLIENT = "Corvus";
+
+/**
+ * Whether `client` signs in without asking: the person turned that on, and the agent runs on its own
+ * (the Command Bar agent with "Ask before risky actions" off) or with Full access (MCP clients).
+ */
+export function signsInWithoutAsking(settings: Pick<Settings, "passwords" | "agent" | "mcp">, client: string): boolean {
+  if (!settings.passwords.agentSignInWithoutAsking) return false;
+  return client === COMMAND_BAR_CLIENT ? !settings.agent.askBeforeRisky : resolveMcpAccessLevel(settings.mcp) === "full";
+}
 
 export type PolicyResult =
   | { ok: true; record: LoginRecord }
@@ -15,6 +29,8 @@ export type PolicyResult =
 export interface PolicyOptions {
   /** Settings, Passwords: "Let AI agents use logins you opt in". */
   globalOn: boolean;
+  /** A trusted agent: every saved login of the site, without the setting or the opt-in. */
+  trusted?: boolean;
   host: string;
   username?: string;
   /** How this caller hands a step to the person, e.g. "Call ask_user so the person can enter it." */
@@ -33,10 +49,10 @@ function exists(r: LoginRecord, use: CredentialUse): boolean {
 
 export function pickAgentLogin(records: LoginRecord[], use: CredentialUse, opts: PolicyOptions): PolicyResult {
   const hint = opts.handoffHint;
-  if (!opts.globalOn) {
+  if (!opts.globalOn && !opts.trusted) {
     return { ok: false, status: "handoff", message: `AI agents are not allowed to use saved logins or 2FA codes in this browser. ${hint}` };
   }
-  const usable = records.filter((r) => optedIn(r, use));
+  const usable = records.filter((r) => (opts.trusted ? exists(r, use) : optedIn(r, use)));
   const wanted = opts.username ? usable.filter((r) => r.username === opts.username) : usable;
   if (wanted.length === 0) {
     if (opts.username && usable.length > 0) {
