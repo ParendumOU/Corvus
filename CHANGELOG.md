@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.36.4
+
+### AI agents (MCP)
+- **No more empty gray window after an agent worked while Corvus was minimized.** On Windows, when an AI agent opened or drove tabs while Corvus was minimized (also when it started minimized for Claude Code), restoring the window could show only a dark empty frame, with no tabs, toolbar or page. Corvus now lays the window out again when it is restored.
+
 ## v0.36.3
 
 ### AI agents (MCP)

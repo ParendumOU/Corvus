@@ -342,6 +342,7 @@ export class BrowserWindowCtl {
       this.pushState();
     };
     this.win.on("resize", relayout);
+    this.win.on("restore", reshape);
     this.win.on("maximize", reshape);
     this.win.on("unmaximize", reshape);
     this.win.on("enter-full-screen", reshape);
@@ -400,7 +401,9 @@ export class BrowserWindowCtl {
   }
 
   private layout(): void {
-    if (this.disposed) return;
+    // Minimized (on Windows), the window reads as 0x0: laid out then, every view shrinks to nothing
+    // and the window comes back empty, since restoring it sends no resize. It lays out on restore.
+    if (this.disposed || this.win.isMinimized()) return;
     const [width = 0, height = 0] = this.win.getContentSize();
     const fullscreen = this.htmlFullscreen;
     // Vertical tabs: the toolbar keeps the top band across the window and the tabs take a sidebar
