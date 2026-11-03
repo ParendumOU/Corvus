@@ -188,6 +188,15 @@ export function downloadActions(record: DownloadRecord): DownloadAction[] {
   }
 }
 
+/** The temporary name a held download has until it is kept: the only files the startup sweep removes. */
+const HELD_TEMP_NAME = /^Unconfirmed \d{6}\.crdownload$/;
+
+/** Held downloads' temporary files read back from disk: absolute paths to a file named like one, nothing else. */
+export function reviveHeldTempPaths(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((p): p is string => typeof p === "string" && /^([a-z]:[\\/]|\/)/i.test(p) && HELD_TEMP_NAME.test(p.split(/[\\/]/).pop() ?? ""));
+}
+
 /**
  * A file name an extension suggests (chrome.downloads.download): a relative path inside the
  * downloads folder ("reports/a.pdf"), or null when it is absolute, climbs out or is empty.
@@ -196,4 +205,17 @@ export function safeDownloadPath(name: string): string | null {
   const parts = name.replace(/\\/g, "/").split("/").filter((p) => p !== "" && p !== ".");
   if (/^([a-z]:|\/)/i.test(name) || parts.length === 0 || parts.some((p) => p === ".." || /[<>:"|?*\u0000-\u001f]/.test(p))) return null;
   return parts.join("/");
+}
+
+/** Where a file the person downloads goes: ask each time (downloads folder or a place they choose), always the downloads folder, or always the save dialog. */
+export type SaveLocationMode = "ask" | "downloads" | "choose";
+
+export const SAVE_LOCATION_MODES: readonly SaveLocationMode[] = ["ask", "downloads", "choose"];
+
+export function saveLocationMode(s: { askWhereToSave: boolean; promptDestination: boolean }): SaveLocationMode {
+  return s.askWhereToSave ? "choose" : s.promptDestination ? "ask" : "downloads";
+}
+
+export function saveLocationSettings(mode: SaveLocationMode): { askWhereToSave: boolean; promptDestination: boolean } {
+  return { askWhereToSave: mode === "choose", promptDestination: mode === "ask" };
 }

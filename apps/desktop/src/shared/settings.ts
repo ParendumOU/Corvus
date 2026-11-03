@@ -132,7 +132,10 @@ export interface Settings {
   downloads: {
     /** Absolute folder; empty string = the OS Downloads folder. */
     directory: string;
+    /** Always show the system save dialog (takes precedence over promptDestination). */
     askWhereToSave: boolean;
+    /** Ask in a dialog, for each file the person downloads, whether it goes to the downloads folder or somewhere they choose. Off by default (saved straight to the downloads folder). */
+    promptDestination: boolean;
     /** Offer the download links in copied text (a toolbar chip). Only download links are looked at; nothing else of the clipboard is kept. */
     watchClipboard: boolean;
     /** Files Corvus's download queue fetches at once (1-10). */
@@ -305,7 +308,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       generatorSymbols: true,
     },
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
-    downloads: { directory: "", askWhereToSave: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
+    downloads: { directory: "", askWhereToSave: false, promptDestination: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
     memory: { sleepTabs: true, sleepAfterMinutes: 60, preloadBackgroundTabs: true },
     media: { autoPictureInPicture: true },

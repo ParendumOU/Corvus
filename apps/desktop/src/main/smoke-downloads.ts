@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, type WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
+import type { DialogView } from "../shared/dialog";
 import type { DownloadRecord } from "../shared/downloads";
 import type { AppContext } from "./context";
 import { windowShot } from "./smoke-cert-errors";
@@ -93,7 +94,7 @@ export async function runDownloadsSmoke(ctx: AppContext, { win, check, capture }
   const appearanceBefore = ctx.settings.get().appearance;
   const dir = path.join(app.getPath("userData"), "smoke-downloads-tabs");
   fs.rmSync(dir, { recursive: true, force: true });
-  ctx.settings.update({ downloads: { directory: dir, askWhereToSave: false } });
+  ctx.settings.update({ downloads: { directory: dir, askWhereToSave: false, promptDestination: false } });
   const opened: TabId[] = [];
   const recordOf = (url: string, from = 0): DownloadRecord | undefined => ctx.downloads.list(profile).find((d) => d.url === url && d.startedAt >= from);
   const finished = (url: string, from = 0): Promise<DownloadRecord | null> => waitFor(() => recordOf(url, from)?.state === "completed" && recordOf(url, from));
@@ -129,6 +130,76 @@ export async function runDownloadsSmoke(ctx: AppContext, { win, check, capture }
       );
     }
     check("downloads: a tab that only held a download is not in Recently closed", !win.recentlyClosed().some((c) => c.url.includes("/f/")), win.recentlyClosed());
+
+    // ------------------------------------------------------------------ where to save
+    ctx.settings.update({ downloads: { promptDestination: true } });
+    const askDialog = (): Promise<DialogView | null> =>
+      waitFor(() => {
+        const view = ctx.dialogs.current(win);
+        return view?.title === "Save the file" ? view : null;
+      });
+    for (const [pick, label] of [
+      [2, "Downloads saves it to the downloads folder"],
+      [0, "Cancel discards it"],
+    ] as const) {
+      const from = Date.now();
+      win.activate(pageTab.id);
+      await sleep(200);
+      const clicked = await personClick(wc, "#blank-zip");
+      const asked = await askDialog();
+      if (asked && pick === 2) await shot("where-to-save-dialog");
+      if (asked) ctx.dialogs.answer(win, asked.id, { button: pick });
+      const url = `${base}/f/archive.zip`;
+      const outcome = pick === 2 ? await finished(url, from) : await waitFor(() => !recordOf(url, from) && tempFiles().length === 0);
+      check(
+        `downloads: the "where to save" dialog asks for a file the person downloads, links to Settings, and ${label}`,
+        clicked &&
+          asked?.message === "archive.zip" &&
+          asked.settingsHint?.section === "downloads" &&
+          asked.buttons.length === 3 &&
+          Boolean(outcome) &&
+          (pick !== 2 || content(outcome as DownloadRecord) === body("archive.zip")),
+        { clicked, asked, outcome, temp: tempFiles() },
+      );
+    }
+
+    // Two files at once: "Don't ask again" on the first answers the one still waiting too.
+    {
+      const from = Date.now();
+      const [first, second] = [`${base}/f/both-1.zip`, `${base}/f/both-2.zip`];
+      wc.downloadURL(first);
+      wc.downloadURL(second);
+      const asked = await askDialog();
+      // Both are asked about before the first answer.
+      const both = await waitFor(() => recordOf(first, from) && recordOf(second, from));
+      if (asked) ctx.dialogs.answer(win, asked.id, { button: 2, checked: true });
+      const [one, two] = [await finished(first, from), await finished(second, from)];
+      const gone = await waitFor(() => ctx.dialogs.current(win)?.title !== "Save the file");
+      check(
+        `downloads: "Don't ask again" on one "where to save" dialog answers the others waiting, and becomes the setting`,
+        Boolean(asked) && Boolean(both) && content(one) === body("both-1.zip") && content(two) === body("both-2.zip") && Boolean(gone) && !ctx.settings.get().downloads.promptDestination,
+        { asked, one, two, current: ctx.dialogs.current(win), settings: ctx.settings.get().downloads },
+      );
+    }
+
+    // Removed from the list while its dialog is open: the dialog goes, and so does its temporary file.
+    {
+      ctx.settings.update({ downloads: { promptDestination: true } });
+      const from = Date.now();
+      const url = `${base}/f/removed.zip`;
+      wc.downloadURL(url);
+      const asked = await askDialog();
+      const record = await waitFor(() => recordOf(url, from));
+      await waitFor(() => tempFiles().length > 0);
+      if (record) ctx.downloads.act(profile, record.id, "remove");
+      const gone = await waitFor(() => ctx.dialogs.current(win)?.title !== "Save the file" && tempFiles().length === 0 && !recordOf(url, from));
+      check(
+        "downloads: a file removed from the list while it is asked about leaves no dialog and no temporary file",
+        Boolean(asked) && Boolean(gone) && !fs.existsSync(path.join(dir, "removed.zip")),
+        { asked, record, current: ctx.dialogs.current(win), temp: tempFiles() },
+      );
+    }
+    ctx.settings.update({ downloads: { promptDestination: false } });
 
     win.activate(pageTab.id);
     await sleep(200);
@@ -401,7 +472,7 @@ export async function runDownloadsSmoke(ctx: AppContext, { win, check, capture }
     check("downloads smoke ran", false, (err as Error).stack ?? String(err));
   } finally {
     for (const t of ctx.downloads.trustedTypes(profile)) ctx.downloads.removeTrustedType(profile, t.ext, t.site);
-    ctx.settings.update({ downloads: { directory: settingsBefore.directory, askWhereToSave: settingsBefore.askWhereToSave }, appearance: { language: appearanceBefore.language, theme: appearanceBefore.theme } });
+    ctx.settings.update({ downloads: { directory: settingsBefore.directory, askWhereToSave: settingsBefore.askWhereToSave, promptDestination: settingsBefore.promptDestination }, appearance: { language: appearanceBefore.language, theme: appearanceBefore.theme } });
     win.sendCommand({ type: "close-overlays" });
     for (const id of opened) if (win.hasTab(id)) win.closeTab(id);
     server.close();

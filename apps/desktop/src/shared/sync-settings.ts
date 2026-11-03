@@ -25,6 +25,7 @@ export const SYNCED_SETTINGS = [
   "agent.maxSteps",
   "agent.askBeforeRisky",
   "downloads.askWhereToSave",
+  "downloads.promptDestination",
   "downloads.extractArchives",
   "downloads.deleteArchives",
   "startup.mode",

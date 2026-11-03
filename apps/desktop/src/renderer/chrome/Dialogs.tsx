@@ -3,7 +3,7 @@ import "./dialogs.css";
 import type { DialogView } from "../../shared/dialog";
 import { chromeApi } from "../common/api";
 import { t } from "../common/i18n";
-import { IconEye, IconEyeOff, IconLock, IconShield, IconSparkle } from "../common/icons";
+import { IconEye, IconEyeOff, IconLock, IconSettings, IconShield, IconSparkle } from "../common/icons";
 
 function answer(view: DialogView, button: number, checked: boolean, value: string, values?: string[], choice?: number): void {
   void chromeApi().call("dialog.answer", view.id, button, checked, value, values, choice);
@@ -105,6 +105,20 @@ export function DialogModal({ view }: { view: DialogView }) {
           <span id={`dialog-message-${view.id}`} hidden />
         )}
         {view.detail ? <p className="dialog-detail">{view.detail}</p> : null}
+        {view.settingsHint ? (
+          <p className="dialog-settings-hint">
+            <IconSettings size={14} />
+            <span>{view.settingsHint.text}</span>
+            <button
+              type="button"
+              className="dialog-settings-link"
+              data-dialog-settings={view.settingsHint.section}
+              onClick={() => void chromeApi().call("tabs.openUrl", `corvus://settings/#${encodeURIComponent(view.settingsHint?.section ?? "")}`, "new-tab")}
+            >
+              {t("Open settings")}
+            </button>
+          </p>
+        ) : null}
         {view.input && (
           <input
             ref={input}

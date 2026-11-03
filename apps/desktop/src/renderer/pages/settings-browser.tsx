@@ -3,6 +3,7 @@ import type { GroupColor } from "@corvus/shared";
 import { OPEN_ALL_LOAD_NOW } from "../../shared/background-tabs";
 import { CONTAINER_COLORS, type Container } from "../../shared/containers";
 import { DANGEROUS_TYPE_GROUPS, type DangerousTypeGroupId, type TrustedType } from "../../shared/download-trust";
+import { saveLocationMode, saveLocationSettings, type SaveLocationMode } from "../../shared/downloads";
 import type { DefaultBrowserView, MakeDefaultResult } from "../../shared/browser-ipc";
 import type { TelegramStatus } from "../../shared/phone-share";
 import { GROUP_COLOR_HEX } from "../../shared/ipc";
@@ -277,8 +278,12 @@ export function DownloadsSection({ view, update, setView }: Props & { setView: (
           </button>
         )}
       </Row>
-      <Row label={t("Ask where to save each file before downloading")}>
-        <Toggle label={t("Ask where to save each file")} checked={d.askWhereToSave} onChange={(v) => update({ downloads: { askWhereToSave: v } })} />
+      <Row label={t("When you download a file")}>
+        <select className="input" data-setting="save-location" value={saveLocationMode(d)} onChange={(e) => update({ downloads: saveLocationSettings(e.target.value as SaveLocationMode) })}>
+          <option value="ask">{t("Ask: Downloads or choose where")}</option>
+          <option value="downloads">{t("Save to the downloads folder")}</option>
+          <option value="choose">{t("Always choose where to save")}</option>
+        </select>
       </Row>
       <Row label={t("Offer copied download links")} hint={t("When text you copy has download links, a button in the toolbar adds them to the link grabber. Corvus reads the clipboard every second or so while this is on.")}>
         <Toggle label={t("Offer copied download links")} checked={d.watchClipboard} onChange={(v) => update({ downloads: { watchClipboard: v } })} />

@@ -1,4 +1,9 @@
-# Corvus CI: tests on every push/MR, release packages on tags (and manually on main).
+# Corvus CI, sized for the shared runners' monthly minutes:
+#   push to main or a branch without an MR: nothing runs (every push to main passed the local
+#     validation first); test, smoke and packages are manual
+#   merge request: test + smoke (one pipeline: no branch pipeline for a branch with an open MR)
+#   vX tag: nothing runs (main already tested that commit); packages are manual
+# Releases are built locally, not from these packages.
 #
 # CI/CD variables (Settings > CI/CD > Variables):
 #   CSC_LINK          (type File, protected)     Windows code-signing .pfx/.p12. Optional: unsigned without it.
@@ -6,6 +11,14 @@
 #   MACOS_BUILDS      ("true")                   Enables the macOS job (needs GitLab macOS runners: Premium/Ultimate, or a self-hosted mac runner).
 
 stages: [test, package]
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
 
 default:
   interruptible: true
@@ -28,6 +41,12 @@ test:
   stage: test
   image: node:22-bookworm
   extends: .pnpm
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - when: manual
+      allow_failure: true
   script:
     - pnpm -r build
     - pnpm -r typecheck
@@ -37,6 +56,15 @@ smoke:
   stage: test
   image: node:22-bookworm
   extends: .pnpm
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - when: manual
+      allow_failure: true
+  variables:
+    # Same cap as scripts/validate.sh: the full run outgrew smoke.sh's 240 s default.
+    CORVUS_SMOKE_TIMEOUT: "1500"
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends xvfb libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 >/dev/null
     - !reference [.pnpm, before_script]
@@ -50,8 +78,7 @@ smoke:
 
 .release-rules:
   rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
       allow_failure: true
 

@@ -55,6 +55,11 @@ export interface DialogSpec {
   bar?: boolean;
   /** The tab a bar is about: while another tab is active, the bar offers to go to it (without answering). */
   tabId?: TabId;
+  /**
+   * A line under the question that tells the person where to change this behaviour, with a link that
+   * opens that settings section (corvus://settings/#<section>) in a new tab. The dialog stays open.
+   */
+  settingsHint?: { text: string; section: string };
 }
 
 /** One of a dialog's ready answers: what it is, and where it comes from. */

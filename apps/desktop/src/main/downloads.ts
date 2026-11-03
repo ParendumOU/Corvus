@@ -11,7 +11,9 @@ import {
   isExecutableFilename,
   removeDownload,
   reviveDownloads,
+  reviveHeldTempPaths,
   safeDownloadPath,
+  saveLocationSettings,
   uniqueFilename,
   upsertDownload,
   type DownloadAction,
@@ -38,6 +40,7 @@ import { JsonFile } from "./json-file";
 import { tr } from "./menu-i18n";
 import { maybeInterceptPdf } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
+import type { BrowserWindowCtl } from "./window";
 
 const BUBBLE_ITEMS = 6;
 
@@ -62,6 +65,12 @@ interface HeldDownload {
   done: boolean;
   /** Kept while it was still downloading: it gets its name when it finishes. */
   kept: boolean;
+  /** Not a program: the person is asked whether it goes to the downloads folder or somewhere they choose. */
+  destination?: { abort: AbortController };
+  /** Kept with "Choose where": the save dialog gives its place. */
+  choose?: boolean;
+  /** Answered by another file's "Don't ask again" while its own dialog waited: true = choose where. */
+  settled?: boolean;
 }
 
 export class DownloadError extends Error {}
@@ -104,8 +113,21 @@ export class DownloadManager {
   private readonly listeners = new Set<DownloadListListener>();
   /** Download id -> a program the person downloaded that waits for Keep or Discard. */
   private readonly held = new Map<string, HeldDownload>();
+  /** Temporary files of held downloads, kept on disk so a crash or a quit that skipped cleanup leaves none behind at the next start. */
+  private readonly temps = JsonFile.load(path.join(app.getPath("userData"), "download-temp-files.json"), (): string[] => [], reviveHeldTempPaths, 0);
+  /** `${profileId}|${url}`: downloads Retry starts again, never asked about where to save. */
+  private readonly retried = new Set<string>();
 
-  constructor(private readonly ctx: AppContext) {}
+  constructor(private readonly ctx: AppContext) {
+    for (const temp of this.temps.get()) {
+      try {
+        fs.rmSync(temp, { force: true });
+      } catch {
+        // Locked or not a file: it stays where it is rather than stopping Corvus from starting.
+      }
+    }
+    this.temps.set([]);
+  }
 
   attach(runtime: ProfileRuntime): void {
     const id = runtime.profile.id;
@@ -289,11 +311,16 @@ export class DownloadManager {
     // A program the person downloads, unless they chose "Save as" for it or trust its type from that
     // site: it downloads in the background under a temporary name while they decide.
     const warn = program && !agent && !request && !approved && !saveAs && !isTrusted(entry.choices.get(), ext, site);
+    const where = this.ctx.settings.get().downloads;
+    const retried = this.retried.delete(approvalKey);
+    // Any other file the person downloads, when they opt in (Settings, Downloads): a dialog asks whether it goes to the downloads
+    // folder or somewhere they choose, and it downloads under a temporary name meanwhile.
+    const prompt = !warn && !agent && !request && !approved && !saveAs && !retried && !where.askWhereToSave && where.promptDestination && window !== undefined;
     let held: HeldDownload | undefined;
-    if (warn) {
+    if (warn || prompt) {
       fs.mkdirSync(dir, { recursive: true });
       const temp = uniqueFilename(`Unconfirmed ${crypto.randomInt(100_000, 1_000_000)}.crdownload`, (n) => this.reserved.has(path.join(dir, n)) || fs.existsSync(path.join(dir, n)));
-      held = { temp: path.join(dir, temp), done: false, kept: false };
+      held = { temp: path.join(dir, temp), done: false, kept: false, ...(prompt ? { destination: { abort: new AbortController() } } : {}) };
       item.setSavePath(held.temp);
     } else if (saveAs || request?.saveAs === true || this.ctx.settings.get().downloads.askWhereToSave) {
       item.setSaveDialogOptions({ defaultPath: path.join(dir, suggested ?? filename) });
@@ -314,25 +341,26 @@ export class DownloadManager {
       mime: item.getMimeType(),
       totalBytes: item.getTotalBytes(),
       receivedBytes: 0,
-      state: held ? "blocked" : "progressing",
+      state: held && !held.destination ? "blocked" : "progressing",
       startedAt: Date.now(),
       agent,
       ...(extensionId ? { extensionId } : {}),
       ...(ephemeral ? { ephemeral: true } : {}),
       canResume: false,
       // A private window learns nothing and keeps nothing: no "Always keep" there.
-      ...(held ? { warning: { ext, site, ticked: !ephemeral && suggestion.ticked, scope: site ? suggestion.scope : "any", canRemember: !ephemeral } } : {}),
+      ...(warn ? { warning: { ext, site, ticked: !ephemeral && suggestion.ticked, scope: site ? suggestion.scope : "any", canRemember: !ephemeral } } : {}),
     };
     this.live.set(record.id, item);
     if (held) {
-      this.held.set(record.id, held);
+      this.hold(record.id, held);
       this.reserved.add(held.temp);
     } else if (record.savePath) {
       this.reserved.add(record.savePath);
     }
     this.commit(runtime, record);
     request?.resolve(record.id);
-    if (held) window?.sendCommand({ type: "open-downloads" });
+    if (held?.destination && window) void this.askDestination(runtime, window, record.id, filename, site, held);
+    else if (held) window?.sendCommand({ type: "open-downloads" });
 
     // While a held program waits it has no place of its own yet, and the list shows its own name.
     const snapshot = (): DownloadRecord => {
@@ -356,7 +384,7 @@ export class DownloadManager {
       if (waiting && !listed()) return;
       const next = snapshot();
       if (next.savePath) this.reserved.add(next.savePath);
-      const shown = waiting && !waiting.kept ? "blocked" : state === "interrupted" ? "interrupted" : item.isPaused() ? "paused" : "progressing";
+      const shown = waiting && !waiting.kept && !waiting.destination ? "blocked" : state === "interrupted" ? "interrupted" : item.isPaused() ? "paused" : "progressing";
       this.commit(runtime, { ...next, state: shown });
     });
     item.once("done", (_e, state) => {
@@ -367,17 +395,18 @@ export class DownloadManager {
         this.reserved.delete(waiting.temp);
         if (!listed()) {
           // Discarded while it was still downloading.
-          this.held.delete(record.id);
+          this.release(record.id);
           fs.rmSync(waiting.temp, { force: true });
           return;
         }
         if (state === "completed") {
           waiting.done = true;
-          this.commit(runtime, { ...next, state: waiting.kept ? "progressing" : "blocked", endedAt: Date.now(), canResume: false });
+          this.commit(runtime, { ...next, state: waiting.kept || waiting.destination ? "progressing" : "blocked", endedAt: Date.now(), canResume: false });
           if (waiting.kept) void this.finalize(runtime, record.id);
           return;
         }
-        this.held.delete(record.id);
+        waiting.destination?.abort.abort();
+        this.release(record.id);
         fs.rmSync(waiting.temp, { force: true });
         const { warning: _warning, ...failed } = next;
         this.commit(runtime, { ...failed, state, endedAt: Date.now(), canResume: false });
@@ -417,15 +446,62 @@ export class DownloadManager {
     else this.commit(runtime, { ...rest, state: "progressing" });
   }
 
+  /**
+   * Asks whether a file the person downloads goes to the downloads folder or somewhere they choose
+   * (it downloads meanwhile). Cancel discards it; "Don't ask again" makes that answer the setting.
+   */
+  private async askDestination(runtime: ProfileRuntime, window: BrowserWindowCtl, id: string, filename: string, site: string, held: HeldDownload): Promise<void> {
+    const answer = await this.ctx.dialogs.ask(
+      {
+        tone: "question",
+        title: tr("Save the file"),
+        message: filename,
+        ...(site ? { detail: tr("From {site}", { site }) } : {}),
+        buttons: [tr("Cancel"), tr("Choose where…"), tr("Downloads")],
+        defaultId: 2,
+        cancelId: 0,
+        checkbox: { label: tr("Don't ask again"), checked: false },
+        settingsHint: { text: tr("You can change this in Settings, Downloads."), section: "downloads" },
+      },
+      window,
+      held.destination?.abort.signal,
+    );
+    // Cancelled from the downloads list, failed or discarded meanwhile.
+    if (this.held.get(id) !== held) return;
+    const choose = held.settled ?? (answer.button === 1 ? true : answer.button === 2 ? false : undefined);
+    if (choose === undefined) {
+      this.mutate(runtime, (list) => removeDownload(list, id));
+      this.discardHeld(id);
+      return;
+    }
+    if (answer.checked && held.settled === undefined) {
+      this.ctx.settings.update({ downloads: saveLocationSettings(choose ? "choose" : "downloads") });
+      // The files still waiting for their own dialog get the same answer.
+      for (const other of this.held.values()) {
+        if (other === held || !other.destination || other.kept || other.settled !== undefined) continue;
+        other.settled = choose;
+        other.destination.abort.abort();
+      }
+    }
+    held.kept = true;
+    held.choose = choose;
+    if (held.done) void this.finalize(runtime, id);
+  }
+
   /** A program the person kept has finished: it takes its own name in the downloads folder (or where they choose). */
   private async finalize(runtime: ProfileRuntime, id: string): Promise<void> {
     const waiting = this.held.get(id);
+    if (!waiting) return;
     const record = this.list(runtime).find((d) => d.id === id);
-    if (!waiting || !record) return;
-    this.held.delete(id);
+    this.release(id);
+    // Removed from the list meanwhile: nothing kept.
+    if (!record) {
+      fs.rmSync(waiting.temp, { force: true });
+      return;
+    }
     const dir = path.dirname(waiting.temp);
     let target: string;
-    if (this.ctx.settings.get().downloads.askWhereToSave) {
+    if (waiting.choose ?? this.ctx.settings.get().downloads.askWhereToSave) {
       const result = await dialog.showSaveDialog({ defaultPath: path.join(dir, record.filename) });
       if (result.canceled || !result.filePath) {
         // Like a cancelled save dialog: nothing kept, nothing listed.
@@ -461,8 +537,9 @@ export class DownloadManager {
   private discardHeld(id: string): void {
     const waiting = this.held.get(id);
     if (!waiting) return;
+    waiting.destination?.abort.abort();
     if (waiting.done) {
-      this.held.delete(id);
+      this.release(id);
       fs.rmSync(waiting.temp, { force: true });
     } else {
       this.live.get(id)?.cancel();
@@ -498,6 +575,19 @@ export class DownloadManager {
       fs.rmSync(waiting.temp, { force: true });
     }
     this.held.clear();
+    this.temps.set([]);
+  }
+
+  private hold(id: string, held: HeldDownload): void {
+    this.held.set(id, held);
+    this.temps.update((list) => [...list, held.temp]);
+  }
+
+  private release(id: string): void {
+    const waiting = this.held.get(id);
+    if (!waiting) return;
+    this.held.delete(id);
+    this.temps.update((list) => list.filter((t) => t !== waiting.temp));
   }
 
 
@@ -551,6 +641,7 @@ export class DownloadManager {
       case "remove":
         item?.cancel();
         this.mutate(runtime, (list) => removeDownload(list, id));
+        this.discardHeld(id);
         break;
       case "discard":
         if (record.state !== "blocked") break;
@@ -575,6 +666,7 @@ export class DownloadManager {
 
   private retry(runtime: ProfileRuntime, record: DownloadRecord): void {
     this.mutate(runtime, (list) => removeDownload(list, record.id));
+    this.retried.add(`${runtime.profile.id}|${record.url}`);
     runtime.session.downloadURL(record.url);
   }
 

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.36.9
+
+### Downloads
+- **Choose where each file goes, if you like.** Downloads still save straight to your downloads folder, as in Chrome, Edge and Firefox. In Settings → Downloads, **When you download a file** now offers **Save to the downloads folder** (the default), **Ask: Downloads or choose where** and **Always choose where to save** (the old "Ask where to save each file"). With **Ask**, a small window asks where each file goes: **Downloads** (the default button, also Enter) saves it to your downloads folder, **Choose where…** opens the save dialog, and **Cancel** drops it. The file starts downloading while you decide. **Don't ask again** keeps your answer as the setting and gives it to the other files still waiting to be asked, and a line in the window says where to change it, with a link to Settings → Downloads. Retry on a failed download does not ask again, and a temporary file left behind when Corvus closes during the question is removed at the next start. Programs keep their own warning, and files AI agents and extensions download are never asked about.
+
+### Dialogs
+- Corvus's dialogs can say where to change what they ask about, with a link that opens that part of Settings.
+
 ## v0.36.8
 
 ### PDF viewer

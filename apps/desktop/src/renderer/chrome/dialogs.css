@@ -85,6 +85,29 @@
   max-height: 30vh;
   overflow: auto;
 }
+/* Where to change what the dialog asks about (Settings), with a link there. */
+.dialog-settings-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 0 44px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.dialog-settings-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
 .dialog-input {
   display: block;
   width: calc(100% - 44px);
