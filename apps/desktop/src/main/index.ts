@@ -67,7 +67,7 @@ import { setExtensionMessageBox } from "./extensions";
 import { dictationReady, internalMicrophoneAllowed } from "../shared/dictation";
 import { SyncService } from "./sync-service";
 import { UpdateService } from "./update-service";
-import { applyAppTaskbarIdentity, registerNotificationIdentity } from "./taskbar";
+import { applyAppTaskbarIdentity, registerNotificationIdentity, tidyNotificationShortcut } from "./taskbar";
 import { AttentionNotifier } from "./attention";
 import { TrayService } from "./tray";
 import { WebScopeService } from "./webscope-service";
@@ -192,6 +192,8 @@ function openStartWindows(ctx: AppContext, unclean: boolean, profileId: string, 
 
 async function main(): Promise<void> {
   await app.whenReady();
+  // Before any window: the taskbar takes a window's icon from this shortcut.
+  tidyNotificationShortcut("start");
 
   handleInternalProtocol(session.defaultSession);
   ElectronChromeExtensions.handleCRXProtocol(session.defaultSession);
@@ -381,6 +383,7 @@ async function main(): Promise<void> {
   });
   app.on("before-quit", () => {
     ctx.tray.markQuitting();
+    tidyNotificationShortcut("quit");
     cleanExit.markCleanExit();
     ctx.sync.stop();
     ctx.sessionRestore.quitting();

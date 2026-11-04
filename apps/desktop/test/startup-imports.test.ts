@@ -14,7 +14,9 @@ describe("what a normal start loads", () => {
     expect(imports.filter((i) => /smoke|capture-marketing/.test(i))).toEqual([]);
   });
 
-  it("loads the MCP server package only when the server starts", () => {
+  // Reads every main-process source: through Docker's bind mount of a Windows checkout, on a busy
+  // machine, that alone can take longer than the default 5 s.
+  it("loads the MCP server package only when the server starts", { timeout: 30_000 }, () => {
     for (const file of fs.readdirSync(MAIN).filter((f) => f.endsWith(".ts") && !f.startsWith("smoke"))) {
       expect(staticImports(source(file)), file).not.toContain("@corvus/mcp-server");
     }

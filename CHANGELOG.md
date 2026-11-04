@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.38.1
+
+### Fixed
+- **The portable Corvus keeps its taskbar icon after an update.** For its notifications, Electron (what Corvus is built on) puts a Corvus shortcut in the Start menu that leads to the folder the portable build runs from, and Windows takes the taskbar icon of Corvus's windows from it. Once a newer build ran, that folder was gone and the icon turned blank again. The portable Corvus now removes that shortcut when it quits, and at start removes one that leads nowhere, before its windows show, so it leaves no Start menu entry behind either. It also keeps one notification ID across starts instead of adding a registry key each time.
+
 ## v0.38.0
 
 ### Keep running in the notification area
