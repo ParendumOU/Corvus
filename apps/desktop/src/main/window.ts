@@ -255,6 +255,8 @@ export class BrowserWindowCtl {
   private readonly startMaximized: boolean;
   /** Not shown to the person yet (see WindowOpenOptions.background): maximized when they first open it. */
   private background: boolean;
+  /** Closed into the notification area (see tuck). */
+  private tucked = false;
   private readonly cleanups: Array<() => void> = [];
   private sidePanel: DockedPanel | null = null;
   /** Where keyboard focus belongs: the chrome UI or a shown tab (restored after a stray grab). */
@@ -345,7 +347,11 @@ export class BrowserWindowCtl {
       this.pushState();
     };
     this.win.on("resize", relayout);
-    this.win.on("restore", reshape);
+    this.win.on("restore", () => {
+      // Brought back some other way than the tray icon (Alt+Tab, starting Corvus again).
+      this.untuck();
+      reshape();
+    });
     this.win.on("maximize", reshape);
     this.win.on("unmaximize", reshape);
     this.win.on("enter-full-screen", reshape);
@@ -358,8 +364,16 @@ export class BrowserWindowCtl {
       this.onWindowFocus();
     });
     this.win.on("blur", () => ctx.windows.noteBlur(this));
-    // Private windows are never part of the saved session.
-    this.win.on("close", () => (this.isPrivate ? undefined : ctx.sessionRestore.windowClosing(this)));
+    this.win.on("close", (event) => {
+      // Settings > "Keep running in the notification area": the last window goes there instead.
+      if (ctx.tray.keepsOnClose(this)) {
+        event.preventDefault();
+        this.tuck();
+        return;
+      }
+      // Private windows are never part of the saved session.
+      if (!this.isPrivate) ctx.sessionRestore.windowClosing(this);
+    });
     this.win.on("closed", () => this.dispose());
     const moved = (): void => ctx.sessionRestore.markDirty();
     this.win.on("moved", moved);
@@ -858,6 +872,8 @@ export class BrowserWindowCtl {
    */
   askForAttention(): void {
     if (this.win.isDestroyed() || this.win.isFocused() || this.background) return;
+    // Tucked away in the notification area, it has no button to flash: it gets one back.
+    this.untuck();
     this.win.flashFrame(true);
     this.win.once("focus", () => this.win.flashFrame(false));
   }
@@ -931,6 +947,34 @@ export class BrowserWindowCtl {
 
   get tabCount(): number {
     return this.tabs.size;
+  }
+
+  /**
+   * Closed while Corvus keeps running in the notification area (see TrayService): minimized and off
+   * the taskbar rather than hidden, so its pages go on painting for agents as in any minimized
+   * window (see paintHidden), and its tabs stay in the saved session.
+   */
+  private tuck(): void {
+    if (this.tucked) return;
+    this.tucked = true;
+    this.win.minimize();
+    this.win.setSkipTaskbar(true);
+  }
+
+  /** Back on the taskbar (where it stays minimized until the person opens it). */
+  untuck(): void {
+    if (!this.tucked || this.win.isDestroyed()) return;
+    this.tucked = false;
+    this.win.setSkipTaskbar(false);
+  }
+
+  /** The person asked for this window (the tray icon): in front, with the keyboard. */
+  present(): void {
+    if (this.win.isDestroyed()) return;
+    this.untuck();
+    if (this.win.isMinimized()) this.win.restore();
+    this.win.show();
+    this.win.focus();
   }
 
   /**

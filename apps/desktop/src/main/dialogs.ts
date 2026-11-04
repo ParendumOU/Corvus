@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { dialog } from "electron";
+import { attentionNotice } from "../shared/attention";
 import { cancelAnswer, fieldValues, toneOf, type DialogAnswer, type DialogSpec, type DialogView } from "../shared/dialog";
 import type { DialogInfo, TabId } from "@corvus/shared";
 import type { WebContents } from "electron";
@@ -34,7 +35,7 @@ export class DialogService {
   }
 
   /** Converts an Electron message box (options as for dialog.showMessageBox) and asks it. */
-  messageBox(options: Electron.MessageBoxOptions, win?: BrowserWindowCtl): Promise<{ response: number; checkboxChecked: boolean }> {
+  messageBox(options: Electron.MessageBoxOptions, win?: BrowserWindowCtl, notify?: DialogSpec["notify"]): Promise<{ response: number; checkboxChecked: boolean }> {
     const buttons = options.buttons?.length ? options.buttons : ["OK"];
     const spec: DialogSpec = {
       tone: toneOf(options.type),
@@ -46,6 +47,7 @@ export class DialogService {
       cancelId: options.cancelId ?? buttons.length - 1,
       ...(options.checkboxLabel ? { checkbox: { label: options.checkboxLabel, checked: options.checkboxChecked === true } } : {}),
       ...(options.icon && typeof options.icon !== "string" && !options.icon.isEmpty() ? { icon: options.icon.resize({ width: 48, height: 48 }).toDataURL() } : {}),
+      ...(notify ? { notify } : {}),
     };
     return this.ask(spec, win).then((a) => ({ response: a.button, checkboxChecked: a.checked }));
   }
@@ -65,6 +67,8 @@ export class DialogService {
       queue.push({ view, resolve });
       signal?.addEventListener("abort", () => this.settle(target, view.id, cancelAnswer(spec)), { once: true });
       if (view.bar || this.current(target)?.id === view.id) this.show(target);
+      // A modal notifies once it is the one shown (see show); a bar right away.
+      if (view.bar) this.notify(target, view);
     });
   }
 
@@ -112,7 +116,10 @@ export class DialogService {
   forget(win: BrowserWindowCtl): void {
     const queue = this.queues.get(win) ?? [];
     this.queues.delete(win);
-    for (const p of queue) p.resolve(cancelAnswer(p.view));
+    for (const p of queue) {
+      if (p.view.notify) this.ctx.attention.withdraw(p.view.id);
+      p.resolve(cancelAnswer(p.view));
+    }
   }
 
   private settle(win: BrowserWindowCtl, id: string, answer: DialogAnswer): void {
@@ -121,6 +128,7 @@ export class DialogService {
     if (!queue || index < 0) return;
     const [pending] = queue.splice(index, 1);
     if (queue.length === 0) this.queues.delete(win);
+    if (pending!.view.notify) this.ctx.attention.withdraw(id);
     pending!.resolve(answer);
     this.show(win);
   }
@@ -136,8 +144,16 @@ export class DialogService {
     if (current && !current.bar) {
       win.askForAttention();
       win.focusChrome();
+      this.notify(win, current);
     }
     win.pushState();
+  }
+
+  /** An AI agent waits on the answer and the person is not in the window: a system notification says so. */
+  private notify(win: BrowserWindowCtl, view: DialogView): void {
+    const notice = attentionNotice(view);
+    if (!notice || win.win.isFocused()) return;
+    this.ctx.attention.show(view.id, win, notice, view.tabId, (button) => this.answer(win, view.id, { button, checked: view.checkbox?.checked === true }));
   }
 
   private async native(spec: DialogSpec): Promise<DialogAnswer> {

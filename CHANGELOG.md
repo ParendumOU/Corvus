@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.38.0
+
+### Keep running in the notification area
+- **Close Corvus and it keeps working for your AI agents.** Turn on Settings → Startup and closing → **Keep running in the notification area** (Windows and Linux) and closing the last window with its X leaves Corvus running next to the clock, with your tabs, instead of quitting. AI agents connected over MCP keep browsing for you in their own tabs meanwhile, out of sight.
+- **Its icon brings Corvus back.** Click the Corvus icon in the notification area, or start Corvus again, and the window comes back as you left it. Right-click it for **Open Corvus** and **Quit Corvus**, which quits for real.
+- **It tells you when something needs you.** If an agent asks you to do something, or a purchase needs your approval, while the window is out of sight, Corvus goes back to the taskbar, its button flashes and a notification says what it needs (below).
+- Private windows still close for good (their pages and data go), and closing the last tab of the last window leaves Corvus running with no window until you open it from the icon. Off by default.
+- With no window open at all, an agent's tab opens in a new window in the background, minimized, without taking the screen.
+
+### Notifications when an AI agent needs you
+- **A system notification when an agent waits on you.** When an AI agent asks you to do something in a tab ("Sign in to example.com", "Approve the sign-in on your phone") or needs your approval (spend money, use a saved login or 2FA code) while you are in another app or Corvus is in the notification area, a Windows, macOS or Linux notification says so in one line.
+- **Answer from the notification.** Its buttons answer right there: **Done** or **Cancel** for a request, **Allow once** or **Deny** for an approval (Windows and macOS), and the agent goes on without you opening Corvus. Click the notification to open Corvus on that tab instead. It goes away once you answer, in Corvus or in it.
+- Letting a new AI client control Corvus is still decided in Corvus: its notification only opens the question, with where the client connects from. Questions from web pages never show notifications.
+- **Notifications now reach you from the portable Corvus.** Windows silently dropped every notification of the portable build (page watches, sync, finished agent runs): it only shows those of an app it knows. The portable file now registers its name and icon for your Windows user, as the installer's shortcut does.
+
+### Fixed
+- **The portable Corvus shows its icon in the taskbar again.** After the portable file was moved, renamed or replaced by a newer version, Windows could keep showing a blank program icon for every Corvus window, even after a restart: it remembered the old file for Corvus's taskbar ID. Each portable file now has a taskbar ID of its own, so its windows always show the Corvus icon. A taskbar pin made with an older portable version starts that file as before; pin Corvus again to pin the current one.
+
 ## v0.37.0
 
 ### Addresses

@@ -24,6 +24,8 @@ export async function askNativeApproval(ctx: AppContext, approval: NativeApprova
     title: approval.title,
     message: approval.message,
     detail: approval.detail,
+    // The agent waits on it: answerable from a notification while the person is elsewhere.
+    notify: "buttons",
   });
   return button === 1;
 }

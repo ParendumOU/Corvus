@@ -68,6 +68,7 @@ src/main/             Electron main process
   site-settings.ts    per-profile remembered permissions and zoom levels (site-settings.json)
   downloads.ts        will-download per profile, downloads list, agent executable hold-back
   session-restore.ts  crash-safe session.json snapshots ("continue where you left off")
+  tray.ts             "keep running in the notification area": tray icon; the last window closes into it
   protocol.ts         corvus:// internal pages
 src/preload/          chrome.ts (browser UI), internal.ts (corvus:// pages), extension-sw.ts (extension
                       workers/pages: `browser` namespace mirror, default DNR rulesets). Web content gets none.

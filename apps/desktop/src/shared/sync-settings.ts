@@ -67,6 +67,7 @@ export const LOCAL_ONLY_SETTINGS: Readonly<Record<string, string>> = {
   "ai.mcpClaudeAt": "Reported by a Claude Code session on this machine.",
   "downloads.directory": "Folder on this machine.",
   "startup.askDefaultBrowser": "The default browser is chosen on each device.",
+  "startup.closeToTray": "Whether this computer keeps Corvus running for its agents; each device decides.",
   "downloads.watchClipboard": "Reads this machine's clipboard; each device decides.",
   "downloads.maxParallel": "Depends on this machine's connection.",
   "downloads.segments": "Depends on this machine's connection.",

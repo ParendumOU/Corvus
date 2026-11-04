@@ -1581,7 +1581,7 @@ function SettingsPage() {
       t("Browsing"),
       [
         ["semantic-search", t("Find in my pages")],
-        ["startup", t("On startup")],
+        ["startup", t("Startup and closing")],
         ["site-search", t("Search shortcuts")],
         ["memory", t("Memory")],
         ["media", t("Media")],

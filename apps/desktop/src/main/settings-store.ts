@@ -133,6 +133,7 @@ export class SettingsStore {
         transcriptionApiKey: Boolean(this.getSecret("transcriptionApiKey")),
       },
       secretsPersisted: this.secretsPersisted,
+      platform: process.platform,
     };
   }
 

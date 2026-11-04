@@ -67,7 +67,9 @@ import { setExtensionMessageBox } from "./extensions";
 import { dictationReady, internalMicrophoneAllowed } from "../shared/dictation";
 import { SyncService } from "./sync-service";
 import { UpdateService } from "./update-service";
-import { applyAppTaskbarIdentity } from "./taskbar";
+import { applyAppTaskbarIdentity, registerNotificationIdentity } from "./taskbar";
+import { AttentionNotifier } from "./attention";
+import { TrayService } from "./tray";
 import { WebScopeService } from "./webscope-service";
 import { WindowManager } from "./window-manager";
 
@@ -119,7 +121,9 @@ function urlsFromArgv(argv: string[], cwd = process.cwd()): string[] {
 function openUrls(ctx: AppContext, urls: string[]): void {
   const win = ctx.windows.focused() ?? ctx.windows.all()[0];
   if (!win) {
-    ctx.windows.open(ctx.profiles.manager.lastUsed, urls);
+    // Started again while running with no window (the notification area): as a fresh start.
+    if (urls.length === 0) ctx.tray.open();
+    else ctx.windows.open(ctx.profiles.manager.lastUsed, urls);
     return;
   }
   for (const url of urls) win.createTab(url);
@@ -130,6 +134,8 @@ function openUrls(ctx: AppContext, urls: string[]): void {
 /** macOS hands links and files over in events, from before the app is ready: kept until a window is. */
 const pendingSystemOpens: string[] = [];
 let systemOpen: ((urls: string[]) => void) | null = null;
+/** Whether Corvus runs on with no window (see TrayService), once the app is up. */
+let keepsRunning = (): boolean => false;
 function openFromSystem(urls: string[]): void {
   if (systemOpen) systemOpen(urls);
   else pendingSystemOpens.push(...urls);
@@ -210,6 +216,7 @@ async function main(): Promise<void> {
   const ctx = { settings, profiles } as AppContext;
   ctx.crashReporter = crashReporter;
   ctx.dictation = new DictationService(settings);
+  ctx.attention = new AttentionNotifier();
   ctx.dialogs = new DialogService(ctx);
   ctx.pageDialogs = new PageDialogs(pageDialogPresenter(ctx));
   setExtensionMessageBox((options, window) => ctx.dialogs.messageBox(options, ctx.windows.all().find((w) => w.win === window)));
@@ -289,6 +296,8 @@ async function main(): Promise<void> {
   ctx.defaultBrowser = new DefaultBrowser(ctx);
   ctx.backupReminder = new BackupReminder(ctx);
   ctx.sessionRestore = new SessionRestore(ctx, userData);
+  ctx.tray = new TrayService(ctx);
+  keepsRunning = () => ctx.tray.keepsRunning();
   ctx.adblock = new AdblockService(userData, (profileId) => {
     for (const win of ctx.windows.forProfile(profileId)) {
       win.pushState();
@@ -371,6 +380,7 @@ async function main(): Promise<void> {
     if (ctx.windows.all().length === 0) ctx.windows.open(profiles.manager.lastUsed);
   });
   app.on("before-quit", () => {
+    ctx.tray.markQuitting();
     cleanExit.markCleanExit();
     ctx.sync.stop();
     ctx.sessionRestore.quitting();
@@ -402,6 +412,8 @@ async function main(): Promise<void> {
     void ctx.backupReminder.remind(ctx.windows.focused() ?? ctx.windows.all()[0]);
   }
   ctx.sessionRestore.start();
+  ctx.tray.start();
+  registerNotificationIdentity(userData);
   ctx.webscope.apply();
   ctx.mcp.recordAppLocation();
   ctx.mcp.enableFromArgv(process.argv);
@@ -452,7 +464,7 @@ if (!app.requestSingleInstanceLock()) {
     openFromSystem(urlsFromArgv(["", file]));
   });
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
+    if (process.platform !== "darwin" && !keepsRunning()) app.quit();
   });
   main().catch((err: unknown) => {
     console.error("[corvus] fatal startup error:", err);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { GroupColor } from "@corvus/shared";
 import { OPEN_ALL_LOAD_NOW } from "../../shared/background-tabs";
+import { trayAvailable } from "../../shared/close-to-tray";
 import { CONTAINER_COLORS, type Container } from "../../shared/containers";
 import { DANGEROUS_TYPE_GROUPS, type DangerousTypeGroupId, type TrustedType } from "../../shared/download-trust";
 import { saveLocationMode, saveLocationSettings, type SaveLocationMode } from "../../shared/downloads";
@@ -112,7 +113,7 @@ export function StartupSection({ view, update }: Props) {
     ["newtab", t("Open the New Tab page")],
   ];
   return (
-    <Section id="startup" title={t("On startup")}>
+    <Section id="startup" title={t("Startup and closing")}>
       <Row label={t("When Corvus starts")} hint={t("Windows, tabs and tab groups are saved continuously, so they also come back after a crash.")}>
         <div className="segmented startup-mode">
           {options.map(([value, label]) => (
@@ -122,6 +123,18 @@ export function StartupSection({ view, update }: Props) {
           ))}
         </div>
       </Row>
+      {trayAvailable(view.platform) && (
+        <Row
+          label={t("Keep running in the notification area")}
+          hint={t("Closing the last window leaves Corvus running in the notification area, next to the clock, with its tabs, so AI agents can keep browsing for you. Its icon there opens Corvus again or quits it.")}
+        >
+          <Toggle
+            label={t("Keep running in the notification area")}
+            checked={view.settings.startup.closeToTray}
+            onChange={(v) => update({ startup: { closeToTray: v } })}
+          />
+        </Row>
+      )}
     </Section>
   );
 }

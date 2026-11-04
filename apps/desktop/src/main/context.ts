@@ -6,6 +6,7 @@ import type { AnnotationService } from "./annotation-service";
 import type { AssistService } from "./assist-service";
 import type { TranslateService } from "./translate-service";
 import type { TabSleeper } from "./tab-sleeper";
+import type { AttentionNotifier } from "./attention";
 import type { BackgroundRender } from "./background-render";
 import type { AutofillService } from "./autofill-service";
 import type { CertErrorService } from "./cert-errors";
@@ -38,6 +39,7 @@ import type { ScheduledAgentRunner } from "./scheduled-agent-runner";
 import type { SearchService } from "./search-service";
 import type { SemanticSearchService } from "./semantic-search-service";
 import type { SessionRestore } from "./session-restore";
+import type { TrayService } from "./tray";
 import type { SettingsStore } from "./settings-store";
 import type { SyncService } from "./sync-service";
 import type { UpdateService } from "./update-service";
@@ -124,4 +126,8 @@ export interface AppContext {
   tabSleeper: TabSleeper;
   /** The agent tabs that keep painting while hidden (Settings > AI agents). */
   backgroundRender: BackgroundRender;
+  /** Running on in the notification area once the last window closes (Settings > Startup and closing). */
+  tray: TrayService;
+  /** System notifications for questions an AI agent waits on while the person is elsewhere. */
+  attention: AttentionNotifier;
 }

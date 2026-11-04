@@ -100,7 +100,7 @@ export class UserActionService {
       }
       const text = userActionDialog(prompt);
       const res = await this.ctx.dialogs.ask(
-        { tone: "info", title: text.title, message: text.message, detail: text.detail, buttons: [tr("Cancel"), tr("Done")], defaultId: 1, cancelId: 0, bar: true, tabId },
+        { tone: "info", title: text.title, message: text.message, detail: text.detail, buttons: [tr("Cancel"), tr("Done")], defaultId: 1, cancelId: 0, bar: true, tabId, notify: "buttons" },
         window,
         controller.signal,
       );
@@ -122,6 +122,8 @@ export class UserActionService {
   private flash(window: BrowserWindowCtl): () => void {
     const win = window.win;
     if (win.isDestroyed() || win.isFocused()) return () => undefined;
+    // Out of sight in the notification area, it gets its taskbar button back to flash.
+    window.untuck();
     let flashing = true;
     const focused = (): void => {
       flashing = false;

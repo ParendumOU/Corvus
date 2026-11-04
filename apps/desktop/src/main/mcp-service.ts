@@ -351,7 +351,8 @@ export class McpService {
       checkboxLabel: tr("Always allow this client"),
       checkboxChecked: true,
     };
-    const { response, checkboxChecked } = await this.ctx.dialogs.messageBox(options);
+    // Letting a client in for good is decided in Corvus, with its address in view: the notification only opens it.
+    const { response, checkboxChecked } = await this.ctx.dialogs.messageBox(options, undefined, "open");
     const allowed = response === 1;
     if (allowed && checkboxChecked) {
       const approved = this.ctx.settings.get().mcp.approvedClients;

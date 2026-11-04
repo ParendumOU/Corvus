@@ -219,6 +219,8 @@ export interface Settings {
     mode: StartupMode;
     /** Offer "Make default" once per launch while Corvus is not the default browser. */
     askDefaultBrowser: boolean;
+    /** Closing the last window leaves Corvus running in the notification area (main/tray.ts). */
+    closeToTray: boolean;
   };
   update: {
     /** Check the update feed on startup and surface anything available. */
@@ -271,6 +273,8 @@ export interface SettingsView {
   secrets: Record<SecretKey, boolean>;
   /** False when the OS keychain is unavailable: secrets then live in memory for this session only. */
   secretsPersisted: boolean;
+  /** The system Corvus runs on (process.platform), for settings only some systems have. */
+  platform: string;
 }
 
 export type SettingsPatch = {
@@ -323,7 +327,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     dictation: { enabled: false, baseUrl: "", model: "", language: "" },
     monitor: { enabled: true, defaultIntervalMinutes: 30, maxWatches: 50 },
     scheduledAgents: { enabled: true, maxSteps: 12, maxTokens: 60000 },
-    startup: { mode: "restore", askDefaultBrowser: true },
+    startup: { mode: "restore", askDefaultBrowser: true, closeToTray: false },
     update: {
       autoCheck: true,
       channel: env.CORVUS_UPDATE_CHANNEL === "beta" ? "beta" : "stable",

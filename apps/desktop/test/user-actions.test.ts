@@ -22,6 +22,7 @@ function fakeWindow(focused = true): FakeWindow {
     flashes: [] as boolean[],
     win,
     focusChrome: vi.fn(),
+    untuck: vi.fn(),
     pushState() {
       w.pushes++;
     },
@@ -37,6 +38,7 @@ function setup(tabs: Record<string, FakeWindow>, focused: FakeWindow) {
       focused: () => focused,
       regular: () => [focused],
     },
+    attention: { show: vi.fn(), withdraw: vi.fn() },
   } as unknown as AppContext;
   ctx.dialogs = new DialogService(ctx);
   return { ctx, service: new UserActionService(ctx) };
@@ -132,6 +134,31 @@ describe("request_user_action", () => {
     expect((await third).outcome).toBe("done");
     expect(home.flashes).toEqual([true, false]);
     expect(home.win.listenerCount("focus")).toBe(0);
+  });
+
+  it("tells a person who is elsewhere with a notification they can answer from, and withdraws it once answered", async () => {
+    const away = fakeWindow(false);
+    const { ctx, service } = setup({ t1: away }, away);
+    const asked = service.ask("t1", prompt, 60_000);
+    const show = vi.mocked(ctx.attention.show);
+    expect(show).toHaveBeenCalledTimes(1);
+    const [id, win, notice, tabId, answer] = show.mock.calls[0]!;
+    expect(win).toBe(away);
+    expect(tabId).toBe("t1");
+    expect(notice.buttons).toEqual(["Cancel", "Done"]);
+    expect(notice.body).toContain("claude-code");
+    // "Done" in the notification: the agent goes on without Corvus being opened.
+    answer(1);
+    expect((await asked).outcome).toBe("done");
+    expect(ctx.attention.withdraw).toHaveBeenCalledWith(id);
+
+    // In the window, no notification.
+    const here = fakeWindow();
+    const second = setup({ t1: here }, here);
+    const done = second.service.ask("t1", prompt, 60_000);
+    expect(second.ctx.attention.show).not.toHaveBeenCalled();
+    second.service.forgetTab("t1");
+    await done;
   });
 
   it("answers closed at once for a tab that is gone", async () => {

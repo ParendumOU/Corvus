@@ -110,12 +110,16 @@ export class WindowManager implements PermissionHost {
     return this.lastFocused ?? this.windows[0];
   }
 
-  /** Window that agent and extension actions target (never a private one), opening one if needed. */
+  /**
+   * Window that agent and extension actions target (never a private one), opening one if needed.
+   * With no window open at all (Corvus kept running in the notification area), nobody is there to
+   * see it: it opens in the background.
+   */
   target(): BrowserWindowCtl {
     const focused = this.focused();
     if (focused && !focused.isPrivate) return focused;
     const regular = this.regular();
-    return regular[regular.length - 1] ?? this.open(focused?.profile.profile.id ?? this.ctx.profiles.manager.lastUsed);
+    return regular[regular.length - 1] ?? this.open(focused?.profile.profile.id ?? this.ctx.profiles.manager.lastUsed, [], { background: !focused });
   }
 
   removed(win: BrowserWindowCtl): void {
@@ -127,7 +131,7 @@ export class WindowManager implements PermissionHost {
     }
     if (this.lastFocused === win) this.lastFocused = this.windows[this.windows.length - 1] ?? null;
     if (this.front === win) this.front = null;
-    if (this.windows.length === 0 && process.platform !== "darwin") app.quit();
+    if (this.windows.length === 0 && process.platform !== "darwin" && !this.ctx.tray.keepsRunning()) app.quit();
   }
 
   broadcastState(): void {

@@ -148,7 +148,10 @@ export const ES: Record<string, string> = {
     "Modelo de tu servidor local, p. ej. nomic-embed-text (Ollama) o un modelo de embeddings servido por LM Studio.",
 
   // ------------------------------------------------------------------ startup and downloads
-  "On startup": "Al iniciar",
+  "Startup and closing": "Inicio y cierre",
+  "Keep running in the notification area": "Seguir en marcha en el área de notificación",
+  "Closing the last window leaves Corvus running in the notification area, next to the clock, with its tabs, so AI agents can keep browsing for you. Its icon there opens Corvus again or quits it.":
+    "Al cerrar la última ventana, Corvus sigue en marcha en el área de notificación, junto al reloj, con sus pestañas, para que los agentes de IA puedan seguir navegando por ti. Su icono ahí vuelve a abrir Corvus o lo cierra del todo.",
   Memory: "Memoria",
   "Tabs you have not looked at for a while go to sleep: their page is unloaded to free memory and comes back where it was, with its history and what you typed in forms, as soon as you return. Hover a tab to see the memory it uses.":
     "Las pestañas que llevas un rato sin mirar se duermen: su página se descarga para liberar memoria y vuelve tal como estaba, con su historial y lo que escribiste en los formularios, en cuanto regresas. Pasa el ratón por una pestaña para ver la memoria que usa.",
@@ -949,6 +952,8 @@ export const ES: Record<string, string> = {
   "Developer tools": "Herramientas para desarrolladores",
   "Check for updates…": "Buscar actualizaciones…",
   "Exit": "Salir",
+  "Open Corvus": "Abrir Corvus",
+  "Quit Corvus": "Salir de Corvus",
   "Signed in as {name}": "Sesión iniciada como {name}",
   "New window for this profile": "Nueva ventana con este perfil",
   "Add or manage profiles…": "Añadir o gestionar perfiles…",

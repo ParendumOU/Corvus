@@ -24,6 +24,7 @@ import { runCertErrorSmoke } from "./smoke-cert-errors";
 import { runScheduledAgentSmoke } from "./smoke-scheduled";
 import { runSplitSmoke } from "./smoke-split";
 import { runTabCloseSmoke } from "./smoke-tab-close";
+import { runTraySmoke } from "./smoke-tray";
 import { runUserActionSmoke } from "./smoke-user-action";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
@@ -330,6 +331,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runAgentIsolationSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=tray: only the checks of keeping Corvus running in the notification area.
+    if (process.env.CORVUS_SMOKE_ONLY === "tray") {
+      await runTraySmoke(ctx, { url, win, check });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=webscope: only the WebScope checks, for work on WebScope.
     if (process.env.CORVUS_SMOKE_ONLY === "webscope") {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
@@ -440,6 +446,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAssistAgentSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentIsolationSmoke(ctx, { win, check, capture });
     await runWebscopeSmoke(ctx, { url, win, check, capture });
+    // Closes every window but `win` (which it hides and brings back).
+    await runTraySmoke(ctx, { url, win, check });
 
     await runExtensionSmoke(ctx, { check, capture, log });
     // Last: it moves the real pointer and keyboard focus of the display (put back afterwards).

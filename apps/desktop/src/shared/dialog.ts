@@ -56,6 +56,13 @@ export interface DialogSpec {
   /** The tab a bar is about: while another tab is active, the bar offers to go to it (without answering). */
   tabId?: TabId;
   /**
+   * An AI agent waits on the answer: while the person is not in the window (another app, or Corvus in
+   * the notification area), a system notification says so and opens it on a click. "buttons" also
+   * answers from the notification's own buttons, so the agent goes on without Corvus being opened.
+   * Never for what a page asks: a page could then show notifications in Corvus's name.
+   */
+  notify?: "buttons" | "open";
+  /**
    * A line under the question that tells the person where to change this behaviour, with a link that
    * opens that settings section (corvus://settings/#<section>) in a new tab. The dialog stays open.
    */
