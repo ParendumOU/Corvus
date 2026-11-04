@@ -5,7 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DataRoots } from "../shared/browser-import";
-import { writePasswordFixtures } from "./smoke-password-fixtures";
+import { LINUX_V10_SECRET, chromiumCbcKey } from "./password-decrypt";
+import { chromiumValue, writePasswordFixtures } from "./smoke-password-fixtures";
 
 /** Chromium time: microseconds since 1601-01-01. */
 const chromium = (ms: number): number => (ms + 11_644_473_600_000) * 1000;
@@ -71,6 +72,8 @@ function mozLz4(text: string): Buffer {
 }
 
 export const FIXTURE_NOW = Date.UTC(2026, 9, 20, 12, 0, 0);
+/** The card in the fake Chrome profile's Web Data (a published test number, not a real card). */
+export const FIXTURE_CARD = { number: "4111111111111111", nameOnCard: "Ana Example", expMonth: "08", expYear: "2028", label: "Personal" } as const;
 
 /** Writes the fake browsers under `root` (a Linux layout) and returns the roots to scan. */
 export function writeBrowserFixtures(root: string): DataRoots {
@@ -162,6 +165,30 @@ export function writeBrowserFixtures(root: string): DataRoots {
   addKeyword.run("Wikipedia", "wiki", "https://en.wikipedia.org/w/index.php?search={searchTerms}", 1, 0, 0, 1, 0);
   addKeyword.run("Bookmarks", "@bookmarks", "chrome://bookmarks/?q={searchTerms}", 0, 0, 0, 0, 1);
   addKeyword.run("Intranet", "in", "https://intranet.example/?q={searchTerms}", 0, 0, 1, 1, 0);
+  // Saved addresses (Web Data's addresses and their type tokens): two with content, one empty that is left out.
+  webData.exec("CREATE TABLE addresses (guid VARCHAR PRIMARY KEY, record_type INTEGER); CREATE TABLE address_type_tokens (guid VARCHAR, type INTEGER, value VARCHAR)");
+  const addAddress = webData.prepare("INSERT INTO addresses (guid, record_type) VALUES (?, 0)");
+  const addToken = webData.prepare("INSERT INTO address_type_tokens (guid, type, value) VALUES (?, ?, ?)");
+  addAddress.run("a-home");
+  // FieldType numbers: 7 full name, 77 street, 35 postal code, 33 city, 36 country, 14 phone, 9 e-mail.
+  for (const [type, value] of [[7, "Ana Example"], [77, "Calle Mayor 1"], [35, "28013"], [33, "Madrid"], [36, "ES"], [14, "+34 600 000 000"], [9, "ana@example.com"]] as const) addToken.run("a-home", type, value);
+  addAddress.run("a-work");
+  addToken.run("a-work", 9, "work@example.test");
+  addAddress.run("a-empty");
+  // Saved cards (Web Data's credit_cards, made-up test numbers): a Visa under the Linux "v10" key,
+  // a Mastercard the browser protects itself ("v20", counted, never read), next to a stored CVC and a
+  // Google account card, which are never read.
+  const v10 = { kind: "cbc", key: chromiumCbcKey(LINUX_V10_SECRET, 1) } as const;
+  webData.exec(
+    "CREATE TABLE credit_cards (guid VARCHAR PRIMARY KEY, name_on_card VARCHAR, expiration_month INTEGER, expiration_year INTEGER, card_number_encrypted BLOB, date_modified INTEGER NOT NULL DEFAULT 0, origin VARCHAR DEFAULT '', use_count INTEGER NOT NULL DEFAULT 0, use_date INTEGER NOT NULL DEFAULT 0, billing_address_id VARCHAR, nickname VARCHAR);" +
+      "CREATE TABLE local_stored_cvc (guid VARCHAR PRIMARY KEY NOT NULL, value_encrypted VARCHAR NOT NULL, last_updated_timestamp INTEGER NOT NULL);" +
+      "CREATE TABLE masked_credit_cards (id VARCHAR, name_on_card VARCHAR, network VARCHAR, last_four VARCHAR, exp_month INTEGER, exp_year INTEGER);",
+  );
+  const addCard = webData.prepare("INSERT INTO credit_cards (guid, name_on_card, expiration_month, expiration_year, card_number_encrypted, nickname) VALUES (?, ?, ?, ?, ?, ?)");
+  addCard.run("c-visa", "Ana Example", 8, 2028, chromiumValue(FIXTURE_CARD.number, v10), "Personal");
+  addCard.run("c-protected", "Ana Example", 1, 2030, Buffer.concat([Buffer.from("v20", "latin1"), Buffer.alloc(48, 7)]), null);
+  webData.prepare("INSERT INTO local_stored_cvc VALUES (?, ?, 0)").run("c-visa", chromiumValue("123", v10).toString("latin1"));
+  webData.prepare("INSERT INTO masked_credit_cards (id, name_on_card, network, last_four, exp_month, exp_year) VALUES ('server', 'Server Card', 'visa', '0004', 1, 2031)").run();
   webData.close();
   // A second profile with bookmarks only.
   fs.writeFileSync(path.join(chrome, "Profile 1", "Bookmarks"), JSON.stringify({ roots: { bookmark_bar: { type: "folder", name: "Bar", children: [{ type: "url", name: "Work", url: "https://work.example/" }] } } }));

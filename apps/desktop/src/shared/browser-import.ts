@@ -15,8 +15,8 @@ export interface BrowserInfo {
 }
 
 /** What can be imported from a profile (more kinds join as Corvus learns to read them). */
-export type ImportKind = "bookmarks" | "history" | "tabs" | "search" | "passwords";
-export const IMPORT_KINDS: readonly ImportKind[] = ["bookmarks", "history", "tabs", "search", "passwords"];
+export type ImportKind = "bookmarks" | "history" | "tabs" | "search" | "passwords" | "addresses" | "cards";
+export const IMPORT_KINDS: readonly ImportKind[] = ["bookmarks", "history", "tabs", "search", "passwords", "addresses", "cards"];
 
 export interface ImportProfile {
   /** Folder name inside the browser's data folder ("Default", "Profile 1", "abcd.default-release"). */
@@ -29,6 +29,8 @@ export interface ImportProfile {
   counts: Partial<Record<ImportKind, number | null>>;
   /** Saved passwords the browser protects itself (Chrome's app-bound encryption): only its own export brings them. */
   protectedPasswords?: number;
+  /** Saved cards the browser protects itself (app-bound): Corvus cannot read their numbers. */
+  protectedCards?: number;
   /** Extensions the person installed there, to add to Corvus one by one. */
   extensions: ImportExtension[];
 }
@@ -122,6 +124,10 @@ export interface ImportResult {
   search?: { imported: number };
   /** Saved logins brought into the vault through the one merge path. */
   passwords?: PasswordImportSummary;
+  /** Saved addresses (Chromium's Web Data): new ones, saved ones they filled in, and ones Corvus already had. */
+  addresses?: { added: number; updated: number; unchanged: number };
+  /** Saved payment cards (Chromium's local cards; never a CVV, never the Google account's cards), and how many the browser protects. */
+  cards?: { added: number; updated: number; unchanged: number; protected: number };
   /** Why a kind could not be read (e.g. the browser keeps its file locked). */
   errors: Partial<Record<ImportKind, string>>;
 }

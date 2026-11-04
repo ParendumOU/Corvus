@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## v0.37.0
+
+### Addresses
+- **Corvus fills your address in checkout forms.** Save your name, address, phone and email once, and the next time you click a field of an address form (a shop checkout, a guest order, a delivery form) Corvus lists your saved addresses right under it, like the saved logins under a password field. Pick one and the whole form fills in: name (full, or first name and surname apart), street on one or two lines, postal code, city, province, country (lists too) and phone and email. Fields you already typed in stay as you left them.
+- **Offers to save the address you send.** When you send an address form with an address Corvus does not have, it offers to save it; when it matches a saved one with something new (a different phone, a new flat), it offers to update that one. Never in private windows or while an AI agent works in the tab.
+- **Several addresses, in Passwords → Addresses.** Home, work, a relative's: add, edit, search and delete them there, each with an optional label. They are stored encrypted and sync end to end with your other devices, like your passwords.
+- **Imported from Chrome and other Chromium browsers.** Importing from another browser now also brings its saved addresses, with your passwords and history.
+- **Only into fields you can see.** A form's hidden fields (transparent, tiny or placed off the page) are left empty, so a page cannot collect your phone or email without showing where it goes. A different name at the same street is a different address: saving or importing one never replaces the other person's.
+- Settings → Passwords → **Save and fill addresses** turns it all off.
+
+### Payment cards
+- **Corvus fills your saved cards in payment forms.** Click the card number (or any card field) of a checkout and your saved cards show right under it, as "Visa ...1111 - 08/28". Pick one, type its CVV in Corvus's own prompt, and the number, name on the card, expiry (in the format the form wants) and CVV fill in. Corvus asks for the CVV every time and forgets it right after: it is never saved, synced or imported.
+- **Also inside payment providers' frames.** Many shops show the card fields in a frame from their payment provider; Corvus fills those too, only in the frame you clicked and only while it still shows the same site.
+- **Offers to save the card you pay with.** When you send a card Corvus does not have, it offers to save it (number, name and expiry, never the CVV); a new expiry or name on a saved card offers an update. Never in private windows or while an AI agent works in the tab.
+- **Passwords → Payment methods.** Add, edit, search and delete your cards there. The number shows masked; showing it in full asks first. Cards are stored encrypted and sync end to end with your other devices.
+- **Imported from Chrome and other Chromium browsers.** Importing from another browser now also brings the cards saved on that computer (never their CVV or your Google account's cards); the ones the browser locks to itself are counted and named.
+- **Safe by design.** Cards are offered and filled only on secure (https) pages and frames, and when the card fields are in a payment provider's frame the CVV prompt names that site. After a card fill, AI agents cannot read that page's fields, as after a password fill, and workflows you record keep card fields out. A card's security code is never offered as a password to save.
+- Settings → Passwords → **Save and fill payment methods** turns it all off.
+
+### Phone
+- **Fill your saved addresses on the phone too.** Corvus on your phone now gets the addresses you saved on your computers (sealed on the phone like your passwords). On a page with an address form, open the page menu and tap **Fill address** (shown once you have an address saved), pick one, and the empty fields of the form fill in: the form you are typing in, or else the first address form of the page. Fields you already typed in stay as you left them. Addresses are added and changed on a computer; the phone only fills them.
+- **And your saved cards.** The page menu also has **Fill card** once a card is saved on a computer. It asks for the phone's lock (fingerprint, face or PIN) first, as your passwords do, and works only on secure (https) pages. Pick a card (shown as "Visa ...1111 - 08/28"), type its CVV in Corvus's own prompt, and the card number, name on the card, expiry and CVV fill in. The CVV is used for that one fill and forgotten right after: never saved, synced or logged. Card forms inside another site's frame (some payment providers) cannot be reached on the phone; type those as before.
+
 ## v0.36.9
 
 ### Downloads

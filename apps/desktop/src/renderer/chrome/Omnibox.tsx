@@ -7,10 +7,11 @@ import { displayUrl, searchQueryOf } from "../../shared/omnibox";
 import type { Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
 import { languageName, type TranslateBarState } from "../../shared/translate";
-import { CorvusMark, IconBook, IconGlobe, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
+import { CorvusMark, IconBook, IconCard, IconGlobe, IconLocation, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
 import { Favicon, SourceBadge } from "../common/ui";
 import { useHoverSelect } from "./hover-select";
 import { SavePasswordPrompt } from "./SavePassword";
+import { SaveAddressPrompt } from "./SaveAddress";
 import { AutofillPanel } from "./AutofillPanel";
 
 import { t } from "../common/i18n";
@@ -149,11 +150,14 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     const typed = useRef(false);
     const url = tab?.url ?? "";
     const open = focused && suggestions.length > 0;
-    const showAutofill = Boolean(tab) && !focused && (autofill.available || autofill.canSave);
-    const promptSave = showAutofill && autofill.savePrompt && autoOpen;
+    const showAutofill = Boolean(tab) && !focused && (autofill.available || autofill.canSave || autofill.addressSave !== null || autofill.cardSave !== null);
+    // The password prompt goes first; a sent address form waits for it, and a sent card form for both.
+    const addressSave = autofill.canSave ? null : autofill.addressSave;
+    const cardSave = autofill.canSave || addressSave ? null : autofill.cardSave;
+    const promptSave = showAutofill && (autofill.savePrompt || (addressSave !== null && autofill.addressPrompt) || (cardSave !== null && autofill.cardPrompt)) && autoOpen;
 
     // The panel belongs to the tab, and to the pending save, it was opened for.
-    useEffect(() => setAutofillOpen(false), [tab?.id, autofill.saveId]);
+    useEffect(() => setAutofillOpen(false), [tab?.id, autofill.saveId, addressSave?.id, cardSave?.id]);
     useEffect(() => {
       if (!showAutofill) setAutofillOpen(false);
     }, [showAutofill]);
@@ -166,7 +170,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       if (document.activeElement === inputRef.current) inputRef.current?.blur();
       setSaveFocus(false);
       setAutofillOpen(true);
-    }, [promptSave, autofill.saveId]);
+    }, [promptSave, autofill.saveId, addressSave?.id, cardSave?.id]);
 
     const openAutofill = (): void => {
       if (autofillOpen) {
@@ -320,12 +324,12 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
           )}
           {showAutofill && (
             <button
-              className={`icon-btn omni-autofill ${autofill.canSave ? "save" : ""}`}
-              title={autofill.canSave ? t("Save password") : autofill.otpAvailable && autofill.matchCount === 0 ? t("Fill 2FA code") : t("Fill password")}
+              className={`icon-btn omni-autofill ${autofill.canSave || addressSave || cardSave ? "save" : ""}`}
+              title={autofill.canSave ? t("Save password") : addressSave ? t("Save address") : cardSave ? t("Save card") : autofill.otpAvailable && autofill.matchCount === 0 ? t("Fill 2FA code") : t("Fill password")}
               aria-pressed={autofillOpen}
               onClick={openAutofill}
             >
-              <IconLock size={16} />
+              {addressSave ? <IconLocation size={16} /> : cardSave ? <IconCard size={16} /> : <IconLock size={16} />}
             </button>
           )}
           {tab?.container && !focused && (
@@ -389,7 +393,9 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
         )}
         {autofillOpen && <div className="omni-panel-backdrop" onMouseDown={() => closeAutofill(true)} />}
         {autofillOpen && autofill.canSave && <SavePasswordPrompt key={autofill.saveId} takeFocus={saveFocus} onClose={closeAutofill} />}
-        {autofillOpen && !autofill.canSave && <AutofillPanel autofill={autofill} matches={matches} url={url} onDone={() => setAutofillOpen(false)} />}
+        {autofillOpen && addressSave && <SaveAddressPrompt key={addressSave.id} save={addressSave} takeFocus={saveFocus} onClose={closeAutofill} />}
+        {autofillOpen && cardSave && <SaveAddressPrompt key={`card-${cardSave.id}`} kind="card" save={cardSave} takeFocus={saveFocus} onClose={closeAutofill} />}
+        {autofillOpen && !autofill.canSave && !addressSave && !cardSave && <AutofillPanel autofill={autofill} matches={matches} url={url} onDone={() => setAutofillOpen(false)} />}
       </div>
     );
   },

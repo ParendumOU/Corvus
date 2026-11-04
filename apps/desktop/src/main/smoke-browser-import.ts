@@ -5,7 +5,7 @@ import type { WebContents } from "electron";
 import type { AppContext } from "./context";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { buildSuggestions } from "../shared/suggest";
-import { writeBrowserFixtures } from "./smoke-import-fixtures";
+import { FIXTURE_CARD, writeBrowserFixtures } from "./smoke-import-fixtures";
 import type { BrowserWindowCtl } from "./window";
 
 interface BrowserImportSmokeHelpers {
@@ -39,6 +39,8 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
   const workspacesBefore = new Set(profile.workspaces.list().map((w) => w.id));
   const shortcutsBefore = new Set(profile.siteSearch.list().map((s) => s.keyword));
   const loginsBefore = new Set(profile.credentials.all().map((c) => c.id));
+  const addressesBefore = new Set(profile.addresses.all().map((a) => a.id));
+  const cardsBefore = new Set(profile.cards.all().map((c) => c.id));
   let tabId: string | null = null;
   try {
     ctx.browserImport.setTestRoots(writeBrowserFixtures(root));
@@ -95,6 +97,23 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
       { done, added: added.map((b) => b.title), visited: visited.map((e) => e.url), workspace },
     );
 
+    // Saved addresses came along into the address vault.
+    const addresses = profile.addresses.all().filter((a) => !addressesBefore.has(a.id));
+    check(
+      "browser import: a profile's saved addresses come into Corvus",
+      addresses.some((a) => a.name === "Ana Example" && a.city === "Madrid") && addresses.some((a) => a.email === "work@example.test"),
+      addresses.map((a) => a.name || a.email),
+    );
+
+    // The local card came along (number decrypted), never a CVV; the protected one is counted, not read.
+    const cards = profile.cards.all().filter((c) => !cardsBefore.has(c.id));
+    const resultText = (await wc.executeJavaScript("document.querySelector('[data-import-source=\"chrome\"] [data-import-profile=\"Default\"] [data-import-result]')?.innerText ?? ''")) as string;
+    check(
+      "browser import: a profile's saved card comes into Corvus without a CVV, and the protected one is named",
+      cards.length === 1 && cards[0]?.number === FIXTURE_CARD.number && cards[0]?.expYear === FIXTURE_CARD.expYear && !/cvc|cvv/i.test(JSON.stringify(cards)) && resultText.includes("1 card is protected"),
+      { cards: cards.map((c) => `${c.nameOnCard} ${c.expMonth}/${c.expYear}`), resultText },
+    );
+
     // Search shortcuts came along, show in Settings, and the address bar uses them.
     const shortcuts = profile.siteSearch.list().filter((x) => !shortcutsBefore.has(x.keyword));
     await wc.executeJavaScript("location.hash = '#site-search'").catch(() => undefined);
@@ -116,6 +135,8 @@ export async function runBrowserImportSmoke(ctx: AppContext, h: BrowserImportSmo
     for (const x of profile.siteSearch.list().filter((y) => !shortcutsBefore.has(y.keyword))) profile.siteSearch.remove(x.keyword);
     // Passwords are ticked by default too (smoke-password-import.ts checks them); removed as a sync would, leaving no deletion memory.
     profile.credentials.applyRemote(profile.credentials.all().filter((c) => !loginsBefore.has(c.id)).map((c) => ({ id: c.id, cred: null })));
+    for (const a of profile.addresses.all().filter((x) => !addressesBefore.has(x.id))) profile.addresses.remove(a.id);
+    profile.cards.applyRemote(profile.cards.all().filter((c) => !cardsBefore.has(c.id)).map((c) => ({ id: c.id, card: null })));
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

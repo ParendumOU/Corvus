@@ -42,6 +42,8 @@ import { Outbox } from '@/lib/outbox';
 import { isUnreachable, needsServerMessage } from '@/lib/reach';
 import type { Progress } from '@/lib/refresh';
 import { VAULT_KEY, vaultSealer } from '@/lib/password-vault';
+import { addressesOf, type SavedAddress } from '@/lib/autofill-addresses';
+import { cardsOf, type SavedCard } from '@/lib/autofill-cards';
 import { loginsOf, type Login } from '@/lib/passwords';
 import { PHONE_COLLECTIONS, Replica } from '@/lib/replica';
 import { secrets } from '@/lib/secrets';
@@ -121,6 +123,16 @@ export function replicaFor(pairing: Pairing): Replica {
 /** The passwords saved on the computers, as last synced (read on demand, never kept in the view). */
 export async function savedLogins(pairing: Pairing): Promise<Login[]> {
   return loginsOf(await replicaFor(pairing).records('credentials'));
+}
+
+/** The addresses saved on the computers, as last synced (read on demand, like the passwords). */
+export async function savedAddresses(pairing: Pairing): Promise<SavedAddress[]> {
+  return addressesOf(await replicaFor(pairing).records('addresses'));
+}
+
+/** The payment cards saved on the computers (never a CVV), as last synced. */
+export async function savedCards(pairing: Pairing): Promise<SavedCard[]> {
+  return cardsOf(await replicaFor(pairing).records('cards'));
 }
 
 /** Version 0.1.0 kept the replica in AsyncStorage; it now lives in files (fetched again once). */

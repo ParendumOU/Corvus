@@ -9,6 +9,8 @@ import { AutoSignInStore } from "./auto-sign-in-store";
 import { BackupStore } from "./backup-store";
 import { containerPartition } from "../shared/containers";
 import { ContainerStore } from "./containers";
+import { AddressVault } from "./address-store";
+import { CardVault } from "./card-store";
 import { CredentialVault } from "./credential-store";
 import { ExtensionHost, type ExtensionWindowDelegate } from "./extensions";
 import { containerChoice, type ConnectionChoice } from "../shared/connections";
@@ -101,6 +103,8 @@ export class ProfileRuntime {
   readonly siteProfiles: SiteProfileStore;
   readonly semanticIndex: SemanticIndexStore;
   readonly credentials: CredentialVault;
+  readonly addresses: AddressVault;
+  readonly cards: CardVault;
   /** KeePass databases (read, and written only for entries the person adds or edits; off until they add one). */
   readonly keepass: KeePassStore;
   /** Logins the person chose to sign in with automatically (always confirmed first). */
@@ -181,6 +185,8 @@ export class ProfileRuntime {
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
     this.credentials = new CredentialVault(dataDir, cipher);
+    this.addresses = new AddressVault(dataDir, cipher);
+    this.cards = new CardVault(dataDir, cipher);
     this.keepass = new KeePassStore(dataDir, cipher);
     this.autoSignIn = new AutoSignInStore(dataDir);
     this.backup = new BackupStore(dataDir);
@@ -347,6 +353,8 @@ export class ProfileRuntime {
     this.siteProfiles.flush();
     this.semanticIndex.flush();
     this.credentials.flush();
+    this.addresses.flush();
+    this.cards.flush();
     this.keepass.flush();
     this.liveHistory.flush();
     this.autoSignIn.flush();

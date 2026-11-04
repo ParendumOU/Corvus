@@ -3,6 +3,9 @@
  * the autofill controls in the browser chrome (ChromeRpc). Passwords only ever leave the main process
  * on an explicit reveal/fill call; the page shows masked summaries until the user asks.
  */
+import type { AddressRole } from "./address-fields";
+import type { AddressFields, AutofillAddress } from "./addresses";
+import type { CardCaptureRole, CardFields, CardSummary } from "./cards";
 import type { AuthenticatorImportResult, AuthenticatorPick, AuthenticatorPreview, PhotoReport } from "./authenticator-import";
 import type { CredentialMatch, CredentialSummary, PasswordOptions } from "./credentials";
 import type { PasswordCheckupView } from "./password-health";
@@ -79,6 +82,18 @@ export interface CredentialsRpc {
   "credentials.checkup"(): PasswordCheckupView;
   /** Checks every saved password against known data breaches now (k-anonymity: 5 hash characters leave). */
   "credentials.runCheckup"(): PasswordCheckupView;
+  /** Saved addresses, most recently used first. */
+  "addresses.list"(): AutofillAddress[];
+  /** Adds an address, or changes the one with `id`; null when it holds nothing worth keeping or is gone. */
+  "addresses.save"(input: { id?: string; fields: AddressFields }): AutofillAddress | null;
+  "addresses.remove"(id: string): boolean;
+  /** Saved payment cards, most recently used first, without their numbers (only brand and last digits). */
+  "cards.list"(): CardSummary[];
+  /** Adds a card, or changes the one with `id` (an empty number keeps the saved one). Never a CVV. */
+  "cards.save"(input: { id?: string; fields: CardFields }): CardSummary;
+  "cards.remove"(id: string): boolean;
+  /** The full number of a saved card, for the page to show once the person confirmed. */
+  "cards.reveal"(id: string): string;
 }
 
 /** Autofill indicator shown in the omnibox for the active tab. */
@@ -92,11 +107,19 @@ export interface AutofillBarState {
   canSave: boolean;
   /** Identifies the pending save (0 when none): the save prompt belongs to one submitted login. */
   saveId: number;
+  /** A sent address form is waiting for the choice to save it as a new address or update a saved one: what the prompt shows. */
+  addressSave: { id: number; kind: "new" | "update"; line: string } | null;
+  /** The address prompt was never shown for that form: it opens by itself, once. */
+  addressPrompt: boolean;
+  /** A sent card form (number, name and expiry, never a CVV) is waiting for the choice to save it as a new card or update a saved one: what the prompt shows. */
+  cardSave: { id: number; kind: "new" | "update"; line: string } | null;
+  /** The card prompt was never shown for that form: it opens by itself, once. */
+  cardPrompt: boolean;
   /** The save prompt was never shown for the pending save: it opens by itself, once. */
   savePrompt: boolean;
 }
 
-export const EMPTY_AUTOFILL: AutofillBarState = { available: false, matchCount: 0, otpAvailable: false, canSave: false, saveId: 0, savePrompt: false };
+export const EMPTY_AUTOFILL: AutofillBarState = { available: false, matchCount: 0, otpAvailable: false, canSave: false, saveId: 0, savePrompt: false, addressSave: null, addressPrompt: false, cardSave: null, cardPrompt: false };
 
 /**
  * The pending save as the save prompt shows it. It carries the submitted password, so it is never part
@@ -142,6 +165,15 @@ export interface AutofillChromeRpc {
   "autofill.saveDismiss"(id: number): void;
   /** "Never for this site": drops the pending save and never offers to save on its host again. */
   "autofill.saveNever"(id: number): void;
+  /** The address prompt is opening for the pending address with this id: it no longer opens by itself. */
+  "autofill.addressSaveShown"(id: number): void;
+  /** Saves the pending address: a new one, or the fields it holds over the saved one it updates. */
+  "autofill.addressSaveAccept"(id: number): void;
+  "autofill.addressSaveDismiss"(id: number): void;
+  /** The same for a sent card form (number, name and expiry; never a CVV). */
+  "autofill.cardSaveShown"(id: number): void;
+  "autofill.cardSaveAccept"(id: number): void;
+  "autofill.cardSaveDismiss"(id: number): void;
   "autofill.openManager"(): void;
 }
 
@@ -167,8 +199,8 @@ export interface CapturedIdentifier {
  */
 export const AUTOFILL_FIELD_CHANNEL = "corvus:autofill-field";
 
-/** A username or password field ("login"), or a field for a 2FA code ("otp"). */
-export type AutofillFieldKind = "login" | "otp";
+/** A username or password field ("login"), a field for a 2FA code ("otp"), a field of an address form ("address") or of a card form ("card"). */
+export type AutofillFieldKind = "login" | "otp" | "address" | "card";
 
 export interface FieldClick {
   kind: AutofillFieldKind;
@@ -226,6 +258,19 @@ export interface FieldDropdownState {
   copy: "offer" | "copied" | null;
   /** The strong password suggested for the field, null when none is. */
   generator: GeneratorState | null;
+  /** Under an address field: the saved addresses (empty otherwise). */
+  addresses: AddressOption[];
+  /** Under a card field: the saved cards (empty otherwise). */
+  cards: AddressOption[];
+}
+
+/** A saved address as its dropdown row shows it. */
+export interface AddressOption {
+  id: string;
+  /** Its label or name. */
+  title: string;
+  /** The first street line and the city. */
+  detail: string;
 }
 
 /** The suggested password and its generator (opened from the suggestion row), as the dropdown shows them. */
@@ -264,3 +309,21 @@ export type DropdownAction =
   | { type: "length"; token: number; length: number }
   | { type: "toggle"; token: number; option: PasswordClass }
   | { type: "regenerate" | "copy" | "use"; token: number };
+
+/** One-way channel: the tab preload reports a sent address form (each field's role and value) so the main process can offer to save it. */
+export const AUTOFILL_ADDRESS_CAPTURE_CHANNEL = "corvus:autofill-address-captured";
+
+/** A sent address form, as the tab preload reports it. */
+export interface CapturedAddress {
+  origin: string;
+  fields: { role: AddressRole; value: string }[];
+}
+
+/** One-way channel: the tab preload reports a sent card form (number, name and expiry; never the security code) so the main process can offer to save it. */
+export const AUTOFILL_CARD_CAPTURE_CHANNEL = "corvus:autofill-card-captured";
+
+/** A sent card form, as the tab preload reports it. */
+export interface CapturedCard {
+  origin: string;
+  fields: { role: CardCaptureRole; value: string }[];
+}

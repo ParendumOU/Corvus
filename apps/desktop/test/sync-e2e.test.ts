@@ -7,7 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildServer } from "../../../services/sync-server/src/app";
 import { AnnotationStore } from "../src/main/annotation-store";
 import { CommandHistoryStore } from "../src/main/command-history-store";
+import { AddressVault } from "../src/main/address-store";
+import { CardVault } from "../src/main/card-store";
 import { CredentialVault } from "../src/main/credential-store";
+import { emptyAddressFields } from "../src/shared/addresses";
+import { emptyCardFields } from "../src/shared/cards";
 import { FlowStore } from "../src/main/flow-store";
 import { SiteMemoryStore } from "../src/main/site-memory-store";
 import { ReadingStore } from "../src/main/reading-store";
@@ -65,6 +69,8 @@ class Device {
   readonly bookmarks = new BookmarkStore(this.dir);
   readonly history = new HistoryStore(this.dir);
   readonly credentials = new CredentialVault(this.dir, cipher);
+  readonly addresses = new AddressVault(this.dir, cipher);
+  readonly cards = new CardVault(this.dir, cipher);
   readonly reading = new ReadingStore(this.dir);
   readonly annotations = new AnnotationStore(this.dir);
   readonly watches = new WatchStore(this.dir, () => 100);
@@ -96,6 +102,8 @@ class Device {
       bookmarks: this.bookmarks,
       history: this.history,
       credentials: this.credentials,
+      addresses: this.addresses,
+      cards: this.cards,
       reading: this.reading,
       watches: this.watches,
       workspaces: this.workspaces,
@@ -155,6 +163,8 @@ class Device {
     this.bookmarks.flush();
     this.history.flush();
     this.credentials.flush();
+    this.addresses.flush();
+    this.cards.flush();
     this.reading.flush();
     this.annotations.flush();
     this.watches.flush();
@@ -194,6 +204,8 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     a.installed = [ext(UBLOCK, "uBlock Origin")];
     const totp = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };
     const login = a.credentials.add({ origin: "https://corvus.example/login", username: "alice", password: "s3cret", notes: "primary", totp, agentTotp: true });
+    const address = a.addresses.add({ ...emptyAddressFields(), name: "Alice Doe", street: "1 Main St\nFlat 2", postalCode: "28001", city: "Madrid", country: "ES", phone: "600000000" });
+    const card = a.cards.add({ ...emptyCardFields(), number: "4111111111111111", nameOnCard: "Alice Doe", expMonth: "08", expYear: "2028", label: "Work" });
     const readingItem: ReadingItem = {
       id: "read-1",
       url: "https://read.example/article",
@@ -259,6 +271,13 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     expect(b.credentialsById()).toEqual(a.credentialsById());
     expect(b.credentials.get(login.id)).toMatchObject({ origin: "https://corvus.example", username: "alice", password: "s3cret", notes: "primary", totp, agentTotp: true });
 
+    // addresses: the sealed address reaches the other device intact
+    expect(b.addresses.get(address.id)).toEqual(a.addresses.get(address.id));
+
+    // cards: the sealed card reaches the other device intact, and never with a CVV
+    expect(b.cards.get(card.id)).toEqual(a.cards.get(card.id));
+    expect(Object.keys(b.cards.get(card.id) ?? {})).not.toContain("cvv");
+
     // open tabs: each device sees the other's tabs, never its own
     expect(a.remoteTabs()).toEqual([expect.objectContaining({ device: "Desktop", tabs: b.tabs })]);
     expect(b.remoteTabs()).toEqual([expect.objectContaining({ device: "Laptop", tabs: a.tabs })]);
@@ -299,6 +318,8 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     b.bookmarks.remove(folder.id);
     a.history.clear();
     a.credentials.remove(login.id);
+    a.addresses.remove(address.id);
+    a.cards.remove(card.id);
     expect(await b.sync()).toMatchObject({ pushed: 1, deleted: 2 });
     await a.sync();
     await b.sync();
@@ -307,6 +328,8 @@ describe("desktop sync adapters end to end (two devices, one phrase, real server
     expect(a.remoteTabs()).toEqual([expect.objectContaining({ device: "Desktop", tabs: [] })]);
     expect(a.credentials.all()).toEqual([]);
     expect(b.credentials.all()).toEqual([]);
+    expect(b.addresses.all()).toEqual([]);
+    expect(b.cards.all()).toEqual([]);
 
     // Removing device B drops its records chain-wide; a restored device only sees A.
     const bId = await b.client.getDeviceId();

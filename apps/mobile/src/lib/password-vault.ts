@@ -1,8 +1,8 @@
 /**
- * The phone's saved passwords are written to its storage encrypted: the replica's "credentials"
- * collection is sealed (XChaCha20-Poly1305, the vault primitive of @corvus/sync-core) with a random
- * key kept in the OS's secure storage (Android Keystore, iOS Keychain), never next to the data. A
- * lost key only means the passwords are fetched again from the chain.
+ * The phone's saved passwords, addresses and cards are written to its storage encrypted: the replica's
+ * "credentials", "addresses" and "cards" collections are sealed (XChaCha20-Poly1305, the vault primitive of
+ * @corvus/sync-core) with a random key kept in the OS's secure storage (Android Keystore, iOS
+ * Keychain), never next to the data. A lost key only means they are fetched again from the chain.
  */
 import { fromBase64, generateVaultKey, openSecret, sealSecret, toBase64 } from '@corvus/sync-core';
 
@@ -33,7 +33,7 @@ export function vaultSealer(store: KeyStore): Sealer {
     });
   };
   return {
-    collections: ['credentials'],
+    collections: ['credentials', 'addresses', 'cards'],
     seal: async (text, aad) => sealSecret(await vaultKey(true), text, aad),
     open: async (sealed, aad) => openSecret(await vaultKey(false), sealed, aad),
   };

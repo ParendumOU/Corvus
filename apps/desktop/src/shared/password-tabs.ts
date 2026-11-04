@@ -1,12 +1,14 @@
 /**
- * The Passwords page's two tabs (the logins, and their 2FA codes): which tab a link opens, paging, the
+ * The Passwords page's tabs (the logins, their 2FA codes, saved addresses and payment cards): which tab a link opens, paging, the
  * 2FA codes list built from the login summaries, and what deleting a login offers. Pure, no secrets:
  * the codes themselves are fetched one by one from the main process for the rows on screen.
  */
 import type { CredentialSummary, CredentialSource } from "./credentials";
 import type { KeePassEntryDetails, KeePassEntrySummary } from "./keepass-ipc";
 
-export type PasswordsTab = "passwords" | "2fa";
+export type PasswordsTab = "passwords" | "2fa" | "addresses" | "cards";
+
+export const PASSWORDS_TABS: readonly PasswordsTab[] = ["passwords", "2fa", "addresses", "cards"];
 
 /** Rows per page in both tabs. */
 export const PAGE_SIZE = 25;
@@ -15,17 +17,17 @@ export const PAGE_SIZE = 25;
 export const TAB_STORAGE_KEY = "corvus.passwords.tab";
 
 /**
- * The tab the page opens on: the link's hash first ("#2fa", "#passwords", or "#keepass", which is in
- * the passwords tab), else the tab chosen last time, else the passwords.
+ * The tab the page opens on: the link's hash first ("#2fa", "#addresses", "#cards", "#passwords", or "#keepass",
+ * which is in the passwords tab), else the tab chosen last time, else the passwords.
  */
 export function initialTab(hash: string, remembered: string | null): PasswordsTab {
   const h = hash.replace(/^#/, "").toLowerCase();
-  if (h === "2fa") return "2fa";
+  if (h === "2fa" || h === "addresses" || h === "cards") return h;
   if (h === "passwords" || h === "keepass") return "passwords";
-  return remembered === "2fa" ? "2fa" : "passwords";
+  return remembered === "2fa" || remembered === "addresses" || remembered === "cards" ? remembered : "passwords";
 }
 
-export const tabHash = (tab: PasswordsTab): string => (tab === "2fa" ? "#2fa" : "#passwords");
+export const tabHash = (tab: PasswordsTab): string => `#${tab}`;
 
 /** One page of a list, the page clamped to the ones there are (a list that shrank shows its last page). */
 export function pageSlice<T>(items: readonly T[], page: number, size = PAGE_SIZE): { items: T[]; page: number } {

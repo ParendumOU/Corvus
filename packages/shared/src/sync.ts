@@ -27,7 +27,9 @@ export type SyncCollection =
   | "asks"
   | "command_history"
   | "assist_history"
-  | "chain_server";
+  | "chain_server"
+  | "addresses"
+  | "cards";
 
 export interface EncryptedRecord {
   id: string; // random, opaque

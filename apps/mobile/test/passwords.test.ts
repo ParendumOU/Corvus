@@ -114,6 +114,19 @@ describe('sealed passwords on the phone', () => {
     expect(loginsOf(await restarted.records('credentials')).map((l) => l.password)).toEqual(['hunter2']);
   });
 
+  it('writes the saved addresses encrypted too', async () => {
+    const storage = memory();
+    const keys = keyStore();
+    const chain = new FakeChain();
+    chain.log.push({ collection: 'addresses', id: 'a1', payload: { name: 'Ana Pérez', street: 'Calle Mayor 1', postalCode: '32001' }, deleted: false });
+    await new Replica(storage, 'chain/', ['addresses'], vaultSealer(keys)).sync(chain);
+    const raw = storage.map.get('chain/data/addresses') ?? '';
+    expect(raw).not.toContain('Calle Mayor');
+    expect(raw).not.toContain('32001');
+    const restarted = new Replica(storage, 'chain/', ['addresses'], vaultSealer(keys));
+    expect(await restarted.records('addresses')).toEqual({ a1: { name: 'Ana Pérez', street: 'Calle Mayor 1', postalCode: '32001' } });
+  });
+
   it('fetches the passwords again when their key is gone', async () => {
     const storage = memory();
     const chain = new FakeChain();

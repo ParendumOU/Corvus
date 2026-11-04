@@ -9,10 +9,12 @@ import { Space } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { isSecure, isWebPage } from '@/lib/address';
 import { t, tn } from '@/lib/i18n';
+import { addressDetail, addressTitle, type SavedAddress } from '@/lib/autofill-addresses';
+import { cardDetail, cardTitle, type SavedCard } from '@/lib/autofill-cards';
 import { loginHost, type Login } from '@/lib/passwords';
 import { tabHost } from '@/lib/replica';
 
-export type PageMenuAction = 'new-tab' | 'ask' | 'send' | 'read-later' | 'bookmark' | 'watch' | 'share' | 'find' | 'open-in' | 'desktop' | 'blocking' | 'settings' | 'fill-password';
+export type PageMenuAction = 'new-tab' | 'ask' | 'send' | 'read-later' | 'bookmark' | 'watch' | 'share' | 'find' | 'open-in' | 'desktop' | 'blocking' | 'settings' | 'fill-password' | 'fill-address' | 'fill-card';
 
 function MenuSwitch({ value, onChange, label }: { value: boolean; onChange: (on: boolean) => void; label: string }) {
   const theme = useTheme();
@@ -41,6 +43,8 @@ export function PageMenu({
   canBlock,
   blockingHere,
   logins = 0,
+  addresses = 0,
+  cards = 0,
   onAction,
   onClose,
 }: {
@@ -59,6 +63,10 @@ export function PageMenu({
   blockingHere: boolean;
   /** Saved passwords for this page's site (0: no fill row). */
   logins?: number;
+  /** Saved addresses (any site; 0: no fill row). */
+  addresses?: number;
+  /** Saved payment cards (any site; 0: no fill row). */
+  cards?: number;
   onAction: (action: PageMenuAction) => void;
   onClose: () => void;
 }) {
@@ -112,6 +120,12 @@ export function PageMenu({
               onPress={() => onAction('fill-password')}
               testID="menu-fill-password"
             />
+          ) : null}
+          {web && addresses > 0 ? (
+            <SheetRow icon="home" label={t('Fill address')} detail={tn(addresses, '1 saved address', '{n} saved addresses')} onPress={() => onAction('fill-address')} testID="menu-fill-address" />
+          ) : null}
+          {web && cards > 0 ? (
+            <SheetRow icon="creditCard" label={t('Fill card')} detail={tn(cards, '1 saved card', '{n} saved cards')} onPress={() => onAction('fill-card')} testID="menu-fill-card" />
           ) : null}
           {canFind ? <SheetRow icon="search" label={t('Find in page')} onPress={() => onAction('find')} testID="menu-find" /> : null}
           {Platform.OS === 'android' ? <SheetRow icon="external" label={t('Open in…')} detail={t('Another browser, or send or keep the link')} onPress={() => onAction('open-in')} testID="menu-open-in" /> : null}
@@ -285,6 +299,28 @@ export function LoginPicker({ open, logins, onPick, onClose }: { open: boolean; 
     <Sheet open={open} onClose={onClose} header={<ThemedText type="title" style={styles.title}>{t('Fill password')}</ThemedText>} testID="login-picker">
       {logins.map((l) => (
         <SheetRow key={l.id} icon="lock" label={l.username || t('No username')} detail={loginHost(l.origin)} onPress={() => onPick(l)} testID={`login-pick-${l.id}`} />
+      ))}
+    </Sheet>
+  );
+}
+
+/** Which saved address to fill into the page (shown even with one: nothing is filled without a pick). */
+export function AddressPicker({ open, addresses, onPick, onClose }: { open: boolean; addresses: readonly SavedAddress[]; onPick: (address: SavedAddress) => void; onClose: () => void }) {
+  return (
+    <Sheet open={open} onClose={onClose} header={<ThemedText type="title" style={styles.title}>{t('Fill address')}</ThemedText>} testID="address-picker">
+      {addresses.map((a) => (
+        <SheetRow key={a.id} icon="home" label={addressTitle(a)} detail={addressDetail(a) || undefined} onPress={() => onPick(a)} testID={`address-pick-${a.id}`} />
+      ))}
+    </Sheet>
+  );
+}
+
+/** Which saved card to fill into the page: brand, last digits and expiry only. */
+export function CardPicker({ open, cards, onPick, onClose }: { open: boolean; cards: readonly SavedCard[]; onPick: (card: SavedCard) => void; onClose: () => void }) {
+  return (
+    <Sheet open={open} onClose={onClose} header={<ThemedText type="title" style={styles.title}>{t('Fill card')}</ThemedText>} testID="card-picker">
+      {cards.map((c) => (
+        <SheetRow key={c.id} icon="creditCard" label={cardTitle(c)} detail={cardDetail(c) || undefined} onPress={() => onPick(c)} testID={`card-pick-${c.id}`} />
       ))}
     </Sheet>
   );

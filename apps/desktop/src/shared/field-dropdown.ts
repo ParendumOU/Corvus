@@ -5,7 +5,7 @@
  * draws it and reports the person's mouse. Pure helpers, shared by both and unit-tested.
  */
 import { accountDetails, LABEL_SEPARATOR, loginDomainOf, middleEllipsis, type CredentialMatch } from "./credentials";
-import type { AutofillFieldKind, DropdownAction, FieldDropdownState } from "./credentials-ipc";
+import type { AddressOption, AutofillFieldKind, DropdownAction, FieldDropdownState } from "./credentials-ipc";
 import { PASSWORD_CLASSES, type PasswordClass } from "./password-rules";
 
 /** Space between the field and the dropdown. */
@@ -15,18 +15,26 @@ export const DROPDOWN_WIDTH = 360;
 /** Longest username or site a row shows in full; longer ones are cut in the middle. */
 export const DROPDOWN_LABEL_MAX = 40;
 
-export type DropdownEntry = { type: "account"; account: CredentialMatch } | { type: "others" } | { type: "similar" } | { type: "manage" } | { type: "copy" } | { type: "suggest" };
+export type DropdownEntry = { type: "account"; account: CredentialMatch } | { type: "others" } | { type: "similar" } | { type: "manage" } | { type: "copy" } | { type: "suggest" } | { type: "address"; address: AddressOption } | { type: "card"; card: AddressOption };
 
 /**
  * What the dropdown lists, top to bottom: "Copy password" (a password field that holds something), the
  * suggested strong password, the first accounts, the folded section of the domain's other hosts and
  * its accounts when open, the folded section of similar sites (see similarFit) and its accounts when
  * open, then "Manage passwords" (unless all it offers is the copy). Nothing while the generator's
- * panel is open.
+ * panel is open. Under an address field, the saved addresses and "Manage addresses"; under a card field, the saved cards and "Manage payment methods".
  */
 export function dropdownEntries(
-  state: Pick<FieldDropdownState, "first" | "others" | "othersOpen"> & Partial<Pick<FieldDropdownState, "copy" | "generator" | "similar" | "similarOpen">>,
+  state: Pick<FieldDropdownState, "first" | "others" | "othersOpen"> & Partial<Pick<FieldDropdownState, "copy" | "generator" | "similar" | "similarOpen" | "kind" | "addresses" | "cards">>,
 ): DropdownEntry[] {
+  if (state.kind === "address") {
+    const addresses = state.addresses ?? [];
+    return addresses.length > 0 ? [...addresses.map((address): DropdownEntry => ({ type: "address", address })), { type: "manage" }] : [];
+  }
+  if (state.kind === "card") {
+    const cards = state.cards ?? [];
+    return cards.length > 0 ? [...cards.map((card): DropdownEntry => ({ type: "card", card })), { type: "manage" }] : [];
+  }
   if (state.generator?.open) return [];
   const account = (m: CredentialMatch): DropdownEntry => ({ type: "account", account: m });
   const similar = state.similar ?? [];
@@ -92,7 +100,7 @@ export function dropdownStays(page: { active: boolean; visible: boolean; bounds:
 
 /** The accounts the dropdown lists under a field: all of the page's under a login field, those with a 2FA under a code field. */
 export function dropdownAccounts(kind: AutofillFieldKind, matches: CredentialMatch[]): CredentialMatch[] {
-  return kind === "login" ? matches : matches.filter((m) => m.hasTotp);
+  return kind === "login" ? matches : kind === "otp" ? matches.filter((m) => m.hasTotp) : [];
 }
 
 /**

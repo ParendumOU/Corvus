@@ -29,8 +29,13 @@ import { MAX_HISTORY_ENTRIES } from "../shared/history-ops";
 import { chromiumSession, decodeMozLz4, firefoxSession, type ImportedWindow } from "../shared/browser-sessions";
 import { chromiumSiteSearches, cleanSiteSearches, firefoxKeyword, firefoxSearchEngines, type SiteSearch } from "../shared/site-search";
 import { isBigChange } from "../shared/backup-reminder";
+import type { AddressFields } from "../shared/addresses";
+import { countChromiumAddresses, readChromiumAddresses } from "../shared/chrome-addresses";
+import { cardFromChromium, countChromiumCards, readChromiumCardRows } from "../shared/chrome-cards";
+import type { CardFields } from "../shared/cards";
 import type { PasswordImportSummary, PasswordNote } from "../shared/browser-import";
 import { systemKeyProviders, type DpapiChild, type KeyProviders } from "./browser-keys";
+import { decryptChromiumValue, type ChromiumKeys } from "./password-decrypt";
 import {
   PasswordReviews,
   chromiumKeys,
@@ -214,8 +219,8 @@ export class BrowserImport {
     for (const loc of this.locate()) {
       const counted: ImportProfile[] = [];
       for (const p of loc.profiles) {
-        const { protectedPasswords, ...counts } = await this.counts(loc.family, p.path);
-        counted.push({ ...p, counts, ...(protectedPasswords ? { protectedPasswords } : {}), extensions: this.extensions(loc.family, p.path) });
+        const { protectedPasswords, protectedCards, ...counts } = await this.counts(loc.family, p.path);
+        counted.push({ ...p, counts, ...(protectedPasswords ? { protectedPasswords } : {}), ...(protectedCards ? { protectedCards } : {}), extensions: this.extensions(loc.family, p.path) });
       }
       sources.push({ ...loc, profiles: counted });
     }
@@ -277,7 +282,7 @@ export class BrowserImport {
     return found.sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private async counts(family: Family, dir: string): Promise<ImportProfile["counts"] & { protectedPasswords?: number }> {
+  private async counts(family: Family, dir: string): Promise<ImportProfile["counts"] & { protectedPasswords?: number; protectedCards?: number }> {
     const safe = async (fn: () => number | Promise<number>): Promise<number | null> => {
       try {
         return await fn();
@@ -287,7 +292,9 @@ export class BrowserImport {
     };
     const tabs = await safe(async () => (await this.sessionWindows(family, dir)).reduce((n, w) => n + w.tabs.length, 0));
     if (family === "chromium") {
-      // Saved logins are counted from their rows; nothing is decrypted until the person imports.
+      // Saved logins and cards are counted from their rows; nothing is decrypted until the person imports.
+      const webData = exists(path.join(dir, "Web Data")) ? path.join(dir, "Web Data") : null;
+      let protectedCards = 0;
       let protectedPasswords = 0;
       const passwords = hasChromiumPasswords(dir)
         ? await safe(async () => {
@@ -305,7 +312,15 @@ export class BrowserImport {
         history: exists(path.join(dir, "History")) ? await safe(() => withDatabase(path.join(dir, "History"), (db) => count(db, CHROMIUM_HISTORY_COUNT))) : 0,
         search: exists(path.join(dir, "Web Data")) ? await safe(async () => (await this.searches(family, dir)).length) : 0,
         passwords,
+        // Addresses are stored as plain rows: nothing to decrypt. A Web Data without their tables holds none.
+        addresses: exists(path.join(dir, "Web Data")) ? await safe(() => withDatabase(path.join(dir, "Web Data"), countChromiumAddresses)) : 0,
+        cards: webData ? await safe(async () => {
+          const found = await withDatabase(webData, countChromiumCards);
+          protectedCards = found.protected;
+          return found.total;
+        }) : 0,
         ...(protectedPasswords ? { protectedPasswords } : {}),
+        ...(protectedCards ? { protectedCards } : {}),
       };
     }
     const passwords = hasFirefoxPasswords(dir) ? await safe(() => countFirefoxPasswords(dir)) : 0;
@@ -316,9 +331,9 @@ export class BrowserImport {
         history: count(db, FIREFOX_HISTORY_COUNT),
         keywords: firefoxKeywords(db),
       }));
-      return { ...counts, tabs, search: cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]).length, passwords };
+      return { ...counts, tabs, search: cleanSiteSearches([...(await this.firefoxEngines(dir)), ...keywords]).length, passwords, addresses: 0, cards: 0 };
     } catch {
-      return { bookmarks: null, history: null, tabs, search: null, passwords };
+      return { bookmarks: null, history: null, tabs, search: null, passwords, addresses: 0, cards: 0 };
     }
   }
 
@@ -331,21 +346,52 @@ export class BrowserImport {
     if (source.family === "firefox") {
       read = await readFirefoxPasswords(profile.path, withDatabase);
     } else {
-      const own = path.join(profile.path, "Local State");
-      const platform = this.dataRoots().platform;
-      const providers = this.testKeys ?? systemKeyProviders(platform, this.forkDpapi, this.dpapiTimeoutMs);
-      try {
-        const { keys, dispose } = await chromiumKeys(source.id, platform, readText(exists(own) ? own : path.join(path.dirname(profile.path), "Local State")), providers);
-        try {
-          read = await readChromiumPasswords(profile.path, keys, withDatabase);
-        } finally {
-          dispose();
-        }
-      } finally {
-        providers.close?.();
-      }
+      read = await this.withChromiumKeys(source, profile, (keys) => readChromiumPasswords(profile.path, keys, withDatabase));
     }
     return this.mergePasswords(runtime, read, source.name);
+  }
+
+  /** Runs `read` with a Chromium profile's key from the system, dropped (and the key sources closed) afterwards. */
+  private async withChromiumKeys<T>(source: ImportSource, profile: ImportProfile, read: (keys: ChromiumKeys) => Promise<T>): Promise<T> {
+    const own = path.join(profile.path, "Local State");
+    const platform = this.dataRoots().platform;
+    const providers = this.testKeys ?? systemKeyProviders(platform, this.forkDpapi, this.dpapiTimeoutMs);
+    try {
+      const { keys, dispose } = await chromiumKeys(source.id, platform, readText(exists(own) ? own : path.join(path.dirname(profile.path), "Local State")), providers);
+      try {
+        return await read(keys);
+      } finally {
+        dispose();
+      }
+    } finally {
+      providers.close?.();
+    }
+  }
+
+  /**
+   * A Chromium profile's local cards (Web Data credit_cards), numbers decrypted with its key; the
+   * browser's app-bound ones are counted, not read. No security code is read: Chromium's CVC tables
+   * are never opened. Firefox's cards are not read yet.
+   */
+  private async cards(source: ImportSource, profile: ImportProfile): Promise<{ cards: CardFields[]; protected: number }> {
+    const file = path.join(profile.path, "Web Data");
+    if (source.family !== "chromium" || !exists(file)) return { cards: [], protected: 0 };
+    const rows = await withDatabase(file, readChromiumCardRows);
+    if (rows.length === 0) return { cards: [], protected: 0 };
+    return this.withChromiumKeys(source, profile, async (keys) => {
+      const cards: CardFields[] = [];
+      let isProtected = 0;
+      for (const row of rows) {
+        const result = await decryptChromiumValue(row.encrypted, keys);
+        if (!result.ok) {
+          if (result.reason === "app-bound") isProtected++;
+          continue;
+        }
+        const card = cardFromChromium(row, result.password);
+        if (card) cards.push(card);
+      }
+      return { cards, protected: isProtected };
+    });
   }
 
   /** Brings logins read from a browser or a CSV into the vault, and words the result. */
@@ -427,6 +473,22 @@ export class BrowserImport {
         result.errors.passwords = readError(err, source.name);
       }
     }
+    if (kinds.includes("addresses")) {
+      try {
+        result.addresses = runtime.addresses.importMany(await this.addresses(source.family, profile.path));
+      } catch (err) {
+        result.errors.addresses = readError(err, source.name);
+      }
+    }
+    if (kinds.includes("cards")) {
+      try {
+        const read = await this.cards(source, profile);
+        result.cards = { ...runtime.cards.importMany(read.cards), protected: read.protected };
+        read.cards.length = 0;
+      } catch (err) {
+        result.errors.cards = readError(err, source.name);
+      }
+    }
     if (kinds.includes("tabs")) {
       try {
         const windows = await this.sessionWindows(source.family, profile.path);
@@ -466,6 +528,13 @@ export class BrowserImport {
     if (!newest) return [];
     const data = new Uint8Array(await fs.promises.readFile(newest.file));
     return family === "chromium" ? chromiumSession(data) : firefoxSession(JSON.parse(decodeMozLz4(data)) as unknown);
+  }
+
+  /** Saved addresses of a Chromium profile (Web Data); Firefox's are not read yet. */
+  private async addresses(family: Family, dir: string): Promise<AddressFields[]> {
+    const file = path.join(dir, "Web Data");
+    if (family !== "chromium" || !exists(file)) return [];
+    return withDatabase(file, readChromiumAddresses);
   }
 
   private async bookmarks(family: Family, dir: string): Promise<ImportedRoots> {

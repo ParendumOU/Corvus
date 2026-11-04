@@ -3,8 +3,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor, type AnnotationColor } from "../shared/annotations";
 import { ANNOTATION_AGENT_CHANNEL, ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage, type AnnotationLabels } from "../shared/annotations-ipc";
-import { AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, AUTOFILL_IDENTIFIER_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
+import { AUTOFILL_ADDRESS_CAPTURE_CHANNEL, AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_CARD_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, AUTOFILL_IDENTIFIER_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
 import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-field";
+import { addressFieldFacts, classifyAddressField, isAddressForm, matchOption, planAddressFill } from "../shared/address-fields";
+import { cardFieldFacts, classifyCardField, isCardForm, matchCardOption, planCardFill } from "../shared/card-fields";
+import { isCardDataField, isCardDataForm } from "../shared/card-data-fields";
+import { AUTOFILL_FRAME_FILL_CHANNEL, AUTOFILL_FRAME_FILLED_CHANNEL, fieldShown, parseFrameFillRequest, type FrameFillRequest } from "../shared/frame-fill";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 import { probePattern, type PasswordFieldClick } from "../shared/password-rules";
@@ -29,6 +33,173 @@ if (location.protocol === "corvus:" && window.top === window) {
   contextBridge.exposeInMainWorld("corvusInternal", bridge);
 }
 
+// Card and address forms, in the page and in its frames (a payment provider's card fields live in a
+// cross-origin iframe). Only roles and boxes are read to tell a field's kind; values only on submit, and
+// never a card's security code.
+const FORM_FIELDS = "input:not([type=hidden]), select, textarea";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const formFieldsOf = (scope: any): any[] => Array.prototype.slice.call(scope.querySelectorAll(FORM_FIELDS), 0, 200);
+// A field of a card form (shared/card-fields.ts, as the fill decides): the form has a card number field.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isCardField = (el: any): boolean => {
+  if (classifyCardField(cardFieldFacts(el)) === null) return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return isCardForm(formFieldsOf(el.form || document).map((f: any) => classifyCardField(cardFieldFacts(f))));
+};
+// A field that takes card data, password fields included (a CVV box often is one): never a login field,
+// never recorded (shared/card-data-fields.ts).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isCardData = (el: any): boolean => isCardDataField(cardFieldFacts(el));
+// A text field of an address form (shared/address-fields.ts, as the fill script decides). A select is
+// never the one clicked: its own list opens there.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isAddressField = (el: any): boolean => {
+  if (classifyAddressField(addressFieldFacts(el)) === null) return false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return isAddressForm(formFieldsOf(el.form || document).map((f: any) => classifyAddressField(addressFieldFacts(f))));
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const usableField = (el: any): boolean => Boolean(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA") && !el.disabled && !el.readOnly;
+
+const isWeb = location.protocol === "https:" || location.protocol === "http:";
+
+// A sent card form: number, name and expiry, so the main process can offer to save the card. The
+// security code field is recognised by its attributes only, and its value is never read.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const captureCard = (scope: any): void => {
+  try {
+    const els = formFieldsOf(scope);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const roles = els.map((el: any) => classifyCardField(cardFieldFacts(el)));
+    if (!isCardForm(roles)) return;
+    const fields: { role: string; value: string }[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    els.forEach((el: any, i: number) => {
+      const role = roles[i];
+      if (!role || role === "csc") return;
+      const value = el.tagName === "SELECT" ? (el.selectedIndex >= 0 ? String(el.options[el.selectedIndex]?.value || "") : "") : String(el.value || "");
+      if (value.trim()) fields.push({ role, value: value.slice(0, 200) });
+    });
+    if (fields.some((f) => f.role === "number")) ipcRenderer.send(AUTOFILL_CARD_CAPTURE_CHANNEL, { origin: location.origin, fields });
+  } catch {
+    // never let autofill break a page's own submit
+  }
+};
+
+// The fill the person picked in Corvus (a card with the CVV they just typed in Corvus's prompt, or an
+// address), sent by the main process to this frame only. Done in this isolated world; the values are
+// written to the form of the field at the box and kept nowhere. Answers with how many fields it wrote.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const setFieldValue = (el: any, value: string): void => {
+  const proto = Object.getPrototypeOf(el);
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  el.focus();
+  if (setter) setter.call(el, value);
+  else el.value = value;
+  el.dispatchEvent(new (document.defaultView.Event)("input", { bubbles: true }));
+  el.dispatchEvent(new (document.defaultView.Event)("change", { bubbles: true }));
+  el.blur();
+};
+const fillFrame = (req: FrameFillRequest): number => {
+  if (location.origin !== req.origin) return 0;
+  const active = document.activeElement;
+  const isText = (el: unknown): boolean => usableField(el);
+  const anchor = isText(active) ? active : document.elementFromPoint(req.box.x + req.box.width / 2, req.box.y + req.box.height / 2);
+  if (!isText(anchor)) return 0;
+  // Besides the clicked field, only fields the person can see: a page must not collect what it hides.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fields = formFieldsOf(anchor.form || document).filter((el: any) => el === anchor || (!el.disabled && !el.readOnly && fieldShown(el, document.defaultView)));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const valueOf = (el: any): string => (el.tagName === "SELECT" ? (el.selectedIndex > 0 ? String(el.value || "") : "") : String(el.value || ""));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const facts = (el: any) => ({ value: valueOf(el), anchor: el === anchor });
+  const plan =
+    req.kind === "card"
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        planCardFill(fields.map((el: any) => ({ facts: cardFieldFacts(el), ...facts(el) })), req.card, req.cvv)
+      : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        planAddressFill(fields.map((el: any) => ({ facts: addressFieldFacts(el), ...facts(el) })), req.address);
+  let filled = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fields.forEach((el: any, i: number) => {
+    const value = plan[i];
+    if (value === null || value === undefined) return;
+    if (el.tagName === "SELECT") {
+      const options = Array.prototype.map.call(el.options, (o: { value: string; text: string }) => ({ value: o.value, text: o.text })) as { value: string; text: string }[];
+      const option = req.kind === "card" ? matchCardOption(options, value) : matchOption(options, value);
+      if (option === null) return;
+      setFieldValue(el, option);
+    } else {
+      // Agents' page snapshots and the workflow recorder (on the change event the fill fires) never
+      // report what Corvus filled from a saved card.
+      if (req.kind === "card") el.setAttribute("data-corvus-secret", "1");
+      setFieldValue(el, value);
+    }
+    filled++;
+  });
+  return filled;
+};
+if (isWeb) {
+  ipcRenderer.on(AUTOFILL_FRAME_FILL_CHANNEL, (_event: IpcRendererEvent, raw: unknown) => {
+    const req = parseFrameFillRequest(raw);
+    if (!req) return;
+    let filled = 0;
+    try {
+      filled = fillFrame(req);
+    } catch {
+      filled = 0;
+    }
+    ipcRenderer.send(AUTOFILL_FRAME_FILLED_CHANNEL, { token: req.token, filled });
+  });
+}
+
+// In a page's subframes (a payment provider's iframe), only a click in a card or address field is
+// reported, with the field's box in the frame; login and 2FA fields are left to the top frame. Typing
+// or scrolling there afterwards closes the dropdown.
+if (isWeb && window.top !== window) {
+  let reported = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reportSub = (el: any): void => {
+    if (!usableField(el)) return;
+    const kind: AutofillFieldKind | null = isCardField(el) ? "card" : isAddressField(el) ? "address" : null;
+    if (!kind) return;
+    const r = el.getBoundingClientRect();
+    reported = true;
+    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height });
+  };
+  document.addEventListener(
+    "click",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      try {
+        if (e.isTrusted && e.button === 0) reportSub(e.target);
+      } catch {
+        // never let autofill break a page's own click handling
+      }
+    },
+    true,
+  );
+  document.addEventListener(
+    "keydown",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      try {
+        if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) reportSub(e.target);
+      } catch {
+        // never let autofill break a page's own keys
+      }
+    },
+    true,
+  );
+  const subDone = (): void => {
+    if (!reported) return;
+    reported = false;
+    ipcRenderer.send(AUTOFILL_DROPDOWN_DONE_CHANNEL);
+  };
+  document.addEventListener("input", subDone, true);
+  document.addEventListener("scroll", subDone, { capture: true, passive: true });
+}
+
 // On web pages, capture a submitted login synchronously (before navigation) so the main process can
 // offer to save it. Runs in the preload's isolated world: it reads the DOM but exposes nothing to the
 // page. The main process re-validates the sender and only ever stores it after an explicit user action.
@@ -47,14 +218,14 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       if (el === anchor) return true;
       const r = el.getBoundingClientRect();
       const s = document.defaultView.getComputedStyle(el);
-      return !el.disabled && !el.readOnly && r.width >= 1 && r.height >= 1 && s.visibility !== "hidden" && s.display !== "none" && !isOtpFacts(otpFieldFacts(el));
+      return !el.disabled && !el.readOnly && r.width >= 1 && r.height >= 1 && s.visibility !== "hidden" && s.display !== "none" && !isOtpFacts(otpFieldFacts(el)) && !isCardData(el);
     });
     return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
   };
   // A two-step sign-in's username field (shared/identifier-field.ts, as the autofill scripts decide).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const isIdentifier = (el: any): boolean =>
-    Boolean(el) && el.tagName === "INPUT" && !el.disabled && !el.readOnly && ["text", "email", "tel"].includes(String(el.getAttribute("type") || "text").toLowerCase()) && !isOtpFacts(otpFieldFacts(el)) && isIdentifierFacts(identifierFieldFacts(el));
+    Boolean(el) && el.tagName === "INPUT" && !el.disabled && !el.readOnly && ["text", "email", "tel"].includes(String(el.getAttribute("type") || "text").toLowerCase()) && !isOtpFacts(otpFieldFacts(el)) && !isCardData(el) && isIdentifierFacts(identifierFieldFacts(el));
   // The username typed on such a step, as it is sent (the form's submit, Enter) or left changed: the
   // next step may ask only for the password, and the save prompt then needs it. Only the username.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,17 +235,19 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const captureFrom = (scope: any): void => {
     try {
+      // A card form gives no login to save: its security code is no password.
+      if (isCardDataForm(formFieldsOf(scope).map(cardFieldFacts))) return;
       // A sign-up or change form sets its new password (never its current one); a sign-in, its only one.
       const { fields: passwords, roles } = passwordFieldsOf(scope, null);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pass = passwords.find((p: any, i: number) => p.value && roles[i] === "new") || Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).find((p: any) => p.value);
+      const pass = passwords.find((p: any, i: number) => p.value && roles[i] === "new") || Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).find((p: any) => p.value && !isCardData(p));
       if (!pass) {
         Array.prototype.slice.call(scope.querySelectorAll("input")).forEach(reportIdentifier);
         return;
       }
       const fields = Array.prototype.slice
         .call((pass.form || scope).querySelectorAll("input[type=text], input[type=email], input[type=tel], input:not([type])"))
-        .filter((el: any) => el !== pass && el.value);
+        .filter((el: any) => el !== pass && el.value && !isCardData(el));
       const user = fields.filter(usernameLikely).pop() || fields.pop() || null;
       ipcRenderer.send(AUTOFILL_CAPTURE_CHANNEL, {
         origin: location.origin,
@@ -85,7 +258,37 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       // never let autofill break a page's own submit
     }
   };
-  document.addEventListener("submit", (e: { target: unknown }) => captureFrom(e.target || document), true);
+  // A sent address form: each address field's role and value (a select's chosen option text), so the
+  // main process can offer to save it. Password, card and hidden fields are never classified, never sent.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const captureAddress = (scope: any): void => {
+    try {
+      const els = Array.prototype.slice.call(scope.querySelectorAll("input:not([type=hidden]), select, textarea"), 0, 200);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const roles = els.map((el: any) => classifyAddressField(addressFieldFacts(el)));
+      if (!isAddressForm(roles)) return;
+      const fields: { role: string; value: string }[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      els.forEach((el: any, i: number) => {
+        const role = roles[i];
+        if (!role) return;
+        const value = el.tagName === "SELECT" ? (el.selectedIndex > 0 ? String(el.options[el.selectedIndex]?.text || "") : "") : String(el.value || "");
+        if (value.trim()) fields.push({ role, value: value.slice(0, 500) });
+      });
+      if (fields.length) ipcRenderer.send(AUTOFILL_ADDRESS_CAPTURE_CHANNEL, { origin: location.origin, fields });
+    } catch {
+      // never let autofill break a page's own submit
+    }
+  };
+  document.addEventListener(
+    "submit",
+    (e: { target: unknown }) => {
+      captureFrom(e.target || document);
+      captureAddress(e.target || document);
+      captureCard(e.target || document);
+    },
+    true,
+  );
   document.addEventListener(
     "change",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,12 +318,22 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     return false;
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fieldKind = (el: any): AutofillFieldKind | null => {
-    if (!el || el.tagName !== "INPUT" || el.disabled || el.readOnly) return null;
+  const loginKind = (el: any): AutofillFieldKind | null => {
     const type = String(el.getAttribute("type") || "text").toLowerCase();
     if (isOtpFacts(otpFieldFacts(el)) || (["text", "tel", "number"].includes(type) && isCodeBox(el))) return "otp";
     if (!TEXT_TYPES.includes(type)) return null;
-    return type === "password" || (el.form || document).querySelector("input[type=password]") || isIdentifier(el) ? "login" : null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loginPassword = Array.prototype.some.call((el.form || document).querySelectorAll("input[type=password]"), (p: any) => !isCardData(p));
+    return type === "password" || loginPassword || isIdentifier(el) ? "login" : null;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fieldKind = (el: any): AutofillFieldKind | null => {
+    if (!usableField(el)) return null;
+    // A card field first: a security code box looks like a one-time-code box. Card fields are never
+    // password, e-mail or one-time-code fields, so logins keep theirs; card data the card fill does not
+    // write (a CVV in a password field) is no login field either.
+    if (isCardField(el)) return "card";
+    return (el.tagName === "INPUT" && !isCardData(el) ? loginKind(el) : null) ?? (isAddressField(el) ? "address" : null);
   };
   // A password field: its part in its form, whether it holds something (never what) and what it takes.
   // Its pattern is probed here, with the page's own pattern matching (on a detached copy of the field),
@@ -349,7 +562,8 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const desc = descriptorFor(el);
     if (!desc) return false;
     const hint = `${el.name || ""} ${el.id || ""} ${(el.getAttribute && el.getAttribute("autocomplete")) || ""} ${desc.name}`;
-    const secret = type === "password" || SECRET.test(hint);
+    // Card fields too (Spanish labels and cc- tokens included), whether typed or filled by Corvus.
+    const secret = type === "password" || SECRET.test(hint) || el.hasAttribute("data-corvus-secret") || isCardData(el);
     const value = secret ? "" : String(el.isContentEditable ? el.innerText || "" : el.value || "").slice(0, 2000);
     send("input", desc, value, secret);
     return true;

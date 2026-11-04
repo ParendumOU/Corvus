@@ -17,6 +17,8 @@ import {
   type SyncCollection,
 } from "@corvus/shared";
 import type { LocalItem, SyncAdapter } from "@corvus/sync-core";
+import { isValidAddress, type AutofillAddress } from "../shared/addresses";
+import { isValidCard, type AutofillCard } from "../shared/cards";
 import { isAnnotation, type Annotation } from "../shared/annotations";
 import { ROOT_IDS } from "../shared/bookmark-tree";
 import { isDeletedLoginMemory, isValidCredential, type Credential, type DeletedLoginMemory } from "../shared/credentials";
@@ -125,6 +127,52 @@ export function credentialDeletionsAdapter(store: CredentialStore): SyncAdapter<
         else if (isDeletedLoginMemory(item.payload)) changes.push({ id: item.id, memory: item.payload });
       }
       store.applyRemoteDeletions(changes);
+    },
+  };
+}
+
+export interface AddressSyncStore {
+  all(): AutofillAddress[];
+  applyRemote(changes: Array<{ id: string; address: AutofillAddress | null }>): void;
+}
+
+/** Saved addresses, keyed by their stable id; the full record is the synced payload (end to end encrypted). */
+export function addressesAdapter(store: AddressSyncStore): SyncAdapter<AutofillAddress> {
+  return {
+    list: () => store.all().map((a) => ({ id: a.id, payload: a })),
+    apply: (items) => {
+      const changes: Array<{ id: string; address: AutofillAddress | null }> = [];
+      for (const item of items) {
+        if (item.deleted) changes.push({ id: item.id, address: null });
+        else {
+          const address: unknown = { ...(item.payload as object), id: item.id };
+          if (isValidAddress(address)) changes.push({ id: item.id, address });
+        }
+      }
+      store.applyRemote(changes);
+    },
+  };
+}
+
+export interface CardSyncStore {
+  all(): AutofillCard[];
+  applyRemote(changes: Array<{ id: string; card: AutofillCard | null }>): void;
+}
+
+/** Saved payment cards (never a CVV), keyed by their stable id; the full record is the synced payload (end to end encrypted). */
+export function cardsAdapter(store: CardSyncStore): SyncAdapter<AutofillCard> {
+  return {
+    list: () => store.all().map((c) => ({ id: c.id, payload: c })),
+    apply: (items) => {
+      const changes: Array<{ id: string; card: AutofillCard | null }> = [];
+      for (const item of items) {
+        if (item.deleted) changes.push({ id: item.id, card: null });
+        else {
+          const card: unknown = { ...(item.payload as object), id: item.id };
+          if (isValidCard(card)) changes.push({ id: item.id, card });
+        }
+      }
+      store.applyRemote(changes);
     },
   };
 }
@@ -551,6 +599,8 @@ export interface SyncSources {
   bookmarks: BookmarkStore;
   history: HistoryStore;
   credentials: CredentialStore;
+  addresses: AddressSyncStore;
+  cards: CardSyncStore;
   reading: ReadingSyncStore;
   watches: WatchSyncStore;
   workspaces: WorkspaceSyncStore;
@@ -583,6 +633,8 @@ export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollect
     history: historyAdapter(src.history),
     credentials: credentialsAdapter(src.credentials),
     credential_deletions: credentialDeletionsAdapter(src.credentials),
+    addresses: addressesAdapter(src.addresses),
+    cards: cardsAdapter(src.cards),
     reading: readingAdapter(src.reading),
     watches: watchesAdapter(src.watches),
     workspaces: workspacesAdapter(src.workspaces),

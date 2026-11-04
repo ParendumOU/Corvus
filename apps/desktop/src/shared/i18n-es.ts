@@ -203,6 +203,12 @@ export const ES: Record<string, string> = {
   "{n} skipped": "{n} omitidas",
   "Passwords: {what}.": "Contraseñas: {what}.",
   "No saved passwords were found.": "No se encontraron contraseñas guardadas.",
+  // ------------------------------------------------------------------ addresses from other browsers
+  Addresses: "Direcciones",
+  "1 saved address": "1 dirección guardada",
+  "{n} saved addresses": "{n} direcciones guardadas",
+  "Addresses: {what}.": "Direcciones: {what}.",
+  "No saved addresses were found.": "No se encontraron direcciones guardadas.",
   "Protected by the browser: only its own export can bring these.": "Protegidas por el navegador: solo su propia exportación puede traerlas.",
   "Corvus could not read these on this computer. The browser's own export brings them in.": "Corvus no pudo leerlas en este ordenador. La exportación del propio navegador las trae.",
   "Corvus could not read 1 of these passwords on this computer, so it was left out. {browser}'s own export below brings it in.": "Corvus no pudo leer 1 de estas contraseñas en este ordenador, así que se quedó fuera. La exportación de {browser}, aquí debajo, la trae.",

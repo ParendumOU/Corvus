@@ -40,6 +40,8 @@ import { runBuiltinSyncSmoke } from "./smoke-builtin-sync";
 import { runCredentialsSmoke, runSavePromptSmoke, serveCredentialsSmokeRoute } from "./smoke-credentials";
 import { runTotpEditSmoke } from "./smoke-totp-edit";
 import { runPasswordTablesSmoke } from "./smoke-password-tables";
+import { runAddressesSmoke, serveAddressesSmokeRoute } from "./smoke-addresses";
+import { runCardsSmoke, serveCardsSmokeRoute } from "./smoke-cards";
 import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
 import { runSimilarLoginsSmoke } from "./smoke-similar-logins";
 import { runPasswordGeneratorSmoke, servePasswordGeneratorSmokeRoute } from "./smoke-pwgen";
@@ -111,6 +113,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveBrowserSmokeRoute(req, res)) return;
     if (serveCredentialsSmokeRoute(req, res)) return;
     if (serveOtpFillSmokeRoute(req, res)) return;
+    if (serveAddressesSmokeRoute(req, res)) return;
+    if (serveCardsSmokeRoute(req, res)) return;
     if (servePasswordGeneratorSmokeRoute(req, res)) return;
     if (serveIdentifierFirstSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
@@ -266,6 +270,16 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runOtpFillSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=addresses: only the address autofill checks (field dropdown, fill, save and update offers, Settings switch).
+    if (process.env.CORVUS_SMOKE_ONLY === "addresses") {
+      await runAddressesSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=cards: only the card autofill checks (dropdown, CVV prompt, fill in the page and in a payment frame, save offer, Settings switch).
+    if (process.env.CORVUS_SMOKE_ONLY === "cards") {
+      await runCardsSmoke(ctx, { url, win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=pwgen: only the checks of the strong password generator under password fields (with screenshots).
     // CORVUS_SMOKE_ONLY=idfirst: only the checks of two-step ("identifier first") sign-ins (with screenshots).
     if (process.env.CORVUS_SMOKE_ONLY === "idfirst") {
@@ -410,6 +424,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runCredentialsSmoke(ctx, { url, win, check, capture });
     await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
     await runOtpFillSmoke(ctx, { url, win, check, capture });
+    await runAddressesSmoke(ctx, { url, win, check, capture });
+    await runCardsSmoke(ctx, { url, win, check, capture });
     await runSimilarLoginsSmoke(ctx, { url, win, check, capture });
     await runPasswordGeneratorSmoke(ctx, { url, win, check });
     await runIdentifierFirstSmoke(ctx, { url, win, check });

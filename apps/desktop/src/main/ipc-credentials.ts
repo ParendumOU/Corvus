@@ -1,11 +1,16 @@
 import fs from "node:fs";
 import { clipboard, dialog, ipcMain, nativeImage, type IpcMainEvent } from "electron";
 import { tr } from "./menu-i18n";
+import { parseAddressCapture, parseAddressSave } from "../shared/addresses";
+import { cardSummary, luhnValid, parseCardCapture, parseCardSave } from "../shared/cards";
+import { AUTOFILL_FRAME_FILLED_CHANNEL, parseFrameFilled, subframeFieldAllowed } from "../shared/frame-fill";
 import { isBigChange } from "../shared/backup-reminder";
 import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
 import { parseDropdownAction } from "../shared/field-dropdown";
 import {
+  AUTOFILL_ADDRESS_CAPTURE_CHANNEL,
   AUTOFILL_CAPTURE_CHANNEL,
+  AUTOFILL_CARD_CAPTURE_CHANNEL,
   AUTOFILL_DROPDOWN_DONE_CHANNEL,
   AUTOFILL_FIELD_CHANNEL,
   AUTOFILL_IDENTIFIER_CHANNEL,
@@ -100,6 +105,13 @@ export const CREDENTIALS_INTERNAL_PERMISSIONS: Record<keyof CredentialsRpc, read
   "credentials.removeNeverSaved": ["settings"],
   "credentials.checkup": ["passwords"],
   "credentials.runCheckup": ["passwords"],
+  "addresses.list": ["passwords"],
+  "addresses.save": ["passwords"],
+  "addresses.remove": ["passwords"],
+  "cards.list": ["passwords"],
+  "cards.save": ["passwords"],
+  "cards.remove": ["passwords"],
+  "cards.reveal": ["passwords"],
 };
 
 /** Decodes a 2FA QR code from an image file, locally. Exported for the smoke test (no dialog). */
@@ -242,6 +254,35 @@ export function credentialsInternalHandlers(ctx: AppContext): InternalHandlers<C
     },
     "credentials.neverSaved": (c) => c.profile.siteSettings.neverSave(),
     "credentials.removeNeverSaved": (c, host) => c.profile.siteSettings.setNeverSave(str(host, "host", 260), false),
+    "addresses.list": (c) => c.profile.addresses.all(),
+    "addresses.save": (c, input) => {
+      const parsed = parseAddressSave(input);
+      if (!parsed) throw new IpcError("Invalid address");
+      if (parsed.id) return c.profile.addresses.update(parsed.id, parsed.fields);
+      try {
+        return c.profile.addresses.add(parsed.fields);
+      } catch {
+        return null;
+      }
+    },
+    "addresses.remove": (c, id) => c.profile.addresses.remove(str(id, "id", 128)),
+    "cards.list": (c) => c.profile.cards.all().map(cardSummary),
+    "cards.save": (c, input) => {
+      const parsed = parseCardSave(input);
+      if (!parsed) throw new IpcError("Invalid card");
+      const { number, ...rest } = parsed.fields;
+      if (number && !luhnValid(number)) throw new IpcError("Invalid card number");
+      const fields = number ? parsed.fields : rest;
+      const saved = parsed.id ? c.profile.cards.update(parsed.id, fields) : number ? c.profile.cards.add(fields) : null;
+      if (!saved) throw new IpcError(parsed.id ? "No such card" : "Invalid card number");
+      return cardSummary(saved);
+    },
+    "cards.remove": (c, id) => c.profile.cards.remove(str(id, "id", 128)),
+    "cards.reveal": (c, id) => {
+      const card = c.profile.cards.get(str(id, "id", 128));
+      if (!card) throw new IpcError("No such card");
+      return card.number;
+    },
   };
 }
 
@@ -272,6 +313,12 @@ export function autofillChromeHandlers(ctx: AppContext): ChromeHandlers<Autofill
     "autofill.saveAccept": (w, edit) => ctx.autofill.acceptSave(w, saveEdit(edit)),
     "autofill.saveDismiss": (w, id) => ctx.autofill.dismissSave(w, saveId(id)),
     "autofill.saveNever": (w, id) => ctx.autofill.neverSave(w, saveId(id)),
+    "autofill.addressSaveShown": (w, id) => ctx.autofill.addressSaveShown(w, saveId(id)),
+    "autofill.addressSaveAccept": (w, id) => ctx.autofill.acceptAddressSave(w, saveId(id)),
+    "autofill.addressSaveDismiss": (w, id) => ctx.autofill.dismissAddressSave(w, saveId(id)),
+    "autofill.cardSaveShown": (w, id) => ctx.autofill.cardSaveShown(w, saveId(id)),
+    "autofill.cardSaveAccept": (w, id) => ctx.autofill.acceptCardSave(w, saveId(id)),
+    "autofill.cardSaveDismiss": (w, id) => ctx.autofill.dismissCardSave(w, saveId(id)),
     "autofill.openManager": (w) => w.openSingleton("corvus://passwords/"),
   };
 }
@@ -292,21 +339,46 @@ export function registerAutofillCapture(ctx: AppContext): void {
     const data = parseCapture(raw);
     if (data) ctx.autofill.onSubmitCaptured(found.window, found.tab, data);
   });
+  ipcMain.on(AUTOFILL_ADDRESS_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
+    const found = ctx.windows.byTabWebContents(event.sender);
+    if (!found || event.senderFrame !== event.sender.mainFrame) return;
+    const data = parseAddressCapture(raw);
+    if (data) ctx.autofill.onAddressCaptured(found.window, found.tab, data);
+  });
   ipcMain.on(AUTOFILL_IDENTIFIER_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byTabWebContents(event.sender);
     const v = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
     if (!found || event.senderFrame !== event.sender.mainFrame || typeof v.origin !== "string" || typeof v.username !== "string") return;
     if (v.origin.length <= MAX_FIELD && v.username.trim() && v.username.length <= MAX_FIELD) ctx.autofill.onIdentifierSent(found.window, found.tab, { origin: v.origin, username: v.username.trim() });
   });
+  // Field clicks come from the top frame, and card and address field clicks also from its subframes (a
+  // payment provider's iframe): the frame is remembered and only it is filled (see shared/frame-fill.ts).
   ipcMain.on(AUTOFILL_FIELD_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byTabWebContents(event.sender);
-    if (!found || event.senderFrame !== event.sender.mainFrame) return;
+    const frame = event.senderFrame;
+    if (!found || !frame) return;
     const click = parseFieldClick(raw);
-    if (click) void ctx.autofill.onFieldClicked(found.window, found.tab, click);
+    if (!click) return;
+    const top = frame === event.sender.mainFrame;
+    if (!top && !subframeFieldAllowed(click.kind)) return;
+    void ctx.autofill.onFieldClicked(found.window, found.tab, click, { processId: frame.processId, routingId: frame.routingId, origin: frame.origin, top });
   });
+  // Closing the dropdown is harmless, so any frame of the tab may ask (a subframe whose field was clicked).
   ipcMain.on(AUTOFILL_DROPDOWN_DONE_CHANNEL, (event: IpcMainEvent) => {
     const found = ctx.windows.byTabWebContents(event.sender);
-    if (found && event.senderFrame === event.sender.mainFrame) ctx.autofill.onDropdownDone(found.window, found.tab);
+    if (found && event.senderFrame) ctx.autofill.onDropdownDone(found.window, found.tab);
+  });
+  // A frame answers how many fields the card or address fill sent to it wrote.
+  ipcMain.on(AUTOFILL_FRAME_FILLED_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
+    const frame = event.senderFrame;
+    const data = parseFrameFilled(raw);
+    if (frame && data && ctx.windows.byTabWebContents(event.sender)) ctx.autofill.onFrameFilled(frame.processId, frame.routingId, data);
+  });
+  ipcMain.on(AUTOFILL_CARD_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
+    const found = ctx.windows.byTabWebContents(event.sender);
+    if (!found || event.senderFrame !== event.sender.mainFrame) return;
+    const data = parseCardCapture(raw);
+    if (data) ctx.autofill.onCardCaptured(found.window, found.tab, data);
   });
   // From the dropdown views (their sender is checked against each window's dropdown).
   ipcMain.on(FIELD_MENU_ACTION, (event: IpcMainEvent, raw: unknown) => {
@@ -321,7 +393,7 @@ function parseFieldClick(raw: unknown): FieldClick | null {
   if (typeof raw !== "object" || raw === null) return null;
   const v = raw as Record<string, unknown>;
   const num = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= MAX_COORD;
-  if ((v.kind !== "login" && v.kind !== "otp") || !num(v.x) || !num(v.y) || !num(v.width) || !num(v.height)) return null;
+  if ((v.kind !== "login" && v.kind !== "otp" && v.kind !== "address" && v.kind !== "card") || !num(v.x) || !num(v.y) || !num(v.width) || !num(v.height)) return null;
   const password = v.kind === "login" ? parsePasswordFieldClick(v.password) : null;
   return { kind: v.kind, x: v.x, y: v.y, width: v.width, height: v.height, ...(password ? { password } : {}) };
 }

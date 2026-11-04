@@ -1,14 +1,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { BrowserImport } from "../src/main/browser-import";
-import { FIXTURE_NOW, writeBrowserFixtures } from "../src/main/smoke-import-fixtures";
+import { FIXTURE_CARD, FIXTURE_NOW, writeBrowserFixtures } from "../src/main/smoke-import-fixtures";
 import type { ProfileRuntime } from "../src/main/profiles";
+import type { SecretCipher } from "../src/main/settings-store";
 import { BookmarkStore, HistoryStore } from "../src/main/stores";
 import { SiteSearchStore } from "../src/main/site-search-store";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID, childrenOf } from "../src/shared/bookmark-tree";
 import { WorkspaceStore } from "../src/main/workspace-store";
+import { AddressVault } from "../src/main/address-store";
+import { CardVault } from "../src/main/card-store";
 import {
   browserLocations,
   chromiumExtensionEntries,
@@ -23,6 +27,12 @@ import {
   manifestString,
   webStoreExtension,
 } from "../src/shared/browser-import";
+
+const cipher: SecretCipher = {
+  isEncryptionAvailable: () => true,
+  encryptString: (plain) => Buffer.from(`enc:${plain}`),
+  decryptString: (enc) => enc.toString().slice(4),
+};
 
 const dirs: string[] = [];
 const tempDir = (): string => {
@@ -183,11 +193,11 @@ describe("BrowserImport", { timeout: 20_000 }, () => {
       {
         id: "chrome",
         profiles: [
-          { dir: "Default", name: "Personal", isDefault: true, counts: { bookmarks: 3, history: 2, tabs: 3, search: 3, passwords: 5 } },
-          { dir: "Profile 1", name: "Work", isDefault: false, counts: { bookmarks: 1, history: 0, tabs: 0, search: 0, passwords: 0 } },
+          { dir: "Default", name: "Personal", isDefault: true, counts: { bookmarks: 3, history: 2, tabs: 3, search: 3, passwords: 5, addresses: 2, cards: 2 } },
+          { dir: "Profile 1", name: "Work", isDefault: false, counts: { bookmarks: 1, history: 0, tabs: 0, search: 0, passwords: 0, addresses: 0, cards: 0 } },
         ],
       },
-      { id: "firefox", profiles: [{ dir: "abcd1234.default-release", name: "default-release", isDefault: true, counts: { bookmarks: 2, history: 1, tabs: 1, search: 3, passwords: 2 } }] },
+      { id: "firefox", profiles: [{ dir: "abcd1234.default-release", name: "default-release", isDefault: true, counts: { bookmarks: 2, history: 1, tabs: 1, search: 3, passwords: 2, addresses: 0, cards: 0 } }] },
     ]);
     expect(scan.sources.map((s) => s.profiles.map((p) => p.extensions))).toEqual([
       [
@@ -252,6 +262,51 @@ describe("BrowserImport", { timeout: 20_000 }, () => {
       { keyword: "@wikies", name: "Wikipedia (es)", url: "https://es.wikipedia.org/w/index.php?search=%s" },
       { keyword: "bug", name: "bug", url: "https://bugs.example/show_bug.cgi?id=%s" },
     ]);
+  });
+
+  it("imports saved addresses from a Chromium profile, once, and none from a Web Data without them", async () => {
+    const roots = writeBrowserFixtures(tempDir());
+    const service = new BrowserImport();
+    service.setTestRoots(roots);
+    const runtime = { addresses: new AddressVault(tempDir(), cipher) } as unknown as ProfileRuntime;
+    expect(await service.run(runtime, "chrome", "Default", ["addresses"])).toEqual({ addresses: { added: 2, updated: 0, unchanged: 0 }, errors: {} });
+    expect(runtime.addresses.all().map((a) => [a.name, a.street, a.postalCode, a.city, a.country, a.email]).sort()).toEqual([
+      ["", "", "", "", "", "work@example.test"],
+      ["Ana Example", "Calle Mayor 1", "28013", "Madrid", "ES", "ana@example.com"],
+    ]);
+    // Importing again adds nothing.
+    expect(await service.run(runtime, "chrome", "Default", ["addresses"])).toEqual({ addresses: { added: 0, updated: 0, unchanged: 2 }, errors: {} });
+    // A profile without Web Data, and Firefox (not read yet), bring none and report no error.
+    expect(await service.run(runtime, "chrome", "Profile 1", ["addresses"])).toEqual({ addresses: { added: 0, updated: 0, unchanged: 0 }, errors: {} });
+    expect(await service.run(runtime, "firefox", "abcd1234.default-release", ["addresses"])).toEqual({ addresses: { added: 0, updated: 0, unchanged: 0 }, errors: {} });
+
+    // A Web Data with only the search tables counts and imports no addresses.
+    const webData = path.join(roots.config, "google-chrome", "Default", "Web Data");
+    const db = new DatabaseSync(webData);
+    db.exec("DROP TABLE addresses; DROP TABLE address_type_tokens");
+    db.close();
+    expect((await service.scan()).sources[0]?.profiles[0]?.counts.addresses).toBe(0);
+    const fresh = { addresses: new AddressVault(tempDir(), cipher) } as unknown as ProfileRuntime;
+    expect(await service.run(fresh, "chrome", "Default", ["addresses"])).toEqual({ addresses: { added: 0, updated: 0, unchanged: 0 }, errors: {} });
+  });
+
+  it("imports a Chromium profile's local cards with their numbers decrypted, never a CVV or an account card, and counts the protected ones", async () => {
+    const roots = writeBrowserFixtures(tempDir());
+    const service = new BrowserImport();
+    service.setTestRoots(roots);
+    service.setTestKeyProviders({});
+    const profile = (await service.scan()).sources[0]?.profiles[0];
+    expect(profile?.counts.cards).toBe(2);
+    expect(profile?.protectedCards).toBe(1);
+    const runtime = { cards: new CardVault(tempDir(), cipher) } as unknown as ProfileRuntime;
+    expect(await service.run(runtime, "chrome", "Default", ["cards"])).toEqual({ cards: { added: 1, updated: 0, unchanged: 0, protected: 1 }, errors: {} });
+    const cards = runtime.cards.all();
+    expect(cards.map(({ label, nameOnCard, number, expMonth, expYear }) => ({ label, nameOnCard, number, expMonth, expYear }))).toEqual([{ ...FIXTURE_CARD }]);
+    expect(JSON.stringify(cards)).not.toMatch(/cvc|cvv|"123"|0004|Server Card/i);
+    // Importing again adds nothing; Profile 1 and Firefox bring none and report no error.
+    expect(await service.run(runtime, "chrome", "Default", ["cards"])).toEqual({ cards: { added: 0, updated: 0, unchanged: 1, protected: 1 }, errors: {} });
+    expect(await service.run(runtime, "chrome", "Profile 1", ["cards"])).toEqual({ cards: { added: 0, updated: 0, unchanged: 0, protected: 0 }, errors: {} });
+    expect(await service.run(runtime, "firefox", "abcd1234.default-release", ["cards"])).toEqual({ cards: { added: 0, updated: 0, unchanged: 0, protected: 0 }, errors: {} });
   });
 
   it("reads Chrome's Google account bookmarks next to the profile's own", async () => {

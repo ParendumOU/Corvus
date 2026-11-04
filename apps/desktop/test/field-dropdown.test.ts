@@ -10,6 +10,21 @@ const en = words("en");
 const es = words("es");
 
 describe("the field dropdown's entries", () => {
+  it("lists the saved addresses under an address field, then Manage addresses", () => {
+    const addresses = [{ id: "h", title: "Casa", detail: "Calle Mayor 1, Madrid" }, { id: "t", title: "Taller", detail: "Avenida 5, Madrid" }];
+    const ids = dropdownEntries({ kind: "address", first: [match("a")], others: [], othersOpen: false, addresses }).map((e) => (e.type === "address" ? e.address.id : e.type));
+    expect(ids).toEqual(["h", "t", "manage"]);
+    expect(dropdownEntries({ kind: "address", first: [], others: [], othersOpen: false, addresses: [] })).toEqual([]);
+  });
+
+  it("lists the saved cards under a card field, then Manage payment methods", () => {
+    const cards = [{ id: "v", title: "Visa ...1111 - 08/28", detail: "Ana Example" }];
+    const ids = dropdownEntries({ kind: "card", first: [match("a")], others: [], othersOpen: false, addresses: [{ id: "h", title: "Casa", detail: "" }], cards }).map((e) => (e.type === "card" ? e.card.id : e.type));
+    expect(ids).toEqual(["v", "manage"]);
+    expect(dropdownEntries({ kind: "card", first: [], others: [], othersOpen: false, cards: [] })).toEqual([]);
+    expect(dropdownAccounts("card", [match("a")])).toEqual([]);
+  });
+
   it("lists the first accounts, the folded section with its accounts when open, then Manage passwords", () => {
     const first = [match("a"), match("b")];
     const others = [match("c", { fit: "domain" })];

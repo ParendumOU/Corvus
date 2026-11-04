@@ -45,7 +45,7 @@ describe("SecretFillGuard", () => {
   });
 
   it("tells the agent why and what to do instead, without any secret", () => {
-    expect(SECRET_FILL_LOCK_MESSAGE).toMatch(/password or 2FA code/);
+    expect(SECRET_FILL_LOCK_MESSAGE).toMatch(/password, 2FA code or payment card/);
     expect(SECRET_FILL_LOCK_MESSAGE).toMatch(/navigate/);
     expect(SECRET_FILL_LOCK_MESSAGE).toMatch(/ask the user/);
   });

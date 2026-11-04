@@ -1,14 +1,17 @@
-import { clipboard, type WebContents } from "electron";
+import { clipboard, webFrameMain, type WebContents, type WebFrameMain } from "electron";
 import type { TabId } from "@corvus/shared";
+import { addressLine, addressSaveDecision, capturedAddress, cleanAddressFields, type AddressFields } from "../shared/addresses";
 import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
+import { capturedCard, cardLine, cardSaveDecision, cardTitle, cleanCardFields, type AutofillCard, type CardFields } from "../shared/cards";
 import { autofillSiteOf, neverSaveHostOf, sendIdentifier, sentIdentifierFor, type SentIdentifier } from "../shared/autofill-sites";
 import { loginDomainOf, originKeyOf, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
-import { type AutofillBarState, type AutofillCode, type CapturedIdentifier, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
+import { type AutofillBarState, type AutofillCode, type CapturedAddress, type CapturedCard, type CapturedIdentifier, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { dropdownAccounts, dropdownMayOpen } from "../shared/field-dropdown";
+import { AUTOFILL_FRAME_FILL_CHANNEL, cardFillAllowed, frameIsTarget, secureCardContext, validCvv, type FrameBox, type FrameTarget } from "../shared/frame-fill";
 import { offersGenerator } from "../shared/password-rules";
 import type { Settings } from "../shared/settings";
 import { codeToFill, totpCode } from "../shared/totp";
-import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillIdentifierScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
+import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillAddressScript, fillIdentifierScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
 import type { AppContext } from "./context";
 import { FieldDropdown, pageOf, type FieldBox, type PasswordOffer } from "./field-dropdown";
 import { toMatch, type LoginAccount } from "./login-sources";
@@ -48,6 +51,42 @@ interface PendingSave {
   /** The save prompt was shown once: it no longer opens by itself (the key button still reaches it). */
   shown: boolean;
 }
+
+/** A sent address form waiting for the choice to save it (as new, or over the saved address it updates). */
+interface PendingAddress {
+  id: number;
+  kind: "new" | "update";
+  /** The saved address it updates. */
+  targetId: string;
+  fields: AddressFields;
+  line: string;
+  /** The prompt was shown once: it no longer opens by itself. */
+  shown: boolean;
+}
+
+/** A sent card form waiting for the choice to save it (as new, or over the saved card with its number). Never a CVV. */
+interface PendingCard {
+  id: number;
+  kind: "new" | "update";
+  targetId: string;
+  fields: CardFields;
+  line: string;
+  shown: boolean;
+}
+
+/** The frame a field click came from: its ids and origin, and whether it is the tab's top frame. */
+export interface ClickFrame {
+  processId: number;
+  routingId: number;
+  origin: string;
+  top: boolean;
+}
+
+/**
+ * Asks the person for a card's CVV (Corvus's own prompt); null when they cancel. `site` is the site of
+ * the payment frame it fills into when that is not the page's site, else "". Smoke tests answer it themselves.
+ */
+export type CvvAsker = (win: BrowserWindowCtl, request: { title: string; site: string }) => Promise<string | null>;
 
 interface Detected {
   login: boolean;
@@ -101,6 +140,7 @@ function generatorOptions(p: Settings["passwords"]): PasswordOptions {
 export class AutofillService {
   private readonly detected = new Map<TabId, Detected>();
   private readonly pending = new Map<TabId, PendingSave>();
+  private readonly pendingAddresses = new Map<TabId, PendingAddress>();
   /** Per tab, in memory only: the username sent from a two-step sign-in's first step (see sentIdentifierFor). */
   private readonly identifiers = new Map<TabId, SentIdentifier>();
   private lastSaveId = 0;
@@ -115,6 +155,15 @@ export class AutofillService {
   private readonly dropdowns = new Map<BrowserWindowCtl, FieldDropdown>();
   /** A private window's password generator choices: they last as long as the window, never saved. */
   private readonly privateGenerator = new WeakMap<BrowserWindowCtl, PasswordOptions>();
+  /** The page an address dropdown opened over: a pick fills only there. */
+  private readonly addressPages = new WeakMap<BrowserWindowCtl, { tabId: TabId; origin: string; target: FrameTarget | null }>();
+  /** The page and frame a card dropdown opened over: a pick fills only that frame, while its origin is the same. */
+  private readonly cardPages = new WeakMap<BrowserWindowCtl, { tabId: TabId; target: FrameTarget }>();
+  private readonly pendingCards = new Map<TabId, PendingCard>();
+  /** Card and address fills sent to a frame, waiting for its answer. */
+  private readonly frameFills = new Map<number, { processId: number; routingId: number; resolve: (filled: number) => void }>();
+  private lastFrameFill = 0;
+  private cvvAsker: CvvAsker | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -245,6 +294,8 @@ export class AutofillService {
     this.detected.delete(id);
     this.similarApproved.delete(id);
     this.pending.delete(id);
+    this.pendingAddresses.delete(id);
+    this.pendingCards.delete(id);
     this.identifiers.delete(id);
     this.autoAsked.delete(id);
     clearTimeout(this.reprobes.get(id));
@@ -260,6 +311,8 @@ export class AutofillService {
     const matchCount = detected?.login || detected?.identifier ? matches.length : 0;
     const otpAvailable = Boolean(detected?.otp && matches.some((m) => m.hasTotp));
     const save = this.pending.get(tab.id);
+    const address = this.pendingAddresses.get(tab.id);
+    const card = this.pendingCards.get(tab.id);
     return {
       available: matchCount > 0 || otpAvailable,
       matchCount,
@@ -268,6 +321,10 @@ export class AutofillService {
       saveId: save?.id ?? 0,
       // Never over an agent at work: its tab keeps the key button only.
       savePrompt: Boolean(save && !save.shown && !tab.agentControlled),
+      addressSave: address ? { id: address.id, kind: address.kind, line: address.line } : null,
+      addressPrompt: Boolean(address && !address.shown && !tab.agentControlled),
+      cardSave: card ? { id: card.id, kind: card.kind, line: card.line } : null,
+      cardPrompt: Boolean(card && !card.shown && !tab.agentControlled),
     };
   }
 
@@ -310,7 +367,9 @@ export class AutofillService {
     if (existing) return existing;
     const dropdown = new FieldDropdown(win, {
       account: (kind, id) => void (kind === "otp" ? this.fillTotp(win, id) : this.fill(win, id)),
-      manage: () => win.openSingleton("corvus://passwords/"),
+      address: (id, field) => void this.fillAddress(win, id, field),
+      card: (id) => void this.fillCard(win, id),
+      manage: (kind) => win.openSingleton(kind === "address" ? "corvus://passwords/#addresses" : kind === "card" ? "corvus://passwords/#cards" : "corvus://passwords/"),
       usePassword: (password, field) => void this.fillGenerated(win, password, field),
       copyField: (field) => this.copyField(win, field),
       copyText: (text) => clipboard.writeText(text),
@@ -363,7 +422,10 @@ export class AutofillService {
    * agent's), and only where the page has such a field: probed again when it was not seen yet, since a
    * two-step sign-in shows its code field after the page loaded. Nothing is filled until the person picks.
    */
-  async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick): Promise<void> {
+  async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame?: ClickFrame): Promise<void> {
+    if (click.kind === "card") return this.onCardField(win, tab, click, frame);
+    if (click.kind === "address") return this.onAddressField(win, tab, click, frame);
+    if (frame && !frame.top) return;
     const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
     const has = (d: Detected | undefined): boolean => Boolean(click.kind === "otp" ? d?.otp : d?.login || d?.identifier);
     if (!active()) return;
@@ -379,6 +441,188 @@ export class AutofillService {
     const page = pageOf(tab);
     if (!page || !active() || (matches.length === 0 && similar.length === 0 && !offer.copy && !offer.generator)) return;
     this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches, offer, similar);
+  }
+
+  /**
+   * The person clicked a field of an address form: the saved addresses in the dropdown under it, most
+   * recently used first. Only in the active, person-driven tab (never an agent's). Nothing is filled
+   * until the person picks.
+   */
+  private async onAddressField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame?: ClickFrame): Promise<void> {
+    if (!this.addressesOn() || tab.agentControlled || win.activeTab()?.id !== tab.id) return;
+    const addresses = win.profile.addresses.all();
+    const page = pageOf(tab);
+    if (!page || addresses.length === 0) return;
+    const sub = frame && !frame.top ? await this.subframeTarget(page, frame, click) : null;
+    if (frame && !frame.top && !sub) return;
+    const origin = sub ? sub.target.origin : originOf(this.pageUrl(tab));
+    if (!origin || win.activeTab()?.id !== tab.id) return;
+    this.addressPages.set(win, { tabId: tab.id, origin, target: sub?.target ?? null });
+    const options = addresses.map((a) => ({ id: a.id, title: a.label || a.name || a.company || a.email || a.phone, detail: [a.street.split("\n")[0] ?? "", a.city].filter(Boolean).join(", ") }));
+    this.dropdownOf(win).show(tab, page, sub?.shown ?? click, "address", "", [], undefined, [], options);
+  }
+
+  /**
+   * A saved address picked in the dropdown: filled into the form of the field under it, on the page (or
+   * in the frame) the dropdown opened over. Its use is remembered (it is listed first next time), never
+   * from a private window.
+   */
+  async fillAddress(win: BrowserWindowCtl, id: string, field: FieldBox): Promise<void> {
+    const tab = win.activeTab();
+    const opened = this.addressPages.get(win);
+    const address = win.profile.addresses.get(id);
+    if (!tab || tab.agentControlled || !opened || opened.tabId !== tab.id || !address) return;
+    const filled = opened.target ? await this.fillInFrame(tab, opened.target, { kind: "address", address }) : await this.run<number>(tab, fillAddressScript(address, field, opened.origin));
+    if (filled && filled > 0 && !win.isPrivate) win.profile.addresses.noteUsed(id);
+  }
+
+  /**
+   * The person clicked a field of a card form (in the page or in a payment provider's frame): the saved
+   * cards in the dropdown under it, most recently used first. Only in the active, person-driven tab, and
+   * only when the page and that frame are secure contexts (see cardFillAllowed). Nothing is filled
+   * until the person picks a card and types its CVV.
+   */
+  private async onCardField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame?: ClickFrame): Promise<void> {
+    if (!this.cardsOn() || tab.agentControlled || win.activeTab()?.id !== tab.id) return;
+    const cards = win.profile.cards.all();
+    const page = pageOf(tab);
+    if (!page || cards.length === 0 || !secureCardContext(page.getURL())) return;
+    let target: FrameTarget;
+    let shown: FieldBox = click;
+    if (frame && !frame.top) {
+      const sub = await this.subframeTarget(page, frame, click);
+      if (!sub) return;
+      target = sub.target;
+      shown = sub.shown;
+    } else {
+      const main = page.mainFrame;
+      const origin = originOf(page.getURL());
+      if (!origin) return;
+      target = { processId: main.processId, routingId: main.routingId, origin, box: { x: click.x, y: click.y, width: click.width, height: click.height } };
+    }
+    if (win.activeTab()?.id !== tab.id || !cardFillAllowed(page.getURL(), target.origin)) return;
+    this.cardPages.set(win, { tabId: tab.id, target });
+    const options = cards.map((c) => ({ id: c.id, title: cardLine(c), detail: c.label || c.nameOnCard }));
+    this.dropdownOf(win).show(tab, page, shown, "card", "", [], undefined, [], options);
+  }
+
+  /** Smoke tests answer the CVV prompt; null restores Corvus's prompt. */
+  setCvvAsker(asker: CvvAsker | null): void {
+    this.cvvAsker = asker;
+  }
+
+  /**
+   * Corvus's CVV prompt (a modal in the window's own UI, not page content): masked, 3 or 4 digits. A
+   * payment frame of another site than the page's is named, so the person sees where the card goes. The
+   * answer is returned to the one fill that asked and kept nowhere.
+   */
+  private async askCvv(win: BrowserWindowCtl, card: AutofillCard, site: string): Promise<string | null> {
+    const title = cardTitle(card);
+    if (this.cvvAsker) return this.cvvAsker(win, { title, site });
+    const where = site ? `${tr("Fills into {site}", { site })}\n\n` : "";
+    let detail = tr("Corvus fills it into this page once and does not keep it.");
+    for (let tries = 0; tries < 3; tries++) {
+      const answer = await this.ctx.dialogs.ask(
+        {
+          tone: "question",
+          title: tr("Pay with a saved card"),
+          message: tr("Enter the CVV of {card}", { card: title }),
+          detail: where + detail,
+          buttons: [tr("Cancel"), tr("Fill")],
+          defaultId: 1,
+          cancelId: 0,
+          fields: [{ label: tr("CVV"), value: "", secret: true, required: tr("Type the 3 or 4 digit code on the card.") }],
+        },
+        win,
+      );
+      if (answer.button !== 1) return null;
+      const cvv = (answer.values?.[0] ?? "").trim();
+      if (validCvv(cvv)) return cvv;
+      detail = tr("Type the 3 or 4 digit code on the card.");
+    }
+    return null;
+  }
+
+  /**
+   * A saved card picked in the dropdown: asks for its CVV, then fills number, name, expiry and that CVV
+   * into the form of the field the dropdown opened under, in that frame only, only while its origin is
+   * the same and only while the page and the frame are secure contexts. Cancel fills nothing. The CVV
+   * is never stored or logged: it lives in this call only.
+   */
+  async fillCard(win: BrowserWindowCtl, id: string): Promise<void> {
+    const tab = win.activeTab();
+    const opened = this.cardPages.get(win);
+    const card = win.profile.cards.get(id);
+    if (!tab || tab.agentControlled || !opened || opened.tabId !== tab.id || !card || !cardFillAllowed(this.pageUrl(tab), opened.target.origin)) return;
+    const site = autofillSiteOf(opened.target.origin);
+    const cvv = await this.askCvv(win, card, site === autofillSiteOf(this.pageUrl(tab)) ? "" : site);
+    if (cvv === null || win.activeTab()?.id !== tab.id || tab.agentControlled || !cardFillAllowed(this.pageUrl(tab), opened.target.origin)) return;
+    const fields = cleanCardFields(card);
+    // The card in the page: agents may not script it or read it raw until it navigates (see secret-fill-guard.ts).
+    this.ctx.secretFills.mark(tab.id, [fields.number, cvv]);
+    const filled = await this.fillInFrame(tab, opened.target, { kind: "card", card: fields, cvv });
+    if (filled > 0 && !win.isPrivate) win.profile.cards.noteUsed(id);
+  }
+
+  /**
+   * Where a field clicked in a subframe is: the frame to fill (its ids, its origin now, the field's box in
+   * it) and the field's box in the page, for the dropdown. Null when the frame is gone, not the tab's, or
+   * not a web page, or its place in the page cannot be found.
+   */
+  private async subframeTarget(page: WebContents, frame: ClickFrame, click: FieldClick): Promise<{ target: FrameTarget; shown: FieldBox } | null> {
+    const found = webFrameMain.fromId(frame.processId, frame.routingId);
+    if (!found || !frameIsTarget(frame, found) || !this.frameOfPage(page, found) || !originOf(found.origin)) return null;
+    const offset = await frameOffset(found);
+    if (!offset) return null;
+    const box: FrameBox = { x: click.x, y: click.y, width: click.width, height: click.height };
+    return { target: { processId: frame.processId, routingId: frame.routingId, origin: frame.origin, box }, shown: { ...box, x: box.x + offset.x, y: box.y + offset.y } };
+  }
+
+  /** The frame belongs to this tab's page. */
+  private frameOfPage(page: WebContents, frame: WebFrameMain): boolean {
+    const top = frame.top;
+    const main = page.mainFrame;
+    return Boolean(top) && top!.processId === main.processId && top!.routingId === main.routingId;
+  }
+
+  /**
+   * Sends a card or address fill to the frame it is for, only while that frame is still the tab's and has
+   * the origin it had on the click; resolves with the fields its preload wrote (0 on refusal or timeout).
+   */
+  private fillInFrame(tab: TabRuntime, target: FrameTarget, body: { kind: "card"; card: CardFields; cvv: string } | { kind: "address"; address: AddressFields }): Promise<number> {
+    const page = pageOf(tab);
+    const frame = webFrameMain.fromId(target.processId, target.routingId);
+    if (!page || !frame || !frameIsTarget(target, frame) || !this.frameOfPage(page, frame)) return Promise.resolve(0);
+    const token = ++this.lastFrameFill;
+    return new Promise<number>((resolve) => {
+      const timer = setTimeout(() => {
+        this.frameFills.delete(token);
+        resolve(0);
+      }, SCRIPT_TIMEOUT_MS);
+      this.frameFills.set(token, {
+        processId: target.processId,
+        routingId: target.routingId,
+        resolve: (filled) => {
+          clearTimeout(timer);
+          resolve(filled);
+        },
+      });
+      try {
+        frame.send(AUTOFILL_FRAME_FILL_CHANNEL, { token, origin: target.origin, box: target.box, ...body });
+      } catch {
+        this.frameFills.delete(token);
+        clearTimeout(timer);
+        resolve(0);
+      }
+    });
+  }
+
+  /** A frame answered a fill sent to it (only the frame it was sent to counts). */
+  onFrameFilled(processId: number, routingId: number, data: { token: number; filled: number }): void {
+    const pending = this.frameFills.get(data.token);
+    if (!pending || pending.processId !== processId || pending.routingId !== routingId) return;
+    this.frameFills.delete(data.token);
+    pending.resolve(data.filled);
   }
 
   /**
@@ -606,4 +850,163 @@ export class AutofillService {
     this.pending.delete(found.tab.id);
     win.pushState();
   }
+
+  /**
+   * The tab preload reported a sent address form: offer to save it as a new address, or to update the
+   * saved one it matches with what changed. Never from a private window, a tab the agent works in, or
+   * with addresses turned off in Settings; only from the page the tab shows.
+   */
+  onAddressCaptured(win: BrowserWindowCtl, tab: TabRuntime, data: CapturedAddress): void {
+    if (originKeyOf(data.origin) !== originKeyOf(this.pageUrl(tab))) return;
+    const fields = cleanAddressFields(capturedAddress(data.fields));
+    const saved = win.profile.addresses.all();
+    const decision = addressSaveDecision(fields, saved, { private: win.isPrivate, agent: tab.agentControlled, enabled: this.addressesOn() });
+    if (decision.kind === "none") return;
+    const targetId = decision.kind === "update" ? decision.id : "";
+    const shown = saved.find((a) => a.id === targetId);
+    const line = addressLine(shown ? { ...shown, ...nonEmpty(fields) } : fields);
+    this.pendingAddresses.set(tab.id, { id: ++this.lastSaveId, kind: decision.kind, targetId, fields, line, shown: false });
+    if (win.activeTab()?.id === tab.id) win.pushState();
+  }
+
+  /** The active tab's pending address, if it is still the one with this id. */
+  private pendingAddressFor(win: BrowserWindowCtl, id: number): { tab: TabRuntime; address: PendingAddress } | null {
+    const tab = win.activeTab();
+    const address = tab ? this.pendingAddresses.get(tab.id) : undefined;
+    return tab && address?.id === id ? { tab, address } : null;
+  }
+
+  addressSaveShown(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingAddressFor(win, id);
+    if (found && !found.address.shown) {
+      found.address.shown = true;
+      win.pushState();
+    }
+  }
+
+  /** Saves the pending address: a new one, or only the fields the form filled over the saved one it updates. */
+  acceptAddressSave(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingAddressFor(win, id);
+    if (!found) return;
+    const { address } = found;
+    if (address.kind === "update") win.profile.addresses.update(address.targetId, nonEmpty(address.fields));
+    else win.profile.addresses.add(address.fields);
+    this.pendingAddresses.delete(found.tab.id);
+    win.pushState();
+  }
+
+  dismissAddressSave(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingAddressFor(win, id);
+    if (found && this.pendingAddresses.delete(found.tab.id)) win.pushState();
+  }
+
+  /** Settings > Passwords > Save and fill addresses. */
+  private addressesOn(): boolean {
+    return this.ctx.settings.get().passwords.addresses;
+  }
+
+  /**
+   * The tab preload reported a sent card form (its number, name and expiry; it never reads the CVV):
+   * offer to save it as a new card, or to update the saved card with that number. Only a Luhn-valid
+   * number, never from a private window, a tab the agent works in, or with payment methods turned off.
+   */
+  onCardCaptured(win: BrowserWindowCtl, tab: TabRuntime, data: CapturedCard): void {
+    if (originKeyOf(data.origin) !== originKeyOf(this.pageUrl(tab))) return;
+    const fields = cleanCardFields(capturedCard(data.fields));
+    const saved = win.profile.cards.all();
+    const decision = cardSaveDecision(fields, saved, { private: win.isPrivate, agent: tab.agentControlled, enabled: this.cardsOn() });
+    if (decision.kind === "none") return;
+    const targetId = decision.kind === "update" ? decision.id : "";
+    const shown = saved.find((c) => c.id === targetId);
+    const line = cardLine(shown ? { ...shown, ...nonEmptyCard(fields) } : fields);
+    this.pendingCards.set(tab.id, { id: ++this.lastSaveId, kind: decision.kind, targetId, fields, line, shown: false });
+    if (win.activeTab()?.id === tab.id) win.pushState();
+  }
+
+  private pendingCardFor(win: BrowserWindowCtl, id: number): { tab: TabRuntime; card: PendingCard } | null {
+    const tab = win.activeTab();
+    const card = tab ? this.pendingCards.get(tab.id) : undefined;
+    return tab && card?.id === id ? { tab, card } : null;
+  }
+
+  cardSaveShown(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingCardFor(win, id);
+    if (found && !found.card.shown) {
+      found.card.shown = true;
+      win.pushState();
+    }
+  }
+
+  /** Saves the pending card: a new one, or the new name and expiry over the saved card with its number. */
+  acceptCardSave(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingCardFor(win, id);
+    if (!found) return;
+    const { card } = found;
+    if (card.kind === "update") win.profile.cards.update(card.targetId, nonEmptyCard(card.fields));
+    else win.profile.cards.add(card.fields);
+    this.pendingCards.delete(found.tab.id);
+    win.pushState();
+  }
+
+  dismissCardSave(win: BrowserWindowCtl, id: number): void {
+    const found = this.pendingCardFor(win, id);
+    if (found && this.pendingCards.delete(found.tab.id)) win.pushState();
+  }
+
+  /** Settings > Passwords > Save and fill payment methods. */
+  private cardsOn(): boolean {
+    return this.ctx.settings.get().passwords.cards;
+  }
+}
+
+function nonEmptyCard(f: CardFields): Partial<CardFields> {
+  return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== "")) as Partial<CardFields>;
+}
+
+/**
+ * Where a subframe's viewport is in the tab's page: the offset of each frame element up the chain,
+ * read in each parent's main world (only the dropdown's position depends on it). Null when a frame
+ * element cannot be found.
+ */
+async function frameOffset(frame: WebFrameMain): Promise<{ x: number; y: number } | null> {
+  let x = 0;
+  let y = 0;
+  let child: WebFrameMain = frame;
+  for (let depth = 0; depth < 10; depth++) {
+    const parent = child.parent;
+    if (!parent) return { x, y };
+    const index = parent.frames.findIndex((f) => f.frameTreeNodeId === child.frameTreeNodeId);
+    if (index < 0) return null;
+    let box: { x: number; y: number } | null = null;
+    try {
+      box = (await withTimeout(
+        parent.executeJavaScript(
+          `(() => { const w = window.frames[${index}]; for (const el of document.querySelectorAll("iframe, frame")) { if (el.contentWindow === w) { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return { x: r.left + el.clientLeft + parseFloat(s.paddingLeft || "0"), y: r.top + el.clientTop + parseFloat(s.paddingTop || "0") }; } } return null; })()`,
+        ) as Promise<{ x: number; y: number } | null>,
+        SCRIPT_TIMEOUT_MS,
+      )) ?? null;
+    } catch {
+      return null;
+    }
+    if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.y)) return null;
+    x += box.x;
+    y += box.y;
+    child = parent;
+  }
+  return null;
+}
+
+/** A web page's origin ("https://shop.example"), or null for anything else. */
+function originOf(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The fields that hold something: an update never clears what the form left empty. */
+function nonEmpty(f: AddressFields): Partial<AddressFields> {
+  return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== "")) as Partial<AddressFields>;
 }

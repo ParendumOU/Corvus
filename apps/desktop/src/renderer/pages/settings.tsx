@@ -732,6 +732,8 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
         hint={t("When you have never backed up your logins and 2FA codes, or they changed and the last backup is over 30 days old, Corvus asks once when it starts. Back up now on the Passwords page writes them to a KeePass file protected by a password you choose.")}
       >
         <Toggle label={t("Remind me to back up my passwords")} checked={pw.backupReminder} onChange={(v) => update({ passwords: { backupReminder: v } })} />
+        <Toggle label={t("Save and fill addresses")} checked={pw.addresses} onChange={(v) => update({ passwords: { addresses: v } })} />
+        <Toggle label={t("Save and fill payment methods")} checked={pw.cards} onChange={(v) => update({ passwords: { cards: v } })} />
       </Row>
       <NeverSavedSites />
     </Section>

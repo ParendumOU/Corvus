@@ -104,6 +104,10 @@ export interface Settings {
      * on Windows each request opens the system security-key dialog. Applies to tabs opened afterwards.
      */
     passkeys: boolean;
+    /** Offer to save the addresses sent in forms, and list the saved ones under address fields. On by default. */
+    addresses: boolean;
+    /** Offer to save the payment cards sent in forms (never their CVV), and list the saved ones under card fields. On by default. */
+    cards: boolean;
     /** Remind the person, at most once per launch, to back up their logins and 2FA codes. On by default. */
     backupReminder: boolean;
     /** The strong password suggested under new-password fields: the person's last choices (8 to 128 characters, the classes in it). */
@@ -300,6 +304,8 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       agentSignInWithoutAsking: false,
       keepassAutoLockMinutes: 15,
       passkeys: false,
+      addresses: true,
+      cards: true,
       backupReminder: true,
       generatorLength: 24,
       generatorLowercase: true,

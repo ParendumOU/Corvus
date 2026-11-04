@@ -4,7 +4,7 @@ import type { FieldDropdownState, FieldMenuBridge, GeneratorState } from "../../
 import { dropdownEntries, dropdownLabel, dropdownLines, dropdownTwoFaOnly } from "../../shared/field-dropdown";
 import { PASSWORD_CHARSETS, PASSWORD_CLASSES, type GeneratorNote, type PasswordClass } from "../../shared/password-rules";
 import { setUiLanguage, t } from "../common/i18n";
-import { IconCheck, IconChevronDown, IconChevronRight, IconClock, IconCopy, IconLock, IconReload, IconSparkle, IconWarning } from "../common/icons";
+import { IconCard, IconCheck, IconChevronDown, IconChevronRight, IconClock, IconCopy, IconLocation, IconLock, IconReload, IconSparkle, IconWarning } from "../common/icons";
 import "../common/theme.css";
 import "../common/account-rows.css";
 import "./field-menu.css";
@@ -249,7 +249,7 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
       className={`fd-menu ${compact ? "compact" : ""}`}
       ref={menu}
       role="listbox"
-      aria-label={state.kind === "otp" ? t("2FA code") : t("Passwords")}
+      aria-label={state.kind === "otp" ? t("2FA code") : state.kind === "address" ? t("Addresses") : state.kind === "card" ? t("Payment methods") : t("Passwords")}
       onMouseDownCapture={onPress}
       style={compact ? undefined : { width: state.maxWidth }}
     >
@@ -312,6 +312,38 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
               </div>
             );
           }
+          if (entry.type === "address") {
+            const a = entry.address;
+            return (
+              <div key={a.id} role="option" aria-selected={state.highlight === index} title={[a.title, a.detail].filter(Boolean).join(" - ")} {...p} className={`af-row ${p.className}`}>
+                <span className="af-fill">
+                  <span className="af-icon">
+                    <IconLocation size={14} />
+                  </span>
+                  <span className="af-text">
+                    <span className="af-user">{a.title}</span>
+                    {a.detail && <span className="af-site">{a.detail}</span>}
+                  </span>
+                </span>
+              </div>
+            );
+          }
+          if (entry.type === "card") {
+            const c = entry.card;
+            return (
+              <div key={c.id} role="option" aria-selected={state.highlight === index} title={[c.title, c.detail].filter(Boolean).join(" - ")} {...p} className={`af-row ${p.className}`}>
+                <span className="af-fill">
+                  <span className="af-icon">
+                    <IconCard size={14} />
+                  </span>
+                  <span className="af-text">
+                    <span className="af-user">{c.title}</span>
+                    {c.detail && <span className="af-site">{c.detail}</span>}
+                  </span>
+                </span>
+              </div>
+            );
+          }
           if (entry.type !== "account") return null;
           const m = entry.account;
           const { user, details } = dropdownLines(m, words);
@@ -334,7 +366,7 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
       </div>
       {manage >= 0 && (
         <div role="option" aria-selected={state.highlight === manage} {...press(manage)} className={`af-manage ${press(manage).className}`}>
-          {t("Manage passwords")}
+          {state.kind === "address" ? t("Manage addresses") : state.kind === "card" ? t("Manage payment methods") : t("Manage passwords")}
         </div>
       )}
     </div>

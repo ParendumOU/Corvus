@@ -35,6 +35,8 @@ export const SYNCED_SETTINGS = [
   "reader.font",
   "reader.translateLanguage",
   "pdf.openInViewer",
+  "passwords.addresses",
+  "passwords.cards",
   "passwords.generatorLength",
   "passwords.generatorLowercase",
   "passwords.generatorUppercase",

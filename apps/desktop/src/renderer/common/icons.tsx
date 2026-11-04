@@ -223,6 +223,13 @@ export const IconLocation = (p: IconProps) => (
     <circle cx="12" cy="10" r="2.5" />
   </Svg>
 );
+export const IconCard = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="5.5" width="18" height="13" rx="2" />
+    <path d="M3 10h18" />
+    <path d="M7 15h4" />
+  </Svg>
+);
 export const IconBell = (p: IconProps) => (
   <Svg {...p}>
     <path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z" />

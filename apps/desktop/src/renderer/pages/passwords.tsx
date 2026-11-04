@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from "react";
+import { ADDRESS_FIELD_KEYS, addressLine, emptyAddressFields, searchAddresses, type AddressFields, type AutofillAddress } from "../../shared/addresses";
+import { CARD_FIELD_KEYS, cardExpiry, emptyCardFields, maskedCardNumber, searchCards, type CardFields, type CardSummary } from "../../shared/cards";
 import type { CredentialSummary, PasswordOptions } from "../../shared/credentials";
 import { DEFAULT_PASSWORD_OPTIONS, generatePassword, searchCredentials } from "../../shared/credentials";
 import type { RevealedCredential } from "../../shared/credentials-ipc";
@@ -6,12 +8,14 @@ import type { KeePassDbView, KeePassEntryDetails, KeePassEntrySummary, KeePassEx
 import { daysSince } from "../../shared/backup-reminder";
 import { checkupSummary, sortByBreaches, type PasswordCheckupView, type PasswordHealth } from "../../shared/password-health";
 import {
+  DELETE_ARM_MS,
   deleteTargetOf,
   initialDeleteChoice,
   initialTab,
   keepassEntryChanged,
   PAGE_SIZE,
   pageSlice,
+  PASSWORDS_TABS,
   searchTwoFactor,
   sortLogins,
   TAB_STORAGE_KEY,
@@ -25,7 +29,7 @@ import {
 import { formatTotpCode, type TotpCode } from "../../shared/totp";
 import { errorMessage, internalApi } from "../common/api";
 import { Modal } from "../common/modal";
-import { IconAgent, IconCamera, IconCheck, IconClock, IconCopy, IconDownload, IconEdit, IconFile, IconFolder, IconLock, IconPlus, IconSearch, IconTrash } from "../common/icons";
+import { IconAgent, IconCamera, IconCard, IconCheck, IconClock, IconCopy, IconDownload, IconEdit, IconEye, IconEyeOff, IconFile, IconFolder, IconLocation, IconLock, IconPlus, IconSearch, IconTrash } from "../common/icons";
 import { Favicon, Pager, Toggle, hostOf } from "../common/ui";
 import { AuthenticatorImport } from "./authenticator-import";
 import { DeleteLoginDialog } from "./delete-login";
@@ -309,11 +313,13 @@ function storeTab(tab: PasswordsTab): void {
   }
 }
 
-/** "Passwords" and "2FA codes", with how many each holds; arrow keys move between them. */
+/** "Passwords", "2FA codes", "Addresses" and "Payment methods", with how many each holds; arrow keys move between them. */
 function TabBar({ tab, counts, onTab }: { tab: PasswordsTab; counts: Record<PasswordsTab, number>; onTab: (tab: PasswordsTab) => void }) {
   const tabs: Array<[PasswordsTab, string]> = [
     ["passwords", t("Passwords")],
     ["2fa", t("2FA codes")],
+    ["addresses", t("Addresses")],
+    ["cards", t("Payment methods")],
   ];
   return (
     <div
@@ -323,7 +329,8 @@ function TabBar({ tab, counts, onTab }: { tab: PasswordsTab; counts: Record<Pass
       onKeyDown={(e) => {
         if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
         e.preventDefault();
-        const next = tab === "passwords" ? "2fa" : "passwords";
+        const at = PASSWORDS_TABS.indexOf(tab) + (e.key === "ArrowRight" ? 1 : -1);
+        const next = PASSWORDS_TABS[(at + PASSWORDS_TABS.length) % PASSWORDS_TABS.length]!;
         onTab(next);
         document.getElementById(`pw-tab-${next}`)?.focus();
       }}
@@ -581,6 +588,18 @@ function PasswordsPage() {
   );
 
   const load = useCallback(() => void api.call("credentials.list", "").then(setAllItems), [api]);
+  const [addresses, setAddresses] = useState<AutofillAddress[]>([]);
+  const [addressForm, setAddressForm] = useState<AddressFormState | null>(null);
+  const [deletingAddress, setDeletingAddress] = useState<AutofillAddress | null>(null);
+  const loadAddresses = useCallback(() => void api.call("addresses.list").then(setAddresses), [api]);
+  const closeAddressForm = useCallback(() => setAddressForm(null), []);
+  const closeDeleteAddress = useCallback(() => setDeletingAddress(null), []);
+  const [cards, setCards] = useState<CardSummary[]>([]);
+  const [cardForm, setCardForm] = useState<CardFormState | null>(null);
+  const [deletingCard, setDeletingCard] = useState<CardSummary | null>(null);
+  const loadCards = useCallback(() => void api.call("cards.list").then(setCards), [api]);
+  const closeCardForm = useCallback(() => setCardForm(null), []);
+  const closeDeleteCard = useCallback(() => setDeletingCard(null), []);
   const loadKeePass = useCallback(() => void api.call("keepass.entries", "").then(setKeepassItems), [api]);
 
   useEffect(() => {
@@ -590,11 +609,13 @@ function PasswordsPage() {
     load();
     loadKeePass();
     loadBackup();
+    loadAddresses();
+    loadCards();
     return api.onEvent((e) => {
       if (e.type === "credentials-changed") load();
       if (e.type === "keepass-changed") loadKeePass();
     });
-  }, [api, load, loadKeePass, loadBackup]);
+  }, [api, load, loadKeePass, loadBackup, loadAddresses, loadCards]);
 
   const chooseTab = useCallback((next: PasswordsTab) => {
     setTab(next);
@@ -619,7 +640,7 @@ function PasswordsPage() {
   }, [allItems, query, byBreaches, health]);
   useEffect(() => setPage(0), [query]);
   const twoFactor = useMemo(() => twoFactorItems(allItems, keepassItems), [allItems, keepassItems]);
-  const counts: Record<PasswordsTab, number> = { passwords: allItems.length + keepassItems.length, "2fa": twoFactor.length };
+  const counts: Record<PasswordsTab, number> = { passwords: allItems.length + keepassItems.length, "2fa": twoFactor.length, addresses: addresses.length, cards: cards.length };
 
   const showLogin = (item: TwoFactorItem): void => {
     setQuery(item.site || item.username);
@@ -731,11 +752,19 @@ function PasswordsPage() {
       active="passwords"
       toolbar={
         <>
-          <input className="input" placeholder={tab === "2fa" ? t("Search 2FA codes") : t("Search logins")} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className="input" placeholder={tab === "2fa" ? t("Search 2FA codes") : tab === "addresses" ? t("Search addresses") : tab === "cards" ? t("Search payment methods") : t("Search logins")} value={query} onChange={(e) => setQuery(e.target.value)} />
           <button className="btn" title={t("Import from Google Authenticator")} onClick={startImport}>
             <IconCamera size={14} />{" "}<span className="pw-ga-label">{t("Import from Google Authenticator")}</span></button>
           <BackupButton lastBackupAt={lastBackupAt} onClick={openBackup} />
           <button className="btn primary" onClick={() => {
+            if (tab === "addresses") {
+              setAddressForm({ id: null, fields: emptyAddressFields() });
+              return;
+            }
+            if (tab === "cards") {
+              setCardForm({ id: null, fields: emptyCardFields(), masked: "" });
+              return;
+            }
             setError(null);
             setQrError(null);
             setImporting(false);
@@ -854,6 +883,54 @@ function PasswordsPage() {
           </div>
         )}
 
+        {tab === "addresses" && addressForm && (
+          <AddressFormCard
+            key={addressForm.id ?? "new"}
+            initial={addressForm}
+            onClose={closeAddressForm}
+            onSaved={() => {
+              setAddressForm(null);
+              loadAddresses();
+            }}
+          />
+        )}
+
+        {tab === "addresses" && (
+          <AddressesTab
+            items={addresses}
+            query={query}
+            onEdit={(a) => {
+              setAddressForm({ id: a.id, fields: pickAddressFields(a) });
+              window.scrollTo(0, 0);
+            }}
+            onDelete={setDeletingAddress}
+          />
+        )}
+
+        {tab === "cards" && cardForm && (
+          <CardFormCard
+            key={cardForm.id ?? "new"}
+            initial={cardForm}
+            onClose={closeCardForm}
+            onSaved={() => {
+              setCardForm(null);
+              loadCards();
+            }}
+          />
+        )}
+
+        {tab === "cards" && (
+          <CardsTab
+            items={cards}
+            query={query}
+            onEdit={(c) => {
+              setCardForm({ id: c.id, fields: { label: c.label, nameOnCard: c.nameOnCard, number: "", expMonth: c.expMonth, expYear: c.expYear }, masked: maskedCardNumber(c.last4) });
+              window.scrollTo(0, 0);
+            }}
+            onDelete={setDeletingCard}
+          />
+        )}
+
         {tab === "passwords" && (
           <KeePassSection
             query={query}
@@ -880,7 +957,407 @@ function PasswordsPage() {
           }}
         />
       )}
+      {deletingAddress && (
+        <DeleteAddressDialog
+          address={deletingAddress}
+          onClose={closeDeleteAddress}
+          onDone={() => {
+            setDeletingAddress(null);
+            loadAddresses();
+          }}
+        />
+      )}
+      {deletingCard && (
+        <DeleteCardDialog
+          card={deletingCard}
+          onClose={closeDeleteCard}
+          onDone={() => {
+            setDeletingCard(null);
+            loadCards();
+          }}
+        />
+      )}
     </PageShell>
+  );
+}
+
+interface AddressFormState {
+  id: string | null;
+  fields: AddressFields;
+}
+
+const pickAddressFields = (a: AutofillAddress): AddressFields => Object.fromEntries(ADDRESS_FIELD_KEYS.map((k) => [k, a[k]])) as AddressFields;
+
+/** How a saved address names itself in lists and in the delete confirmation: its phone and email under its name and place. */
+const addressContact = (a: AutofillAddress): string => [a.phone, a.email].filter(Boolean).join(" \u00b7 ");
+
+/** The saved addresses autofill offers on address forms, a page at a time, with Edit and Delete. */
+function AddressesTab({ items, query, onEdit, onDelete }: { items: AutofillAddress[]; query: string; onEdit: (a: AutofillAddress) => void; onDelete: (a: AutofillAddress) => void }) {
+  const [page, setPage] = useState(0);
+  const shown = useMemo(() => searchAddresses(items, query), [items, query]);
+  const slice = pageSlice(shown, page);
+  useEffect(() => setPage(0), [query]);
+
+  return (
+    <div className="card ad-card">
+      <div className="card-head">
+        <p className="muted">{t("Corvus fills these into address forms on sites.")}</p>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty">{t("No saved addresses yet. Add one with the Add button.")}</div>
+      ) : shown.length === 0 ? (
+        <div className="empty">{t("No addresses match your search.")}</div>
+      ) : (
+        <div className="pt-wrap ad-list">
+          <div className="pt pt-addresses">
+            <div className="pt-head" aria-hidden="true">
+              <span />
+              <span>{t("Address")}</span>
+              <span className="pt-head-actions">{t("Actions")}</span>
+            </div>
+            {slice.items.map((a) => (
+              <div key={a.id} className="pt-row ad-row" data-id={a.id}>
+                <span className="pt-icon">
+                  <IconLocation size={15} />
+                </span>
+                <NameCell primary={addressLine(a)} secondary={addressContact(a)} />
+                <div className="pt-actions">
+                  <RowAction className="ad-edit" icon={<IconEdit size={13} />} label={t("Edit")} title={t("Change this address")} onClick={() => onEdit(a)} />
+                  <RowAction className="ad-delete" icon={<IconTrash size={13} />} label={t("Delete")} title={t("Delete this address")} onClick={() => onDelete(a)} />
+                </div>
+              </div>
+            ))}
+            <Pager page={slice.page} size={PAGE_SIZE} total={shown.length} onPage={setPage} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const addressLabel = (key: keyof AddressFields): string =>
+  ({
+    label: t("Label"),
+    name: t("Full name"),
+    givenName: t("First name"),
+    familyName: t("Last name"),
+    company: t("Company"),
+    street: t("Street address"),
+    postalCode: t("Postal code"),
+    city: t("City"),
+    region: t("Province or region"),
+    country: t("Country code"),
+    phone: t("Phone"),
+    email: t("Email"),
+  })[key];
+
+/** Adding or changing a saved address, in a card over the list like the login form. */
+function AddressFormCard({ initial, onClose, onSaved }: { initial: AddressFormState; onClose: () => void; onSaved: () => void }) {
+  const api = internalApi();
+  const [fields, setFields] = useState<AddressFields>(initial.fields);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof AddressFields, value: string): void => setFields((f) => ({ ...f, [key]: value }));
+
+  const submit = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await api.call("addresses.save", initial.id ? { id: initial.id, fields } : { fields });
+      if (saved) onSaved();
+      else setError(t("An address needs a name, street, postal code, phone or email."));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card ad-form-card">
+      <div className="card-head">
+        <h2>{initial.id ? t("Edit address") : t("Add address")}</h2>
+      </div>
+      <div className="card-body padded pw-form">
+        <div className="kp-form-grid ad-form">
+          {ADDRESS_FIELD_KEYS.map((key) => (
+            <label key={key} className={`pw-field ad-field-${key}${key === "street" || key === "label" ? " kp-wide" : ""}`}>
+              <span>{addressLabel(key)}</span>
+              {key === "street" ? (
+                <textarea className="input pw-notes" rows={3} value={fields.street} onChange={(e) => set("street", e.target.value)} />
+              ) : (
+                <input
+                  className="input"
+                  type={key === "email" ? "email" : key === "phone" ? "tel" : "text"}
+                  maxLength={key === "country" ? 2 : 500}
+                  placeholder={key === "country" ? "ES" : undefined}
+                  value={fields[key]}
+                  onChange={(e) => set(key, key === "country" ? e.target.value.toUpperCase() : e.target.value)}
+                />
+              )}
+            </label>
+          ))}
+        </div>
+        {error && <div className="pw-error">{error}</div>}
+        <div className="pw-actions">
+          <button className="btn primary" disabled={busy} onClick={() => void submit()}>{t("Save")}</button>
+          <button className="btn ghost" onClick={onClose}>{t("Cancel")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Deleting a saved address asks first; the red button stays off for a moment so a double click cannot reach it. */
+function DeleteAddressDialog({ address, onClose, onDone }: { address: AutofillAddress; onClose: () => void; onDone: () => void }) {
+  const api = internalApi();
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setArmed(true), DELETE_ARM_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const run = (): void => {
+    setBusy(true);
+    setError(null);
+    api.call("addresses.remove", address.id).then(onDone, (err: unknown) => {
+      setError(errorMessage(err));
+      setBusy(false);
+    });
+  };
+
+  return (
+    <Modal
+      title={t("Delete this address?")}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" autoFocus onClick={onClose}>
+            {t("Cancel")}
+          </button>
+          <button className="btn danger-solid ad-confirm" disabled={!armed || busy} onClick={run}>
+            {busy ? t("Deleting…") : t("Delete for good")}
+          </button>
+        </>
+      }
+    >
+      <div className="dl-login">
+        <IconLocation size={15} />
+        <div className="dl-login-main">
+          <strong className="dl-site">{addressLine(address)}</strong>
+          <span className="dl-user">{addressContact(address)}</span>
+        </div>
+      </div>
+      <p className="dl-text">{t("Corvus no longer offers it on address forms. This cannot be undone.")}</p>
+      <p className="dl-text">{t("With sync on, the address is removed from your other devices too.")}</p>
+      {error && <div className="pw-error">{error}</div>}
+    </Modal>
+  );
+}
+
+interface CardFormState {
+  id: string | null;
+  /** The card's fields; an edit starts with an empty number, which keeps the saved one. */
+  fields: CardFields;
+  /** The saved number, masked, shown as the number field's hint on an edit. */
+  masked: string;
+}
+
+const summaryTitle = (c: CardSummary): string => `${c.brand} ...${c.last4}`;
+const summaryLine = (c: CardSummary): string => [summaryTitle(c), cardExpiry(c)].filter(Boolean).join(" - ");
+
+/** The saved payment cards autofill offers on card forms, a page at a time; the number shows only after a confirmation. */
+function CardsTab({ items, query, onEdit, onDelete }: { items: CardSummary[]; query: string; onEdit: (c: CardSummary) => void; onDelete: (c: CardSummary) => void }) {
+  const api = internalApi();
+  const [page, setPage] = useState(0);
+  const [asking, setAsking] = useState<CardSummary | null>(null);
+  const [shown, setShown] = useState<{ id: string; number: string } | null>(null);
+  const found = useMemo(() => searchCards(items, query), [items, query]);
+  const slice = pageSlice(found, page);
+  useEffect(() => setPage(0), [query]);
+  useEffect(() => setShown(null), [items]);
+
+  const reveal = (c: CardSummary): void => {
+    setAsking(null);
+    void api.call("cards.reveal", c.id).then((number) => setShown({ id: c.id, number }), () => setShown(null));
+  };
+
+  return (
+    <div className="card ad-card cd-card">
+      <div className="card-head">
+        <p className="muted">{t("Corvus fills these into card forms on sites, after you type the CVV. It never saves the CVV.")}</p>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty">{t("No saved payment methods yet. Add one with the Add button.")}</div>
+      ) : found.length === 0 ? (
+        <div className="empty">{t("No payment methods match your search.")}</div>
+      ) : (
+        <div className="pt-wrap ad-list">
+          <div className="pt pt-addresses">
+            <div className="pt-head" aria-hidden="true">
+              <span />
+              <span>{t("Card")}</span>
+              <span className="pt-head-actions">{t("Actions")}</span>
+            </div>
+            {slice.items.map((c) => {
+              const open = shown?.id === c.id;
+              const number = open ? shown.number.replace(/(\d{4})(?=\d)/g, "$1 ") : maskedCardNumber(c.last4);
+              return (
+                <div key={c.id} className="pt-row ad-row cd-row" data-id={c.id}>
+                  <span className="pt-icon">
+                    <IconCard size={15} />
+                  </span>
+                  <NameCell primary={c.label ? `${c.label} - ${summaryLine(c)}` : summaryLine(c)} secondary={[number, c.nameOnCard].filter(Boolean).join(" · ")} />
+                  <div className="pt-actions">
+                    {open ? (
+                      <RowAction className="cd-hide" icon={<IconEyeOff size={13} />} label={t("Hide")} title={t("Hide the card number")} onClick={() => setShown(null)} />
+                    ) : (
+                      <RowAction className="cd-reveal" icon={<IconEye size={13} />} label={t("Show")} title={t("Show the card number")} onClick={() => setAsking(c)} />
+                    )}
+                    <RowAction className="cd-edit" icon={<IconEdit size={13} />} label={t("Edit")} title={t("Change this card")} onClick={() => onEdit(c)} />
+                    <RowAction className="cd-delete" icon={<IconTrash size={13} />} label={t("Delete")} title={t("Delete this card")} onClick={() => onDelete(c)} />
+                  </div>
+                </div>
+              );
+            })}
+            <Pager page={slice.page} size={PAGE_SIZE} total={found.length} onPage={setPage} />
+          </div>
+        </div>
+      )}
+      {asking && (
+        <Modal
+          title={t("Show the card number?")}
+          onClose={() => setAsking(null)}
+          footer={
+            <>
+              <button className="btn" autoFocus onClick={() => setAsking(null)}>
+                {t("Cancel")}
+              </button>
+              <button className="btn primary cd-reveal-confirm" onClick={() => reveal(asking)}>
+                {t("Show")}
+              </button>
+            </>
+          }
+        >
+          <p className="dl-text">{t("The full number of {card} shows on screen until you hide it or leave the page.", { card: summaryTitle(asking) })}</p>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+const cardLabel = (key: keyof CardFields): string =>
+  ({
+    label: t("Label"),
+    nameOnCard: t("Name on card"),
+    number: t("Card number"),
+    expMonth: t("Expiry month"),
+    expYear: t("Expiry year"),
+  })[key];
+
+/** Adding or changing a saved card (never its CVV), in a card over the list like the address form. */
+function CardFormCard({ initial, onClose, onSaved }: { initial: CardFormState; onClose: () => void; onSaved: () => void }) {
+  const api = internalApi();
+  const [fields, setFields] = useState<CardFields>(initial.fields);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const set = (key: keyof CardFields, value: string): void => setFields((f) => ({ ...f, [key]: value }));
+
+  const submit = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.call("cards.save", initial.id ? { id: initial.id, fields } : { fields });
+      onSaved();
+    } catch {
+      setError(t("Check the card number: it is not a valid card number."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card ad-form-card cd-form-card">
+      <div className="card-head">
+        <h2>{initial.id ? t("Edit card") : t("Add card")}</h2>
+      </div>
+      <div className="card-body padded pw-form">
+        <div className="kp-form-grid ad-form">
+          {CARD_FIELD_KEYS.map((key) => (
+            <label key={key} className={`pw-field cd-field-${key}${key === "label" || key === "number" ? " kp-wide" : ""}`}>
+              <span>{cardLabel(key)}</span>
+              <input
+                className="input"
+                type="text"
+                inputMode={key === "label" || key === "nameOnCard" ? "text" : "numeric"}
+                autoComplete="off"
+                maxLength={key === "expMonth" ? 2 : key === "expYear" ? 4 : key === "number" ? 23 : 100}
+                placeholder={key === "number" ? initial.masked || undefined : key === "expMonth" ? "MM" : key === "expYear" ? "YYYY" : undefined}
+                value={fields[key]}
+                onChange={(e) => set(key, e.target.value)}
+              />
+            </label>
+          ))}
+        </div>
+        {initial.id && <p className="muted">{t("Leave the number empty to keep the saved one.")}</p>}
+        {error && <div className="pw-error">{error}</div>}
+        <div className="pw-actions">
+          <button className="btn primary" disabled={busy} onClick={() => void submit()}>{t("Save")}</button>
+          <button className="btn ghost" onClick={onClose}>{t("Cancel")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Deleting a saved card asks first; the red button stays off for a moment so a double click cannot reach it. */
+function DeleteCardDialog({ card, onClose, onDone }: { card: CardSummary; onClose: () => void; onDone: () => void }) {
+  const api = internalApi();
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setArmed(true), DELETE_ARM_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const run = (): void => {
+    setBusy(true);
+    setError(null);
+    api.call("cards.remove", card.id).then(onDone, (err: unknown) => {
+      setError(errorMessage(err));
+      setBusy(false);
+    });
+  };
+
+  return (
+    <Modal
+      title={t("Delete this card?")}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" autoFocus onClick={onClose}>
+            {t("Cancel")}
+          </button>
+          <button className="btn danger-solid cd-confirm" disabled={!armed || busy} onClick={run}>
+            {busy ? t("Deleting…") : t("Delete for good")}
+          </button>
+        </>
+      }
+    >
+      <div className="dl-login">
+        <IconCard size={15} />
+        <div className="dl-login-main">
+          <strong className="dl-site">{summaryLine(card)}</strong>
+          <span className="dl-user">{card.nameOnCard}</span>
+        </div>
+      </div>
+      <p className="dl-text">{t("Corvus no longer offers it on card forms. This cannot be undone.")}</p>
+      <p className="dl-text">{t("With sync on, the card is removed from your other devices too.")}</p>
+      {error && <div className="pw-error">{error}</div>}
+    </Modal>
   );
 }
 

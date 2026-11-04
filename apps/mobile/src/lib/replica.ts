@@ -11,7 +11,7 @@ import type { Progress } from './refresh';
 export type ReplicaClient = Pick<CorvusSyncClient, 'cursor' | 'pullPages' | 'pullCollection' | 'forgetCollection'>;
 
 /** What the phone shows, in the order it was added to the app. */
-export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings', 'chain_server', 'credentials'];
+export const PHONE_COLLECTIONS: readonly SyncCollection[] = ['open_tabs', 'sent_tabs', 'bookmarks', 'reading', 'history', 'watches', 'watch_status', 'asks', 'assist_history', 'settings', 'chain_server', 'credentials', 'addresses', 'cards'];
 
 /**
  * Encrypts the collections that hold secrets (the saved passwords) before they are written to the

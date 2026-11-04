@@ -1,6 +1,6 @@
 /**
- * After Corvus fills a saved password or 2FA code into a tab (agent fill_login / fill_totp, autofill,
- * auto sign-in), that tab is locked against tools that run script in the page or return raw page
+ * After Corvus fills a saved password, 2FA code or payment card into a tab (agent fill_login /
+ * fill_totp, autofill, auto sign-in, card fill), that tab is locked against tools that run script in the page or return raw page
  * content (evaluate, raw HTML or text reads, run_workflow), for every agent and every access level.
  * The filled value sits in the page DOM, so those tools could read it back. The lock lifts when the
  * tab's main frame navigates to a new document (did-navigate), which drops the filled form.
@@ -33,7 +33,7 @@ export interface RequestLike {
 }
 
 export const SECRET_FILL_LOCK_MESSAGE =
-  "Corvus filled a saved password or 2FA code into this tab, so tools that run scripts in the page or read raw page content are blocked here until the page navigates to a new document. Use page_snapshot, click and type (the filled values stay hidden), navigate to another page, or ask the user.";
+  "Corvus filled a saved password, 2FA code or payment card into this tab, so tools that run scripts in the page or read raw page content are blocked here until the page navigates to a new document. Use page_snapshot, click and type (the filled values stay hidden), navigate to another page, or ask the user.";
 
 export class SecretFillGuard {
   /** Locked tab ids and when they were locked. */

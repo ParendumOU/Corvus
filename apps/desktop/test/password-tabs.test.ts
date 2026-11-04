@@ -41,7 +41,11 @@ describe("initialTab", () => {
     expect(initialTab("", "2fa")).toBe("2fa");
     expect(initialTab("", null)).toBe("passwords");
     expect(initialTab("#other", "junk")).toBe("passwords");
-    expect([tabHash("2fa"), tabHash("passwords")]).toEqual(["#2fa", "#passwords"]);
+    expect(initialTab("#addresses", "2fa")).toBe("addresses");
+    expect(initialTab("", "addresses")).toBe("addresses");
+    expect(initialTab("#cards", "2fa")).toBe("cards");
+    expect(initialTab("", "cards")).toBe("cards");
+    expect([tabHash("2fa"), tabHash("passwords"), tabHash("addresses"), tabHash("cards")]).toEqual(["#2fa", "#passwords", "#addresses", "#cards"]);
   });
 });
 

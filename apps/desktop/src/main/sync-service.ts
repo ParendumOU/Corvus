@@ -345,6 +345,8 @@ export class SyncService {
       bookmarks: profile.bookmarks,
       history: profile.history,
       credentials: profile.credentials,
+      addresses: profile.addresses,
+      cards: profile.cards,
       reading: profile.reading,
       watches: this.ctx.monitor.storeFor(profile),
       workspaces: profile.workspaces,
@@ -412,6 +414,8 @@ export class SyncService {
         profile.bookmarks.changes.on(() => scheduler.poke()),
         profile.history.changes.on(() => scheduler.poke()),
         profile.credentials.changes.on(() => scheduler.poke()),
+        profile.addresses.changes.on(() => scheduler.poke()),
+        profile.cards.changes.on(() => scheduler.poke()),
         profile.reading.onChange(() => scheduler.poke()),
         profile.workspaces.onChange(() => scheduler.poke()),
         profile.annotations.onChange(() => scheduler.poke()),
@@ -445,6 +449,8 @@ export class SyncService {
       profile.bookmarks.flush();
       profile.history.flush();
       profile.credentials.flush();
+      profile.addresses.flush();
+      profile.cards.flush();
       profile.reading.flush();
       profile.workspaces.flush();
       profile.annotations.flush();

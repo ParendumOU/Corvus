@@ -5,8 +5,9 @@ import { BackHandler, Keyboard, Platform, Share, StyleSheet, View } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AddressBar } from '@/components/browser/address-bar';
+import { CvvDialog } from '@/components/browser/cvv-dialog';
 import { FindBar } from '@/components/browser/find-bar';
-import { ComputerPicker, LoginPicker, PageMenu, SitePanel, type PageMenuAction } from '@/components/browser/page-menu';
+import { AddressPicker, CardPicker, ComputerPicker, LoginPicker, PageMenu, SitePanel, type PageMenuAction } from '@/components/browser/page-menu';
 import { SignInDialog } from '@/components/browser/sign-in-dialog';
 import { StartPage } from '@/components/browser/start-page';
 import { TabSwitcher } from '@/components/browser/tab-switcher';
@@ -42,9 +43,12 @@ import { configureBlocking, startBlocking } from '@/lib/content-blocking';
 import { leaveApp } from '@/lib/default-browser';
 import { SignInMemory, signInPrompt, type SignInPrompt } from '@/lib/http-auth';
 import { offerExternalLink } from '@/lib/external-links';
-import { t } from '@/lib/i18n';
+import { t, tn } from '@/lib/i18n';
+import { cardFillAllowed, fillAddressScript, fillCardScript, pageOrigin } from '@/lib/form-fill';
+import type { SavedAddress } from '@/lib/autofill-addresses';
+import type { SavedCard } from '@/lib/autofill-cards';
 import { fillLoginScript, loginsFor, type Login } from '@/lib/passwords';
-import { savedLogins } from '@/lib/session';
+import { savedAddresses, savedCards, savedLogins } from '@/lib/session';
 import { unlockPasswords } from '@/lib/unlock';
 import { PAGE_TEXT_SCRIPT, parsePageText } from '@/lib/page-ask';
 import { handOffPage } from '@/lib/page-handoff';
@@ -116,12 +120,33 @@ export default function BrowserScreen() {
   // The saved passwords, read again after each sync; only the current site's are offered.
   const [logins, setLogins] = useState<Login[]>([]);
   const [loginPicker, setLoginPicker] = useState(false);
+  // The saved addresses (any site): the picker remembers the page it was opened over, and the fill refuses another.
+  const [addresses, setAddresses] = useState<SavedAddress[]>([]);
+  const [addressPicker, setAddressPicker] = useState<{ tabId: string; origin: string } | null>(null);
+  // The saved cards, the same way; the CVV asked after the pick lives in its dialog only.
+  const [cards, setCards] = useState<SavedCard[]>([]);
+  const [cardPicker, setCardPicker] = useState<{ tabId: string; origin: string } | null>(null);
+  const [cvvFor, setCvvFor] = useState<{ card: SavedCard; tabId: string; origin: string } | null>(null);
   loginsNow.current = logins;
   useEffect(() => {
-    if (!session.pairing || session.refreshing) return;
+    // Unpaired: the chain's logins, addresses and cards (a card waiting for its CVV too) go at once.
+    if (!session.pairing) {
+      setLogins([]);
+      setAddresses([]);
+      setCards([]);
+      setCvvFor(null);
+      return;
+    }
+    if (session.refreshing) return;
     let live = true;
     void savedLogins(session.pairing)
       .then((all) => live && setLogins(all))
+      .catch(() => undefined);
+    void savedAddresses(session.pairing)
+      .then((all) => live && setAddresses(all))
+      .catch(() => undefined);
+    void savedCards(session.pairing)
+      .then((all) => live && setCards(all))
       .catch(() => undefined);
     return () => {
       live = false;
@@ -339,6 +364,42 @@ export default function BrowserScreen() {
     pageOf(tab.id)?.injectJavaScript(`${fillLoginScript(login)}\ntrue;`);
   };
 
+  // Runs a fill script in the tab it was picked for; nothing once that tab went to another site.
+  const runFill = async (opened: { tabId: string; origin: string }, script: string, none: string): Promise<void> => {
+    if (!tab || opened.tabId !== tab.id || pageOrigin(tab.url) !== opened.origin) return;
+    const viewTag = runtimeOf(tab.id).viewTag;
+    if (!BrowserKit || viewTag === null) {
+      pageOf(tab.id)?.injectJavaScript(`${script};\ntrue;`);
+      return;
+    }
+    const raw = await BrowserKit.evaluate(viewTag, script).catch(() => null);
+    if (raw === null) return;
+    const filled = Number(raw);
+    if (filled > 0) showToast(tn(filled, '1 field filled', '{n} fields filled'));
+    else if (filled === 0) showToast(none, 'warning');
+  };
+
+  const fillAddress = async (address: SavedAddress): Promise<void> => {
+    const opened = addressPicker;
+    setAddressPicker(null);
+    if (opened) await runFill(opened, fillAddressScript(address, opened.origin), t('No empty address field on this page.'));
+  };
+
+  // Cards ask for the phone's lock first, as passwords do: nothing checks the CVV, so on an unlocked
+  // phone it alone would prove nothing.
+  const openCardPicker = async (opened: { tabId: string; origin: string }): Promise<void> => {
+    if (await unlockPasswords()) setCardPicker(opened);
+  };
+
+  // The CVV goes from its dialog into the script once and is not kept anywhere. The lock is asked
+  // again when it closed meanwhile (the app went to the background, or minutes passed).
+  const fillCard = async (cvv: string | null): Promise<void> => {
+    const asked = cvvFor;
+    setCvvFor(null);
+    if (!asked || cvv === null || !(await unlockPasswords())) return;
+    await runFill(asked, fillCardScript(asked.card, cvv, asked.origin), t('No empty card field on this page.'));
+  };
+
   const onAction = (action: PageMenuAction): void => {
     if (action !== 'desktop' && action !== 'blocking') setMenu(false);
     if (!tab) return;
@@ -390,6 +451,15 @@ export default function BrowserScreen() {
         if (pageLogins.length === 1) void fillLogin(pageLogins[0]!);
         else setLoginPicker(true);
         break;
+      case 'fill-address':
+        if (pageOrigin(tab.url)) setAddressPicker({ tabId: tab.id, origin: pageOrigin(tab.url) });
+        break;
+      case 'fill-card': {
+        const origin = pageOrigin(tab.url);
+        if (cardFillAllowed(origin)) void openCardPicker({ tabId: tab.id, origin });
+        else showToast(t('Corvus fills cards only into secure (https) pages.'), 'warning');
+        break;
+      }
     }
   };
 
@@ -510,6 +580,8 @@ export default function BrowserScreen() {
           canBlock={blocks && browser.prefs.blocking}
           blockingHere={blockingHere}
           logins={pageLogins.length}
+          addresses={addresses.length}
+          cards={cards.length}
           onAction={onAction}
           onClose={() => setMenu(false)}
         />
@@ -544,6 +616,21 @@ export default function BrowserScreen() {
       />
 
       <LoginPicker open={loginPicker} logins={pageLogins} onPick={(l) => void fillLogin(l)} onClose={() => setLoginPicker(false)} />
+
+      <AddressPicker open={addressPicker !== null} addresses={addresses} onPick={(a) => void fillAddress(a)} onClose={() => setAddressPicker(null)} />
+
+      <CardPicker
+        open={cardPicker !== null}
+        cards={cards}
+        onPick={(card) => {
+          const opened = cardPicker;
+          setCardPicker(null);
+          if (opened) setCvvFor({ card, ...opened });
+        }}
+        onClose={() => setCardPicker(null)}
+      />
+
+      <CvvDialog card={cvvFor?.card ?? null} onAnswer={(cvv) => void fillCard(cvv)} />
 
       {signIn ? <SignInDialog prompt={signIn.prompt} username={signIn.username} refused={signIn.refused} logins={signIn.refused ? [] : signIn.logins} onAnswer={answerSignIn} /> : null}
 

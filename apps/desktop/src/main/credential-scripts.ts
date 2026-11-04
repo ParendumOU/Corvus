@@ -9,6 +9,9 @@
  * and are never logged. Fields Corvus fills with a secret are marked `data-corvus-secret` so the
  * agent's page snapshot never reports their value; agent fills also mask them on screen.
  */
+import { addressKit } from "../shared/address-fields";
+import type { AddressFields } from "../shared/addresses";
+import { fieldShown } from "../shared/frame-fill";
 import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-field";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
@@ -334,5 +337,45 @@ export function readPasswordFieldScript(box: { x: number; y: number; width: numb
   return `(() => {${PRELUDE}
   const el = fieldAt(${JSON.stringify(box)});
   return el && el.value ? String(el.value) : null;
+})()`;
+}
+
+/**
+ * Fills a saved address (the person's pick in the dropdown) into the form of the field at `box`, as
+ * shared/address-fields.ts plans it (its kit's source is embedded here): fields that already hold
+ * something stay as they are, except the one clicked, and selects take the option that fits. Only on
+ * the page the dropdown opened over (`origin`), and besides the clicked field only into fields the
+ * person can see (see fieldShown: a page must not collect what it hides). Returns the fields written.
+ */
+export function fillAddressScript(address: AddressFields, box: { x: number; y: number; width: number; height: number }, origin: string): string {
+  return `(() => {${SET_VALUE}
+  if (location.origin !== ${JSON.stringify(origin)}) return 0;
+  const kit = (${String(addressKit)})();
+  const fieldShown = ${String(fieldShown)};
+  const box = ${JSON.stringify(box)};
+  const isText = (el) => Boolean(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+  const active = document.activeElement;
+  const anchor = isText(active) ? active : document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+  if (!isText(anchor) || anchor.disabled || anchor.readOnly) return 0;
+  const fields = Array.prototype.slice.call((anchor.form || document).querySelectorAll("input:not([type=hidden]), select, textarea"), 0, 200)
+    .filter((el) => el === anchor || (!el.disabled && !el.readOnly && fieldShown(el, window)));
+  const valueOf = (el) => el.tagName === "SELECT" ? (el.selectedIndex > 0 ? String(el.value || "") : "") : String(el.value || "");
+  const plan = kit.planAddressFill(fields.map((el) => ({ facts: kit.addressFieldFacts(el), value: valueOf(el), anchor: el === anchor })), ${JSON.stringify(address)});
+  let filled = 0;
+  fields.forEach((el, i) => {
+    const value = plan[i];
+    if (value === null || value === undefined) return;
+    if (el.tagName === "SELECT") {
+      const option = kit.matchOption(Array.prototype.map.call(el.options, (o) => ({ value: o.value, text: o.text })), value);
+      if (option === null) return;
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, option);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      setValue(el, value);
+    }
+    filled++;
+  });
+  return filled;
 })()`;
 }

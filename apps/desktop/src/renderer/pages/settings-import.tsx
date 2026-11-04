@@ -24,6 +24,8 @@ function countsLine(counts: ImportProfile["counts"], extensions: number): string
   if (typeof counts.tabs === "number") parts.push(counts.tabs === 1 ? t("1 open tab") : t("{n} open tabs", { n: n(counts.tabs) }));
   if (typeof counts.search === "number" && counts.search > 0) parts.push(counts.search === 1 ? t("1 search shortcut") : t("{n} search shortcuts", { n: n(counts.search) }));
   if (typeof counts.passwords === "number" && counts.passwords > 0) parts.push(counts.passwords === 1 ? t("1 saved password") : t("{n} saved passwords", { n: n(counts.passwords) }));
+  if (typeof counts.addresses === "number" && counts.addresses > 0) parts.push(counts.addresses === 1 ? t("1 saved address") : t("{n} saved addresses", { n: n(counts.addresses) }));
+  if (typeof counts.cards === "number" && counts.cards > 0) parts.push(counts.cards === 1 ? t("1 saved card") : t("{n} saved cards", { n: n(counts.cards) }));
   if (extensions > 0) parts.push(extensions === 1 ? t("1 extension") : t("{n} extensions", { n: n(extensions) }));
   return parts.join(" · ") || t("Nothing to import");
 }
@@ -224,6 +226,28 @@ function GuidedExport({ source, count }: { source: ImportSource; count: number }
   );
 }
 
+/** What an address import did, as one sentence (only the parts that happened). */
+function addressLine(a: NonNullable<ImportResult["addresses"]>): string {
+  const parts = [
+    a.added > 0 ? t("{n} new", { n: n(a.added) }) : "",
+    a.updated > 0 ? t("{n} updated", { n: n(a.updated) }) : "",
+    a.unchanged > 0 ? t("{n} already saved", { n: n(a.unchanged) }) : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? t("Addresses: {what}.", { what: parts.join(", ") }) : t("No saved addresses were found.");
+}
+
+/** What a card import did, as one sentence; the browser's app-bound cards are named, not read. */
+function cardLine(c: NonNullable<ImportResult["cards"]>): string {
+  const parts = [
+    c.added > 0 ? t("{n} new", { n: n(c.added) }) : "",
+    c.updated > 0 ? t("{n} updated", { n: n(c.updated) }) : "",
+    c.unchanged > 0 ? t("{n} already saved", { n: n(c.unchanged) }) : "",
+  ].filter(Boolean);
+  const line = parts.length > 0 ? t("Payment methods: {what}.", { what: parts.join(", ") }) : c.protected > 0 ? "" : t("No saved payment methods were found.");
+  const locked = c.protected === 0 ? "" : c.protected === 1 ? t("1 card is protected by the browser and could not be read.") : t("{n} cards are protected by the browser and could not be read.", { n: n(c.protected) });
+  return [line, locked].filter(Boolean).join(" ");
+}
+
 function resultLine(result: ImportResult): string {
   const parts: string[] = [];
   const existing = result.bookmarks?.existing ?? 0;
@@ -236,7 +260,7 @@ function resultLine(result: ImportResult): string {
   const imported = parts.length > 0 ? t("Imported {what}.", { what: parts.join(t(" and ")) }) : "";
   // Bookmarks already in Corvus (an earlier import) are not added twice: say so instead of "0 bookmarks".
   const kept = existing > 0 ? (existing === 1 ? t("1 bookmark was already in Corvus.") : t("{n} bookmarks were already in Corvus.", { n: n(existing) })) : "";
-  return [imported, kept].filter(Boolean).join(" ");
+  return [imported, kept, result.addresses ? addressLine(result.addresses) : "", result.cards ? cardLine(result.cards) : ""].filter(Boolean).join(" ");
 }
 
 function ProfileRow({ source, profile }: { source: ImportSource; profile: ImportProfile }) {
@@ -247,6 +271,8 @@ function ProfileRow({ source, profile }: { source: ImportSource; profile: Import
     tabs: available("tabs"),
     search: available("search"),
     passwords: available("passwords"),
+    addresses: available("addresses"),
+    cards: available("cards"),
   });
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -262,7 +288,7 @@ function ProfileRow({ source, profile }: { source: ImportSource; profile: Import
       .catch((e: unknown) => setError(errorMessage(e)))
       .finally(() => setBusy(false));
   };
-  const label: Record<ImportKind, string> = { bookmarks: t("Bookmarks"), history: t("History"), tabs: t("Open tabs"), search: t("Search shortcuts"), passwords: t("Passwords") };
+  const label: Record<ImportKind, string> = { bookmarks: t("Bookmarks"), history: t("History"), tabs: t("Open tabs"), search: t("Search shortcuts"), passwords: t("Passwords"), addresses: t("Addresses"), cards: t("Payment methods") };
   const stillProtected = Math.max(profile.protectedPasswords ?? 0, result?.passwords?.protected ?? 0);
   return (
     <div className="import-profile" data-import-profile={profile.dir}>
