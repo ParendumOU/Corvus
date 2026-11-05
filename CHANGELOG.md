@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.39.0
+
+### PDFs
+- **A link to a PDF opens it in a new tab.** Click a link to a PDF on a page and Corvus's PDF viewer opens next to it, in a tab of its own, instead of replacing the page you were on. Its **Download** button saves the file when you want to keep it. A tab opened just for the PDF, an address you type and AI agents' tabs still show it in the same tab.
+- **See a PDF before you download it.** Turn on Settings → PDF viewer → **Preview PDFs before downloading** and the PDFs a page sends to be saved (a webmail's or a shop's Download button) open in the viewer in a new tab too, from the very download, so nothing lands in your downloads until you press Download. Off by default.
+
+### Fixed
+- **Clicking a tab no longer closes it when many tabs are open.** Once tabs got narrow, the close button of a tab in the background, hidden but still there, covered most of it, so clicking the tab to switch to it closed it instead; and the active tab's close button spilled over the tab to its right, so clicking that one closed the active tab. As in Chrome, a narrow tab in the background has no close button now, and the narrow active tab shows only its close button, sized to fit in it.
+
 ## v0.38.1
 
 ### Fixed

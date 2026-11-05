@@ -230,6 +230,45 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     check("tab close: Ctrl+W closes the shown tab", await gone(b.id));
     await verify("closed with Ctrl+W");
 
+    // Many tabs: a narrow background tab has no close button to hit when clicked to switch to it,
+    // and the narrow active tab's button fits in it instead of lying over the next tab.
+    const crowd: TabRuntime[] = [];
+    for (let i = 0; i < 40; i++) crowd.push(await open(at(`crowd ${i}`), { lazy: true, activate: false }));
+    type Narrow = {
+      width: number | null;
+      display: string | null;
+      active: { tab: { left: number; right: number; top: number; bottom: number }; close: { left: number; right: number; top: number; bottom: number }; display: string } | null;
+    };
+    let narrow: Narrow | null = null;
+    const narrowOk = await until(async () => {
+      narrow = await js<Narrow>(
+        w.chrome.webContents,
+        `(() => {
+          const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+          const tab = document.querySelector('.tab-strip .tab[data-tab-id=${JSON.stringify(crowd[5]?.id)}]');
+          const close = tab?.querySelector('.tab-close');
+          const activeTab = document.querySelector('.tab-strip .tab.active:not(.pinned)');
+          const activeClose = activeTab?.querySelector('.tab-close');
+          return {
+            width: tab ? tab.getBoundingClientRect().width : null,
+            display: close ? getComputedStyle(close).display : null,
+            active: activeTab && activeClose ? { tab: box(activeTab), close: box(activeClose), display: getComputedStyle(activeClose).display } : null,
+          };
+        })()`,
+      );
+      const n = narrow as Narrow | null;
+      return n !== null && n.width !== null && n.width <= 88 && n.display === "none" && n.active !== null && n.active.display !== "none";
+    }, 5000);
+    check("tab close: a narrow background tab hides its close button, the active one keeps it", narrowOk, narrow);
+    const fit = (narrow as Narrow | null)?.active;
+    check(
+      "tab close: the narrow active tab's close button lies inside the tab, not over the next one",
+      fit != null && fit.close.left >= fit.tab.left - 0.5 && fit.close.right <= fit.tab.right + 0.5 && fit.close.top >= fit.tab.top - 0.5 && fit.close.bottom <= fit.tab.bottom + 0.5,
+      fit,
+    );
+    w.closeTabs(crowd.map((t) => t.id));
+    await verify("a crowd of tabs closed");
+
     // Certificate errors: the error page, and a site let through with Proceed.
     if (router) {
       const certTab = await open(routerUrl);

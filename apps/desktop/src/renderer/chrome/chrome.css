@@ -233,6 +233,27 @@ body,
 .tab.active .tab-close {
   opacity: 1;
 }
+/* A narrow tab would be mostly its (hidden but clickable) close button: clicking it to switch to it
+   closed it. As in Chrome, only the active one keeps the button then, and shows nothing else, so
+   the button fits in it (12px + 24px + 8px of padding) instead of spilling onto the next tab. */
+.tab:not(.pinned) {
+  container-type: inline-size;
+}
+@container (max-width: 88px) {
+  .tab:not(.active) .tab-close {
+    display: none;
+  }
+  .tab.active .tab-icon,
+  .tab.active .tab-title,
+  .tab.active .tab-audio,
+  .tab.active .ai-badge {
+    display: none;
+  }
+  .tab.active .tab-close {
+    width: 24px;
+    height: 24px;
+  }
+}
 .tab-close:hover {
   background: var(--active);
   color: var(--text);

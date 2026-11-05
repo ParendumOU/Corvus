@@ -230,6 +230,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runCertErrorSmoke(ctx, { win, check });
       return;
     }
+    // CORVUS_SMOKE_ONLY=pdf: only the PDF viewer checks.
+    if (process.env.CORVUS_SMOKE_ONLY === "pdf") {
+      await runPdfSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=tabclose: only the checks that closing tabs keeps the chrome UI up to date.
     if (process.env.CORVUS_SMOKE_ONLY === "tabclose") {
       await runTabCloseSmoke(ctx, { win, check, capture });

@@ -77,7 +77,7 @@ import { paths } from "./paths";
 import { attachUiContextMenu } from "./ui-context-menu";
 import { SplitSession } from "./split-view";
 import { tr } from "./menu-i18n";
-import { pdfViewerRedirect } from "./pdf-intercept";
+import { claimPdfBeside, pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
 import { applyWindowTaskbarIdentity } from "./taskbar";
 import { currentUserAgent, followSignInUserAgent, userAgentFor } from "./user-agent";
@@ -168,6 +168,8 @@ export interface TabRuntime {
   committedUrl?: string;
   /** The person's last click or key press in it, not counting input while an agent acts (epoch ms). */
   personInputAt?: number;
+  /** The personInputAt that last opened a PDF in a new tab next to it: each input opens one at most. */
+  pdfBesideInputAt?: number;
   /** The last time an agent acted on it (epoch ms). */
   agentActedAt?: number;
   /** Why it paints while not on screen (see shared/background-tabs.ts); captures count. */
@@ -1261,6 +1263,17 @@ export class BrowserWindowCtl {
     wc.on("before-input-event", (event, input) => this.onInput(event, input));
     wc.on("context-menu", (_e, params) => showPageContextMenu(this.ctx, this, tab, params, this.chromeHeight));
 
+    // A PDF a page leads to (a link, a redirect after one) opens in the viewer. In a new tab next to
+    // the page, which stays, when the person's own click or key press led to it (claimPdfBeside);
+    // otherwise, or when the tab has no page of its own yet, in the tab. A container tab keeps it in
+    // the tab: the viewer fetches the PDF with the tab's session, and Corvus pages run outside containers.
+    const openViewer = (toViewer: string, fromPage: boolean): void => {
+      const beside = fromPage && !tab.containerId && claimPdfBeside(tab);
+      setImmediate(() => {
+        if (beside) this.createTab(toViewer, { activate: true, openerId: tab.id });
+        else this.loadUrl(tab.id, toViewer);
+      });
+    };
     // Web content may not navigate into internal pages (like chrome:// in Chrome).
     const guard = (event: Electron.Event<Electron.WebContentsWillNavigateEventParams>): void => {
       if (isInternalUrl(event.url) && !isInternalUrl(wc.getURL())) {
@@ -1270,7 +1283,7 @@ export class BrowserWindowCtl {
       const toViewer = pdfViewerRedirect(this.ctx, tab.agentControlled, event.url);
       if (toViewer) {
         event.preventDefault();
-        setImmediate(() => this.loadUrl(tab.id, toViewer));
+        openViewer(toViewer, true);
       }
     };
     wc.on("will-navigate", guard);
@@ -1279,10 +1292,13 @@ export class BrowserWindowCtl {
         event.preventDefault();
         return;
       }
+      // A frame's PDF stays in its frame: only the tab's own page goes to the viewer.
+      if (!event.isMainFrame) return;
       const toViewer = pdfViewerRedirect(this.ctx, tab.agentControlled, event.url);
       if (toViewer) {
         event.preventDefault();
-        setImmediate(() => this.loadUrl(tab.id, toViewer));
+        // An address typed or a bookmark that redirects to a PDF has no initiator: it replaces the page.
+        openViewer(toViewer, Boolean(event.initiator));
       }
     });
     wc.setWindowOpenHandler(({ url, disposition }) => {

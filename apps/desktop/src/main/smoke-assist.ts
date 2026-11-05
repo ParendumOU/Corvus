@@ -385,7 +385,7 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
     nativeTheme.themeSource = "light";
     ctx.settings.update({ mcp: { enabled: true } });
     await ctx.mcp.apply();
-    seedTimeline(ctx);
+    const endRun = seedTimeline(ctx);
     for (const theme of ["light", "dark"] as const) {
       nativeTheme.themeSource = theme;
       ctx.assist.setView(win, "agents");
@@ -394,6 +394,9 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
       await sleep(150);
       await capture(`agent-activity-${theme}`, panel);
     }
+    // Its last call stays under way for the screenshots; left open, the agent would count as acting
+    // for minutes and the later checks' clicks would not count as the person's.
+    endRun();
     ctx.settings.update({ mcp: { enabled: false } });
     await ctx.mcp.apply();
 
@@ -565,8 +568,8 @@ export function selfSignedCert(host: string): { key: Buffer; cert: Buffer } | nu
   return made.status === 0 ? { key: fs.readFileSync(key), cert: fs.readFileSync(cert) } : null;
 }
 
-/** A short, realistic agent run so the timeline and clients list have content. */
-function seedTimeline(ctx: AppContext): void {
+/** A short, realistic agent run so the timeline and clients list have content; its last call is under way until the returned function ends it. */
+function seedTimeline(ctx: AppContext): () => void {
   const client = "claude-code";
   ctx.agents.clientConnected(client, true);
   const now = Date.now();
@@ -584,4 +587,5 @@ function seedTimeline(ctx: AppContext): void {
     at += 1600;
   }
   ctx.agents.toolCall({ client, tool: "get_html", args: { selector: "main" }, at });
+  return () => ctx.agents.toolResult({ client, tool: "get_html", at, durationMs: Date.now() - at, ok: true, resultChars: 2400 });
 }

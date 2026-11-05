@@ -131,6 +131,9 @@ export const ES: Record<string, string> = {
   "Open PDFs in Corvus": "Abrir los PDF en Corvus",
   "When off, PDFs download instead of opening in the in-app viewer.": "Si está desactivado, los PDF se descargan en lugar de abrirse en el visor integrado.",
   "Use the in-app PDF viewer": "Usar el visor de PDF integrado",
+  "Preview PDFs before downloading": "Ver los PDF antes de descargarlos",
+  "A PDF a page sends to be saved (a Download button) opens in the viewer in a new tab first; its Download button saves it.": "Un PDF que una página envía para guardar (un botón Descargar) se abre antes en el visor, en una pestaña nueva; su botón Descargar lo guarda.",
+  "Open PDFs from Download buttons in the viewer": "Abrir en el visor los PDF de los botones Descargar",
 
   // ------------------------------------------------------------------ find in my pages
   "Search your own history, bookmarks and saved articles by meaning — from the Command Bar or corvus://find. Keyword search always works offline; embeddings are optional and never required.":

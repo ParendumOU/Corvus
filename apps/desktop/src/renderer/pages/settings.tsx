@@ -404,6 +404,14 @@ function PdfSection({ view, update }: { view: SettingsView; update: (p: Settings
       <Row label={t("Open PDFs in Corvus")} hint={t("When off, PDFs download instead of opening in the in-app viewer.")}>
         <Toggle label={t("Use the in-app PDF viewer")} checked={pdf.openInViewer} onChange={(v) => update({ pdf: { openInViewer: v } })} />
       </Row>
+      <Row label={t("Preview PDFs before downloading")} hint={t("A PDF a page sends to be saved (a Download button) opens in the viewer in a new tab first; its Download button saves it.")}>
+        <Toggle
+          label={t("Open PDFs from Download buttons in the viewer")}
+          checked={pdf.openAttachments}
+          disabled={!pdf.openInViewer}
+          onChange={(v) => update({ pdf: { openAttachments: v } })}
+        />
+      </Row>
     </Section>
   );
 }

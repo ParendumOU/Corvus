@@ -243,6 +243,11 @@ export interface Settings {
   pdf: {
     /** Open PDFs in Corvus's in-app viewer instead of downloading them. On by default. */
     openInViewer: boolean;
+    /**
+     * Also open in the viewer, in a new tab, the PDFs a page sends to be saved (a webmail's or a
+     * shop's Download button), so the person sees one before keeping it. Off by default.
+     */
+    openAttachments: boolean;
   };
   semanticSearch: {
     /** Capture readable page text into a local per-profile index ("find in my history"). On by default. */
@@ -334,7 +339,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
       feedUrl: env.CORVUS_UPDATE_FEED_URL ?? "",
     },
     reader: { fontSize: 19, lineWidth: 64, theme: "light", font: "serif", translateLanguage: "" },
-    pdf: { openInViewer: true },
+    pdf: { openInViewer: true, openAttachments: false },
     semanticSearch: { indexPages: true, useEmbeddings: false, embeddingModel: env.CORVUS_EMBED_MODEL || "nomic-embed-text" },
     crashReports: { saveLogs: false },
     onboarding: { completed: false },

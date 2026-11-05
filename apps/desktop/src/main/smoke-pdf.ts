@@ -5,7 +5,7 @@ import type { WebContents } from "electron";
 import type { AnswerProvider, ProviderEvent } from "@corvus/ai-engine";
 import { pdfViewerUrl } from "../shared/pdf-ipc";
 import type { AppContext } from "./context";
-import type { BrowserWindowCtl } from "./window";
+import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 /**
  * Smoke for the in-app PDF viewer (corvus://pdf): serves a generated two-page PDF, opens it in the
@@ -85,6 +85,14 @@ async function poll(wc: WebContents, expr: string, timeoutMs = 10000): Promise<b
   return false;
 }
 
+/** A left click on an element of the page, as the person makes it (real input: it counts as theirs). */
+async function personClick(wc: WebContents, id: string): Promise<void> {
+  const box = (await wc.executeJavaScript(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`)) as { x: number; y: number };
+  wc.sendInputEvent({ type: "mouseMove", x: box.x, y: box.y });
+  wc.sendInputEvent({ type: "mouseDown", x: box.x, y: box.y, button: "left", clickCount: 1 });
+  wc.sendInputEvent({ type: "mouseUp", x: box.x, y: box.y, button: "left", clickCount: 1 });
+}
+
 const clickByText = (selector: string, text: string): string =>
   `(() => { const b = [...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => e.textContent.trim().includes(${JSON.stringify(text)})); if (b) { b.click(); return true; } return false; })()`;
 
@@ -107,6 +115,10 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
     // Like a webmail: a page with a Download button for an attached PDF.
     if (req.url?.startsWith("/mail")) {
       return void res.writeHead(200, { "Content-Type": "text/html" }).end('<!doctype html><title>Inbox</title><a id="dl" href="/attachment?id=1">Download</a>');
+    }
+    // A page with a plain link to a PDF.
+    if (req.url?.startsWith("/links")) {
+      return void res.writeHead(200, { "Content-Type": "text/html" }).end('<!doctype html><title>Links</title><a id="pdf" href="/doc.pdf">Report</a>');
     }
     if (req.url?.startsWith("/attachment")) {
       res.writeHead(200, { "Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="invoice.pdf"' });
@@ -165,6 +177,68 @@ export async function runPdfSmoke(ctx: AppContext, h: Helpers): Promise<void> {
     check("a PDF a page sends as an attachment downloads as a file and the page stays", attachmentSaved && attachment?.filename === "invoice.pdf" && mailUrl === `${base}/mail`, { attachment, mailUrl });
     if (attachment?.savePath) fs.rmSync(attachment.savePath, { force: true });
     win.closeTab(attachmentTab.id);
+
+    // A link to a PDF opens the viewer in a new tab next to the page, which stays where it was.
+    const linksTab = win.createTab(`${base}/links`, { activate: true });
+    await poll(linksTab.view.webContents, "document.getElementById('pdf')");
+    const tabsBefore = win.tabIds().length;
+    await personClick(linksTab.view.webContents, "pdf");
+    let linkViewer: TabRuntime | undefined;
+    for (let i = 0; i < 50 && !linkViewer; i++) {
+      await sleep(150);
+      linkViewer = win.tabIds().map((id) => win.getTab(id)).find((t) => t && t.id !== linksTab.id && win.openerOf(t.id) === linksTab.id && t.view.webContents.getURL().startsWith("corvus://pdf/"));
+    }
+    const linkRendered = linkViewer !== undefined && (await poll(linkViewer.view.webContents, "document.querySelector('.pdf-page canvas')"));
+    check("a link to a PDF opens the viewer in a new tab and the page stays", linkRendered && win.tabIds().length === tabsBefore + 1 && linksTab.view.webContents.getURL() === `${base}/links` && win.activeTab()?.id === linkViewer?.id, {
+      page: linksTab.view.webContents.getURL(),
+      viewer: linkViewer?.view.webContents.getURL(),
+      personInputAgo: linksTab.personInputAt === undefined ? null : Date.now() - linksTab.personInputAt,
+      agentsActing: ctx.agents.acting(),
+    });
+    if (linkViewer) win.closeTab(linkViewer.id);
+    win.closeTab(linksTab.id);
+
+    // A page's own script that goes to a PDF (no click of the person's) opens no tab: the viewer
+    // shows in that tab, as before, so a page cannot open tab after tab.
+    const scriptedTab = win.createTab(`${base}/links`, { activate: true });
+    await poll(scriptedTab.view.webContents, "document.getElementById('pdf')");
+    const tabsBeforeScript = win.tabIds().length;
+    await scriptedTab.view.webContents.executeJavaScript("location.href = '/doc.pdf?scripted'").catch(() => false);
+    let scriptedInTab = false;
+    for (let i = 0; i < 50 && !scriptedInTab; i++) {
+      await sleep(150);
+      scriptedInTab = scriptedTab.view.webContents.getURL().startsWith("corvus://pdf/");
+    }
+    check("a page's script that goes to a PDF opens no new tab: the viewer shows in that tab", scriptedInTab && win.tabIds().length === tabsBeforeScript, {
+      url: scriptedTab.view.webContents.getURL(),
+      newTabs: win.tabIds().length - tabsBeforeScript,
+    });
+    win.closeTab(scriptedTab.id);
+
+    // With "Preview PDFs before downloading", a Download button's PDF opens in the viewer in a new
+    // tab from the very download (not fetched again), and nothing is saved until the person asks.
+    ctx.settings.update({ pdf: { openAttachments: true } });
+    try {
+      const downloadsBefore = ctx.downloads.list(win.profile).length;
+      const previewTab = win.createTab(`${base}/mail`, { activate: true });
+      await poll(previewTab.view.webContents, "document.getElementById('dl')");
+      await personClick(previewTab.view.webContents, "dl");
+      let previewViewer: TabRuntime | undefined;
+      for (let i = 0; i < 50 && !previewViewer; i++) {
+        await sleep(150);
+        previewViewer = win.tabIds().map((id) => win.getTab(id)).find((t) => t && win.openerOf(t.id) === previewTab.id && /^corvus:\/\/pdf\/\?src=.*&capture=/.test(t.view.webContents.getURL()));
+      }
+      const previewRendered = previewViewer !== undefined && (await poll(previewViewer.view.webContents, "document.querySelector('.pdf-page canvas')"));
+      check("with Preview PDFs before downloading, a Download button's PDF opens in a new viewer tab, unsaved, and the page stays", previewRendered && previewTab.view.webContents.getURL() === `${base}/mail` && ctx.downloads.list(win.profile).length === downloadsBefore, {
+        page: previewTab.view.webContents.getURL(),
+        viewer: previewViewer?.view.webContents.getURL(),
+        downloads: ctx.downloads.list(win.profile).length - downloadsBefore,
+      });
+      if (previewViewer) win.closeTab(previewViewer.id);
+      win.closeTab(previewTab.id);
+    } finally {
+      ctx.settings.update({ pdf: { openAttachments: false } });
+    }
 
     // Fetched by the viewer itself: with the tab's cookies.
     const privateTab = win.createTab(pdfViewerUrl(`${base}/private.pdf`), { activate: true });
