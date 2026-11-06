@@ -5,6 +5,7 @@ import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { searchUrl } from "../shared/omnibox";
+import { viewSourceUrl } from "../shared/view-source";
 import type { ConnectionChoice } from "../shared/connections";
 import { editBookmark, openBookmarkFolder } from "./bookmark-actions";
 import type { AppContext } from "./context";
@@ -63,6 +64,7 @@ function popup(win: BrowserWindowCtl, template: MenuItemConstructorOptions[], x?
 }
 
 const mod = process.platform === "darwin" ? "Cmd" : "Ctrl";
+const viewSourceKey = process.platform === "darwin" ? "Alt+Cmd+U" : "Ctrl+U";
 
 export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y: number): void {
   const active = win.activeTab();
@@ -131,6 +133,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
         ],
       },
       { label: tr("Print…"), enabled: Boolean(active), click: () => pageOf(active?.view)?.print() },
+      { label: tr("View page source"), accelerator: viewSourceKey, enabled: active ? viewSourceUrl(pageUrl(active)) !== null : false, click: () => win.runCommand({ type: "view-source" }) },
       { label: tr("Developer tools"), accelerator: "F12", enabled: Boolean(active), click: () => win.runCommand({ type: "devtools" }) },
       { type: "separator" },
       { label: tr("Settings"), click: () => win.openSingleton("corvus://settings/") },
@@ -517,6 +520,8 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
       { label: tr("Summarize this page"), enabled: /^https?:/.test(wc.getURL()), click: () => ctx.assist.runPage(win, tab, "summarize") },
       { label: tr("Translate this page"), enabled: /^https?:/.test(wc.getURL()), click: () => void ctx.translate.translate(win, tab) },
       { label: tr("Watch this page for changes"), enabled: /^https?:/.test(wc.getURL()), click: () => ctx.monitor.watchTab(win, { url: pageUrl(tab), title: tab.title, ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}) }) },
+      { type: "separator" },
+      { label: tr("View page source"), accelerator: viewSourceKey, enabled: viewSourceUrl(wc.getURL()) !== null, click: () => win.viewSource(tab.id) },
     );
     sep();
   }

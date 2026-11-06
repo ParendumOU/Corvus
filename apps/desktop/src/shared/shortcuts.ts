@@ -27,15 +27,43 @@ export type BrowserCommand =
   | { type: "toggle-assist" }
   | { type: "command-palette" }
   | { type: "voice-command" }
-  | { type: "organize-tabs" };
+  | { type: "organize-tabs" }
+  | { type: "view-source" };
 
 export interface KeyInput {
   type: string;
   key: string;
+  /** The physical key ("KeyU"): with Option held, macOS gives `key` the character Option makes. */
+  code?: string;
   control: boolean;
   meta: boolean;
   shift: boolean;
   alt: boolean;
+}
+
+/**
+ * Commands whose key a web page gets first, like Chrome's shortcuts that are not reserved: an
+ * editor's Ctrl+U underlines. The tab leaves the key to the page, and its preload asks for the
+ * command (PAGE_COMMAND_CHANNEL) once the key press went through the page unused.
+ */
+const PAGE_FIRST: readonly BrowserCommand[] = [{ type: "view-source" }];
+
+export const PAGE_COMMAND_CHANNEL = "corvus:page-command";
+
+/** How soon after the person's key press in a tab its preload may ask for a page-first command. */
+export const PAGE_COMMAND_INPUT_MS = 3000;
+
+export function isPageFirst(command: BrowserCommand): boolean {
+  return PAGE_FIRST.some((c) => c.type === command.type);
+}
+
+/**
+ * The page-first command a tab's preload asked for, if it may run: a known one, right after the
+ * person's own key press in that tab (`personInputAt`, which an agent's keys never set).
+ */
+export function pageCommand(raw: unknown, personInputAt: number | undefined, now: number): BrowserCommand | null {
+  if (personInputAt === undefined || now - personInputAt > PAGE_COMMAND_INPUT_MS) return null;
+  return PAGE_FIRST.find((c) => c.type === raw) ?? null;
 }
 
 export function commandForInput(input: KeyInput, platform: string): BrowserCommand | null {
@@ -99,6 +127,7 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
   }
 
   if (mac && input.alt && key === "i") return { type: "devtools" };
+  if (mac && input.alt && (key === "u" || input.code === "KeyU")) return { type: "view-source" };
   if (mac && input.alt && key === "ArrowLeft") return { type: "prev-tab" };
   if (mac && input.alt && key === "ArrowRight") return { type: "next-tab" };
   if (mac && key === "[") return { type: "back" };
@@ -129,6 +158,8 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
       return mac ? null : { type: "open-downloads" };
     case "h":
       return mac ? null : { type: "open-history" };
+    case "u":
+      return mac ? null : { type: "view-source" };
     case "=":
     case "+":
       return { type: "zoom", delta: 1 };

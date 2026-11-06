@@ -38,7 +38,8 @@ import { siteSearchUrl } from "../shared/site-search";
 import { linkKind } from "../shared/external-apps";
 import { pageBaseColor } from "../shared/page-base";
 import { homePageUrl } from "../shared/settings";
-import { commandForInput, type BrowserCommand } from "../shared/shortcuts";
+import { commandForInput, isPageFirst, pageCommand, type BrowserCommand } from "../shared/shortcuts";
+import { isViewSourceUrl, viewSourceUrl } from "../shared/view-source";
 import { ACTION_COMMANDS } from "../shared/extension-commands";
 import { workspaceOpenPlan, type LiveTab } from "../shared/workspaces";
 import type { WorkspaceView } from "../shared/workspace-ipc";
@@ -1122,7 +1123,12 @@ export class BrowserWindowCtl {
     wc.on("did-redirect-navigation", (details) => {
       if (details.isMainFrame && !details.isSameDocument) redirects.redirect(details.url);
     });
-    wc.on("did-navigate", (_e, url) => {
+    wc.on("did-navigate", (_e, loaded) => {
+      // A source view loads the page's own address; the tab is on its view-source: address (and its
+      // page runs no script: Corvus's page probes and the agent tools must leave it alone).
+      const viewSource = isViewSourceUrl(wc.getURL());
+      const url = viewSource ? wc.getURL() : loaded;
+      if (viewSource) tab.title = wc.getTitle();
       tab.committed = true;
       this.applyPageBase(tab, url);
       // A page from another site gets a new renderer, which starts out not painting while hidden.
@@ -1140,7 +1146,7 @@ export class BrowserWindowCtl {
       }
       delete tab.certError;
       this.tidyCertHistory(wc);
-      const chain = redirects.commit(url, Date.now());
+      const chain = redirects.commit(loaded, Date.now());
       // Bookmarks it went through on the way to another site show that site's icon from now on.
       if (!this.isPrivate) {
         let bookmarked: Set<string> | null = null;
@@ -1260,7 +1266,7 @@ export class BrowserWindowCtl {
       };
       push();
     });
-    wc.on("before-input-event", (event, input) => this.onInput(event, input));
+    wc.on("before-input-event", (event, input) => this.onInput(event, input, true));
     wc.on("context-menu", (_e, params) => showPageContextMenu(this.ctx, this, tab, params, this.chromeHeight));
 
     // A PDF a page leads to (a link, a redirect after one) opens in the viewer. In a new tab next to
@@ -1292,8 +1298,9 @@ export class BrowserWindowCtl {
         event.preventDefault();
         return;
       }
-      // A frame's PDF stays in its frame: only the tab's own page goes to the viewer.
-      if (!event.isMainFrame) return;
+      // A frame's PDF stays in its frame: only the tab's own page goes to the viewer, unless the tab
+      // asked for its source.
+      if (!event.isMainFrame || isViewSourceUrl(tab.url)) return;
       const toViewer = pdfViewerRedirect(this.ctx, tab.agentControlled, event.url);
       if (toViewer) {
         event.preventDefault();
@@ -2272,8 +2279,10 @@ export class BrowserWindowCtl {
 
   // ---------------------------------------------------------------- commands
 
-  private onInput(event: Electron.Event, input: Input): void {
+  /** `page`: a key press in a tab's page, which gets page-first shortcuts itself (see runPageCommand). */
+  private onInput(event: Electron.Event, input: Input, page = false): void {
     const command = commandForInput(input, process.platform);
+    if (command && page && isPageFirst(command)) return;
     if (command) {
       event.preventDefault();
       this.runCommand(command);
@@ -2409,7 +2418,28 @@ export class BrowserWindowCtl {
         this.focusWebContents(this.chrome.webContents);
         this.sendCommand({ type: "open-organizer" });
         break;
+      case "view-source":
+        if (active) this.viewSource(active.id);
+        break;
     }
+  }
+
+  /**
+   * A page-first shortcut (shared/shortcuts.ts) its page let through, as its preload reports: it
+   * runs for that tab, and only right after the person's own key press there.
+   */
+  runPageCommand(tab: TabRuntime, raw: unknown): void {
+    const command = pageCommand(raw, tab.personInputAt, Date.now());
+    if (command?.type === "view-source") this.viewSource(tab.id);
+  }
+
+  /** "View page source": the page's source in a new tab right after it, in front (nothing for Corvus's own pages). */
+  viewSource(id: TabId): void {
+    const tab = this.tabs.get(id);
+    const url = tab ? viewSourceUrl(pageUrl(tab)) : null;
+    if (!tab || !url) return;
+    // The source is fetched again, with the tab's cookies: same container.
+    this.createTab(url, { index: indexOfTab(this.strip, id) + 1, openerId: id, ...(tab.containerId ? { containerId: tab.containerId } : {}) });
   }
 
   // ---------------------------------------------------------------- zoom

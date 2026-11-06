@@ -61,6 +61,11 @@ describe("createSearchEngine", () => {
     expect(seen[0]!.prompt.user).toContain("lang: en");
   });
 
+  it("says whether general searches stream an answer", () => {
+    expect(createSearchEngine(config, { retrievers: [retriever()], provider: provider([]) }).answers).toBe(true);
+    expect(createSearchEngine(config, { retrievers: [retriever()], provider: null }).answers).toBe(false);
+  });
+
   it("emits results before the provider is even called", async () => {
     let providerStarted = false;
     const slow: AnswerProvider = {

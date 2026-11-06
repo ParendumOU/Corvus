@@ -51,7 +51,7 @@ flowchart LR
 
 1. Omnibox classifies input: URL → navigate; else → `corvus://search?q=`.
 2. Retriever gets top N results **without any LLM** (SearXNG self-hosted by default).
-3. Results render immediately (classic list, zero tokens).
+3. Results render immediately (classic list, zero tokens): title and site first. When an AI provider is set up (`EngineInfo.answers`), the page keeps fixed space for the answer box, each result's description slot and the side panel, and fills them only once the AI stream is complete (`aiSettled`), so the layout never moves while it loads and no text shows half written. Results keep the order they were first shown in; the AI order applies on the Sort toggle (or at once for a cached search, which replays complete).
 4. One call to a small model (default `claude-haiku-5-5`) with a compact prompt: numbered snippets (≤ 300 chars each), answer language, "cite as [n]". Output capped (~400 tokens).
 5. `deep` mode (opt-in button) fetches the top 3 pages, Readability-extracts, trims to ~1.5k chars each.
 6. LRU + on-disk cache keyed by (normalized query, lang, depth) with TTL.

@@ -118,6 +118,8 @@ export type SearchEvent =
 
 export interface SearchEngine {
   search(query: string, opts?: SearchOptions): AsyncIterable<SearchEvent>;
+  /** True when general searches also stream an AI answer and result ratings (a provider is set up). */
+  readonly answers?: boolean;
 }
 
 /** Omnibox classification: is the input a URL to navigate to or a query to search? */

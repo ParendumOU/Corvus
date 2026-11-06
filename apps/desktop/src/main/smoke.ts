@@ -27,6 +27,7 @@ import { runTabCloseSmoke } from "./smoke-tab-close";
 import { runTraySmoke } from "./smoke-tray";
 import { runUserActionSmoke } from "./smoke-user-action";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
+import { runViewSourceSmoke } from "./smoke-view-source";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
 import { runChromeUiSmoke } from "./smoke-chrome-ui";
@@ -240,6 +241,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runTabCloseSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=viewsource: only the checks of Ctrl+U (View page source).
+    if (process.env.CORVUS_SMOKE_ONLY === "viewsource") {
+      await runViewSourceSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=useraction: only the checks of an AI agent asking the person to do something in a tab.
     if (process.env.CORVUS_SMOKE_ONLY === "useraction") {
       await runUserActionSmoke(ctx, { win, check, capture });
@@ -346,6 +352,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=search: only the corvus://search checks (tabs, themes, layout kept while the AI works).
+    if (process.env.CORVUS_SMOKE_ONLY === "search") {
+      await runSearchSmoke(ctx, { win, check, capture });
+      return;
+    }
     await capture("chrome", win.chrome.webContents);
     await runFaviconSmoke(ctx, { url, win, check, capture });
     const pages: Array<[string, string]> = [
@@ -403,6 +414,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runCertErrorSmoke(ctx, { win, check });
     await runExternalAppsSmoke(ctx, { win, check, capture }, false);
     await runTabCloseSmoke(ctx, { win, check, capture });
+    await runViewSourceSmoke(ctx, { win, check, capture });
     await runUserActionSmoke(ctx, { win, check, capture });
 
     ctx.settings.update({ mcp: { enabled: true } });

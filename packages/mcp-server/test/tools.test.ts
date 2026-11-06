@@ -240,6 +240,7 @@ describe("tools over HTTP", () => {
       "chrome://settings",
       "corvus://settings",
       "devtools://devtools/bundled/inspector.html",
+      "view-source:https://example.com/",
       "not a url",
     ];
     const before = controller.calls.length;

@@ -149,6 +149,9 @@ body {
   color: var(--text-3);
   padding: 0 6px 0 6px;
 }
+.sort-toggle.waiting {
+  visibility: hidden;
+}
 
 /* ---------------------------------------------------------------- layout */
 
@@ -328,20 +331,49 @@ body {
   border-radius: 5px;
   background: var(--surface-2);
 }
-.caret {
-  display: inline-block;
-  width: 8px;
-  height: 16px;
-  margin-left: 2px;
-  vertical-align: -2px;
-  background: var(--accent);
-  border-radius: 2px;
-  animation: blink 1s steps(2) infinite;
+
+/* The box keeps one height while the AI works and once it is done, so the results below never
+   move; a longer answer is cut with a fade and "Show more" (the person's click grows it). */
+.answer {
+  --answer-preview: 232px;
 }
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
+.answer:not(.expanded) .answer-body {
+  height: var(--answer-preview);
+  overflow: hidden;
+}
+.answer.clipped .answer-body {
+  /* Fully faded where the button sits, so no half line shows beside it. */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 88px), transparent calc(100% - 30px));
+}
+.answer-content > .search-error {
+  margin-bottom: 12px;
+}
+.answer-more {
+  appearance: none;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.answer-more:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.answer-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.answer.clipped .answer-more {
+  position: absolute;
+  left: 22px;
+  bottom: 14px;
+}
+.answer.expanded .answer-more {
+  margin-top: 14px;
 }
 
 .disagree {
@@ -670,6 +702,43 @@ body {
   outline-offset: 3px;
   border-radius: 4px;
 }
+/* With AI on every card keeps the same slot for its description from the start: summary (2
+   lines), snippet (3 lines) and tags fill it once the AI is done, so no card grows. */
+.result-desc {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.result-desc > * {
+  flex: none;
+}
+.results.slots .result-desc {
+  height: 158px;
+  overflow: hidden;
+}
+/* While the AI works the slot shows a still outline of what comes: summary box, then snippet lines. */
+.result-desc.waiting {
+  gap: 12px;
+  padding-top: 2px;
+}
+.result-desc.waiting span {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface-2);
+}
+.result-desc.waiting span:first-child {
+  height: 50px;
+  margin-bottom: 2px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-2));
+}
+.result-desc.waiting span:nth-child(3) {
+  width: 92%;
+}
+.result-desc.waiting span:nth-child(4) {
+  width: 55%;
+}
 .ai-summary {
   display: flex;
   align-items: flex-start;
@@ -687,11 +756,11 @@ body {
   margin-top: 3px;
   color: var(--accent);
 }
-.ai-summary.placeholder {
-  height: 36px;
-  background: linear-gradient(90deg, var(--surface-2), var(--border-soft), var(--surface-2));
-  background-size: 200% 100%;
-  animation: shimmer 1.2s linear infinite;
+.ai-summary > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .result-snippet {
   margin: 0;
@@ -705,11 +774,13 @@ body {
 }
 .tags {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
   margin-top: 2px;
+  overflow: hidden;
 }
 .tag {
+  flex: none;
+  line-height: 18px;
   padding: 1px 9px;
   border-radius: 20px;
   background: var(--surface-2);
@@ -798,8 +869,11 @@ body {
 .skeleton-lines span:nth-child(3) {
   width: 60%;
 }
-.skeleton-lines.points {
-  margin-top: 14px;
+.skeleton-lines span:nth-child(4) {
+  width: 92%;
+}
+.skeleton-lines span:nth-child(5) {
+  width: 45%;
 }
 .result.skeleton {
   pointer-events: none;
@@ -1146,8 +1220,7 @@ body {
   .answer.streaming::before,
   .answer.streaming .answer-mark,
   .meter.unscored.pending,
-  .skeleton-lines span,
-  .ai-summary.placeholder {
+  .skeleton-lines span {
     animation: none;
   }
 }

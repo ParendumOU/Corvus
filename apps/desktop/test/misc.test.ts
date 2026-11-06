@@ -93,6 +93,7 @@ describe("agent URL policy", () => {
     ["javascript:alert(1)", false],
     ["chrome-extension://abc/x.html", false],
     ["data:text/html,hi", false],
+    ["view-source:https://example.com/", false],
     ["not a url", false],
   ])("%s -> %s", (url, allowed) => {
     expect(isAgentAllowedUrl(url)).toBe(allowed);

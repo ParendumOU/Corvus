@@ -952,6 +952,7 @@ export const ES: Record<string, string> = {
   "Zoom in": "Ampliar",
   "Zoom out": "Reducir",
   "Print…": "Imprimir…",
+  "View page source": "Ver código fuente de la página",
   "Developer tools": "Herramientas para desarrolladores",
   "Check for updates…": "Buscar actualizaciones…",
   "Exit": "Salir",

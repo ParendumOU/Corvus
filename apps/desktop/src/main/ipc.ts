@@ -2,7 +2,7 @@ import type { HistoryFilter } from "../shared/history-ops";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { app, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from "electron";
 import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { rejectNote } from "../shared/user-memory";
@@ -18,6 +18,7 @@ import { clampInterval, isWatchableUrl } from "../shared/page-watch";
 import type { ScheduleInput } from "../shared/schedule-ipc";
 import type { SiteProfileInput, SiteProfileMatch } from "../shared/site-profile-ipc";
 import { capAccessLevel } from "../shared/site-profiles";
+import { PAGE_COMMAND_CHANNEL } from "../shared/shortcuts";
 import { buildSuggestions } from "../shared/suggest";
 import { GROUP_COLORS, type GroupPatch } from "../shared/tab-strip";
 import type { SecretKey, SettingsPatch } from "../shared/settings";
@@ -1042,6 +1043,12 @@ export function registerIpc(ctx: AppContext): void {
   registerFlowCapture(ctx);
   registerAnnotationCapture(ctx);
   registerSplitIpc();
+
+  // A shortcut a tab's page let through (Ctrl+U), from whichever of its frames had the keyboard.
+  ipcMain.on(PAGE_COMMAND_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
+    const found = ctx.windows.byTabWebContents(event.sender);
+    if (found) found.window.runPageCommand(found.tab, raw);
+  });
 
   ipcMain.handle(CHROME_RPC, (event: IpcMainInvokeEvent, method: unknown, args: unknown) => {
     const window = ctx.windows.byChromeWebContents(event.sender);

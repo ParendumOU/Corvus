@@ -15,7 +15,6 @@ export interface SearchViewState {
   retriever: RetrieverKind | null;
   cached: boolean;
   answer: string;
-  answerDone: boolean;
   citations: number[];
   keyPoints: KeyPoint[];
   ratings: Record<number, ResultRating>;
@@ -36,7 +35,6 @@ export const initialSearchView: SearchViewState = {
   retriever: null,
   cached: false,
   answer: "",
-  answerDone: false,
   citations: [],
   keyPoints: [],
   ratings: {},
@@ -58,7 +56,7 @@ export function reduceSearchView(s: SearchViewState, event: SearchEvent): Search
     case "answer-delta":
       return { ...s, answer: s.answer + event.text };
     case "answer-done":
-      return { ...s, answer: event.text || s.answer, answerDone: true, citations: event.citations };
+      return { ...s, answer: event.text || s.answer, citations: event.citations };
     case "key-point":
       return { ...s, keyPoints: [...s.keyPoints, event.point] };
     case "rating":
@@ -76,7 +74,6 @@ export function reduceSearchView(s: SearchViewState, event: SearchEvent): Search
       return {
         ...s,
         answer: i.answer || s.answer,
-        answerDone: true,
         citations: i.citations,
         keyPoints: i.keyPoints,
         ratings: Object.fromEntries(i.ratings.map((r) => [r.index, r])),
@@ -89,7 +86,7 @@ export function reduceSearchView(s: SearchViewState, event: SearchEvent): Search
       };
     }
     case "usage":
-      return { ...s, usage: { inputTokens: event.inputTokens, outputTokens: event.outputTokens, model: event.model }, finished: true, structuredDone: true, answerDone: true };
+      return { ...s, usage: { inputTokens: event.inputTokens, outputTokens: event.outputTokens, model: event.model }, finished: true, structuredDone: true };
     case "error":
       return { ...s, errors: [...s.errors, { message: event.message, recoverable: event.recoverable }], finished: !event.recoverable || s.finished };
     default:
@@ -97,7 +94,33 @@ export function reduceSearchView(s: SearchViewState, event: SearchEvent): Search
   }
 }
 
+/**
+ * True once no more AI output is coming: the structured stream ended, or the search finished or
+ * failed. The page shows AI text (answer, summaries, ratings, side panel) only from then on, all at
+ * once, so nothing is seen half written.
+ */
+export function aiSettled(s: SearchViewState): boolean {
+  return s.structuredDone || s.finished;
+}
+
+/**
+ * True when the result list can be drawn: its results are in, the page knows whether AI output
+ * follows (`answers`, null until known), and a cached search has replayed (its events come at once).
+ */
+export function listReady(s: SearchViewState, answers: boolean | null): boolean {
+  return s.results !== null && answers !== null && (!s.cached || s.finished);
+}
+
 export type SortMode = "ai" | "original";
+
+/**
+ * The order a result list opens with. The saved choice applies when the AI order is already there
+ * as the list is first drawn; an AI order that arrives later never moves results the person can
+ * see (the Sort toggle applies it on request).
+ */
+export function openingSort(s: SearchViewState, saved: SortMode): SortMode {
+  return saved === "ai" && s.order ? "ai" : "original";
+}
 
 /** Result indices in display order: AI order once ratings arrived (and sort is "ai"), else retriever order. */
 export function displayOrder(s: SearchViewState, sort: SortMode): number[] {

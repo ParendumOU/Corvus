@@ -197,6 +197,104 @@ function pageUrl(category: SearchCategory): string {
   return `corvus://search/?q=${encodeURIComponent(QUERY)}${category === "general" ? "" : `&cat=${category}`}`;
 }
 
+/** In the page: watch layout shifts and half-shown AI text from now until `window.__layout.stop`. */
+const WATCH_LAYOUT = `(() => {
+  const w = { since: performance.now(), shift: 0, shifts: [], partial: [], stop: false };
+  window.__layout = w;
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      if (e.startTime < w.since || e.hadRecentInput) continue;
+      w.shift += e.value;
+      if (w.shifts.length < 12) w.shifts.push({ ms: Math.round(e.startTime - w.since), value: +e.value.toFixed(4), nodes: (e.sources || []).map((s) => s.node && (s.node.className || s.node.nodeName)).slice(0, 3) });
+    }
+  }).observe({ type: "layout-shift", buffered: true });
+  const note = (what) => { if (!w.partial.includes(what)) w.partial.push(what); };
+  const sample = () => {
+    if (w.stop) return;
+    // Until the answer box says done, no answer text and no result description may show.
+    if (!document.querySelector(".answer.done")) {
+      if ((document.querySelector(".answer-text")?.textContent ?? "").trim()) note("answer text while the AI writes");
+      if ([...document.querySelectorAll(".results .result-snippet, .results .ai-summary")].some((el) => el.textContent.trim())) note("result description while the AI works");
+    }
+    requestAnimationFrame(sample);
+  };
+  requestAnimationFrame(sample);
+  return true;
+})()`;
+
+/** Document position of every result title and the answer box size. */
+const LAYOUT = `(() => ({
+  titles: Object.fromEntries([...document.querySelectorAll(".results .result-title")].map((a) => [a.href, Math.round(a.getBoundingClientRect().top + scrollY)])),
+  answer: Math.round(document.querySelector(".answer")?.getBoundingClientRect().height ?? -1),
+  results: Math.round((document.querySelector(".results")?.getBoundingClientRect().top ?? 0) + scrollY),
+}))()`;
+
+interface Layout {
+  titles: Record<string, number>;
+  answer: number;
+  results: number;
+}
+
+/**
+ * A live search with a slow AI answer (about 4 s): titles and domains come first, no AI text or
+ * description shows half done, and nothing moves when the answer, ratings and side panel arrive.
+ */
+async function checkStableWhileLoading(ctx: AppContext, h: Helpers, tabId: string, wc: WebContents): Promise<void> {
+  const { win, check, capture } = h;
+  ctx.search.setTestDeps({ engine: { retrievers: [fakeRetriever()], provider: fakeProvider(30) }, favicon: async (domain) => favicon(domain) });
+  // A query of its own, so the answer is not replayed from the cache.
+  win.loadUrl(tabId, `corvus://search/?q=${encodeURIComponent(`${QUERY} layout ${Date.now()}`)}`);
+  const shown = await waitFor(wc, "document.querySelectorAll('.results .result-title').length === 8");
+  await wc.executeJavaScript(WATCH_LAYOUT);
+  const first = (await wc.executeJavaScript(`(() => ({
+    writing: !document.querySelector(".answer.done"),
+    titles: [...document.querySelectorAll(".results .result")].every((r) => r.querySelector(".result-title")?.textContent.trim() && r.querySelector(".domain")?.textContent.trim()),
+    descriptions: [...document.querySelectorAll(".results .result-snippet, .results .ai-summary")].filter((el) => el.textContent.trim()).length,
+    answerText: (document.querySelector(".answer-text")?.textContent ?? "").trim().length,
+  }))()`)) as { writing: boolean; titles: boolean; descriptions: number; answerText: number };
+  check(
+    "search: titles and domains come first, no AI text or description while the AI works",
+    shown && first.writing && first.titles && first.descriptions === 0 && first.answerText === 0,
+    first,
+  );
+  const before = (await wc.executeJavaScript(LAYOUT)) as Layout;
+  await capture("search-loading", wc);
+  await new Promise((r) => setTimeout(r, 1200));
+  await capture("search-loading-later", wc);
+  const settled = await waitFor(wc, "document.querySelector('.answer.done') && document.querySelectorAll('.result .meter[data-score]').length === 8 && document.querySelector('.entity-card')", 20_000);
+  await new Promise((r) => setTimeout(r, 400));
+  const watched = (await wc.executeJavaScript("(() => { window.__layout.stop = true; const { shift, shifts, partial } = window.__layout; return { shift: +shift.toFixed(4), shifts, partial }; })()")) as {
+    shift: number;
+    shifts: unknown[];
+    partial: string[];
+  };
+  const after = (await wc.executeJavaScript(LAYOUT)) as Layout;
+  const moved = Object.entries(before.titles)
+    .map(([href, top]) => ({ href, by: (after.titles[href] ?? Number.NaN) - top }))
+    .filter((t) => !(Math.abs(t.by) < 1));
+  check("search: no half-written answer or description is ever shown", settled && watched.partial.length === 0, watched.partial);
+  check(
+    "search: nothing moves while the answer, ratings and side panel arrive",
+    settled && watched.shift < 0.001 && moved.length === 0 && after.answer === before.answer && after.results === before.results,
+    { shift: watched.shift, shifts: watched.shifts, moved, answer: [before.answer, after.answer], results: [before.results, after.results] },
+  );
+  const filled = (await wc.executeJavaScript(`({
+    snippets: document.querySelectorAll(".results .result-snippet").length,
+    summaries: document.querySelectorAll(".results .ai-summary").length,
+    first: document.querySelector(".result")?.dataset.rank,
+    more: Boolean(document.querySelector(".answer.clipped .answer-more")),
+  })`)) as { snippets: number; summaries: number; first?: string; more: boolean };
+  check("search: descriptions fill in, results keep the order they were shown in", filled.snippets === 8 && filled.summaries === 8 && filled.first === "1", filled);
+  await capture("search-settled", wc);
+  // Only the person's own clicks move things: the AI order and the whole answer are one click away.
+  await wc.executeJavaScript("document.querySelector('.sort-toggle button[data-sort=ai]').click(); document.querySelector('.answer-more')?.click()");
+  await new Promise((r) => setTimeout(r, 600));
+  const clicked = (await wc.executeJavaScript("({ first: document.querySelector('.result')?.dataset.rank, expanded: Boolean(document.querySelector('.answer.expanded')) })")) as { first?: string; expanded: boolean };
+  check("search: Sort AI relevance re-ranks and Show more opens the answer on click", clicked.first === "3" && clicked.expanded === filled.more, clicked);
+  await capture("search-expanded", wc);
+  ctx.search.setTestDeps({ engine: { retrievers: [fakeRetriever()], provider: fakeProvider() }, favicon: async (domain) => favicon(domain) });
+}
+
 export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void> {
   const { win, check, capture } = h;
   const themeBefore = nativeTheme.themeSource;
@@ -239,7 +337,8 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
     await new Promise((r) => setTimeout(r, 400));
     await waitFor(wc, "document.querySelector('.answer.done') && document.querySelectorAll('.result .meter[data-score]').length === 8");
     const firstAi = await wc.executeJavaScript("document.querySelector('.result')?.dataset.rank");
-    check("search re-ranks by AI score", firstAi === "3", firstAi);
+    // A cached search replays at once, so it opens in the saved (AI) order.
+    check("search: a cached search opens in AI order", firstAi === "3", firstAi);
     // The meter stays a circle while it rates too (a shared page style once stretched it into an oval).
     const meters = (await wc.executeJavaScript(`(() => {
       const result = document.querySelector('.results .result');
@@ -294,6 +393,8 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
     await new Promise((r) => setTimeout(r, 100));
     const inputFocused = await wc.executeJavaScript("document.activeElement?.id === 'search-input' && document.activeElement.value === " + JSON.stringify(QUERY));
     check("search / focuses the search box", inputFocused === true, inputFocused);
+
+    await checkStableWhileLoading(ctx, { win, check, capture }, tab.id, wc);
 
     win.loadUrl(tab.id, "corvus://search/?q=common%20raven&narrow=1");
     tab.view.setBounds({ ...tab.view.getBounds(), width: 560 });

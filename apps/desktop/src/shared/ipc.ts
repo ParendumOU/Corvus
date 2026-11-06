@@ -463,6 +463,8 @@ export interface EngineInfo {
   model: string;
   retriever: string;
   reason: string | null;
+  /** General searches also stream an AI answer and result ratings (an AI provider is set up). */
+  answers: boolean;
 }
 
 /** Result of probing the configured AI provider (Settings "Test connection"). */

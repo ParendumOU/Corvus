@@ -2,12 +2,23 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { SearchCategory } from "@corvus/shared";
 import type { EngineInfo } from "../../shared/ipc";
 import { classifyOmnibox, intentToUrl, searchUrl } from "../../shared/omnibox";
-import { displayOrder, initialSearchView, parseCategory, reduceSearchView, type SearchViewState, type SortMode } from "../../shared/search-view";
+import {
+  aiSettled,
+  displayOrder,
+  initialSearchView,
+  listReady,
+  openingSort,
+  parseCategory,
+  reduceSearchView,
+  type SearchViewState,
+  type SortMode,
+} from "../../shared/search-view";
 import { errorMessage, internalApi } from "../common/api";
-import { CorvusMark, IconSearch, IconWarning } from "../common/icons";
+import { CorvusMark, IconSearch } from "../common/icons";
 import {
   AnswerBlock,
   EntityPanel,
+  ErrorNote,
   type FaviconMap,
   FooterStat,
   ImageGrid,
@@ -32,6 +43,8 @@ const TABS: Array<{ id: SearchCategory; label: string }> = [
 
 const RETRIEVER_LABEL: Record<string, string> = { searxng: "SearXNG", brave: "Brave", duckduckgo: "DuckDuckGo" };
 const SORT_KEY = "corvus.search.sort";
+const NO_RATINGS: SearchViewState["ratings"] = {};
+const NO_CITES = new Set<number>();
 
 function readParams(): { query: string; depth: Depth; category: SearchCategory } {
   const params = new URLSearchParams(location.search);
@@ -92,7 +105,7 @@ function useSearch(query: string, depth: Depth, category: SearchCategory): Searc
       // Events can arrive before the start() reply; a page runs one search, so accept them.
       if (searchId.current !== null && message.message.searchId !== searchId.current) return;
       if ("done" in message.message) {
-        setState((s) => ({ ...s, finished: true, answerDone: true, structuredDone: true }));
+        setState((s) => ({ ...s, finished: true, structuredDone: true }));
         return;
       }
       const event = message.message.event;
@@ -139,7 +152,11 @@ function SearchPage() {
   const { query, depth, category } = useMemo(readParams, []);
   const [input, setInput] = useState(query);
   const [engine, setEngine] = useState<EngineInfo | null>(null);
-  const [sort, setSortState] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) === "original" ? "original" : "ai"));
+  // Whether AI output follows the results (null until the engine says): its space is kept from the start.
+  const [answers, setAnswers] = useState<boolean | null>(null);
+  const savedSort = useMemo<SortMode>(() => (localStorage.getItem(SORT_KEY) === "original" ? "original" : "ai"), []);
+  const [pickedSort, setPickedSort] = useState<SortMode | null>(null);
+  const opening = useRef<SortMode | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const state = useSearch(query, depth, category);
   const domains = useMemo(() => [...new Set((state.results ?? []).map((r) => r.source.toLowerCase()))], [state.results]);
@@ -148,11 +165,17 @@ function SearchPage() {
 
   useEffect(() => {
     document.title = query ? tx("{query} - Corvus Search", { query }) : tx("Corvus Search");
-    void internalApi().call("search.engineInfo").then(setEngine).catch(() => undefined);
+    void internalApi()
+      .call("search.engineInfo")
+      .then((info) => {
+        setEngine(info);
+        setAnswers(info.answers);
+      })
+      .catch(() => setAnswers(false));
   }, [query]);
 
   const setSort = (mode: SortMode): void => {
-    setSortState(mode);
+    setPickedSort(mode);
     localStorage.setItem(SORT_KEY, mode);
   };
 
@@ -166,14 +189,20 @@ function SearchPage() {
   const results = state.results ?? [];
   const fatal = state.errors.find((e) => !e.recoverable);
   const general = category === "general";
-  const hasAnswer = state.answer.length > 0;
-  const aiOff = general && state.finished && !hasAnswer && !fatal && state.errors.length === 0 && state.usage === null;
-  const showAnswer = general && Boolean(query) && results.length > 0 && !aiOff && (!fatal || hasAnswer);
-  const ratingsPending = showAnswer && !state.structuredDone && Object.keys(state.ratings).length < results.length;
+  // AI output (answer, ratings, summaries, side panel) follows the results on this page.
+  const ai = general && answers === true;
+  const aiOff = general && answers === false && !fatal;
+  const ready = listReady(state, answers);
+  const settled = aiSettled(state);
+  if (ready && opening.current === null) opening.current = openingSort(state, savedSort);
+  const sort = pickedSort ?? opening.current ?? "original";
+  const showAnswer = ai && Boolean(query) && (state.results === null || results.length > 0) && (!fatal || state.answer.length > 0);
+  const answerNotes = showAnswer ? state.errors.filter((e) => e.recoverable) : [];
+  const pageErrors = state.errors.filter((e) => !answerNotes.includes(e));
   const order = displayOrder(state, sort);
-  const cited = new Set(state.citations);
-  const hasRatings = Object.keys(state.ratings).length > 0;
-  const aside = general && (state.entity || state.followUps.length > 0);
+  const cited = settled ? new Set(state.citations) : NO_CITES;
+  const ratings = settled ? state.ratings : NO_RATINGS;
+  const hasRatings = Object.keys(ratings).length > 0;
 
   return (
     <div className={`search-page cat-${category}`}>
@@ -210,8 +239,9 @@ function SearchPage() {
                 {t.label}
               </a>
             ))}
-            {general && hasRatings && (
-              <div className="sort-toggle" role="group" aria-label={tx("Sort results")}>
+            {ai && (
+              // Kept in place (hidden) until the ratings are in, so the header never changes height.
+              <div className={`sort-toggle ${hasRatings ? "" : "waiting"}`} role="group" aria-label={tx("Sort results")} aria-hidden={!hasRatings || undefined}>
                 <span className="sort-label">{tx("Sort")}</span>
                 <button type="button" data-sort="ai" className={sort === "ai" ? "on" : ""} aria-pressed={sort === "ai"} onClick={() => setSort("ai")}>{tx("AI relevance")}</button>
                 <button type="button" data-sort="original" className={sort === "original" ? "on" : ""} aria-pressed={sort === "original"} onClick={() => setSort("original")}>{tx("Original")}</button>
@@ -228,13 +258,12 @@ function SearchPage() {
           <p className="muted small">{tx("Press")}{" "}<kbd>/</kbd>{" "}{tx("to type,")}{" "}<kbd>j</kbd>{" "}{tx("and")}{" "}<kbd>k</kbd>{" "}{tx("to move through results.")}</p>
         </div>
       ) : (
-        <div className={`serp ${aside ? "with-aside" : ""}`}>
+        <div className={`serp ${ai ? "with-aside" : ""}`}>
           <main className="serp-main">
             {showAnswer && (
               <AnswerBlock
                 answer={state.answer}
-                done={state.answerDone || Boolean(fatal)}
-                structuredDone={state.structuredDone}
+                ready={settled}
                 keyPoints={state.keyPoints}
                 confidence={state.confidence}
                 disagreement={state.disagreement}
@@ -243,7 +272,7 @@ function SearchPage() {
                 ratings={state.ratings}
                 icons={icons}
                 deep={depth === "deep"}
-                failed={Boolean(fatal) || state.errors.length > 0}
+                notes={answerNotes.map((e) => e.message)}
               />
             )}
             {aiOff && (
@@ -254,20 +283,16 @@ function SearchPage() {
               </section>
             )}
 
-            {state.errors.map((e, i) => (
-              <div key={i} className={`search-error ${e.recoverable ? "soft" : ""}`} role="alert">
-                <IconWarning size={16} />
-                <div>
-                  <strong>{e.recoverable ? tx("The AI answer stopped early.") : tx("Search failed.")}</strong> {e.message}
-                  {!e.recoverable && engine && !engine.available && (
-                    <div className="muted small">{tx("Configure the search engine in")}{" "}<a href="corvus://settings/">{tx("Settings")}</a>.
-                    </div>
-                  )}
-                </div>
-              </div>
+            {pageErrors.map((e, i) => (
+              <ErrorNote key={i} message={e.message} recoverable={e.recoverable}>
+                {!e.recoverable && engine && !engine.available && (
+                  <div className="muted small">{tx("Configure the search engine in")}{" "}<a href="corvus://settings/">{tx("Settings")}</a>.
+                  </div>
+                )}
+              </ErrorNote>
             ))}
 
-            {state.results === null && !fatal ? (
+            {!ready && !fatal ? (
               category === "images" ? (
                 <div className="image-grid skeleton" aria-hidden="true">
                   {Array.from({ length: 12 }, (_, i) => (
@@ -284,10 +309,10 @@ function SearchPage() {
             ) : category === "videos" ? (
               <VideoGrid results={results} icons={icons} />
             ) : (
-              <ResultList results={results} order={order} ratings={state.ratings} cited={cited} icons={icons} ratingsPending={ratingsPending} />
+              <ResultList results={results} order={order} ratings={ratings} cited={cited} icons={icons} ai={ai} pending={ai && !settled} />
             )}
 
-            {state.results !== null && results.length === 0 && <div className="no-results">{tx("No results for this search.")}</div>}
+            {ready && results.length === 0 && <div className="no-results">{tx("No results for this search.")}</div>}
             {(fatal || state.results?.length === 0) && (
               <div className="fallback">{tx("Try this search on")}{" "}
                 <a href={`https://duckduckgo.com/?q=${encodeURIComponent(query)}`}>{tx("DuckDuckGo")}</a>{" "}{tx("or")}{" "}
@@ -295,7 +320,7 @@ function SearchPage() {
               </div>
             )}
 
-            {state.results !== null && (
+            {ready && (
               <footer className="search-footer">
                 {state.usage && (
                   <>
@@ -310,10 +335,11 @@ function SearchPage() {
             )}
           </main>
 
-          {aside && (
+          {ai && (
+            // The column is kept from the start so the result column never narrows when it fills.
             <aside className="serp-aside">
-              {state.entity && <EntityPanel entity={state.entity} source={results[order[0] ?? 0]} icons={icons} />}
-              {state.followUps.length > 0 && (
+              {settled && state.entity && <EntityPanel entity={state.entity} source={results[state.order?.[0] ?? 0]} icons={icons} />}
+              {settled && state.followUps.length > 0 && (
                 <RelatedQuestions questions={state.followUps} onPick={(q) => (location.href = hrefFor(q, depth, "general"))} />
               )}
             </aside>

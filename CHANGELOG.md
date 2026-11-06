@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.39.1
+
+### Fixed
+- **Ctrl+U shows the page's source.** Pressing Ctrl+U (Cmd+Option+U on macOS) on a web page did nothing; now, as in Chrome, the page's source opens in a new tab right next to it, and **View page source** is in the page's right-click menu and in the Corvus menu. A page that uses the key itself, like an editor's Ctrl+U for underline, keeps it. A source tab shows its view-source: address in the address bar and on the tab. Corvus's own pages have no source view, and AI agents can neither open nor read one.
+- **Search results stay still while the AI answer loads.** A search now shows each result's title and site first, and the AI answer, the AI summaries, the snippets and the side panel appear only once the AI has finished, all at once and complete, never half written. Their space is kept from the start: the answer has a box of fixed size (a longer answer opens with **Show more**) and each result keeps a slot for its description, so nothing you are reading or about to click moves while they arrive.
+- **Results keep the order they appeared in.** The AI order no longer reshuffles results you can already see; **Sort: AI relevance** applies it when you choose. A search Corvus answers from its cache, which loads at once, still opens in the order you chose last.
+
 ## v0.39.0
 
 ### PDFs

@@ -56,9 +56,9 @@ export class SearchService {
     });
   }
 
-  private describe(available: boolean, reason: string | null): EngineInfo {
+  private describe(available: boolean, reason: string | null, answers = false): EngineInfo {
     const ai = this.settings.get().ai;
-    return { available, provider: ai.provider, model: ai.model, retriever: ai.retriever, reason };
+    return { available, provider: ai.provider, model: ai.model, retriever: ai.retriever, reason, answers };
   }
 
   private config(): AiEngineConfig {
@@ -89,7 +89,7 @@ export class SearchService {
     }
     try {
       const engine = this.testDeps ? mod.createSearchEngine(this.config(), this.testDeps.engine) : mod.createSearchEngine(this.config());
-      this.info = this.describe(true, null);
+      this.info = this.describe(true, null, engine.answers === true);
       return engine;
     } catch (err) {
       const reason = `The AI search engine could not start: ${(err as Error).message}`;

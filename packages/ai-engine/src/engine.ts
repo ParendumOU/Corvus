@@ -188,5 +188,5 @@ export function createSearchEngine(config: AiEngineConfig, deps: SearchEngineDep
     }
   }
 
-  return { search };
+  return { search, answers: provider !== null };
 }

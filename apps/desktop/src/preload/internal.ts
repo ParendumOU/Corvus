@@ -14,12 +14,14 @@ import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 import { probePattern, type PasswordFieldClick } from "../shared/password-rules";
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
 import { INTERNAL_EVENT, INTERNAL_RPC, type InternalBridge, type InternalEvent } from "../shared/ipc";
+import { PAGE_COMMAND_CHANNEL, commandForInput, isPageFirst } from "../shared/shortcuts";
 
 // The preload is type-checked with the Node project (no DOM lib); declare the globals it reads.
 declare const location: { protocol: string; origin: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const document: any;
-declare const window: { top: unknown };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const window: { top: unknown; addEventListener(type: string, listener: (e: any) => void, capture: boolean): void };
 
 if (location.protocol === "corvus:" && window.top === window) {
   const bridge: InternalBridge = {
@@ -32,6 +34,23 @@ if (location.protocol === "corvus:" && window.top === window) {
   };
   contextBridge.exposeInMainWorld("corvusInternal", bridge);
 }
+
+// Shortcuts the page gets first (shared/shortcuts.ts isPageFirst): once every handler in the page had
+// the key press and none used it (an editor's Ctrl+U underlines), the browser runs the command. On
+// the window, in the capture phase: first in line, so the page cannot stop it from being seen.
+window.addEventListener(
+  "keydown",
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (e: any) => {
+    if (!e.isTrusted || e.isComposing) return;
+    const command = commandForInput({ type: "keyDown", key: String(e.key), code: String(e.code), control: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey, alt: e.altKey }, process.platform);
+    if (!command || !isPageFirst(command)) return;
+    setTimeout(() => {
+      if (!e.defaultPrevented) ipcRenderer.send(PAGE_COMMAND_CHANNEL, command.type);
+    }, 0);
+  },
+  true,
+);
 
 // Card and address forms, in the page and in its frames (a payment provider's card fields live in a
 // cross-origin iframe). Only roles and boxes are read to tell a field's kind; values only on submit, and

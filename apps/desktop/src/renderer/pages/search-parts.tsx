@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Confidence, EntityCard, KeyPoint, ResultRating, ResultTag, SearchResult } from "@corvus/shared";
 import { IconPlay, IconSearch, IconSparkle, IconWarning } from "../common/icons";
 import { LetterIcon } from "../common/ui";
@@ -80,8 +80,8 @@ export function ConfidenceBadge({ level }: { level: Confidence }) {
 
 export interface AnswerProps {
   answer: string;
-  done: boolean;
-  structuredDone: boolean;
+  /** All AI output is in: until then the box keeps its size and shows no text. */
+  ready: boolean;
   keyPoints: KeyPoint[];
   confidence: Confidence | null;
   disagreement: string | null;
@@ -90,74 +90,112 @@ export interface AnswerProps {
   ratings: Record<number, ResultRating>;
   icons: FaviconMap;
   deep: boolean;
-  failed: boolean;
+  /** Why the answer stopped early (recoverable errors), shown in the box. */
+  notes: string[];
 }
 
+export function ErrorNote({ message, recoverable, children }: { message: string; recoverable: boolean; children?: ReactNode }) {
+  return (
+    <div className={`search-error ${recoverable ? "soft" : ""}`} role="alert">
+      <IconWarning size={16} />
+      <div>
+        <strong>{recoverable ? tx("The AI answer stopped early.") : tx("Search failed.")}</strong> {message}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The AI answer in a box of fixed height: it shows no text until all of it is in, then the
+ * finished answer at once, cut with "Show more" when longer than the box. The results below
+ * never move while it loads; only the person's own click grows it.
+ */
 export function AnswerBlock(p: AnswerProps) {
+  const body = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el || !p.ready || expanded) return;
+    const measure = (): void => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [p.ready, expanded]);
+
   const chip = (n: number, key: string) => <CiteChip key={key} n={n} result={p.results[n - 1]} rating={p.ratings[n - 1]} icons={p.icons} />;
   const cited = p.citations.filter((i) => p.results[i]);
-  const waitingForPoints = p.done && !p.structuredDone && p.keyPoints.length === 0 && !p.failed;
+  const cut = clipped && !expanded;
   return (
-    <section className={`answer ${p.done ? "done" : "streaming"}`} aria-labelledby="answer-title">
+    <section className={`answer ${p.ready ? "done" : "streaming"} ${cut ? "clipped" : ""} ${expanded ? "expanded" : ""}`} aria-labelledby="answer-title">
       <header className="answer-head">
         <span className="answer-mark" aria-hidden="true">
           <IconSparkle size={14} />
         </span>
         <h2 id="answer-title">{tx("Answer")}</h2>
         {p.deep && <span className="pill">{tx("Deep")}</span>}
-        {p.confidence && <ConfidenceBadge level={p.confidence} />}
+        {p.ready && p.confidence && <ConfidenceBadge level={p.confidence} />}
       </header>
-      <div className="answer-text" aria-live="polite" aria-busy={!p.done}>
-        {p.answer ? (
-          <>
-            {renderAnswer(p.answer, chip)}
-            {!p.done && !p.failed && <span className="caret" aria-hidden="true" />}
-          </>
-        ) : (
-          <div className="skeleton-lines" aria-label={tx("Writing the answer")}>
-            <span />
-            <span />
-            <span />
-          </div>
-        )}
+      {/* Keyboard focus on a link hidden under the cut opens the whole answer. */}
+      <div className="answer-body" ref={body} onFocus={() => cut && setExpanded(true)}>
+        <div className="answer-content" aria-live="polite" aria-busy={!p.ready}>
+          {p.ready ? (
+            <>
+              {p.notes.map((message, i) => (
+                <ErrorNote key={i} message={message} recoverable />
+              ))}
+              {p.answer && <div className="answer-text">{renderAnswer(p.answer, chip)}</div>}
+              {p.disagreement !== null && (
+                <p className="disagree">
+                  <IconWarning size={15} />
+                  <span>
+                    <strong>{tx("Sources disagree.")}</strong> {p.disagreement}
+                  </span>
+                </p>
+              )}
+              {p.keyPoints.length > 0 && (
+                <ul className="key-points" aria-label={tx("Key points")}>
+                  {p.keyPoints.map((point, i) => (
+                    <li key={i}>{renderAnswer(point.text, (n, key) => chip(n, `${i}-${key}`))}</li>
+                  ))}
+                </ul>
+              )}
+              {cited.length > 0 && (
+                <div className="answer-sources" aria-label={tx("Cited sources")}>
+                  {cited.map((i) => {
+                    const r = p.results[i]!;
+                    return (
+                      <a key={i} className="source-chip" href={r.url} title={r.title}>
+                        <span className="source-chip-site">
+                          <Fav domain={r.source} icons={p.icons} size={14} />
+                          <span>{r.source}</span>
+                          <b>{i + 1}</b>
+                        </span>
+                        <span className="source-chip-title">{r.title}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="skeleton-lines" aria-label={tx("Writing the answer")}>
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
+        </div>
       </div>
-      {p.disagreement !== null && (
-        <p className="disagree">
-          <IconWarning size={15} />
-          <span>
-            <strong>{tx("Sources disagree.")}</strong> {p.disagreement}
-          </span>
-        </p>
-      )}
-      {p.keyPoints.length > 0 && (
-        <ul className="key-points" aria-label={tx("Key points")}>
-          {p.keyPoints.map((point, i) => (
-            <li key={i}>{renderAnswer(point.text, (n, key) => chip(n, `${i}-${key}`))}</li>
-          ))}
-        </ul>
-      )}
-      {waitingForPoints && (
-        <div className="skeleton-lines points" aria-hidden="true">
-          <span />
-          <span />
-        </div>
-      )}
-      {cited.length > 0 && p.done && (
-        <div className="answer-sources" aria-label={tx("Cited sources")}>
-          {cited.map((i) => {
-            const r = p.results[i]!;
-            return (
-              <a key={i} className="source-chip" href={r.url} title={r.title}>
-                <span className="source-chip-site">
-                  <Fav domain={r.source} icons={p.icons} size={14} />
-                  <span>{r.source}</span>
-                  <b>{i + 1}</b>
-                </span>
-                <span className="source-chip-title">{r.title}</span>
-              </a>
-            );
-          })}
-        </div>
+      {clipped && (
+        <button type="button" className="answer-more" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+          {expanded ? tx("Show less") : tx("Show more")}
+        </button>
       )}
     </section>
   );
@@ -184,20 +222,27 @@ export function Meter({ rating, pending }: { rating?: ResultRating; pending: boo
   );
 }
 
+/**
+ * Result cards. With AI on (`ai`) each card keeps a fixed-height description slot from the start:
+ * while the AI works (`pending`) a card shows only its domain and title, then summary, snippet and
+ * tags fill the slot without moving anything.
+ */
 export function ResultList({
   results,
   order,
   ratings,
   cited,
   icons,
-  ratingsPending,
+  ai,
+  pending,
 }: {
   results: SearchResult[];
   order: number[];
   ratings: Record<number, ResultRating>;
   cited: Set<number>;
   icons: FaviconMap;
-  ratingsPending: boolean;
+  ai: boolean;
+  pending: boolean;
 }) {
   const nodes = useRef(new Map<string, HTMLElement>());
   const tops = useRef(new Map<string, number>());
@@ -221,10 +266,9 @@ export function ResultList({
     lastOrder.current = orderKey;
   });
 
-  // Without any rating coming (AI off or failed) the list drops the ring column.
-  const rated = ratingsPending || Object.keys(ratings).length > 0;
+  // With AI off the list has no ring column; with AI on it keeps it even when rating fails.
   return (
-    <ol className={`results ${rated ? "" : "unrated"}`} aria-label={tx("Results")}>
+    <ol className={`results ${ai ? "slots" : "unrated"}`} aria-label={tx("Results")}>
       {order.map((i) => {
         const r = results[i]!;
         const rating = ratings[i];
@@ -239,7 +283,7 @@ export function ResultList({
             className={`result ${cited.has(i) ? "cited" : ""}`}
             data-rank={r.rank || i + 1}
           >
-            {rated && <Meter rating={rating} pending={ratingsPending} />}
+            {ai && <Meter rating={rating} pending={pending} />}
             <div className="result-body">
               <div className="result-source">
                 <Fav domain={r.source} icons={icons} />
@@ -254,22 +298,31 @@ export function ResultList({
                   {r.title}
                 </a>
               </h3>
-              {rating?.summary ? (
-                <p className="ai-summary">
-                  <IconSparkle size={12} />
-                  <span>{rating.summary}</span>
-                </p>
+              {pending ? (
+                <div className="result-desc waiting" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </div>
               ) : (
-                ratingsPending && <p className="ai-summary placeholder" aria-hidden="true" />
-              )}
-              {r.snippet && <p className="result-snippet">{r.snippet}</p>}
-              {rating && rating.tags.length > 0 && (
-                <div className="tags">
-                  {rating.tags.map((t) => (
-                    <span key={t} className={`tag ${TAG_TONE[t] ?? ""}`}>
-                      {TAG_LABEL[t] ?? t}
-                    </span>
-                  ))}
+                <div className="result-desc">
+                  {rating?.summary && (
+                    <p className="ai-summary" title={rating.summary}>
+                      <IconSparkle size={12} />
+                      <span>{rating.summary}</span>
+                    </p>
+                  )}
+                  {r.snippet && <p className="result-snippet">{r.snippet}</p>}
+                  {rating && rating.tags.length > 0 && (
+                    <div className="tags">
+                      {rating.tags.map((t) => (
+                        <span key={t} className={`tag ${TAG_TONE[t] ?? ""}`}>
+                          {TAG_LABEL[t] ?? t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
