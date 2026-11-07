@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { ipcMain, webContents as allWebContents, type IpcMainEvent, type IpcMainInvokeEvent, type Session, type WebContents } from "electron";
 import { ElectronBlocker, Request, fromElectronDetails } from "@ghostery/adblocker-electron";
 import {
+  ADBLOCK_COSMETIC_CHANNEL,
+  ADBLOCK_COSMETIC_EXTENDED_CHANNEL,
+  ADBLOCK_COSMETIC_OBSERVE_CHANNEL,
+  ADBLOCK_COSMETIC_REFRESH_CHANNEL,
   ADBLOCK_RESOURCE_SCHEME,
   ADBLOCK_SCRIPTLETS_CHANNEL,
   ADBLOCK_YOUTUBE_LOOP_CHANNEL,
@@ -35,6 +38,7 @@ import {
   type AdblockListsInfo,
   type AdblockSettings,
   type AdblockView,
+  type ExtendedRule,
   type ScriptletsAnswer,
 } from "../shared/adblock";
 import {
@@ -51,7 +55,7 @@ import {
 } from "@corvus/shared";
 import { farblingScript, fingerprintSeed, siteMatches } from "../shared/privacy";
 import { FALLBACK_FILTERS } from "./adblock-fallback";
-import { ENGINE_CONFIG } from "./adblock-engine";
+import { ENGINE_CONFIG, parseEngine } from "./adblock-engine";
 import { FilterSet, adsAndTrackingSpec, annoyancesSpec } from "./adblock-lists";
 import { elementPickerScript, pickedFilter } from "./adblock-picker";
 import { JsonFile } from "./json-file";
@@ -61,29 +65,6 @@ import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 /** Isolated world of the "Hide this element" picker. */
 const PICKER_WORLD_ID = 1998;
-
-const require_ = createRequire(import.meta.url);
-
-/**
- * The library's content-script preload, registered per profile session for cosmetic filtering.
- * It is a dependency of `@ghostery/adblocker-electron`, so (under pnpm) it is only reachable from that
- * package's own module scope, not from the app. Resolution never throws: without it, network blocking
- * still works and only cosmetic filtering is skipped.
- */
-function resolveCosmeticPreload(): string | null {
-  try {
-    return createRequire(require_.resolve("@ghostery/adblocker-electron")).resolve("@ghostery/adblocker-electron-preload");
-  } catch {
-    try {
-      return require_.resolve("@ghostery/adblocker-electron-preload");
-    } catch {
-      return null;
-    }
-  }
-}
-
-const COSMETIC_INJECT_CHANNEL = "@ghostery/adblocker/inject-cosmetic-filters";
-const COSMETIC_MUTATION_CHANNEL = "@ghostery/adblocker/is-mutation-observer-enabled";
 
 const STATS_THROTTLE_MS = 500;
 /** Longest the annoyance lists wait for a page's cookie banner to be answered (see holdAnnoyances). */
@@ -358,7 +339,6 @@ export class AdblockService {
   /** Cookie notices and other annoyances: per profile (on by default). */
   private readonly annoyances: FilterSet;
   private readonly attachments: Attachment[] = [];
-  private readonly cosmeticPreload = resolveCosmeticPreload();
   /** Fingerprinting noise changes every run: a site sees the same values all session, never across sessions. */
   private readonly sessionKey = randomUUID();
   /** Each profile's own rules as an engine, with the text it was built from. */
@@ -376,12 +356,26 @@ export class AdblockService {
     private readonly onProfileChange: (profileId: string) => void,
   ) {
     const cacheDir = path.join(userDataDir, "adblock");
-    this.ads = new FilterSet(cacheDir, adsAndTrackingSpec(FALLBACK_FILTERS), () => this.notifyAll());
-    this.annoyances = new FilterSet(cacheDir, annoyancesSpec(), () => this.notifyAll());
+    this.ads = new FilterSet(cacheDir, adsAndTrackingSpec(FALLBACK_FILTERS), () => this.notifyAll(), (unfilteredBefore) => this.onEngineSwap(unfilteredBefore));
+    this.annoyances = new FilterSet(cacheDir, annoyancesSpec(), () => this.notifyAll(), () => this.onEngineSwap(false));
     this.registerCosmeticHandlers();
     // One download at a time: ads first, annoyances after.
-    this.ads.scheduleRefresh(4000);
+    this.ads.scheduleRefresh(this.ads.meta.source === "bundled" ? 0 : 4000);
     this.annoyances.scheduleRefresh(20_000);
+  }
+
+  /**
+   * A new engine only reaches a page when it starts, and a page like YouTube can stay the same document
+   * for hours: open pages get its element hiding at once. Scriptlets must run before the page's own
+   * scripts, so a YouTube page that started with next to no rules (first run, or the lists changed in
+   * an update) loads again, or every video opened from it plays with its ads.
+   */
+  private onEngineSwap(unfilteredBefore: boolean): void {
+    for (const wc of allWebContents.getAllWebContents()) {
+      if (wc.isDestroyed() || !this.controllerFor(wc.session) || !isBlockablePageUrl(wc.getURL())) continue;
+      if (unfilteredBefore && isYouTubeHost(hostFromUrl(wc.getURL()) ?? "")) wc.reload();
+      else wc.mainFrame.send(ADBLOCK_COSMETIC_REFRESH_CHANNEL);
+    }
   }
 
   /** The engines that apply to a profile: ads and trackers, plus annoyances when it wants them. */
@@ -398,7 +392,7 @@ export class AdblockService {
     if (cached?.text === text) return cached.engine;
     let engine: ElectronBlocker | null = null;
     try {
-      engine = text ? ElectronBlocker.parse(text, ENGINE_CONFIG) : null;
+      engine = text ? parseEngine(text) : null;
     } catch {
       engine = null;
     }
@@ -435,7 +429,7 @@ export class AdblockService {
   attach(session: Session, controller: AdblockController, profileId: string): void {
     const attachment: Attachment = { session, controller, profileId, registered: false };
     this.attachments.push(attachment);
-    if (this.cosmeticPreload) session.registerPreloadScript({ id: "corvus-adblock-cosmetic", type: "frame", filePath: this.cosmeticPreload });
+    session.registerPreloadScript({ id: "corvus-adblock-cosmetic", type: "frame", filePath: paths.adblockCosmeticPreload });
     session.registerPreloadScript({ id: "corvus-adblock-scriptlets", type: "frame", filePath: paths.adblockScriptletsPreload });
     session.registerPreloadScript({ id: "corvus-cookie-consent", type: "frame", filePath: paths.cookieConsentPreload });
     session.protocol.handle(ADBLOCK_RESOURCE_SCHEME, (req) => this.serveStandIn(req.url));
@@ -606,16 +600,15 @@ export class AdblockService {
   }
 
   private registerCosmeticHandlers(): void {
-    ipcMain.handle(COSMETIC_INJECT_CHANNEL, (event, url: unknown, msg?: unknown) => {
+    ipcMain.handle(ADBLOCK_COSMETIC_CHANNEL, (event, url: unknown, msg?: unknown): ExtendedRule[] => {
       // Styles go into the tab's page: subframes (which run the preload too) are not filtered from here.
-      if (event.senderFrame && event.senderFrame.parent !== null) return undefined;
+      if (event.senderFrame && event.senderFrame.parent !== null) return [];
       const controller = this.controllerFor(event.sender.session);
-      if (!controller || typeof url !== "string") return undefined;
-      if (!isBlockablePageUrl(url) || !shouldBlockPage(controller.settings(), hostFromUrl(url) ?? "")) return undefined;
-      this.injectStyles(event, controller, url, msg);
-      return undefined;
+      if (!controller || typeof url !== "string") return [];
+      if (!isBlockablePageUrl(url) || !shouldBlockPage(controller.settings(), hostFromUrl(url) ?? "")) return [];
+      return this.injectStyles(event, controller, url, msg);
     });
-    ipcMain.handle(COSMETIC_MUTATION_CHANNEL, (event) => (event.senderFrame && event.senderFrame.parent !== null ? false : this.ads.blocker.onIsMutationObserverEnabled(event)));
+    ipcMain.handle(ADBLOCK_COSMETIC_OBSERVE_CHANNEL, (event) => (event.senderFrame && event.senderFrame.parent !== null ? false : ENGINE_CONFIG.enableMutationObserver));
     ipcMain.on(CONSENT_INIT_CHANNEL, (event, url: unknown) => {
       event.returnValue = this.consentInit(event, url);
     });
@@ -630,7 +623,7 @@ export class AdblockService {
    * Element hiding for a page: site and generic rules when it starts, then rules for the ids and
    * classes it adds. Scriptlets are not run from here: the scriptlets preload runs them earlier.
    */
-  private injectStyles(event: IpcMainInvokeEvent, controller: AdblockController, url: string, msg: unknown): void {
+  private injectStyles(event: IpcMainInvokeEvent, controller: AdblockController, url: string, msg: unknown): ExtendedRule[] {
     const update = msg && typeof msg === "object" ? (msg as CosmeticUpdate) : undefined;
     const held = this.heldAnnoyances.get(event.sender.id);
     if (held && update) {
@@ -640,16 +633,21 @@ export class AdblockService {
     }
     // A site whose cookie banner you chose to keep shows it: the cookie notice lists do not hide it either.
     const keepBanner = siteListMatches(hostFromUrl(url) ?? "", controller.consentAllowedSites());
+    const extended: ExtendedRule[] = [];
     for (const engine of this.enginesFor(controller)) {
       if ((held || keepBanner) && engine === this.annoyances.blocker) continue;
-      this.insertStyles(event.sender, engine, url, update, update === undefined);
+      extended.push(...this.insertStyles(event.sender, engine, url, update, update === undefined));
     }
+    return extended;
   }
 
-  /** One engine's element hiding for the tab's page: base and site rules when `first`, plus rules for `update`. */
-  private insertStyles(wc: WebContents, engine: ElectronBlocker, url: string, update: CosmeticUpdate | undefined, first: boolean): void {
+  /**
+   * One engine's element hiding for the tab's page: base and site rules when `first`, plus rules for
+   * `update`. Rules CSS cannot express (:has-text, :upward...) come back for the page to apply.
+   */
+  private insertStyles(wc: WebContents, engine: ElectronBlocker, url: string, update: CosmeticUpdate | undefined, first: boolean): ExtendedRule[] {
     const { hostname, domain } = Request.fromRawDetails({ url });
-    const { active, styles } = engine.getCosmeticsFilters({
+    const { active, styles, extended } = engine.getCosmeticsFilters({
       url,
       hostname,
       domain,
@@ -658,12 +656,13 @@ export class AdblockService {
       ids: stringList(update?.ids),
       getBaseRules: first,
       getInjectionRules: false,
-      getExtendedRules: false,
+      getExtendedRules: true,
       getRulesFromHostname: first,
       getRulesFromDOM: update !== undefined,
       callerContext: { frameId: wc.mainFrame.routingId, processId: wc.mainFrame.processId },
     });
     if (active && styles.length > 0) void wc.insertCSS(styles, { cssOrigin: "user" }).catch(() => undefined);
+    return active ? extended : [];
   }
 
   /**
@@ -688,7 +687,8 @@ export class AdblockService {
     const controller = this.controllerFor(wc.session);
     const url = wc.getURL();
     if (!controller || !controller.options().annoyances || !isBlockablePageUrl(url) || !shouldBlockPage(controller.settings(), hostFromUrl(url) ?? "")) return;
-    this.insertStyles(wc, this.annoyances.blocker, url, { classes: [...held.classes], hrefs: [...held.hrefs], ids: [...held.ids] }, true);
+    const extended = this.insertStyles(wc, this.annoyances.blocker, url, { classes: [...held.classes], hrefs: [...held.hrefs], ids: [...held.ids] }, true);
+    if (extended.length > 0) wc.mainFrame.send(ADBLOCK_COSMETIC_EXTENDED_CHANNEL, extended);
   }
 
   /** A starting web frame asks whether to run Autoconsent and set navigator.globalPrivacyControl. */

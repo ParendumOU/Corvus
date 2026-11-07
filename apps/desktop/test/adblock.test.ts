@@ -160,6 +160,45 @@ describe("YouTube", () => {
   });
 });
 
+describe("YouTube ad skipper, when the player fights back", () => {
+  it("reacts to the player's class at once, keeps the ad muted and unseen, and restores the video", () => {
+    const classes = new Set(["ad-showing"]);
+    const listeners: Record<string, () => void> = {};
+    const video = { muted: false, playbackRate: 1, duration: NaN, currentTime: 0, style: { opacity: "" }, addEventListener: (type: string, fn: () => void) => (listeners[type] = fn) };
+    const player = { classList: { contains: (c: string) => classes.has(c) }, querySelector: () => video, querySelectorAll: () => [] };
+    let onClass: () => void = () => undefined;
+    let tick: () => void = () => undefined;
+    runInNewContext(YOUTUBE_AD_SKIPPER, {
+      WeakMap,
+      isFinite,
+      document: { getElementById: () => player },
+      setInterval: (fn: () => void) => {
+        tick = fn;
+        return 1;
+      },
+      MutationObserver: class {
+        constructor(fn: () => void) {
+          onClass = fn;
+        }
+        observe(): void {}
+      },
+    });
+    classes.clear();
+    tick();
+    classes.add("ad-showing");
+    onClass();
+    expect(video).toMatchObject({ muted: true, playbackRate: 16, style: { opacity: "0" } });
+    video.muted = false;
+    listeners.volumechange?.();
+    expect(video.muted).toBe(true);
+    classes.clear();
+    onClass();
+    expect(video).toMatchObject({ muted: false, playbackRate: 1, style: { opacity: "" } });
+    listeners.volumechange?.();
+    expect(video.muted).toBe(false);
+  });
+});
+
 describe("decodeDataUrl (stand-ins served instead of data: redirects)", () => {
   it("decodes base64 and plain bodies with their content type", () => {
     const gif = decodeDataUrl("data:image/gif;base64,R0lGODlhAQABAA==");

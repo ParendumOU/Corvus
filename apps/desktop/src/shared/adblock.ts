@@ -9,6 +9,24 @@ export type AdblockListSource = "bundled" | "cache" | "network";
 /** Sync IPC a starting web frame uses to fetch its scriptlets (they must run before the page's scripts). */
 export const ADBLOCK_SCRIPTLETS_CHANNEL = "corvus:adblock-scriptlets";
 
+/** A page asks for its element hiding: the styles are inserted from the main process, the rest comes back. */
+export const ADBLOCK_COSMETIC_CHANNEL = "corvus:adblock-cosmetic";
+/** Whether the page should watch itself for new ids and classes. */
+export const ADBLOCK_COSMETIC_OBSERVE_CHANNEL = "corvus:adblock-cosmetic-observe";
+/** Main to page: rules CSS cannot express that arrived late (the annoyance lists wait for cookie banners). */
+export const ADBLOCK_COSMETIC_EXTENDED_CHANNEL = "corvus:adblock-cosmetic-extended";
+
+/** Main to page: new filter lists are in place, ask again for the page's element hiding. */
+export const ADBLOCK_COSMETIC_REFRESH_CHANNEL = "corvus:adblock-cosmetic-refresh";
+
+/** A procedural filter the page applies itself: elements matching `ast` get `attribute` (hidden by a style) or `directive`. */
+export interface ExtendedRule {
+  id: number;
+  ast: unknown;
+  attribute?: string;
+  directive?: unknown;
+}
+
 /** What a starting frame gets: the scripts to run, and whether to watch YouTube's player for the loop. */
 export interface ScriptletsAnswer {
   scripts: string[];
@@ -74,23 +92,35 @@ export class PlaybackLoopDetector {
 }
 
 /**
- * Runs in YouTube pages: an ad that still reaches the player plays muted, at top speed, jumps to
- * its end and is skipped, then the video's own volume and speed come back. The only defence when
+ * Runs in YouTube pages: an ad that still reaches the player plays muted and unseen, at top speed,
+ * jumps to its end and is skipped, then the video's own volume and speed come back. It reacts to the
+ * player's class at once and YouTube's player unmutes on its own, or the ad is heard at 16x. The only defence when
  * YouTube refuses to play without its ads, and a safety net when the lists miss one. Plain ES5
  * source (not a bundled function) so it runs in the page as written.
  */
 export const YOUTUBE_AD_SKIPPER = `(function () {
   var saved = new WeakMap();
+  var watchedPlayer = null;
+  var watchedVideos = new WeakMap();
   var SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button, .ytp-skip-ad button, button[id^="skip-button"], .ytp-ad-skip-button-container button';
   function tick() {
     var player = document.getElementById('movie_player');
     if (!player) return;
+    if (player !== watchedPlayer && typeof MutationObserver === 'function') {
+      watchedPlayer = player;
+      new MutationObserver(tick).observe(player, { attributes: true, attributeFilter: ['class'] });
+    }
     var video = player.querySelector('video.html5-main-video');
     if (!video) return;
     var ad = player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting');
     if (ad) {
-      if (!saved.has(video)) saved.set(video, { muted: video.muted, rate: video.playbackRate });
+      if (!saved.has(video)) saved.set(video, { muted: video.muted, rate: video.playbackRate, opacity: video.style ? video.style.opacity : '' });
+      if (!watchedVideos.has(video) && video.addEventListener) {
+        watchedVideos.set(video, true);
+        video.addEventListener('volumechange', function () { if (saved.has(video) && !video.muted) video.muted = true; });
+      }
       video.muted = true;
+      if (video.style) video.style.opacity = '0';
       try { if (video.playbackRate !== 16) video.playbackRate = 16; } catch (e) {}
       if (isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration - 0.25) {
         try { video.currentTime = video.duration - 0.1; } catch (e) {}
@@ -102,9 +132,10 @@ export const YOUTUBE_AD_SKIPPER = `(function () {
       saved.delete(video);
       video.muted = before.muted;
       video.playbackRate = before.rate || 1;
+      if (video.style) video.style.opacity = before.opacity;
     }
   }
-  setInterval(tick, 250);
+  setInterval(tick, 100);
 })();`;
 
 /**

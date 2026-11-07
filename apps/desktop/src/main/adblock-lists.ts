@@ -1,12 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { net, utilityProcess } from "electron";
-import { ElectronBlocker, adsAndTrackingLists, fetchLists, fetchResources, fullLists } from "@ghostery/adblocker-electron";
+import { ElectronBlocker } from "@ghostery/adblocker-electron";
 import type { AdblockListSource } from "../shared/adblock";
-import { ENGINE_CONFIG, buildEngine, countFilters, type BuiltEngine } from "./adblock-engine";
+import { buildEngine, countFilters, parseEngine, type BuiltEngine } from "./adblock-engine";
+import { ADS_AND_TRACKING_LISTS, ANNOYANCE_LISTS, RESOURCES_LIST, downloadList, latestRevisions, type ListFetch } from "./adblock-sources";
 import { paths } from "./paths";
 
-const REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+/** How often to ask whether the lists moved (uBlock Origin's quick fixes expire after 8 hours). */
+const CHECK_MS = 6 * 60 * 60 * 1000;
+/** After a failed check (offline, say). */
+const RETRY_MS = 30 * 60 * 1000;
 const PARSE_TIMEOUT_MS = 3 * 60_000;
 
 /**
@@ -53,12 +57,15 @@ export interface ListMeta {
   filterCount: number;
   /** Which list set the cached engine was built from. */
   lists?: string;
+  /** The list revisions it was built from, and when they were last compared with the newest. */
+  revisions?: string;
+  checkedAt?: number;
 }
 
 export interface FilterSetSpec {
   /** Names the list set; a cached engine built from another set is rebuilt. */
   set: string;
-  urls: readonly string[];
+  lists: readonly string[];
   /** Used until the first download succeeds (offline first run). */
   fallback: string;
   /** Cache file names in the adblock directory. */
@@ -68,18 +75,17 @@ export interface FilterSetSpec {
 
 /**
  * The lists Brave and uBlock Origin block with: EasyList and EasyPrivacy plus uBlock Origin's own
- * filters (with its quick fixes, where sites like YouTube are kept ad-free) and Peter Lowe's list,
- * as Ghostery mirrors them.
+ * filters (with its quick fixes, where sites like YouTube are kept ad-free) and Peter Lowe's list.
  */
 export function adsAndTrackingSpec(fallback: string): FilterSetSpec {
-  return { set: "ghostery-ads-and-tracking-1", urls: adsAndTrackingLists, fallback, engineFile: "engine.bin", metaFile: "meta.json" };
+  return { set: "cdn-ads-and-tracking-1", lists: ADS_AND_TRACKING_LISTS, fallback, engineFile: "engine.bin", metaFile: "meta.json" };
 }
 
 /** Cookie notices and other annoyances: EasyList Cookie and uBlock Origin's annoyances lists. */
 export function annoyancesSpec(): FilterSetSpec {
   return {
-    set: "ghostery-annoyances-1",
-    urls: fullLists.filter((url) => !adsAndTrackingLists.includes(url)),
+    set: "cdn-annoyances-1",
+    lists: ANNOYANCE_LISTS,
     fallback: ANNOYANCES_FALLBACK,
     engineFile: "annoyances.bin",
     metaFile: "annoyances.json",
@@ -107,7 +113,15 @@ const ANNOYANCES_FALLBACK = [
   "###sp_message_container_1",
 ].join("\n");
 
-/** One filter engine: loaded from its cache, refreshed weekly, bundled fallback when offline. */
+/**
+ * Whether a new engine replaces one that barely filtered: the bundled fallback (first run) or a cache
+ * of another list set (first run after an update changed the lists).
+ */
+export function replacesUnfiltered(previous: Pick<ListMeta, "source" | "lists">, set: string): boolean {
+  return previous.source === "bundled" || previous.lists !== set;
+}
+
+/** One filter engine: loaded from its cache, rebuilt when its lists move, bundled fallback when offline. */
 export class FilterSet {
   blocker: ElectronBlocker;
   meta: ListMeta;
@@ -117,16 +131,18 @@ export class FilterSet {
     private readonly cacheDir: string,
     private readonly spec: FilterSetSpec,
     private readonly onChange: () => void,
+    /** A new engine is in place; `unfilteredBefore` as replacesUnfiltered says. */
+    private readonly onSwap: (unfilteredBefore: boolean) => void = () => undefined,
   ) {
     const loaded = this.loadFromCache() ?? this.buildFallback();
     this.blocker = loaded.blocker;
     this.meta = loaded.meta;
   }
 
-  /** Refreshes at once when the cache is missing, stale or of another set, then weekly. */
+  /** Checks soon when the last check is old or the cache is of another set, then every few hours. */
   scheduleRefresh(delayMs: number): void {
     if (!this.fresh()) setTimeout(() => void this.refresh(false), delayMs).unref();
-    setInterval(() => void this.refresh(false), REFRESH_MS).unref();
+    setInterval(() => void this.refresh(false), CHECK_MS).unref();
   }
 
   async refresh(force: boolean): Promise<void> {
@@ -135,28 +151,40 @@ export class FilterSet {
     this.updating = true;
     this.onChange();
     try {
-      // As ElectronBlocker.fromLists, with the parsing moved out of this process.
-      const fetchImpl = (url: string): ReturnType<typeof net.fetch> => net.fetch(url);
-      const [lists, resources] = await Promise.all([fetchLists(fetchImpl, [...this.spec.urls]), fetchResources(fetchImpl)]);
-      const { blocker, built } = await parseLists(lists.join("\n"), resources);
+      const fetchImpl: ListFetch = (url) => net.fetch(url);
+      const names = [...this.spec.lists, RESOURCES_LIST];
+      const revisions = await latestRevisions(fetchImpl, names);
+      const key = revisions.join(",");
+      if (!force && this.meta.lists === this.spec.set && this.meta.revisions === key) {
+        this.meta = { ...this.meta, checkedAt: Date.now() };
+        this.writeMeta();
+        return;
+      }
+      const texts = await Promise.all(names.map((name, i) => downloadList(fetchImpl, name, revisions[i]!)));
+      const resources = texts.pop() ?? null;
+      const { blocker, built } = await parseLists(texts.join("\n"), resources);
       this.blocker = blocker;
-      this.meta = { updatedAt: Date.now(), source: "network", filterCount: built.filterCount, lists: this.spec.set };
+      const unfilteredBefore = replacesUnfiltered(this.meta, this.spec.set);
+      const now = Date.now();
+      this.meta = { updatedAt: now, source: "network", filterCount: built.filterCount, lists: this.spec.set, revisions: key, checkedAt: now };
       this.writeCache(built.bytes);
+      this.onSwap(unfilteredBefore);
     } catch (err) {
       console.warn(`[corvus] adblock list refresh failed (${this.spec.set}): ${(err as Error).message}`);
+      setTimeout(() => void this.refresh(false), RETRY_MS).unref();
     } finally {
       this.updating = false;
       this.onChange();
     }
   }
 
-  /** Whether the engine in use is a cached one, built from this set, less than a week ago. */
+  /** Whether the engine in use comes from this set of lists, compared with the newest a moment ago. */
   private fresh(): boolean {
-    return this.meta.source === "cache" && this.meta.lists === this.spec.set && this.meta.updatedAt !== null && Date.now() - this.meta.updatedAt <= REFRESH_MS;
+    return this.meta.source !== "bundled" && this.meta.lists === this.spec.set && this.meta.checkedAt !== undefined && Date.now() - this.meta.checkedAt < CHECK_MS;
   }
 
   private buildFallback(): { blocker: ElectronBlocker; meta: ListMeta } {
-    const blocker = ElectronBlocker.parse(this.spec.fallback, ENGINE_CONFIG);
+    const blocker = parseEngine(this.spec.fallback);
     return { blocker, meta: { updatedAt: null, source: "bundled", filterCount: countFilters(blocker) } };
   }
 
@@ -172,6 +200,8 @@ export class FilterSet {
           source: "cache",
           filterCount: meta.filterCount ?? countFilters(blocker),
           ...(typeof meta.lists === "string" ? { lists: meta.lists } : {}),
+          ...(typeof meta.revisions === "string" ? { revisions: meta.revisions } : {}),
+          ...(typeof meta.checkedAt === "number" ? { checkedAt: meta.checkedAt } : {}),
         },
       };
     } catch {
@@ -183,11 +213,16 @@ export class FilterSet {
     try {
       fs.mkdirSync(this.cacheDir, { recursive: true });
       fs.writeFileSync(path.join(this.cacheDir, this.spec.engineFile), bytes);
-      fs.writeFileSync(
-        path.join(this.cacheDir, this.spec.metaFile),
-        JSON.stringify({ updatedAt: this.meta.updatedAt, filterCount: this.meta.filterCount, lists: this.meta.lists }),
-        "utf8",
-      );
+      this.writeMeta();
+    } catch (err) {
+      console.warn(`[corvus] adblock cache write failed (${this.spec.set}): ${(err as Error).message}`);
+    }
+  }
+
+  private writeMeta(): void {
+    try {
+      const { updatedAt, filterCount, lists, revisions, checkedAt } = this.meta;
+      fs.writeFileSync(path.join(this.cacheDir, this.spec.metaFile), JSON.stringify({ updatedAt, filterCount, lists, revisions, checkedAt }), "utf8");
     } catch (err) {
       console.warn(`[corvus] adblock cache write failed (${this.spec.set}): ${(err as Error).message}`);
     }

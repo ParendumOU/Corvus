@@ -34,9 +34,15 @@ importers:
       7z-wasm:
         specifier: 1.2.0
         version: 1.2.0
+      '@ghostery/adblocker-content':
+        specifier: 2.20.1
+        version: 2.20.1
       '@ghostery/adblocker-electron':
         specifier: 2.20.1
         version: 2.20.1(electron@44.9.0)
+      '@ghostery/adblocker-extended-selectors':
+        specifier: 2.20.1
+        version: 2.20.1
       electron-chrome-extensions:
         specifier: 4.9.0
         version: 4.9.0

@@ -17,3 +17,25 @@ describe("filter list parser", () => {
     expect(engine.match(script("https://cdn.example/a.js")).match).toBe(false);
   });
 });
+
+describe("engine rules", () => {
+  const youtube = { url: "https://www.youtube.com/", hostname: "www.youtube.com", domain: "youtube.com", getBaseRules: false, getInjectionRules: false, getExtendedRules: true, getRulesFromHostname: true, getRulesFromDOM: false };
+
+  it("keeps the procedural filters CSS cannot express", () => {
+    const engine = ElectronBlocker.deserialize(buildEngine("youtube.com##.promo:has-text(Sponsored)", null).bytes);
+    const { extended, styles } = engine.getCosmeticsFilters(youtube);
+    expect(extended).toHaveLength(1);
+    expect(extended[0]?.attribute).toBeTruthy();
+    expect(styles).toContain(`[${extended[0]?.attribute}]`);
+  });
+
+  it("applies only the !#if blocks meant for Chromium", () => {
+    const lists = ["!#if env_firefox", "youtube.com##.firefox", "!#else", "youtube.com##.chromium", "!#endif", "!#if ext_ubol", "youtube.com##.lite", "!#endif", "!#if env_chromium", "youtube.com##.both", "!#endif"].join("\n");
+    const engine = ElectronBlocker.deserialize(buildEngine(lists, null).bytes);
+    const { styles } = engine.getCosmeticsFilters({ ...youtube, getExtendedRules: false });
+    expect(styles).toContain(".chromium");
+    expect(styles).toContain(".both");
+    expect(styles).not.toContain(".firefox");
+    expect(styles).not.toContain(".lite");
+  });
+});

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.40.1
+
+### Fixed
+- **YouTube: fewer ads, and videos no longer jump, restart or stop halfway.** The filter lists came from a copy that had not moved since August and lacked uBlock Origin's 2025 and 2026 lists, so YouTube's rules were three months old. They now come from a source updated every day: Corvus checks every 6 hours and rebuilds only when a list moved (it used to check weekly). Rules meant for other browsers no longer run alongside the ones for Chromium, and filters CSS cannot express (`:has-text`, `:upward`...) now work.
+- **A page opened before the lists arrive is filtered too.** YouTube changes page without loading a new document, so a tab opened in the first seconds after the first run or an update stayed unfiltered for as long as it lived. New lists now reach open pages at once, and a YouTube page that started with next to no rules loads again.
+- **An ad that still reaches the player is not heard or seen at high speed.** The ad skipper reacts the moment the ad starts and keeps it muted and hidden.
+
 ## v0.40.0
 
 ### Search

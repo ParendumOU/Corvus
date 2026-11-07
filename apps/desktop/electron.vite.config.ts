@@ -57,8 +57,8 @@ export default defineConfig({
           // And the sync server built into Corvus (the same code as services/sync-server).
           "sync-server-worker": resolve(import.meta.dirname, "src/main/sync-server-worker.ts"),
         },
-        // Keep the Ghostery adblocker external: it resolves its content-script preload from disk at
-        // runtime (require.resolve), which bundling would break. 7-Zip loads its .wasm next to itself;
+        // Keep the Ghostery adblocker external (a big engine, also used by the list parser process).
+        // 7-Zip loads its .wasm next to itself;
         // koffi (the DPAPI worker on Windows) loads its native binary next to itself.
         external: [/^@ghostery\//, /^tldts/, /^7z-wasm/, /^koffi/],
       },
@@ -81,6 +81,7 @@ export default defineConfig({
           "extension-sw": resolve(import.meta.dirname, "src/preload/extension-sw.ts"),
           "extension-api": resolve(import.meta.dirname, "src/preload/extension-api.ts"),
           "adblock-scriptlets": resolve(import.meta.dirname, "src/preload/adblock-scriptlets.ts"),
+          "adblock-cosmetic": resolve(import.meta.dirname, "src/preload/adblock-cosmetic.ts"),
           "cookie-consent": resolve(import.meta.dirname, "src/preload/cookie-consent.ts"),
         },
         output: { format: "cjs", entryFileNames: "[name].cjs" },
