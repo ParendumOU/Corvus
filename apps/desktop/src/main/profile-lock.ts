@@ -182,6 +182,8 @@ interface LockFile {
   methods: StoredMethod[];
   /** The profile's secrets are still to be sealed under the lock key (Corvus stopped while adding the lock). */
   pending?: boolean;
+  /** Locks too when the computer's session locks (off unless the person turns it on). */
+  withComputer?: boolean;
   failures: number;
   retryAt: number;
 }
@@ -206,6 +208,7 @@ function reviveFile(raw: unknown): LockFile | null {
     secret: { salt: s.salt, N: s.N, r: s.r, p: s.p, sealed: s.sealed },
     methods,
     ...(r.pending === true ? { pending: true } : {}),
+    ...(r.withComputer === true ? { withComputer: true } : {}),
     failures: typeof r.failures === "number" && r.failures >= 0 ? r.failures : 0,
     retryAt: typeof r.retryAt === "number" ? r.retryAt : 0,
   };
@@ -294,6 +297,16 @@ export class ProfileLock {
   /** A lock is set and its key is not in memory: nothing of the profile's secrets can be read. */
   get locked(): boolean {
     return this.config !== null && this.lk === null;
+  }
+
+  /** Locks too when the computer's session locks (see LockFile.withComputer). */
+  get locksWithComputer(): boolean {
+    return this.config?.withComputer === true;
+  }
+
+  setLocksWithComputer(on: boolean): void {
+    this.update(({ withComputer: _was, ...rest }) => (on ? { ...rest, withComputer: true } : rest));
+    this.emit();
   }
 
   /** Secrets still to be sealed under the lock key (see LockFile.pending). */

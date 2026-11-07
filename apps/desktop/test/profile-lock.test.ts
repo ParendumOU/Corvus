@@ -344,17 +344,67 @@ describe("adding and removing a lock", () => {
   });
 });
 
+describe("locking with the computer", () => {
+  it("is off until turned on, kept in the lock file, and gone with the lock", async () => {
+    const dir = tmp();
+    const lock = new ProfileLock(dir, keychain);
+    expect(() => lock.setLocksWithComputer(true)).toThrow();
+    await lock.create("pin", "246810", FAST);
+    expect(lock.locksWithComputer).toBe(false);
+    lock.setLocksWithComputer(true);
+    expect(new ProfileLock(dir, keychain).locksWithComputer).toBe(true);
+    lock.setLocksWithComputer(false);
+    expect(new ProfileLock(dir, keychain).locksWithComputer).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "lock.json"), "utf8"))).not.toHaveProperty("withComputer");
+    lock.setLocksWithComputer(true);
+    lock.beginRemove();
+    lock.finishRemove();
+    expect(lock.locksWithComputer).toBe(false);
+  });
+
+  it("tells its listeners when it changes (the watcher starts and stops with it)", async () => {
+    const lock = new ProfileLock(tmp(), keychain);
+    await lock.create("pin", "246810", FAST);
+    let changes = 0;
+    lock.onChange(() => changes++);
+    lock.setLocksWithComputer(true);
+    expect(changes).toBe(1);
+  });
+});
+
 const key = (k: string, mods: Partial<KeyInput> = {}): KeyInput => ({ type: "keyDown", key: k, control: false, meta: false, shift: false, alt: false, ...mods });
 
 describe("the lock shortcut", () => {
-  it("is Alt+H on Windows and Linux, Option+H on macOS (its physical key: Option+H types a symbol)", () => {
-    expect(commandForInput(key("h", { alt: true }), "win32")).toEqual({ type: "lock-profile" });
-    expect(commandForInput(key("H", { alt: true }), "linux")).toEqual({ type: "lock-profile" });
-    expect(commandForInput(key("˙", { alt: true, code: "KeyH" }), "darwin")).toEqual({ type: "lock-profile" });
-    expect(commandForInput(key("h", { alt: true, shift: true }), "win32")).toBeNull();
-    expect(commandForInput(key("h", { alt: true, control: true }), "win32")).not.toEqual({ type: "lock-profile" });
-    expect(commandForInput(key("h", { alt: true, meta: true, code: "KeyH" }), "darwin")).not.toEqual({ type: "lock-profile" });
-    expect(commandForInput({ ...key("h", { alt: true }), type: "keyUp" }, "win32")).toBeNull();
+  const lock = { type: "lock-profile" };
+
+  it("is Alt+L on Windows and Linux, like Win+L", () => {
+    expect(commandForInput(key("l", { alt: true, code: "KeyL" }), "win32")).toEqual(lock);
+    expect(commandForInput(key("L", { alt: true, code: "KeyL" }), "linux")).toEqual(lock);
+    expect(commandForInput(key("l", { alt: true, shift: true }), "win32")).toBeNull();
+    // AltGr is Ctrl+Alt on Windows: AltGr+L types a letter on some layouts (Polish ł).
+    expect(commandForInput(key("ł", { alt: true, control: true, code: "KeyL" }), "win32")).not.toEqual(lock);
+    expect(commandForInput({ ...key("l", { alt: true }), type: "keyUp" }, "win32")).toBeNull();
+  });
+
+  it("is ⌃⌘L on macOS: Option+L types a character there (@ on German keyboards)", () => {
+    expect(commandForInput(key("l", { control: true, meta: true, code: "KeyL" }), "darwin")).toEqual(lock);
+    expect(commandForInput(key("@", { alt: true, code: "KeyL" }), "darwin")).toBeNull();
+    expect(commandForInput(key("¬", { alt: true, code: "KeyL" }), "darwin")).toBeNull();
+    expect(commandForInput(key("l", { meta: true, code: "KeyL" }), "darwin")).toEqual({ type: "focus-omnibox" });
+    expect(commandForInput(key("l", { alt: true, control: true, meta: true, code: "KeyL" }), "darwin")).not.toEqual(lock);
+  });
+
+  it("follows the key's letter, and its place only where the layout types no Latin letter", () => {
+    // Russian: the L key types д.
+    expect(commandForInput(key("д", { alt: true, code: "KeyL" }), "win32")).toEqual(lock);
+    // Dvorak: the L key types N, and L sits elsewhere.
+    expect(commandForInput(key("n", { alt: true, code: "KeyL" }), "win32")).toBeNull();
+    expect(commandForInput(key("l", { alt: true, code: "KeyP" }), "linux")).toEqual(lock);
+  });
+
+  it("leaves Alt+H to the page now", () => {
+    expect(commandForInput(key("h", { alt: true, code: "KeyH" }), "win32")).toBeNull();
+    expect(commandForInput(key("˙", { alt: true, code: "KeyH" }), "darwin")).toBeNull();
   });
 
   it("is never left to the page first: a page cannot swallow it", () => {

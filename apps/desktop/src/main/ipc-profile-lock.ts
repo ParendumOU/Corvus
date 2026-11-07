@@ -67,6 +67,7 @@ export const PROFILE_LOCK_INTERNAL_PERMISSIONS: Record<keyof ProfileLockInternal
   "profileLock.change": ["settings"],
   "profileLock.remove": ["settings"],
   "profileLock.lockNow": ["settings"],
+  "profileLock.setWithComputer": ["settings"],
   "profileLock.totpStart": ["settings"],
   "profileLock.totpConfirm": ["settings"],
   "profileLock.addAuthenticator": ["settings"],
@@ -81,6 +82,10 @@ export function profileLockInternalHandlers(ctx: AppContext): InternalHandlers<P
     "profileLock.change": (c, current, kind, value) => locks.change(c.profile, secret(current), lockKind(kind), secret(value)),
     "profileLock.remove": (c, current) => locks.remove(c.profile, secret(current)),
     "profileLock.lockNow": (c) => locks.lock(c.profile),
+    "profileLock.setWithComputer": (c, on) => {
+      if (typeof on !== "boolean") throw new IpcError("Invalid setting");
+      return locks.setWithComputer(c.profile, on);
+    },
     "profileLock.totpStart": (c, current) => locks.totpStart(c.profile, secret(current)),
     "profileLock.totpConfirm": (c, setupId, code, label) => locks.totpConfirm(c.profile, str(setupId, "setup", 64), str(code, "code", 20), str(label, "label", 200)),
     "profileLock.addAuthenticator": (c, type, current, label) => {

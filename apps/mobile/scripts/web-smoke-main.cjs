@@ -628,9 +628,10 @@ app.whenReady().then(async () => {
       `document.querySelector('[data-testid=browser-page-url]')?.textContent === ${JSON.stringify(page)} && (document.querySelector('[data-testid=browser-address]')?.innerText ?? '').includes('example.com')`,
     );
     await win.webContents.executeJavaScript("document.querySelector('[data-testid=browser-menu]')?.click()");
-    const menuShown = await until(win, "Boolean(document.querySelector('[data-testid=menu-ask]')) && Boolean(document.querySelector('[data-testid=menu-bookmark]')) && Boolean(document.querySelector('[data-testid=menu-desktop]'))", 5000);
+    const menuShown = await until(win, "Boolean(document.querySelector('[data-testid=menu-ask]')) && Boolean(document.querySelector('[data-testid=menu-bookmark]')) && !document.querySelector('[data-testid=menu-desktop]')", 5000);
     await shot(win, "browser-menu");
-    check("browser: a link opens in a tab with its site in the address bar, and the page menu has Corvus's actions", browserShown && menuShown);
+    // No Desktop site switch on the web build: it does nothing there.
+    check("browser: a link opens in a tab with its site in the address bar, and the page menu has Corvus's actions (no Desktop site switch on the web)", browserShown && menuShown);
     await screen(win, base, "/browser?edit=1", "browser-new-tab", "Boolean(document.querySelector('[data-testid=browser-address-input]'))");
     await typeInto(win, "browser-address-input", "what do crows eat");
     const searchOffered = await until(win, "(document.querySelector('[data-testid=browser-suggest-go]')?.innerText ?? '').includes('DuckDuckGo')", 5000);

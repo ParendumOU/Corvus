@@ -65,6 +65,7 @@ function popup(win: BrowserWindowCtl, template: MenuItemConstructorOptions[], x?
 
 const mod = process.platform === "darwin" ? "Cmd" : "Ctrl";
 const viewSourceKey = process.platform === "darwin" ? "Alt+Cmd+U" : "Ctrl+U";
+const lockKey = process.platform === "darwin" ? "Ctrl+Cmd+L" : "Alt+L";
 
 export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y: number): void {
   const active = win.activeTab();
@@ -97,7 +98,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
       },
       { label: tr("Downloads"), accelerator: process.platform === "darwin" ? "Cmd+Shift+J" : "Ctrl+J", click: () => win.openSingleton("corvus://downloads/") },
       { label: tr("Extensions"), click: () => win.openSingleton("corvus://extensions/") },
-      { label: tr("Lock profile"), accelerator: "Alt+H", click: () => win.runCommand({ type: "lock-profile" }) },
+      { label: tr("Lock profile"), accelerator: lockKey, click: () => win.runCommand({ type: "lock-profile" }) },
       { type: "separator" },
       { label: tr("Reader mode"), accelerator: `${mod}+Shift+R`, enabled: active ? /^https?:/.test(pageUrl(active)) : false, click: () => ctx.reader.toggle(win) },
       { label: tr("Reading list"), click: () => win.openSingleton("corvus://reading/") },
@@ -208,7 +209,7 @@ export function showProfileMenu(ctx: AppContext, win: BrowserWindowCtl, x: numbe
       ...profiles,
       { type: "separator" },
       { label: tr("New window for this profile"), click: () => ctx.windows.open(current) },
-      { label: tr("Lock profile"), accelerator: "Alt+H", click: () => win.runCommand({ type: "lock-profile" }) },
+      { label: tr("Lock profile"), accelerator: lockKey, click: () => win.runCommand({ type: "lock-profile" }) },
       { label: tr("Add or manage profiles…"), click: () => win.openSingleton("corvus://settings/#profiles") },
     ],
     x,

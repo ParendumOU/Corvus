@@ -50,6 +50,7 @@ import { secrets } from '@/lib/secrets';
 import { mergeVisit, retitled } from '@/lib/visits';
 import { watchFor } from '@/lib/watches';
 import { t } from './i18n';
+import { leaveChain } from './leave';
 
 export type { ChainView } from '@/lib/chain-view';
 
@@ -503,20 +504,21 @@ export async function cancelSent(pairing: Pairing, id: string): Promise<void> {
   await replicaFor(pairing).put('sent_tabs', id, null);
 }
 
-/** Leaves the chain (best effort when offline) and forgets everything about it on the phone. */
+/** Forgets everything about the chain on the phone, then tells its server this phone left (see leaveChain). */
 export async function unpair(pairing: Pairing): Promise<void> {
-  try {
-    const client = clientFor(pairing);
-    await client.removeDevice(await client.getDeviceId());
-  } catch {
-    // Offline or already removed: the computer can remove this phone from its device list.
-  }
-  await secrets.remove(PAIRING_KEY);
-  await secrets.remove(VAULT_KEY);
-  clients.delete(pairing.chainId);
-  replicas.delete(pairing.chainId);
-  outboxes.delete(pairing.chainId);
-  await dataStore.clear();
-  const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SYNC_STATE_PREFIX));
-  if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+  const client = clientFor(pairing);
+  await leaveChain({
+    deviceId: () => client.getDeviceId(),
+    forget: async () => {
+      await secrets.remove(PAIRING_KEY);
+      await secrets.remove(VAULT_KEY);
+      clients.delete(pairing.chainId);
+      replicas.delete(pairing.chainId);
+      outboxes.delete(pairing.chainId);
+      await dataStore.clear();
+      const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SYNC_STATE_PREFIX));
+      if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+    },
+    tellServer: (deviceId) => client.removeDevice(deviceId),
+  });
 }

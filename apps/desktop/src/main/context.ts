@@ -55,7 +55,7 @@ import type { ProfileLockService } from "./profile-lock-service";
 export interface AppContext {
   settings: SettingsStore;
   profiles: ProfileRegistry;
-  /** Locking profiles (Alt+H), their lock screens, and Settings > Lock. */
+  /** Locking profiles (Alt+L, and when the computer locks), their lock screens, and Settings > Lock. */
   profileLocks: ProfileLockService;
   dictation: DictationService;
   /** Corvus's modal dialogs (main/dialogs.ts). */

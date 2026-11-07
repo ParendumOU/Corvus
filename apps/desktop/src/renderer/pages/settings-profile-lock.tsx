@@ -3,6 +3,7 @@ import type { LockKind, LockMethodView, ProfileLockView, TotpLockSetup } from ".
 import { lockProblemText } from "../common/lock-text";
 import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
+import { Toggle } from "../common/ui";
 import { Row, Section } from "./shell";
 
 /** A new PIN or password, typed twice; `null` until both are valid and equal. */
@@ -129,27 +130,54 @@ export function ProfileLockSection() {
       onChange={(e) => setCurrent(e.target.value)}
     />
   );
+  const withComputer = (
+    <Row
+      label={t("Lock this profile when the computer locks")}
+      hint={
+        view.kind === null
+          ? t("Needs a PIN or password first.")
+          : view.computerLock
+            ? t("When you lock the computer (Win+L, ⌃⌘Q on macOS) or it locks by itself, this profile locks too.")
+            : t("This computer does not tell Corvus when it locks.")
+      }
+    >
+      <Toggle
+        label={t("Lock this profile when the computer locks")}
+        checked={view.kind !== null && view.withComputer}
+        disabled={view.kind === null || !view.computerLock}
+        onChange={(on) =>
+          void api
+            .call("profileLock.setWithComputer", on)
+            .then(setView)
+            .catch((e: unknown) => setError(errorMessage(e)))
+        }
+      />
+    </Row>
+  );
   const keychainOnly = t("A code from an app cannot hold a key: while this way to unlock is added, the profile's secrets on this computer are protected by the system keychain alone (as without a lock), with the lock screen in front of them.");
 
   return (
     <Section
       id="profile-lock"
       title={t("Lock")}
-      description={t("Lock this profile with Alt+H when you step away: its pages hide behind a lock screen, and its saved passwords, 2FA codes, cards, KeePass and sync stay encrypted until it is unlocked.")}
+      description={t("Lock this profile with Alt+L (⌃⌘L on macOS) when you step away: its pages hide behind a lock screen, and its saved passwords, 2FA codes, cards, KeePass and sync stay encrypted until it is unlocked.")}
     >
       {!view.keychain && <div className="notice error">{t("A lock needs the system keychain, which is not available.")}</div>}
       {view.kind === null ? (
-        <Row label={t("No lock")} hint={t("Anyone at this computer can open this profile's pages and saved passwords.")}>
-          <button className="btn small" disabled={!view.keychain} data-lock-enable="pin" onClick={() => open({ kind: "enable", lock: "pin" })}>
-            {t("Use a PIN")}
-          </button>
-          <button className="btn small" disabled={!view.keychain} data-lock-enable="password" onClick={() => open({ kind: "enable", lock: "password" })}>
-            {t("Use a password")}
-          </button>
-        </Row>
+        <>
+          <Row label={t("No lock")} hint={t("Anyone at this computer can open this profile's pages and saved passwords.")}>
+            <button className="btn small" disabled={!view.keychain} data-lock-enable="pin" onClick={() => open({ kind: "enable", lock: "pin" })}>
+              {t("Use a PIN")}
+            </button>
+            <button className="btn small" disabled={!view.keychain} data-lock-enable="password" onClick={() => open({ kind: "enable", lock: "password" })}>
+              {t("Use a password")}
+            </button>
+          </Row>
+          {withComputer}
+        </>
       ) : (
         <>
-          <Row label={pin ? t("Locked with a PIN") : t("Locked with a password")} hint={t("Alt+H locks it now. It also starts locked when Corvus starts.")}>
+          <Row label={pin ? t("Locked with a PIN") : t("Locked with a password")} hint={t("Alt+L (⌃⌘L on macOS) locks it now. It also starts locked when Corvus starts.")}>
             <button className="btn small" data-lock-now onClick={() => void api.call("profileLock.lockNow")}>
               {t("Lock now")}
             </button>
@@ -160,6 +188,7 @@ export function ProfileLockSection() {
               {t("Remove lock…")}
             </button>
           </Row>
+          {withComputer}
           {view.methods.map((m) => (
             <Row
               key={m.id}
@@ -195,7 +224,7 @@ export function ProfileLockSection() {
           busy={busy}
           disabled={!fresh}
           onCancel={() => open(null)}
-          onSubmit={() => run(api.call("profileLock.enable", mode.lock, fresh!), () => t("This profile is locked with Alt+H from now on."))}
+          onSubmit={() => run(api.call("profileLock.enable", mode.lock, fresh!), () => t("This profile is locked with Alt+L (⌃⌘L on macOS) from now on."))}
         >
           <NewSecretFields kind={mode.lock} onChange={onSecret} />
           {problem && <div className="muted small error-text">{problem}</div>}

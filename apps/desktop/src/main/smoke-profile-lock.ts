@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { nativeTheme, safeStorage, type WebContents } from "electron";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { base32Decode, totpAt } from "../shared/totp";
+import { computerLockSupported } from "./computer-lock";
 import type { AppContext } from "./context";
 import { ProfileLock, isProfileLocked } from "./profile-lock";
 import { windowShot } from "./smoke-cert-errors";
@@ -50,10 +51,11 @@ const fillInput = (selector: string, value: string): string => `(() => {
 const typeAndUnlock = (secret: string): string => `${fillInput("[data-lock-secret]", secret)} && (document.querySelector("[data-lock-unlock]").click(), true)`;
 
 /**
- * The profile lock (CORVUS_SMOKE_ONLY=profilelock): a profile with a PIN, Alt+H from a page that
+ * The profile lock (CORVUS_SMOKE_ONLY=profilelock): a profile with a PIN, Alt+L from a page that
  * swallows keys, everything hidden and refused while locked (tabs, Corvus pages, page RPC, agents,
  * autofill), the lock screen with nothing of the pages, a wrong PIN, the right one, and the
- * windows back as they were; screenshots of the lock screen in both themes and languages.
+ * windows back as they were, "Lock this profile when the computer locks" off and on; screenshots
+ * of the lock screen in both themes and languages.
  */
 export async function runProfileLockSmoke(ctx: AppContext, { win, check, capture }: Helpers): Promise<void> {
   const server = http.createServer((req, res) => {
@@ -94,14 +96,14 @@ export async function runProfileLockSmoke(ctx: AppContext, { win, check, capture
     await until(() => w.chrome.webContents.isLoading() === false);
     await sleep(300);
 
-    // Alt+H in a page that swallows every key: Corvus takes it first.
+    // Alt+L in a page that swallows every key: Corvus takes it first.
     const pageWc = tabA.view.webContents;
     w.win.focus();
     pageWc.focus();
-    pageWc.sendInputEvent({ type: "keyDown", keyCode: "H", modifiers: ["alt"] });
-    pageWc.sendInputEvent({ type: "keyUp", keyCode: "H", modifiers: ["alt"] });
+    pageWc.sendInputEvent({ type: "keyDown", keyCode: "L", modifiers: ["alt"] });
+    pageWc.sendInputEvent({ type: "keyUp", keyCode: "L", modifiers: ["alt"] });
     const lockedByKey = await until(() => runtime.locked, 5000);
-    check("profile lock: Alt+H in a page that swallows keys locks the profile", lockedByKey);
+    check("profile lock: Alt+L in a page that swallows keys locks the profile", lockedByKey);
     if (!lockedByKey) ctx.profileLocks.lock(runtime);
 
     const [width = 0, height = 0] = w.win.getContentSize();
@@ -231,6 +233,34 @@ export async function runProfileLockSmoke(ctx: AppContext, { win, check, capture
     await js(w.chrome.webContents, fillInput("[data-lock-code]", await totpAt(base32Decode(secret), now + 30)));
     await js(w.chrome.webContents, "document.querySelector('[data-lock-unlock]').click()");
     check("profile lock: the lock screen opens with the authenticator app's next code", codeButton && (await until(() => !runtime.locked)));
+
+    // "Lock this profile when the computer locks": off by default, the computer locking leaves the
+    // profile open; turned on in Settings, it locks it, and the profile without the option stays open.
+    ctx.profileLocks.computerLocked();
+    const offStaysOpen = !runtime.locked && !runtime.lock.locksWithComputer;
+    w.activate(settingsTab.id);
+    const settingsAgain = pageOf(w.getTab(settingsTab.id)!.view)!;
+    const toggle = "#profile-lock [role=switch]";
+    await until(async () => (await js<boolean>(settingsAgain, `Boolean(document.querySelector("${toggle}"))`)) === true, 15_000);
+    // Docker has no D-Bus: there the switch is off limits and says why, and the option is turned on directly.
+    const supported = computerLockSupported();
+    const offered = (await js<boolean>(settingsAgain, `!document.querySelector("${toggle}").disabled`)) === supported;
+    if (supported) await js(settingsAgain, `document.querySelector("${toggle}").click()`);
+    else ctx.profileLocks.setWithComputer(runtime, true);
+    const turnedOn = await until(() => runtime.lock.locksWithComputer);
+    await sleep(300);
+    await capture(`${SHOTS}/settings-lock-with-computer`, settingsAgain);
+    check("profile lock: Settings offers locking with the computer only where the computer says when it locks", offered, { supported });
+    ctx.profileLocks.computerLocked();
+    check("profile lock: the computer locking locks only the profiles with the option on", offStaysOpen && turnedOn && runtime.locked && (await until(() => w.locked)) && !win.profile.locked, {
+      offStaysOpen,
+      turnedOn,
+      locked: runtime.locked,
+      otherLocked: win.profile.locked,
+    });
+    // The lock screen still shows the authenticator code form from before: the PIN goes in directly.
+    const reopened = await ctx.profileLocks.unlock(w, { method: "secret", secret: PIN });
+    check("profile lock: unlocked again after the computer locked it", reopened.ok && (await until(() => !runtime.locked && !w.locked)), reopened);
   } catch (err) {
     check("profile lock: unexpected error", false, (err as Error).stack ?? String(err));
   } finally {

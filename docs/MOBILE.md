@@ -105,11 +105,10 @@ Everything runs in Docker, from the repository root:
 ```sh
 docker compose run --rm dev pnpm install
 docker compose run --rm dev sh -c "pnpm -r build && cd apps/mobile && pnpm typecheck && pnpm test"
-docker compose up -d --build sync-server
 docker compose run --rm dev sh -c "cd apps/mobile && pnpm export:web && pnpm smoke:web"
 ```
 
-`pnpm test` covers the pure logic in `src/lib`. `pnpm smoke:web` loads the web build in a headless browser against the real sync server: it pairs, then checks every screen with a fake computer made with `@corvus/sync-core`. Screenshots land in `out/mobile-smoke`.
+`pnpm test` covers the pure logic in `src/lib`. `pnpm smoke:web` loads the web build in a headless browser against a sync server of its own, with a throwaway database (the chains it makes never reach a real server): it pairs, then checks every screen with a fake computer made with `@corvus/sync-core`. Screenshots land in `out/mobile-smoke`.
 
 Icons are drawn from SVG sources in `assets/source` (the Corvus mark of the desktop app): `docker compose run --rm dev bash apps/mobile/scripts/make-icons.sh`. The tab bar's icons are PNGs of the same stroke icons the screens use: `docker compose run --rm dev node apps/mobile/scripts/make-tab-icons.mjs`.
 

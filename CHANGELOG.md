@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.43.0
+
+### Profiles
+- **Alt+L locks a profile, like Win+L locks the computer** (⌃⌘L on macOS, where Option+L types a character, such as @ on German keyboards). Alt+H no longer locks: pages get it back.
+- **Lock a profile when the computer locks**: a new option in Settings > Lock, off by default, for profiles with a PIN or password. Win+L, ⌃⌘Q or the screen locking by itself locks the profile too, and when you come back the lock screen is what shows, never a glimpse of your pages. Profiles without the option stay as they are. On Linux it works with desktops that report the lock to logind or the freedesktop screen saver (GNOME, KDE and others).
+
+### Corvus for mobile 0.12.2
+- **Unpairing the phone is instant, even when its sync server cannot be reached.** The phone waited for the server to take it off the chain before forgetting the chain, up to 30 seconds when the computer that runs the server was off or its firewall dropped the connection. It now forgets the chain at once and tells the server in the background; when the server never hears of it, a computer can remove the phone from its device list as before.
+
 ## v0.42.0
 
 ### Ad blocker

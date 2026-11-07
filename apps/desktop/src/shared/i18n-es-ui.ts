@@ -1988,15 +1988,20 @@ export const ES_UI: Record<string, string> = {
   "Current password": "Contraseña actual",
   "A code from an app cannot hold a key: while this way to unlock is added, the profile's secrets on this computer are protected by the system keychain alone (as without a lock), with the lock screen in front of them.":
     "Un código de una app no puede guardar una clave: mientras esta forma de desbloquear esté añadida, los secretos del perfil en este ordenador quedan protegidos solo por el llavero del sistema (como sin bloqueo), con la pantalla de bloqueo delante.",
-  "Lock this profile with Alt+H when you step away: its pages hide behind a lock screen, and its saved passwords, 2FA codes, cards, KeePass and sync stay encrypted until it is unlocked.":
-    "Bloquea este perfil con Alt+H cuando te levantes: sus páginas se ocultan tras una pantalla de bloqueo, y sus contraseñas guardadas, códigos 2FA, tarjetas, KeePass y sincronización siguen cifrados hasta que se desbloquee.",
+  "Lock this profile with Alt+L (⌃⌘L on macOS) when you step away: its pages hide behind a lock screen, and its saved passwords, 2FA codes, cards, KeePass and sync stay encrypted until it is unlocked.":
+    "Bloquea este perfil con Alt+L (⌃⌘L en macOS) cuando te levantes: sus páginas se ocultan tras una pantalla de bloqueo, y sus contraseñas guardadas, códigos 2FA, tarjetas, KeePass y sincronización siguen cifrados hasta que se desbloquee.",
   "A lock needs the system keychain, which is not available.": "Un bloqueo necesita el llavero del sistema, que no está disponible.",
   "Anyone at this computer can open this profile's pages and saved passwords.": "Cualquiera en este ordenador puede abrir las páginas y las contraseñas guardadas de este perfil.",
   "Use a PIN": "Usar un PIN",
   "Use a password": "Usar una contraseña",
   "Locked with a PIN": "Bloqueado con un PIN",
   "Locked with a password": "Bloqueado con una contraseña",
-  "Alt+H locks it now. It also starts locked when Corvus starts.": "Alt+H lo bloquea al momento. También empieza bloqueado al abrir Corvus.",
+  "Alt+L (⌃⌘L on macOS) locks it now. It also starts locked when Corvus starts.": "Alt+L (⌃⌘L en macOS) lo bloquea al momento. También empieza bloqueado al abrir Corvus.",
+  "Lock this profile when the computer locks": "Bloquear este perfil cuando se bloquee el ordenador",
+  "Needs a PIN or password first.": "Antes necesita un PIN o una contraseña.",
+  "When you lock the computer (Win+L, ⌃⌘Q on macOS) or it locks by itself, this profile locks too.":
+    "Cuando bloqueas el ordenador (Win+L, ⌃⌘Q en macOS) o se bloquea solo, este perfil también se bloquea.",
+  "This computer does not tell Corvus when it locks.": "Este ordenador no avisa a Corvus cuando se bloquea.",
   "Remove lock…": "Quitar el bloqueo…",
   "Opens the encryption itself.": "Abre el propio cifrado.",
   "A gate only: the key it opens is protected by the system keychain alone.": "Solo una puerta: la clave que abre está protegida solo por el llavero del sistema.",
@@ -2008,7 +2013,7 @@ export const ES_UI: Record<string, string> = {
   "Windows Hello…": "Windows Hello…",
   "Security key…": "Llave de seguridad…",
   "Turn on the lock": "Activar el bloqueo",
-  "This profile is locked with Alt+H from now on.": "Desde ahora este perfil se bloquea con Alt+H.",
+  "This profile is locked with Alt+L (⌃⌘L on macOS) from now on.": "Desde ahora este perfil se bloquea con Alt+L (⌃⌘L en macOS).",
   "Remove lock": "Quitar el bloqueo",
   "Its secrets go back to being protected by the system keychain alone.": "Sus secretos vuelven a quedar protegidos solo por el llavero del sistema.",
   Continue: "Continuar",

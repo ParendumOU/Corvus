@@ -1,5 +1,5 @@
 /**
- * Profile lock (Alt+H): what a profile's lock is made of and what the UI shows of it. Pure, so the
+ * Profile lock (Alt+L): what a profile's lock is made of and what the UI shows of it. Pure, so the
  * rules (PIN and password shape, the wait after wrong attempts) are tested without Electron.
  */
 
@@ -53,6 +53,10 @@ export interface ProfileLockView {
   webauthn: boolean;
   /** The system keychain works: a lock needs it (secrets are written to disk only through it). */
   keychain: boolean;
+  /** Locks too when the computer's session locks. */
+  withComputer: boolean;
+  /** This computer tells Corvus when it locks (Windows, macOS; Linux with D-Bus). */
+  computerLock: boolean;
 }
 
 /** A profile as the lock screen lists it ("Switch profile"). */
@@ -118,6 +122,7 @@ export interface ProfileLockInternalRpc {
   "profileLock.change"(current: string, kind: LockKind, secret: string): ProfileLockView;
   "profileLock.remove"(current: string): ProfileLockView;
   "profileLock.lockNow"(): void;
+  "profileLock.setWithComputer"(on: boolean): ProfileLockView;
   "profileLock.totpStart"(current: string): TotpLockSetup;
   "profileLock.totpConfirm"(setupId: string, code: string, label: string): ProfileLockView;
   "profileLock.addAuthenticator"(type: "hello" | "fido2", current: string, label: string): ProfileLockView;

@@ -126,7 +126,7 @@ export class ProfileRuntime {
   readonly containers: ContainerStore;
   /** Proxies, and which one the profile and each container go through. */
   readonly connections: ConnectionStore;
-  /** The profile lock (Alt+H) and the cipher every secret store of the profile goes through. */
+  /** The profile lock (Alt+L) and the cipher every secret store of the profile goes through. */
   readonly lock: ProfileLock;
   readonly cipher: SecretCipher;
   /** Each session's latest proxy change, until Chromium uses it. */
@@ -345,7 +345,7 @@ export class ProfileRuntime {
     await ses.clearCache().catch(() => undefined);
   }
 
-  /** Locked (Alt+H, or started with a lock): nothing of the profile may be shown, read or used. */
+  /** Locked (Alt+L, the computer locking, or started with a lock): nothing of the profile may be shown, read or used. */
   get locked(): boolean {
     return this.lock.locked;
   }

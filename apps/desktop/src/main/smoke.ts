@@ -359,7 +359,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
       return;
     }
-    // CORVUS_SMOKE_ONLY=profilelock: only the profile lock checks (Alt+H, the lock screen, what a locked profile refuses), with screenshots.
+    // CORVUS_SMOKE_ONLY=profilelock: only the profile lock checks (Alt+L, the computer locking, the lock screen, what a locked profile refuses), with screenshots.
     if (process.env.CORVUS_SMOKE_ONLY === "profilelock") {
       await runProfileLockSmoke(ctx, { win, check, capture });
       return;

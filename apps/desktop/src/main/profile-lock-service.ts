@@ -1,6 +1,7 @@
 /**
- * The profile lock across the app (see profile-lock.ts for the lock itself): Alt+H and the menus
- * lock a profile, its windows show the lock screen and unlock it, Settings adds, changes and
+ * The profile lock across the app (see profile-lock.ts for the lock itself): Alt+L, the menus and,
+ * when the profile asks for it, the computer locking lock a profile, its windows show the lock
+ * screen and unlock it, Settings adds, changes and
  * removes the lock and its ways to unlock. Locking drops every secret the profile decrypted and
  * stops what works with its data in the background (sync, scheduled agents, agent runs, recorded
  * flows; the page monitor and live history wait while it is locked).
@@ -17,6 +18,7 @@ import {
   type UnlockResult,
 } from "../shared/profile-lock";
 import type { Profile } from "@corvus/shared";
+import { computerLockSupported, watchComputerLock } from "./computer-lock";
 import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 import { ProfileLock, checkLockSecret, rewrapAll } from "./profile-lock";
@@ -35,6 +37,8 @@ const TOTP_SETUP_MS = 10 * 60_000;
 
 export class ProfileLockService {
   private readonly totpSetups = new Map<string, TotpSetup>();
+  /** Stops watching the computer's lock; set while a loaded profile locks with it. */
+  private unwatchComputer: (() => void) | null = null;
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -44,7 +48,33 @@ export class ProfileLockService {
       // Profile lists (lock screens, Settings, the profile menu) show who is locked.
       this.ctx.windows.broadcastState();
       for (const win of this.ctx.windows.all()) win.notifyInternalPages({ type: "profile-lock-changed" }, ["settings"]);
+      this.watchComputer();
     });
+    this.watchComputer();
+  }
+
+  /** The computer's lock is watched only while a loaded profile locks with it (Linux opens D-Bus connections for it). */
+  private watchComputer(): void {
+    const wanted = this.ctx.profiles.loaded().some((r) => r.lock.locksWithComputer);
+    if (wanted && !this.unwatchComputer) {
+      this.unwatchComputer = watchComputerLock({ onLock: () => this.computerLocked(), onUnlock: () => this.computerUnlocked() });
+    } else if (!wanted && this.unwatchComputer) {
+      this.unwatchComputer();
+      this.unwatchComputer = null;
+    }
+  }
+
+  /** The computer locked: so do the profiles that ask for it (the others stay as they are). */
+  computerLocked(): void {
+    for (const runtime of this.ctx.profiles.loaded()) {
+      if (!runtime.lock.locksWithComputer || runtime.locked) continue;
+      for (const win of this.ctx.windows.forProfile(runtime.profile.id)) win.paintWhileComputerLocked(true);
+      this.lock(runtime);
+    }
+  }
+
+  private computerUnlocked(): void {
+    for (const win of this.ctx.windows.all()) win.paintWhileComputerLocked(false);
   }
 
   /** What a locked window of `runtime` shows. */
@@ -70,7 +100,7 @@ export class ProfileLockService {
     return loaded ? loaded.locked : this.ctx.profiles.list().some((p) => p.id === profileId) && ProfileLock.isConfigured(this.ctx.profiles.manager.dataDir(profileId));
   }
 
-  /** Alt+H and the menus: locks the window's profile, or, without a lock yet, shows where to add one. */
+  /** Alt+L and the menus: locks the window's profile, or, without a lock yet, shows where to add one. */
   lockFrom(win: BrowserWindowCtl): void {
     if (!win.profile.lock.configured) {
       win.openSingleton("corvus://settings/#profile-lock");
@@ -153,7 +183,20 @@ export class ProfileLockService {
   // ------------------------------------------------------------------ Settings > Lock
 
   view(runtime: ProfileRuntime): ProfileLockView {
-    return { kind: runtime.lock.kind, methods: runtime.lock.methods(), webauthn: webauthnSupported(), keychain: runtime.cipher.isEncryptionAvailable() };
+    return {
+      kind: runtime.lock.kind,
+      methods: runtime.lock.methods(),
+      webauthn: webauthnSupported(),
+      keychain: runtime.cipher.isEncryptionAvailable(),
+      withComputer: runtime.lock.locksWithComputer,
+      computerLock: computerLockSupported(),
+    };
+  }
+
+  /** "Lock this profile when the computer locks" (needs a lock: without one there is nothing to turn on). */
+  setWithComputer(runtime: ProfileRuntime, on: boolean): ProfileLockView {
+    runtime.lock.setLocksWithComputer(on);
+    return this.view(runtime);
   }
 
   /** The current PIN or password, asked again before any change (wrong ones count as attempts). */

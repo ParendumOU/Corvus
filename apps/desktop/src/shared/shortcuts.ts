@@ -81,8 +81,12 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
   if (key === "BrowserForward") return { type: "forward" };
 
   if (input.alt && !mod && !input.shift && key === "Home") return { type: "home" };
-  // Alt+H locks the profile; Option+H types a symbol on macOS, so its physical key says it.
-  if (input.alt && !input.control && !input.meta && !input.shift && (key === "h" || input.code === "KeyH")) return { type: "lock-profile" };
+  // Alt+L locks the profile, like Win+L locks the computer; ⌃⌘L on macOS, where Option+L types a
+  // character (@ on German keyboards). The physical key counts only when the layout types no
+  // Latin letter there (Cyrillic, Greek): on Dvorak that key is N.
+  const lKey = key === "l" || (input.code === "KeyL" && !/^[a-z]$/.test(key));
+  const lockMods = mac ? input.control && input.meta && !input.alt : input.alt && !input.control && !input.meta;
+  if (lKey && lockMods && !input.shift) return { type: "lock-profile" };
   if (input.alt && !mod && !mac) {
     if (key === "ArrowLeft") return { type: "back" };
     if (key === "ArrowRight") return { type: "forward" };

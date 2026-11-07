@@ -280,6 +280,8 @@ export class BrowserWindowCtl {
   private paintResizeTimer: NodeJS.Timeout | null = null;
   /** The profile is locked: the window shows its lock screen over every other view, all hidden. */
   private lockScreen = false;
+  /** The chrome UI paints while the computer is locked (see paintWhileComputerLocked). */
+  private paintingThroughComputerLock = false;
   /** Tabs the lock muted, unmuted again on unlock. */
   private readonly lockMuted = new Set<TabId>();
   /** Windows pages opened (sign-in popups): hidden while the profile is locked. */
@@ -521,6 +523,17 @@ export class BrowserWindowCtl {
     this.pushState();
   }
 
+  /**
+   * Locked as the computer locks: Windows and macOS have just stopped drawing the window, so its
+   * last frame (the pages) would show for a moment on unlock. The chrome UI keeps painting until the
+   * computer is unlocked, so the last frame is the lock screen.
+   */
+  paintWhileComputerLocked(on: boolean): void {
+    if (this.disposed || on === this.paintingThroughComputerLock) return;
+    this.paintingThroughComputerLock = on;
+    this.chrome.webContents.setBackgroundThrottling(!on);
+  }
+
   private enterLock(): void {
     if (this.lockScreen) return;
     this.lockScreen = true;
@@ -551,6 +564,8 @@ export class BrowserWindowCtl {
   private leaveLock(): void {
     if (!this.lockScreen) return;
     this.lockScreen = false;
+    // Opened by the person: the computer is unlocked too (Linux never says so).
+    this.paintWhileComputerLocked(false);
     for (const id of this.lockMuted) pageOf(this.tabs.get(id)?.view)?.setAudioMuted(false);
     this.lockMuted.clear();
     for (const popup of this.popups) if (!popup.isDestroyed()) popup.showInactive();
