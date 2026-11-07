@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt } from "../src/prompt.js";
+import { buildPrompts } from "../src/prompt.js";
 import { createAnthropicProvider, lazyAnthropicClient } from "../src/providers/anthropic.js";
 import type { ProviderEvent } from "../src/providers/types.js";
 
-const prompt = buildPrompt("q", "en", [{ url: "https://a.example/", title: "A", snippet: "s", source: "a.example", rank: 1 }]);
+const prompt = buildPrompts("q", "en", [{ url: "https://a.example/", title: "A", snippet: "s", source: "a.example", rank: 1 }]).answer;
 
 describe("createAnthropicProvider", () => {
   it("streams text deltas, sends cache_control on the system prompt and reports real usage", async () => {

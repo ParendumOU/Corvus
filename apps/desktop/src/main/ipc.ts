@@ -6,6 +6,7 @@ import { app, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainEvent,
 import type { GroupColor } from "@corvus/shared";
 import { BAR_FOLDER_ID, OTHER_FOLDER_ID } from "../shared/bookmark-tree";
 import { rejectNote } from "../shared/user-memory";
+import { parseTurns } from "../shared/search-view";
 import { countBookmarks, parseBookmarkFile } from "../shared/bookmark-import";
 import { EXTENSION_ID_RE, IMPORT_KINDS, type ImportKind, type ImportScan } from "../shared/browser-import";
 import { SHOWN_COMMAND_RECENTS } from "../shared/command-history";
@@ -478,10 +479,10 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     ...flowInternalHandlers(ctx),
     ...annotationsInternalHandlers(ctx),
     "search.start": (c, query, opts) => {
-      const o = opts as { depth?: unknown; category?: unknown } | undefined;
+      const o = opts as { depth?: unknown; category?: unknown; context?: unknown } | undefined;
       const depth = o?.depth === "deep" ? "deep" : "quick";
       const category = o?.category === "news" || o?.category === "images" || o?.category === "videos" ? o.category : "general";
-      return ctx.search.start(c.sender, str(query, "query", 2048), depth, category);
+      return ctx.search.start(c.sender, str(query, "query", 2048), depth, category, parseTurns(o?.context));
     },
     "search.favicons": (_c, domains) => ctx.search.favicons(strArray(domains, "domains").slice(0, 40)),
     "search.cancel": (_c, id) => ctx.search.cancel(str(id, "search")),

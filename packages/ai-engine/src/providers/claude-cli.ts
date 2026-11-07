@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { spawnCli } from "./cli-spawn.js";
-import type { AnswerProvider, AnswerRequest, ProviderEvent } from "./types.js";
+import type { AnswerProvider, AnswerRequest, PreparedAnswer, PreparedCall, ProviderEvent } from "./types.js";
 
 export interface ClaudeCliProviderOptions {
   model: string;
@@ -43,7 +43,8 @@ export function buildClaudeCliArgs(model: string, systemPrompt: string): string[
   ];
 }
 
-export const CLI_THINKING_HEADROOM = 1024;
+/** Room over the reply's own cap for adaptive thinking (seen up to ~1.9k tokens at effort low). */
+export const CLI_THINKING_HEADROOM = 4096;
 
 export class ClaudeCliError extends Error {
   constructor(message: string) {
@@ -154,51 +155,58 @@ export class StreamJsonParser {
 export function createClaudeCliProvider(opts: ClaudeCliProviderOptions): AnswerProvider {
   const cliPath = opts.cliPath ?? "claude";
   const timeoutMs = opts.timeoutMs ?? 60_000;
-  return {
-    kind: "claude-code-cli",
-    model: opts.model,
-    async *answer(req: AnswerRequest): AsyncIterable<ProviderEvent> {
-      const child = spawnCli(cliPath, buildClaudeCliArgs(opts.model, req.prompt.system), {
-        // A neutral cwd keeps project CLAUDE.md files out of the context.
-        cwd: tmpdir(),
-        env: {
-          ...process.env,
-          ...opts.env,
-          // The CLI's output cap also counts thinking tokens, and hitting it makes Claude Code send a
-          // second "continue" request that re-reads the whole prompt. Headroom avoids that.
-          CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(req.maxOutputTokens + CLI_THINKING_HEADROOM),
-        },
-      });
-      const kill = () => {
-        if (child.exitCode === null) child.kill();
-      };
-      const timer = setTimeout(kill, timeoutMs);
-      req.signal?.addEventListener("abort", kill, { once: true });
 
-      let stderr = "";
-      child.stderr.setEncoding("utf8");
-      child.stderr.on("data", (d: string) => {
-        if (stderr.length < 4000) stderr += d;
-      });
-      const exited = new Promise<number | null>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("close", (code) => resolve(code));
-      });
-      // Surface spawn errors (e.g. ENOENT) through the iterator rather than as unhandled rejections.
-      exited.catch(() => undefined);
+  /**
+   * Starts the CLI at once with the system prompt; the user message goes in on stdin later. The CLI
+   * reads stdin before it does anything else, so a call never made sends no request: killing the
+   * process (signal, or timeoutMs without a call) is all it takes to release it.
+   */
+  function prepare(call: PreparedCall): PreparedAnswer {
+    const child = spawnCli(cliPath, buildClaudeCliArgs(opts.model, call.system), {
+      // A neutral cwd keeps project CLAUDE.md files out of the context.
+      cwd: tmpdir(),
+      env: {
+        ...process.env,
+        ...opts.env,
+        // The CLI's output cap also counts thinking tokens, and hitting it makes Claude Code send a
+        // second "continue" request that re-reads the whole prompt. Headroom avoids that.
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(call.maxOutputTokens + CLI_THINKING_HEADROOM),
+      },
+    });
+    const kill = () => {
+      if (child.exitCode === null) child.kill();
+    };
+    let timer = setTimeout(kill, timeoutMs);
+    call.signal?.addEventListener("abort", kill, { once: true });
 
-      child.stdin.on("error", () => undefined);
-      child.stdin.end(req.prompt.user);
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (d: string) => {
+      if (stderr.length < 4000) stderr += d;
+    });
+    const exited = new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) => resolve(code));
+    });
+    // Surface spawn errors (e.g. ENOENT) through the iterator rather than as unhandled rejections.
+    exited.catch(() => undefined);
+    child.stdin.on("error", () => undefined);
 
+    async function* answer(user: string): AsyncIterable<ProviderEvent> {
+      clearTimeout(timer);
+      timer = setTimeout(kill, timeoutMs);
+      child.stdin.end(user);
       const parser = new StreamJsonParser(opts.model);
       try {
         child.stdout.setEncoding("utf8");
         for await (const chunk of child.stdout) {
           for (const ev of parser.push(chunk as string)) yield ev;
+          // The result line ends the reply; the process only shuts down after it (about half a second).
+          if (parser.done) return;
         }
         for (const ev of parser.end()) yield ev;
         const code = await exited;
-        if (req.signal?.aborted) return;
+        if (call.signal?.aborted) return;
         if (!parser.done) {
           throw new ClaudeCliError(
             `Claude Code CLI exited with code ${code ?? "null"}${stderr ? `: ${stderr.trim().slice(0, 500)}` : ""}`,
@@ -211,9 +219,17 @@ export function createClaudeCliProvider(opts: ClaudeCliProviderOptions): AnswerP
         throw err;
       } finally {
         clearTimeout(timer);
-        req.signal?.removeEventListener("abort", kill);
+        call.signal?.removeEventListener("abort", kill);
         kill();
       }
-    },
+    }
+    return { answer };
+  }
+
+  return {
+    kind: "claude-code-cli",
+    model: opts.model,
+    prepare,
+    answer: (req: AnswerRequest) => prepare({ system: req.prompt.system, maxOutputTokens: req.maxOutputTokens, signal: req.signal }).answer(req.prompt.user),
   };
 }

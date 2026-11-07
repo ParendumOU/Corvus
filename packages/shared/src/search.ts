@@ -106,14 +106,18 @@ export type SearchEvent =
   | { type: "answer-done"; text: string; citations: number[] /* indices into results */ }
   | { type: "usage"; inputTokens: number; outputTokens: number; model: string }
   | { type: "error"; message: string; recoverable: boolean }
-  // Structured AI output (additive). Order: answer-done, key-point*, rating*, rerank, entity?,
-  // follow-up*, confidence?, insights, usage. Older consumers can ignore all of these.
+  // Structured AI output (additive). The answer part (answer-done, key-point*, confidence?, then
+  // answer-complete) and the rating part (rating*, rerank, entity?, follow-up*) are written side by
+  // side, so their events interleave; insights and usage close the stream. Older consumers can
+  // ignore all of these.
   | { type: "key-point"; point: KeyPoint }
   | { type: "rating"; rating: ResultRating }
   | { type: "rerank"; order: number[] }
   | { type: "entity"; entity: EntityCard }
   | { type: "follow-up"; question: string }
   | { type: "confidence"; level: Confidence | null; sourcesDisagree: boolean; note?: string }
+  /** Everything the answer box shows (answer, key points, confidence) is in; ratings may still come. */
+  | { type: "answer-complete" }
   | { type: "insights"; insights: SearchInsights };
 
 export interface SearchEngine {

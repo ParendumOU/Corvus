@@ -51,15 +51,15 @@ flowchart LR
 
 1. Omnibox classifies input: URL → navigate; else → `corvus://search?q=`.
 2. Retriever gets top N results **without any LLM** (SearXNG self-hosted by default).
-3. Results render immediately (classic list, zero tokens): title and site first. When an AI provider is set up (`EngineInfo.answers`), the page keeps fixed space for the answer box, each result's description slot and the side panel, and fills them only once the AI stream is complete (`aiSettled`), so the layout never moves while it loads and no text shows half written. Results keep the order they were first shown in; the AI order applies on the Sort toggle (or at once for a cached search, which replays complete).
-4. One call to a small model (default `claude-haiku-5-5`) with a compact prompt: numbered snippets (≤ 300 chars each), answer language, "cite as [n]". Output capped (~400 tokens).
+3. Results render immediately (classic list, zero tokens): title, site and the retriever's snippet, never waiting for the AI. When an AI provider is set up (`EngineInfo.answers`), the page keeps fixed space from the start for the answer box, a box under each snippet (AI summary and tags) and the side panel, and fills each only once its part of the reply is complete (`answerReady`, `ratingsReady`, `aiSettled` in search-view.ts), so the layout never moves and no text shows half written. Results keep the order they were first shown in; the AI order applies on the Sort toggle (or at once for a cached search, which replays complete).
+4. Two calls to a small model (default `claude-haiku-5-5`), written side by side on the same compact user message (numbered snippets ≤ 300 chars each, answer language): the answer call (answer citing [n], key points, confidence; capped at the "Answer length" setting, 400 tokens) and the rating call (a line per source, entity, follow-ups; ~60 tokens per source). Each is half the reply, so both finish in about half the time and the page shows the answer as soon as its call ends (`answer-complete`). A provider with `prepare` (the Claude Code CLI) starts its process with the search, so its start-up overlaps the retriever; a call never made is released without a request. Thinking: off on the API; the CLI cannot switch it off, so the prompts say "reply at once" and the CLI output cap keeps 4k tokens of headroom (hitting it made Claude Code send a second request).
 5. `deep` mode (opt-in button) fetches the top 3 pages, Readability-extracts, trims to ~1.5k chars each.
 6. LRU + on-disk cache keyed by (normalized query, lang, depth) with TTL.
 7. Language: explicit setting > detected query language (`franc-min`) > UI locale.
 
 Providers:
 - `anthropic-api` — official SDK with the user's API key. Prompt caching on the system prompt.
-- `claude-code-cli` — spawns local `claude -p --output-format stream-json` using the user's own Claude Code login. Personal-use only: Anthropic consumer subscriptions may not be resold or embedded into apps distributed to others; distributed builds must use API keys.
+- `claude-code-cli` — spawns local `claude -p --output-format stream-json` using the user's own Claude Code login; a call ends at the CLI's result line (the process takes another ~0.5 s to exit). Personal-use only: Anthropic consumer subscriptions may not be resold or embedded into apps distributed to others; distributed builds must use API keys.
 
 ## 5. MCP server
 

@@ -1,16 +1,16 @@
 import { chmodSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { buildPrompt } from "../src/prompt.js";
+import { buildPrompts } from "../src/prompt.js";
 import { buildClaudeCliArgs, createClaudeCliProvider, StreamJsonParser } from "../src/providers/claude-cli.js";
 import type { ProviderEvent } from "../src/providers/types.js";
 
 const fixture = readFileSync(new URL("./fixtures/claude-stream.jsonl", import.meta.url), "utf8");
 const fakeCli = fileURLToPath(new URL("./fixtures/fake-claude.mjs", import.meta.url));
 
-const prompt = buildPrompt("what is rust", "en", [
+const prompt = buildPrompts("what is rust", "en", [
   { url: "https://rust-lang.org/", title: "Rust", snippet: "Rust language", source: "rust-lang.org", rank: 1 },
-]);
+]).answer;
 
 async function collect(iter: AsyncIterable<ProviderEvent>): Promise<ProviderEvent[]> {
   const out: ProviderEvent[] = [];
@@ -103,6 +103,31 @@ describe.skipIf(process.platform === "win32")("createClaudeCliProvider (fake bin
   it("passes extra environment to the CLI process", async () => {
     const provider = createClaudeCliProvider({ model: "m", cliPath: fakeCli, env: { FAKE_CLAUDE_MODE: "error" } });
     await expect(collect(provider.answer({ prompt, maxOutputTokens: 400 }))).rejects.toThrow(/Not logged in/);
+  });
+
+  it("ends the call at the result line, without waiting for the CLI to shut down", async () => {
+    process.env.FAKE_CLAUDE_MODE = "linger";
+    const provider = createClaudeCliProvider({ model: "m", cliPath: fakeCli });
+    const started = Date.now();
+    const events = await collect(provider.answer({ prompt, maxOutputTokens: 400 }));
+    expect(events.at(-1)).toMatchObject({ type: "usage", outputTokens: 31 });
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("starts a prepared call at once and hands it the prompt when the call is made", async () => {
+    const provider = createClaudeCliProvider({ model: "m", cliPath: fakeCli });
+    const prepared = provider.prepare!({ system: prompt.system, maxOutputTokens: 400 });
+    await new Promise((r) => setTimeout(r, 200));
+    const events = await collect(prepared.answer(prompt.user));
+    expect(events.filter((e) => e.type === "delta")).toHaveLength(3);
+  });
+
+  it("releases a prepared call that is never made, quietly", async () => {
+    const provider = createClaudeCliProvider({ model: "m", cliPath: fakeCli });
+    const release = new AbortController();
+    const prepared = provider.prepare!({ system: prompt.system, maxOutputTokens: 400, signal: release.signal });
+    release.abort();
+    await expect(collect(prepared.answer(prompt.user))).resolves.toEqual([]);
   });
 
   it("reports a missing binary", async () => {

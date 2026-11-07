@@ -70,6 +70,7 @@ import { runExtensionSmoke } from "./smoke-extensions";
 import { runExternalAppsSmoke } from "./smoke-external-apps";
 import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
 import { fakeSearchDeps, runSearchSmoke } from "./smoke-search";
+import { runSearchPerfSmoke } from "./smoke-search-perf";
 import { runSettingsLayoutSmoke } from "./smoke-settings";
 import { waitForInternalPage, waitForPage } from "./smoke-wait";
 import { runWebscopeSmoke } from "./smoke-webscope";
@@ -355,6 +356,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     // CORVUS_SMOKE_ONLY=search: only the corvus://search checks (tabs, themes, layout kept while the AI works).
     if (process.env.CORVUS_SMOKE_ONLY === "search") {
       await runSearchSmoke(ctx, { win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=searchperf: times real searches with the configured engine (see smoke-search-perf.ts).
+    if (process.env.CORVUS_SMOKE_ONLY === "searchperf") {
+      await runSearchPerfSmoke(ctx, { win, check, capture });
       return;
     }
     await capture("chrome", win.chrome.webContents);

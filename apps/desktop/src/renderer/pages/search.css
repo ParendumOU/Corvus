@@ -145,38 +145,50 @@ body {
   font-size: 12.5px;
   white-space: nowrap;
 }
-.sort-label {
-  color: var(--text-3);
-  padding: 0 6px 0 6px;
-}
 .sort-toggle.waiting {
   visibility: hidden;
 }
 
 /* ---------------------------------------------------------------- layout */
 
-.serp {
+/* The All tab fills the window under the header: the sources on the left, the conversation on the
+   right, each scrolling on its own, so nothing in one pane ever moves the other. */
+.search-page.viewing {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.viewer {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 700px);
-  gap: 40px;
-  padding: 24px var(--gutter) 80px var(--rail);
+  grid-template-columns: minmax(0, calc(var(--rail) + 700px));
 }
-.serp.with-aside {
-  grid-template-columns: minmax(0, 700px) 300px;
+.viewer.with-chat {
+  grid-template-columns: minmax(360px, calc(var(--rail) + 450px)) minmax(0, 1fr);
 }
-.serp-main {
-  min-width: 0;
+/* Room for the scrollbar is kept from the start: one appearing would narrow the text and reflow it. */
+.pane {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.sources-pane {
+  padding: 0 14px 48px calc(var(--rail) - 16px);
+}
+.pane-switch {
+  display: none;
+}
+
+/* Verticals (news, images, videos) keep one column under the header. */
+.serp {
   display: flex;
   flex-direction: column;
   gap: 18px;
-}
-.serp-aside {
-  position: sticky;
-  top: 130px;
-  align-self: start;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  max-width: calc(var(--rail) + 940px);
+  padding: 24px var(--gutter) 80px var(--rail);
 }
 
 .search-empty {
@@ -199,77 +211,482 @@ body {
   border: 1px solid var(--border);
 }
 
-/* ---------------------------------------------------------------- answer */
+/* ---------------------------------------------------------------- sources */
 
-.answer {
-  position: relative;
-  padding: 18px 22px 18px;
-  border-radius: 18px;
-  background:
-    radial-gradient(120% 90% at 0% 0%, var(--accent-soft), transparent 55%),
-    var(--surface);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-soft));
-  overflow: hidden;
-}
-/* While the answer streams, a light sweeps along its top edge. */
-.answer.streaming::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
-  animation: sweep 1.6s ease-in-out infinite;
-}
-@keyframes sweep {
-  from {
-    background-position: -40% 0;
-  }
-  to {
-    background-position: 140% 0;
-  }
-}
-.answer-head {
+.pane-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  height: 44px;
+  padding-left: 16px;
+  background: var(--bg);
+  font-size: 12.5px;
+  color: var(--text-3);
 }
-.answer-head h2 {
-  margin: 0;
-  font-size: 15px;
+.pane-title {
+  flex: none;
+  font-size: 13px;
   font-weight: 650;
   color: var(--text);
 }
-.answer-mark {
+.pane-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Every row has one height, set before anything is in it: site, title (one line), snippet (two
+   lines) and, with AI on, a line kept for the AI note and tags. */
+.source {
+  position: relative;
+  display: grid;
+  grid-template-rows: 18px 21px 38px;
+  row-gap: 3px;
+  height: 104px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: background-color 0.12s ease;
+}
+.sources.rated .source {
+  grid-template-rows: 18px 21px 38px 18px;
+  height: 125px;
+}
+.source:hover,
+.source.lit {
+  background: var(--surface);
+}
+.source.lit {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* The rail: grey while nothing is known, a light running down the rows while the AI reads them,
+   then each source's relevance as the strength of its colour. */
+.source-rail {
+  position: absolute;
+  left: 4px;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+.sources.rated .source-rail[data-score] {
+  background: color-mix(in srgb, var(--accent) calc(12% + var(--score) * 8.8%), var(--surface-2));
+}
+.sources.reading .source-rail {
+  background: linear-gradient(to bottom, var(--surface-2) 30%, var(--accent) 50%, var(--surface-2) 70%);
+  background-size: 100% 300%;
+  animation: reading 1.8s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 150ms);
+}
+@keyframes reading {
+  from {
+    background-position: 0 100%;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+.source-site {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+.source-n {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 700;
+}
+.source.cited .source-n {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.source.lit .source-n {
   background: var(--accent);
   color: var(--accent-text);
 }
-.answer.streaming .answer-mark {
-  animation: pulse 1.4s ease-in-out infinite;
+.source-site .fav,
+.source-site .letter-icon {
+  flex: none;
 }
-@keyframes pulse {
-  50% {
-    opacity: 0.45;
+.source-domain {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.source-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--title);
+  text-decoration: none;
+}
+.source-title:hover {
+  text-decoration: underline;
+}
+.source-title:visited {
+  color: color-mix(in srgb, var(--title) 70%, var(--text-2));
+}
+.source-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.source-snippet {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--text-2);
+}
+.source-ai {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--text);
+}
+.source-ai svg {
+  flex: none;
+  color: var(--accent);
+}
+.source-ai-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 20px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.tag.good {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+.tag.warn {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.sources.skeleton .source {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 11px;
+}
+.sources.skeleton .bar {
+  width: 72%;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--surface-2), var(--border-soft), var(--surface-2));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.sources.skeleton .bar.short {
+  width: 32%;
+}
+.sources.skeleton .bar.wide {
+  width: 94%;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
   }
 }
-.pill {
-  padding: 1px 8px;
-  border-radius: 20px;
+
+.ai-off {
+  margin: 0 0 10px 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.ai-off a {
+  color: var(--title);
+}
+.sort-toggle button {
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- conversation */
+
+.chat {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+  border-left: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--surface) 45%, var(--bg));
+}
+.chat-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 20px clamp(20px, 4vw, 52px) 28px;
+}
+.turn {
+  max-width: 720px;
+  padding-bottom: 24px;
+  scroll-margin-top: 16px;
+}
+/* The latest question can scroll to the top even while its answer is still short. */
+.turn:last-of-type:not(:first-of-type) {
+  min-height: calc(100% - 16px);
+}
+.turn + .turn {
+  padding-top: 24px;
+  border-top: 1px solid var(--border-soft);
+}
+.turn-question {
+  margin: 0 0 12px;
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.turn-select {
+  all: unset;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.turn-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.turn:not(.active) .turn-question {
+  color: var(--text-2);
+}
+
+.steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 24px;
+}
+.step.wait {
+  color: var(--text-3);
+}
+.step-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+}
+.step.run .step-mark {
+  border-color: var(--accent);
+  border-right-color: transparent;
+  animation: spin 0.9s linear infinite;
+}
+.step.done .step-mark {
+  border-color: transparent;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 11.5px;
-  font-weight: 600;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.step-sources {
+  display: inline-flex;
+  padding-left: 3px;
+}
+.step-sources:empty {
+  display: none;
+}
+.step-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 1.5px var(--bg);
+  transition: opacity 0.3s ease;
+}
+.step-source.unused {
+  opacity: 0.3;
+}
+
+.turn-answer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.turn-answer > * {
+  max-width: 100%;
+}
+.answer-text {
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--text);
+  user-select: text;
+}
+.answer-text p {
+  margin: 0 0 10px;
+}
+.answer-text p:last-child {
+  margin-bottom: 0;
+}
+.answer-text h3 {
+  font-size: 15px;
+  margin: 16px 0 6px;
+}
+.answer-text ul,
+.answer-text ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+.answer-text li {
+  margin: 4px 0;
+}
+.answer-text a:not(.cite) {
+  color: var(--title);
+}
+.answer-text code {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-2);
+}
+.cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: 2px;
+  text-decoration: none;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.cite:hover,
+.cite.lit {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.cite:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.cite.dead {
+  opacity: 0.5;
+}
+.key-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.key-points li {
+  position: relative;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.key-points li > p {
+  margin: 0;
+}
+.key-points li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0.55em;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+.disagree {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 .confidence {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -296,268 +713,117 @@ body {
 .confidence.low .dots i.on {
   background: var(--danger);
 }
-
-.answer-text {
-  font-size: 15.5px;
-  line-height: 1.7;
-  color: var(--text);
-  user-select: text;
+.turn-entity {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
 }
-.answer-text p {
-  margin: 0 0 10px;
-}
-.answer-text p:last-child {
-  margin-bottom: 0;
-}
-.answer-text h3 {
+.turn-entity h3 {
+  margin: 0;
   font-size: 15px;
-  margin: 16px 0 6px;
 }
-.answer-text ul,
-.answer-text ol {
-  margin: 0 0 10px;
-  padding-left: 22px;
-}
-.answer-text li {
-  margin: 4px 0;
-}
-.answer-text a {
-  color: var(--title);
-}
-.answer-text code {
-  font-family: var(--mono);
+.turn-entity p {
+  margin: 4px 0 0;
   font-size: 13px;
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: var(--surface-2);
+  color: var(--text-2);
 }
-
-/* The box keeps one height while the AI works and once it is done, so the results below never
-   move; a longer answer is cut with a fade and "Show more" (the person's click grows it). */
-.answer {
-  --answer-preview: 232px;
+.turn-entity dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 16px;
+  margin: 10px 0 0;
 }
-.answer:not(.expanded) .answer-body {
-  height: var(--answer-preview);
-  overflow: hidden;
+.turn-entity dt {
+  font-size: 11.5px;
+  color: var(--text-3);
 }
-.answer.clipped .answer-body {
-  /* Fully faded where the button sits, so no half line shows beside it. */
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 88px), transparent calc(100% - 30px));
+.turn-entity dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
 }
-.answer-content > .search-error {
-  margin-bottom: 12px;
+.next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.answer-more {
+.next button {
   appearance: none;
-  padding: 6px 14px;
-  border-radius: 20px;
+  padding: 6px 12px;
+  border-radius: 16px;
   border: 1px solid var(--border-soft);
   background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
+  text-align: left;
   cursor: pointer;
 }
-.answer-more:hover {
+.next button:hover {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
-.answer-more:focus-visible {
+.next button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.answer.clipped .answer-more {
-  position: absolute;
-  left: 22px;
-  bottom: 14px;
-}
-.answer.expanded .answer-more {
-  margin-top: 14px;
-}
-
-.disagree {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--warning) 12%, transparent);
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--text);
-}
-.disagree svg {
-  flex: none;
-  margin-top: 2px;
-  color: var(--warning);
-}
-
-/* Key points: a short scannable list with accent markers. */
-.key-points {
-  list-style: none;
-  margin: 14px 0 0;
-  padding: 12px 0 0;
-  border-top: 1px solid var(--border-soft);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.key-points li {
-  position: relative;
-  padding-left: 20px;
-  font-size: 14px;
-  line-height: 1.55;
-}
-.key-points li > p {
+.turn-usage {
   margin: 0;
-}
-.key-points li::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 0.55em;
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: var(--accent);
-  transform: rotate(45deg);
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-3);
 }
 
-/* Inline citations and their hover card. */
-.cite-wrap {
-  position: relative;
-  display: inline-block;
+.ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 720px;
+  height: 46px;
+  margin: 0 clamp(20px, 4vw, 52px) 18px;
+  padding: 0 6px 0 16px;
+  border-radius: 23px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
 }
-.cite {
+.ask:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow);
+}
+.ask input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+}
+.ask button {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  margin: 0 1px;
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  vertical-align: 2px;
-  text-decoration: none;
-}
-.cite:hover {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
   background: var(--accent);
   color: var(--accent-text);
+  cursor: pointer;
 }
-.cite.dead {
-  opacity: 0.5;
-}
-.cite-pop {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  z-index: 20;
-  width: 280px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lg);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  opacity: 0;
-  visibility: hidden;
-  transform: translateX(-50%) translateY(4px);
-  transition: opacity 0.12s ease, transform 0.12s ease;
-  pointer-events: none;
-}
-.cite-wrap:hover .cite-pop,
-.cite-wrap:focus-within .cite-pop {
-  opacity: 1;
-  visibility: visible;
-  transform: translateX(-50%) translateY(0);
-}
-.cite-pop-source {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.cite-pop-title {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--text);
-}
-.cite-pop-text {
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-2);
-}
-
-/* Cited sources as a row of small cards. */
-.answer-sources {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
-  margin-top: 14px;
-}
-.source-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 12px;
+.ask button:disabled {
   background: var(--surface-2);
-  border: 1px solid transparent;
-  color: var(--text);
-  text-decoration: none;
-  transition: border-color 0.12s ease, transform 0.12s ease;
+  color: var(--text-3);
+  cursor: default;
 }
-.source-chip:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  transform: translateY(-1px);
-}
-.source-chip-site {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 11.5px;
-  color: var(--text-2);
-}
-.source-chip-site > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.source-chip-site b {
-  margin-left: auto;
-  flex: none;
-  color: var(--accent);
-  font-size: 11px;
-}
-.source-chip-title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 12.5px;
-  line-height: 1.35;
-}
-
-.answer.off p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--text-2);
-}
-.answer.off a {
-  color: var(--title);
+.ask button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------------------------------------- notices */
@@ -591,391 +857,13 @@ body {
 }
 .no-results,
 .fallback {
+  padding-left: 16px;
   color: var(--text-2);
   font-size: 14px;
 }
-
-/* ---------------------------------------------------------------- results */
-
-.results {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.result {
-  position: relative;
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  column-gap: 14px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid transparent;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.results.unrated .result {
-  grid-template-columns: minmax(0, 1fr);
-}
-.result:hover,
-.result:focus-within {
-  background: var(--surface);
-  border-color: var(--border-soft);
-}
-/* Results the answer cites carry an accent edge. */
-.result.cited::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 16px;
-  bottom: 16px;
-  width: 3px;
-  border-radius: 3px;
-  background: var(--accent);
-}
-.result-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.result-source {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12.5px;
-}
-.result-source .fav,
-.result-source .letter-icon {
-  flex: none;
-  border-radius: 4px;
-}
-.domain {
-  flex: none;
-  color: var(--text);
-  font-weight: 600;
-}
-.path {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-3);
-}
-.result-source .n {
-  margin-left: auto;
-  flex: none;
-  padding: 0 7px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.result.cited .result-source .n {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.result h3 {
-  margin: 0;
-}
-.result-title {
-  font-size: 17.5px;
-  line-height: 1.35;
-  font-weight: 600;
-  color: var(--title);
-  text-decoration: none;
-  text-wrap: pretty;
-}
-.result-title:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.result-title:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-/* With AI on every card keeps the same slot for its description from the start: summary (2
-   lines), snippet (3 lines) and tags fill it once the AI is done, so no card grows. */
-.result-desc {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-.result-desc > * {
-  flex: none;
-}
-.results.slots .result-desc {
-  height: 158px;
-  overflow: hidden;
-}
-/* While the AI works the slot shows a still outline of what comes: summary box, then snippet lines. */
-.result-desc.waiting {
-  gap: 12px;
-  padding-top: 2px;
-}
-.result-desc.waiting span {
-  height: 10px;
-  border-radius: 5px;
-  background: var(--surface-2);
-}
-.result-desc.waiting span:first-child {
-  height: 50px;
-  margin-bottom: 2px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface-2));
-}
-.result-desc.waiting span:nth-child(3) {
-  width: 92%;
-}
-.result-desc.waiting span:nth-child(4) {
-  width: 55%;
-}
-.ai-summary {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 2px 0 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: var(--accent-soft);
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--text);
-}
-.ai-summary svg {
-  flex: none;
-  margin-top: 3px;
-  color: var(--accent);
-}
-.ai-summary > span {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.result-snippet {
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-2);
-}
-.tags {
-  display: flex;
-  gap: 6px;
-  margin-top: 2px;
-  overflow: hidden;
-}
-.tag {
-  flex: none;
-  line-height: 18px;
-  padding: 1px 9px;
-  border-radius: 20px;
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-.tag.good {
-  background: color-mix(in srgb, var(--success) 16%, transparent);
-  color: var(--success);
-}
-.tag.warn {
-  background: color-mix(in srgb, var(--warning) 16%, transparent);
-  color: var(--warning);
-}
-
-/* AI relevance ring: fills clockwise to score/10 (green 8+, amber 5+, grey below). */
-.meter {
-  --tone: var(--text-3);
-  position: relative;
-  width: 40px;
-  height: 40px;
-  margin-top: 2px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: conic-gradient(var(--tone) calc(var(--score, 0) * 36deg), var(--surface-2) 0);
-}
-.meter::before {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  background: var(--bg);
-  transition: background 0.12s ease;
-}
-.result:hover .meter::before,
-.result:focus-within .meter::before {
-  background: var(--surface);
-}
-.meter b {
-  position: relative;
-  font-size: 13px;
-  font-weight: 750;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-.meter.hi {
-  --tone: var(--success);
-}
-.meter.mid {
-  --tone: var(--warning);
-}
-.meter.unscored {
-  background: var(--surface-2);
-}
-.meter.unscored.pending {
-  background: conic-gradient(var(--accent) 0 70deg, var(--surface-2) 0);
-  animation: spin 1.1s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ---------------------------------------------------------------- skeletons */
-
-.skeleton-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 4px 0;
-}
-.skeleton-lines span {
-  height: 12px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, var(--surface-2), var(--border-soft), var(--surface-2));
-  background-size: 200% 100%;
-  animation: shimmer 1.2s linear infinite;
-}
-.skeleton-lines span:nth-child(2) {
-  width: 85%;
-}
-.skeleton-lines span:nth-child(3) {
-  width: 60%;
-}
-.skeleton-lines span:nth-child(4) {
-  width: 92%;
-}
-.skeleton-lines span:nth-child(5) {
-  width: 45%;
-}
-.result.skeleton {
-  pointer-events: none;
-}
-@keyframes shimmer {
-  to {
-    background-position: -200% 0;
-  }
-}
-
-/* ---------------------------------------------------------------- aside */
-
-.entity-card,
-.related {
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid var(--border-soft);
-  background: var(--surface);
-}
-.entity-card h2 {
-  margin: 0 0 6px;
-  font-size: 17px;
-}
-.entity-card > p {
-  margin: 0 0 12px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-2);
-}
-.entity-card dl {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-.entity-card dl > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 7px 0;
-  border-top: 1px solid var(--border-soft);
-  font-size: 13px;
-}
-.entity-card dt {
-  flex: none;
-  color: var(--text-3);
-}
-.entity-card dd {
-  margin: 0;
-  text-align: right;
-  color: var(--text);
-}
-.entity-source {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 12px;
-  font-size: 11.5px;
-  color: var(--text-3);
-  text-decoration: none;
-}
-.related h2 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-.related ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.related button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 13.5px;
-  line-height: 1.4;
-  text-align: left;
-  cursor: pointer;
-}
-.related button svg {
-  flex: none;
-  color: var(--text-3);
-}
-.related button:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.related button:hover svg {
-  color: var(--accent);
+.serp .no-results,
+.serp .fallback {
+  padding-left: 0;
 }
 
 /* ---------------------------------------------------------------- footer */
@@ -989,14 +877,6 @@ body {
   border-top: 1px solid var(--border-soft);
   font-size: 11.5px;
   color: var(--text-3);
-}
-.search-footer .stat {
-  display: inline-flex;
-  gap: 5px;
-}
-.search-footer .stat-value {
-  color: var(--text-2);
-  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------- news */
@@ -1094,14 +974,15 @@ body {
   background: var(--surface-2);
   text-decoration: none;
 }
-.image-tile img {
+/* Only the photo: the caption's favicon is an img too, and must keep its 14px. */
+.image-tile > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   transition: transform 0.25s ease;
 }
-.image-tile:hover img {
+.image-tile:hover > img {
   transform: scale(1.03);
 }
 .image-cap {
@@ -1145,7 +1026,7 @@ body {
   overflow: hidden;
   background: var(--surface-2);
 }
-.video-thumb img {
+.video-thumb > img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -1190,37 +1071,63 @@ body {
 
 /* ---------------------------------------------------------------- narrow windows */
 
-@media (max-width: 1100px) {
-  .serp.with-aside {
-    grid-template-columns: minmax(0, 700px);
+/* Too narrow for two panes: one at a time, picked with Answer / Sources under the search box. */
+@media (max-width: 900px) {
+  .viewer.with-chat {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .serp-aside {
-    position: static;
+  .viewer.with-chat.show-answer .sources-pane,
+  .viewer.with-chat.show-sources .chat {
+    display: none;
+  }
+  .chat {
+    border-left: none;
+  }
+  .pane-switch {
+    display: inline-flex;
+    margin-left: auto;
+  }
+  .pane-switch button {
+    appearance: none;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 16px;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .pane-switch button.on {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow);
   }
 }
 @media (max-width: 760px) {
   .search-page {
     --gutter: 16px;
-    --rail: var(--gutter);
+    --rail: 28px;
   }
   .search-header {
     grid-template-columns: 36px minmax(0, 1fr);
   }
-  .segmented {
+  .segmented.depth {
     grid-column: 2;
   }
   .search-tabs {
     overflow-x: auto;
   }
-  .result {
-    padding: 12px 10px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .answer.streaming::before,
-  .answer.streaming .answer-mark,
-  .meter.unscored.pending,
-  .skeleton-lines span {
+  .sources.reading .source-rail,
+  .sources.skeleton .bar,
+  .step.run .step-mark {
     animation: none;
+  }
+  .source,
+  .cite,
+  .step-source {
+    transition: none;
   }
 }

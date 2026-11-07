@@ -19,14 +19,17 @@ services:
 
   searxng:
     image: searxng/searxng:2026.11.1-10db664f1
-    ports: ["${CORVUS_SEARXNG_HOST_PORT:-8898}:8080"]
+    # Loopback only: Corvus on this computer is its only client.
+    ports: ["127.0.0.1:${CORVUS_SEARXNG_HOST_PORT:-8898}:8080"]
     volumes:
       - ./docker/searxng:/etc/searxng:ro
     restart: unless-stopped
 
   sync-server:
     build: { context: ., dockerfile: services/sync-server/Dockerfile }
-    ports: ["${CORVUS_SYNC_HOST_PORT:-8797}:8787"]
+    # Loopback only: the desktop app on this computer syncs through it. Phones sync with the server
+    # built into the desktop app; one hosted for other devices goes behind TLS (see its README).
+    ports: ["127.0.0.1:${CORVUS_SYNC_HOST_PORT:-8797}:8787"]
     volumes:
       - sync_data:/data
     environment:

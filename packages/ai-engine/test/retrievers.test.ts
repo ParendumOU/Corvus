@@ -64,6 +64,7 @@ describe("searxng", () => {
     expect(url.searchParams.get("q")).toBe("rust lang");
     expect(url.searchParams.get("format")).toBe("json");
     expect(url.searchParams.get("language")).toBe("es-ES");
+    expect(url.searchParams.get("timeout_limit")).toBe("2");
     expect(results).toHaveLength(3);
   });
 
@@ -118,6 +119,24 @@ describe("searxng verticals", () => {
     expect(results.every((r) => !r.thumbnail || /^https:\/\//.test(r.thumbnail))).toBe(true);
     expect(results.some((r) => r.publishedAt?.startsWith("2024-06-09"))).toBe(true);
     expect(results.some((r) => r.duration === "1:53:22")).toBe(true);
+  });
+
+  it("puts hits only archive engines found (Wikinews, Commons, PeerTube) after the others", () => {
+    const hit = (n: number, engines: string[]) => ({ url: `https://site${n}.example/${n}`, title: `Hit ${n}`, content: "", engines, engine: engines[0] });
+    const body = {
+      results: [
+        hit(1, ["wikinews"]),
+        hit(2, ["wikicommons.videos"]),
+        hit(3, ["bing news"]),
+        hit(4, ["wikinews", "bing news"]),
+        hit(5, ["sepiasearch"]),
+        hit(6, ["youtube"]),
+      ],
+    };
+    expect(parseSearxng(body, 12, "news").map((r) => r.title)).toEqual(["Hit 3", "Hit 4", "Hit 6", "Hit 1", "Hit 2", "Hit 5"]);
+    expect(parseSearxng(body, 3, "videos").map((r) => r.title)).toEqual(["Hit 3", "Hit 4", "Hit 6"]);
+    // General results keep SearXNG's order.
+    expect(parseSearxng(body, 12).map((r) => r.title)[0]).toBe("Hit 1");
   });
 
   it("formats durations", () => {

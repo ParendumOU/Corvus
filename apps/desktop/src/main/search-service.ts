@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { app, type WebContents } from "electron";
 import type { LocalTestResult } from "@corvus/ai-engine";
-import type { AiEngineConfig, LocalModelApi, SearchCategory, SearchEngine, SearchEvent, SearchOptions } from "@corvus/shared";
+import type { AiEngineConfig, LocalModelApi, SearchCategory, SearchEngine, SearchEvent, SearchOptions, SearchTurn } from "@corvus/shared";
 import type { ConnectionTestResult, EngineInfo, InternalEvent, LocalServerInfo } from "../shared/ipc";
 import { INTERNAL_EVENT } from "../shared/ipc";
 import { claudeCliEnv, type Settings } from "../shared/settings";
@@ -189,7 +189,7 @@ export class SearchService {
   }
 
   /** Run a search for an internal page, streaming events back to its webContents. */
-  start(target: WebContents, query: string, depth: "quick" | "deep", category: SearchCategory = "general"): string {
+  start(target: WebContents, query: string, depth: "quick" | "deep", category: SearchCategory = "general", context: SearchTurn[] = []): string {
     const searchId = crypto.randomUUID();
     const controller = new AbortController();
     this.running.set(searchId, controller);
@@ -208,7 +208,7 @@ export class SearchService {
 
     void (async () => {
       try {
-        for await (const event of this.stream(query, { depth, category, signal: controller.signal })) {
+        for await (const event of this.stream(query, { depth, category, signal: controller.signal, ...(context.length ? { context } : {}) })) {
           if (controller.signal.aborted) break;
           send(event);
         }

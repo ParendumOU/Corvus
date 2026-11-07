@@ -21,7 +21,7 @@ export interface AiEngineConfig {
   braveApiKey?: string;
   cacheDir?: string; // on-disk cache; memory-only if omitted
   uiLocale?: string; // fallback answer language
-  maxOutputTokens?: number; // default 400
+  maxOutputTokens?: number; // answer budget, default 400 (the reply also gets room for per-source records)
 }
 export type CreateSearchEngine = (config: AiEngineConfig) => SearchEngine;
 

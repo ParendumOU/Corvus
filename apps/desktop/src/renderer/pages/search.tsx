@@ -1,37 +1,29 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { SearchCategory } from "@corvus/shared";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import type { SearchCategory, SearchEvent } from "@corvus/shared";
 import type { EngineInfo } from "../../shared/ipc";
 import { classifyOmnibox, intentToUrl, searchUrl } from "../../shared/omnibox";
 import {
-  aiSettled,
+  answerReady,
+  contextFor,
   displayOrder,
   initialSearchView,
   listReady,
   openingSort,
   parseCategory,
+  ratingsReady,
   reduceSearchView,
   type SearchViewState,
   type SortMode,
+  type Turn,
 } from "../../shared/search-view";
 import { errorMessage, internalApi } from "../common/api";
+import { t as tx } from "../common/i18n";
 import { CorvusMark, IconSearch } from "../common/icons";
-import {
-  AnswerBlock,
-  EntityPanel,
-  ErrorNote,
-  type FaviconMap,
-  FooterStat,
-  ImageGrid,
-  NewsList,
-  RelatedQuestions,
-  ResultList,
-  ResultSkeleton,
-  VideoGrid,
-} from "./search-parts";
+import { ErrorNote, type FaviconMap, ImageGrid, NewsList, VideoGrid } from "./search-parts";
+import { AskBox, type Pointing, SourceList, SourceSkeleton, TurnView } from "./search-viewer";
 import { mount } from "./shell";
 import "./search.css";
 
-import { t as tx } from "../common/i18n";
 type Depth = "quick" | "deep";
 
 const TABS: Array<{ id: SearchCategory; label: string }> = [
@@ -94,31 +86,48 @@ function useKeyboardNav(input: React.RefObject<HTMLInputElement | null>): void {
   }, [input]);
 }
 
-function useSearch(query: string, depth: Depth, category: SearchCategory): SearchViewState {
-  const [state, setState] = useState<SearchViewState>(initialSearchView);
-  const searchId = useRef<string | null>(null);
+type Item = SearchEvent | "done";
+
+/**
+ * The searches of this page: the one in the address and the follow-ups asked under it, each a turn
+ * with its own state. Events are routed by search id; those that come before search.start replies
+ * with the id wait for it.
+ */
+function useConversation(first: string, depth: Depth, category: SearchCategory) {
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [resultsMs, setResultsMs] = useState<Record<string, number>>({});
+  const turnsRef = useRef(turns);
+  turnsRef.current = turns;
+  const keys = useRef(new Map<string, string>());
+  const early = useRef(new Map<string, Item[]>());
+  const running = useRef(new Set<string>());
+  const asked = useRef(new Map<string, number>());
+
+  const apply = useCallback((key: string, item: Item) => {
+    if (item !== "done" && item.type === "results") {
+      const at = asked.current.get(key);
+      if (at !== undefined) setResultsMs((m) => ({ ...m, [key]: performance.now() - at }));
+    }
+    setTurns((all) =>
+      all.map((t) =>
+        t.key !== key ? t : { ...t, state: item === "done" ? { ...t.state, finished: true, structuredDone: true } : reduceSearchView(t.state, item) },
+      ),
+    );
+  }, []);
+
   useEffect(() => {
-    if (!query.trim()) return;
     const api = internalApi();
     const off = api.onEvent((message) => {
       if (message.type !== "search") return;
-      // Events can arrive before the start() reply; a page runs one search, so accept them.
-      if (searchId.current !== null && message.message.searchId !== searchId.current) return;
-      if ("done" in message.message) {
-        setState((s) => ({ ...s, finished: true, structuredDone: true }));
-        return;
-      }
-      const event = message.message.event;
-      setState((s) => reduceSearchView(s, event));
+      const { searchId } = message.message;
+      const item: Item = "done" in message.message ? "done" : message.message.event;
+      if (item === "done") running.current.delete(searchId);
+      const key = keys.current.get(searchId);
+      if (key) apply(key, item);
+      else early.current.set(searchId, [...(early.current.get(searchId) ?? []), item]);
     });
-    void api
-      .call("search.start", query, { depth, category })
-      .then((id) => {
-        searchId.current = id;
-      })
-      .catch((err: unknown) => setState((s) => ({ ...s, errors: [...s.errors, { message: errorMessage(err), recoverable: false }], finished: true })));
     const cancel = (): void => {
-      if (searchId.current) void api.call("search.cancel", searchId.current);
+      for (const id of running.current) void api.call("search.cancel", id);
     };
     window.addEventListener("pagehide", cancel);
     return () => {
@@ -126,8 +135,38 @@ function useSearch(query: string, depth: Depth, category: SearchCategory): Searc
       cancel();
       window.removeEventListener("pagehide", cancel);
     };
-  }, [query, depth, category]);
-  return state;
+  }, [apply]);
+
+  const ask = useCallback(
+    (query: string) => {
+      const context = contextFor(turnsRef.current);
+      const key = `t${turnsRef.current.length}-${Date.now()}`;
+      asked.current.set(key, performance.now());
+      setTurns((all) => [...all, { key, query, state: initialSearchView }]);
+      internalApi()
+        .call("search.start", query, { depth, category, ...(context.length ? { context } : {}) })
+        .then((id) => {
+          keys.current.set(id, key);
+          running.current.add(id);
+          for (const item of early.current.get(id) ?? []) {
+            if (item === "done") running.current.delete(id);
+            apply(key, item);
+          }
+          early.current.delete(id);
+        })
+        .catch((err: unknown) => apply(key, { type: "error", message: errorMessage(err), recoverable: false }));
+    },
+    [depth, category, apply],
+  );
+
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current || !first.trim()) return;
+    started.current = true;
+    ask(first);
+  }, [first, ask]);
+
+  return { turns, ask, resultsMs };
 }
 
 function useFavicons(domains: string[]): FaviconMap {
@@ -152,16 +191,23 @@ function SearchPage() {
   const { query, depth, category } = useMemo(readParams, []);
   const [input, setInput] = useState(query);
   const [engine, setEngine] = useState<EngineInfo | null>(null);
-  // Whether AI output follows the results (null until the engine says): its space is kept from the start.
+  // Whether AI output follows the results (null until the engine says): the layout is chosen with it.
   const [answers, setAnswers] = useState<boolean | null>(null);
   const savedSort = useMemo<SortMode>(() => (localStorage.getItem(SORT_KEY) === "original" ? "original" : "ai"), []);
   const [pickedSort, setPickedSort] = useState<SortMode | null>(null);
-  const opening = useRef<SortMode | null>(null);
+  const openings = useRef(new Map<string, SortMode>());
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [lit, setLit] = useState<number | null>(null);
+  const [narrowPane, setNarrowPane] = useState<"answer" | "sources">("answer");
   const inputRef = useRef<HTMLInputElement>(null);
-  const state = useSearch(query, depth, category);
-  const domains = useMemo(() => [...new Set((state.results ?? []).map((r) => r.source.toLowerCase()))], [state.results]);
-  const icons = useFavicons(domains);
+  const chatScroll = useRef<HTMLDivElement>(null);
+  const { turns, ask, resultsMs } = useConversation(query, depth, category);
   useKeyboardNav(inputRef);
+
+  const active = turns.find((t) => t.key === activeKey) ?? turns.at(-1);
+  const state = active?.state ?? initialSearchView;
+  const domains = useMemo(() => [...new Set(turns.flatMap((t) => (t.state.results ?? []).map((r) => r.source.toLowerCase())))], [turns]);
+  const icons = useFavicons(domains);
 
   useEffect(() => {
     document.title = query ? tx("{query} - Corvus Search", { query }) : tx("Corvus Search");
@@ -186,26 +232,45 @@ function SearchPage() {
     else if (intent.query) location.href = hrefFor(intent.query, depth, category);
   };
 
+  const askNext = (question: string): void => {
+    setActiveKey(null);
+    setNarrowPane("answer");
+    ask(question);
+  };
+
+  // A new question scrolls to the top of the conversation, with room below for its answer.
+  const turnCount = turns.length;
+  useEffect(() => {
+    if (turnCount < 2) return;
+    const last = chatScroll.current?.querySelector<HTMLElement>(".turn:last-of-type");
+    last?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [turnCount]);
+
   const results = state.results ?? [];
   const fatal = state.errors.find((e) => !e.recoverable);
   const general = category === "general";
-  // AI output (answer, ratings, summaries, side panel) follows the results on this page.
   const ai = general && answers === true;
-  const aiOff = general && answers === false && !fatal;
   const ready = listReady(state, answers);
-  const settled = aiSettled(state);
-  if (ready && opening.current === null) opening.current = openingSort(state, savedSort);
-  const sort = pickedSort ?? opening.current ?? "original";
-  const showAnswer = ai && Boolean(query) && (state.results === null || results.length > 0) && (!fatal || state.answer.length > 0);
-  const answerNotes = showAnswer ? state.errors.filter((e) => e.recoverable) : [];
-  const pageErrors = state.errors.filter((e) => !answerNotes.includes(e));
+  const rated = ratingsReady(state);
+  if (active && ready && !openings.current.has(active.key)) openings.current.set(active.key, openingSort(state, savedSort));
+  const sort = pickedSort ?? (active && openings.current.get(active.key)) ?? "original";
   const order = displayOrder(state, sort);
-  const cited = settled ? new Set(state.citations) : NO_CITES;
-  const ratings = settled ? state.ratings : NO_RATINGS;
+  const cited = rated ? new Set(state.citations) : NO_CITES;
+  const ratings = rated ? state.ratings : NO_RATINGS;
   const hasRatings = Object.keys(ratings).length > 0;
+  const pointing: Pointing = { lit, point: setLit };
+  const last = turns.at(-1);
+  const retriever = state.retriever ? (RETRIEVER_LABEL[state.retriever] ?? state.retriever) : "";
+
+  const fallback = (fatal || state.results?.length === 0) && (
+    <div className="fallback">
+      {tx("Try this search on")} <a href={`https://duckduckgo.com/?q=${encodeURIComponent(active?.query ?? query)}`}>{tx("DuckDuckGo")}</a> {tx("or")}{" "}
+      <a href={`https://www.startpage.com/do/search?q=${encodeURIComponent(active?.query ?? query)}`}>{tx("Startpage")}</a>.
+    </div>
+  );
 
   return (
-    <div className={`search-page cat-${category}`}>
+    <div className={`search-page cat-${category} ${general && query ? "viewing" : ""}`}>
       <header className="search-header">
         <a className="search-brand" href="corvus://newtab/" title={tx("New tab")} aria-label={tx("Corvus new tab")}>
           <CorvusMark size={28} />
@@ -240,11 +305,13 @@ function SearchPage() {
               </a>
             ))}
             {ai && (
-              // Kept in place (hidden) until the ratings are in, so the header never changes height.
-              <div className={`sort-toggle ${hasRatings ? "" : "waiting"}`} role="group" aria-label={tx("Sort results")} aria-hidden={!hasRatings || undefined}>
-                <span className="sort-label">{tx("Sort")}</span>
-                <button type="button" data-sort="ai" className={sort === "ai" ? "on" : ""} aria-pressed={sort === "ai"} onClick={() => setSort("ai")}>{tx("AI relevance")}</button>
-                <button type="button" data-sort="original" className={sort === "original" ? "on" : ""} aria-pressed={sort === "original"} onClick={() => setSort("original")}>{tx("Original")}</button>
+              <div className="segmented pane-switch" role="group" aria-label={tx("Show")}>
+                <button type="button" className={narrowPane === "answer" ? "on" : ""} aria-pressed={narrowPane === "answer"} onClick={() => setNarrowPane("answer")}>
+                  {tx("Answer")}
+                </button>
+                <button type="button" className={narrowPane === "sources" ? "on" : ""} aria-pressed={narrowPane === "sources"} onClick={() => setNarrowPane("sources")}>
+                  {tx("Sources")}
+                </button>
               </div>
             )}
           </nav>
@@ -257,94 +324,108 @@ function SearchPage() {
           <p>{tx("Search the web. Corvus answers with citations and rates every result.")}</p>
           <p className="muted small">{tx("Press")}{" "}<kbd>/</kbd>{" "}{tx("to type,")}{" "}<kbd>j</kbd>{" "}{tx("and")}{" "}<kbd>k</kbd>{" "}{tx("to move through results.")}</p>
         </div>
-      ) : (
-        <div className={`serp ${ai ? "with-aside" : ""}`}>
-          <main className="serp-main">
-            {showAnswer && (
-              <AnswerBlock
-                answer={state.answer}
-                ready={settled}
-                keyPoints={state.keyPoints}
-                confidence={state.confidence}
-                disagreement={state.disagreement}
-                citations={state.citations}
-                results={results}
-                ratings={state.ratings}
-                icons={icons}
-                deep={depth === "deep"}
-                notes={answerNotes.map((e) => e.message)}
-              />
-            )}
-            {aiOff && (
-              <section className="answer off">
-                <p>
-                  <strong>{tx("AI answers are off.")}</strong>{" "}{tx("Add an Anthropic API key, or choose Claude Code, in")}{" "}
-                  <a href="corvus://settings/">{tx("Settings")}</a>{" "}{tx("to get a cited answer and a rating for every result.")}</p>
-              </section>
-            )}
-
-            {pageErrors.map((e, i) => (
-              <ErrorNote key={i} message={e.message} recoverable={e.recoverable}>
-                {!e.recoverable && engine && !engine.available && (
-                  <div className="muted small">{tx("Configure the search engine in")}{" "}<a href="corvus://settings/">{tx("Settings")}</a>.
+      ) : general ? (
+        // Until the page knows whether an AI answer comes (a few ms), it draws nothing: the layout
+        // depends on it, and nothing drawn before may move.
+        answers === null ? null : (
+          <div className={`viewer ${ai ? "with-chat" : "plain"} show-${narrowPane}`}>
+            <section className="pane sources-pane" aria-label={tx("Sources")}>
+              <div className="pane-head">
+                <span className="pane-title">{tx("Sources")}</span>
+                <span className="pane-meta">
+                  {ready && results.length > 0
+                    ? state.cached
+                      ? tx("{n} results from the cache", { n: results.length })
+                      : tx("{n} results from {engine}", { n: results.length, engine: retriever })
+                    : ""}
+                </span>
+                {ai && (
+                  // Kept in place (hidden) until the ratings are in, so the head never changes.
+                  <div className={`sort-toggle ${hasRatings ? "" : "waiting"}`} role="group" aria-label={tx("Sort results")} aria-hidden={!hasRatings || undefined}>
+                    <button type="button" data-sort="ai" className={sort === "ai" ? "on" : ""} aria-pressed={sort === "ai"} onClick={() => setSort("ai")}>{tx("AI relevance")}</button>
+                    <button type="button" data-sort="original" className={sort === "original" ? "on" : ""} aria-pressed={sort === "original"} onClick={() => setSort("original")}>{tx("Original")}</button>
                   </div>
                 )}
-              </ErrorNote>
-            ))}
-
-            {!ready && !fatal ? (
-              category === "images" ? (
-                <div className="image-grid skeleton" aria-hidden="true">
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <span key={i} className="image-tile" style={{ flexGrow: 1 + (i % 3) * 0.4, flexBasis: `${180 * (1 + (i % 3) * 0.4)}px` }} />
+              </div>
+              {!ai && !fatal && (
+                <section className="ai-off">
+                  <strong>{tx("AI answers are off.")}</strong>{" "}{tx("Add an Anthropic API key, or choose Claude Code, in")}{" "}
+                  <a href="corvus://settings/">{tx("Settings")}</a>{" "}{tx("to get a cited answer and a rating for every result.")}
+                </section>
+              )}
+              {!ai && state.errors.map((e, i) => (
+                <ErrorNote key={i} message={e.message} recoverable={e.recoverable}>
+                  {!e.recoverable && engine && !engine.available && (
+                    <div className="muted small">{tx("Configure the search engine in")}{" "}<a href="corvus://settings/">{tx("Settings")}</a>.</div>
+                  )}
+                </ErrorNote>
+              ))}
+              {!ready && !fatal ? (
+                <SourceSkeleton />
+              ) : (
+                <SourceList results={results} order={order} ratings={ratings} cited={cited} icons={icons} ai={ai} pending={ai && !rated && !fatal} pointing={pointing} />
+              )}
+              {ready && results.length === 0 && <div className="no-results">{tx("No results for this search.")}</div>}
+              {fallback}
+            </section>
+            {ai && (
+              <section className="pane chat" aria-label={tx("Conversation")}>
+                <div className="chat-scroll" ref={chatScroll}>
+                  {turns.map((t) => (
+                    <TurnView
+                      key={t.key}
+                      turn={t}
+                      active={t === active}
+                      ai={ai}
+                      icons={icons}
+                      pointing={pointing}
+                      onSelect={() => setActiveKey(t.key)}
+                      onAsk={askNext}
+                      resultsMs={resultsMs[t.key] ?? null}
+                    />
                   ))}
                 </div>
-              ) : (
-                <ResultSkeleton />
-              )
-            ) : category === "news" ? (
-              <NewsList results={results} icons={icons} />
-            ) : category === "images" ? (
-              <ImageGrid results={results} icons={icons} />
-            ) : category === "videos" ? (
-              <VideoGrid results={results} icons={icons} />
-            ) : (
-              <ResultList results={results} order={order} ratings={ratings} cited={cited} icons={icons} ai={ai} pending={ai && !settled} />
+                <AskBox onAsk={askNext} ready={Boolean(last && answerReady(last.state))} />
+              </section>
             )}
-
-            {ready && results.length === 0 && <div className="no-results">{tx("No results for this search.")}</div>}
-            {(fatal || state.results?.length === 0) && (
-              <div className="fallback">{tx("Try this search on")}{" "}
-                <a href={`https://duckduckgo.com/?q=${encodeURIComponent(query)}`}>{tx("DuckDuckGo")}</a>{" "}{tx("or")}{" "}
-                <a href={`https://www.startpage.com/do/search?q=${encodeURIComponent(query)}`}>{tx("Startpage")}</a>.
-              </div>
-            )}
-
-            {ready && (
-              <footer className="search-footer">
-                {state.usage && (
-                  <>
-                    <FooterStat label={tx("Model")}>{state.usage.model}</FooterStat>
-                    <FooterStat label={tx("Tokens")}>{tx("{v} in, {v2} out", { v: state.usage.inputTokens.toLocaleString(), v2: state.usage.outputTokens.toLocaleString() })}</FooterStat>
-                  </>
-                )}
-                {!general && <FooterStat label={tx("Tokens")}>{tx("0, results only")}</FooterStat>}
-                {state.retriever && <FooterStat label={tx("Results from")}>{RETRIEVER_LABEL[state.retriever] ?? state.retriever}</FooterStat>}
-                {state.cached && <FooterStat label={tx("Cache")}>{tx("Served from cache")}</FooterStat>}
-              </footer>
-            )}
-          </main>
-
-          {ai && (
-            // The column is kept from the start so the result column never narrows when it fills.
-            <aside className="serp-aside">
-              {settled && state.entity && <EntityPanel entity={state.entity} source={results[state.order?.[0] ?? 0]} icons={icons} />}
-              {settled && state.followUps.length > 0 && (
-                <RelatedQuestions questions={state.followUps} onPick={(q) => (location.href = hrefFor(q, depth, "general"))} />
+          </div>
+        )
+      ) : (
+        <main className="serp">
+          {state.errors.map((e, i) => (
+            <ErrorNote key={i} message={e.message} recoverable={e.recoverable}>
+              {!e.recoverable && engine && !engine.available && (
+                <div className="muted small">{tx("Configure the search engine in")}{" "}<a href="corvus://settings/">{tx("Settings")}</a>.</div>
               )}
-            </aside>
+            </ErrorNote>
+          ))}
+          {!ready && !fatal ? (
+            category === "images" ? (
+              <div className="image-grid skeleton" aria-hidden="true">
+                {Array.from({ length: 12 }, (_, i) => (
+                  <span key={i} className="image-tile" style={{ flexGrow: 1 + (i % 3) * 0.4, flexBasis: `${180 * (1 + (i % 3) * 0.4)}px` }} />
+                ))}
+              </div>
+            ) : (
+              <SourceSkeleton count={5} />
+            )
+          ) : category === "news" ? (
+            <NewsList results={results} icons={icons} />
+          ) : category === "images" ? (
+            <ImageGrid results={results} icons={icons} />
+          ) : (
+            <VideoGrid results={results} icons={icons} />
           )}
-        </div>
+          {ready && results.length === 0 && <div className="no-results">{tx("No results for this search.")}</div>}
+          {fallback}
+          {ready && (
+            <footer className="search-footer">
+              <span>{tx("0 tokens, results only")}</span>
+              {retriever && <span>{tx("Results from {engine}", { engine: retriever })}</span>}
+              {state.cached && <span>{tx("Served from cache")}</span>}
+            </footer>
+          )}
+        </main>
       )}
     </div>
   );

@@ -5,3 +5,22 @@ server:
   image_proxy: false
 search:
   formats: [html, json]
+# Out of the box only Google CSE, Brave and DuckDuckGo answer web searches, and a single computer
+# soon gets rate-limited or blocked by them (a CAPTCHA, "too many requests"), which left Corvus with
+# no results at all. More engines keep searches answered and the merged ranking broader. (Mojeek
+# was tried too: it timed out or refused access, so every search waited for it.)
+engines:
+  - name: bing
+    disabled: false
+  - name: yahoo
+    disabled: false
+  # DuckDuckGo does not answer from every network (on some it never does, not even its home page),
+  # and SearXNG then waits for it on every search, in every tab: off.
+  - name: duckduckgo
+    disabled: true
+  - name: duckduckgo images
+    disabled: true
+  - name: duckduckgo videos
+    disabled: true
+  - name: duckduckgo news
+    disabled: true

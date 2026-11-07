@@ -3,19 +3,22 @@ import { parseCitations } from "./prompt.js";
 import { collapseWhitespace } from "./text.js";
 
 /**
- * Line protocol of the single structured LLM call (see SYSTEM_PROMPT):
+ * Line protocol of the structured LLM calls (ANSWER_SYSTEM_PROMPT writes the answer, P, C and D,
+ * RATING_SYSTEM_PROMPT the R, E, F and Q records; one parser reads either):
  *
  *   <answer: 1-3 sentences with [n] citations, untagged, may span lines>
  *   P: key point [n]                 3-5 lines
+ *   C: high|medium|low
+ *   D: what the sources disagree on  only when they conflict
  *   R: n|score|tag,tag|summary       one per source
  *   E: name|description              only for entity queries
  *   F: label|value                   up to 5 facts for E
  *   Q: follow-up search              3 lines
- *   C: high|medium|low
- *   D: what the sources disagree on  only when they conflict
  *
  * The answer streams character by character; every other record is emitted once its line is
- * complete. Unknown, malformed and out-of-range lines are dropped, never fatal.
+ * complete, and a block's summary event (confidence, rerank, entity) once the block is over, so
+ * "confidence" closes everything the answer box shows. Unknown, malformed and out-of-range lines
+ * are dropped, never fatal.
  */
 
 export const RESULT_TAGS: readonly ResultTag[] = [
@@ -129,6 +132,7 @@ export class StructuredAnswerParser {
   private entityEmitted = false;
   private confidence: Confidence | null = null;
   private disagreement = "";
+  private confidenceEmitted = false;
 
   constructor(private readonly sourceCount: number) {}
 
@@ -153,14 +157,7 @@ export class StructuredAnswerParser {
       this.completeLine(line, out);
     }
     this.enter(null, out);
-    if (this.confidence || this.disagreement) {
-      out.push({
-        type: "confidence",
-        level: this.confidence,
-        sourcesDisagree: Boolean(this.disagreement),
-        ...(this.disagreement ? { note: this.disagreement } : {}),
-      });
-    }
+    this.emitConfidence(out);
     return out;
   }
 
@@ -270,12 +267,24 @@ export class StructuredAnswerParser {
       out.push({ type: "rerank", order: this.order });
     }
     if ((prev === "E" || prev === "F") && next !== "E" && next !== "F") this.emitEntity(out);
+    if ((prev === "C" || prev === "D") && next !== "C" && next !== "D") this.emitConfidence(out);
     this.section = next;
     if (next === null && this.ratings.length && !this.order) {
       this.order = rerankByRating(this.sourceCount, this.ratings);
       out.push({ type: "rerank", order: this.order });
     }
     if (next === null) this.emitEntity(out);
+  }
+
+  private emitConfidence(out: StructuredEvent[]): void {
+    if (this.confidenceEmitted || (!this.confidence && !this.disagreement)) return;
+    this.confidenceEmitted = true;
+    out.push({
+      type: "confidence",
+      level: this.confidence,
+      sourcesDisagree: Boolean(this.disagreement),
+      ...(this.disagreement ? { note: this.disagreement } : {}),
+    });
   }
 
   private emitEntity(out: StructuredEvent[]): void {

@@ -127,6 +127,8 @@ const STRUCTURED_REPLY = [
   "P: Ravens solve multi-step puzzles and plan ahead for future rewards [3][4]",
   "P: Pairs cooperate to steal food and can mimic sounds, including human speech [7]",
   "P: They live in deserts, mountains and northern forests and often follow wolves [5]",
+  "C: high",
+  "D: One older blog claims ravens and crows are the same species; field guides disagree",
   "R: 1|9|reference|Comprehensive encyclopedia entry covering taxonomy, range, behavior and the raven in culture",
   "R: 2|6|forum|Community thread with practical tips for telling ravens and crows apart in the field",
   "R: 3|10|official,reference|Cornell Lab species guide with identification, sounds, range map and behavior notes",
@@ -144,8 +146,6 @@ const STRUCTURED_REPLY = [
   "Q: How smart are ravens compared to crows?",
   "Q: Raven vs crow identification",
   "Q: Do ravens mate for life?",
-  "C: high",
-  "D: One older blog claims ravens and crows are the same species; field guides disagree",
 ].join("\n");
 
 function fakeRetriever() {
@@ -159,19 +159,32 @@ function fakeRetriever() {
   };
 }
 
+/** The part of the reply each call writes: the rating call (its prompt asks for R: lines) the per-source records. */
+function replyFor(system: string): string {
+  const rating = system.includes("R: n|");
+  return STRUCTURED_REPLY.split("\n")
+    .filter((line) => /^[REFQ]: /.test(line) === rating)
+    .join("\n");
+}
+
+/** The user messages the fake provider was asked to answer, newest last. */
+const prompts: string[] = [];
+
 function fakeProvider(chunkMs = 6, onChunk?: () => void) {
   return {
     kind: "anthropic-api" as const,
     model: "claude-haiku-5-5",
     async *answer(req: { prompt: { system: string; user: string }; signal?: AbortSignal }) {
-      for (let i = 0; i < STRUCTURED_REPLY.length; i += 14) {
+      prompts.push(req.prompt.user);
+      const reply = replyFor(req.prompt.system);
+      for (let i = 0; i < reply.length; i += 14) {
         if (req.signal?.aborted) return;
         await new Promise((r) => setTimeout(r, chunkMs));
         onChunk?.();
-        yield { type: "delta" as const, text: STRUCTURED_REPLY.slice(i, i + 14) };
+        yield { type: "delta" as const, text: reply.slice(i, i + 14) };
       }
       const input = Math.ceil((req.prompt.system.length + req.prompt.user.length) / 3);
-      yield { type: "usage" as const, inputTokens: input, outputTokens: Math.ceil(STRUCTURED_REPLY.length / 3.4), model: "claude-haiku-5-5" };
+      yield { type: "usage" as const, inputTokens: input, outputTokens: Math.ceil(reply.length / 3.4), model: "claude-haiku-5-5" };
     },
   };
 }
@@ -197,9 +210,12 @@ function pageUrl(category: SearchCategory): string {
   return `corvus://search/?q=${encodeURIComponent(QUERY)}${category === "general" ? "" : `&cat=${category}`}`;
 }
 
-/** In the page: watch layout shifts and half-shown AI text from now until `window.__layout.stop`. */
+/**
+ * In the page: watch layout shifts, every answer text and AI note ever shown, and when each part
+ * appears, from now until `window.__layout.stop`.
+ */
 const WATCH_LAYOUT = `(() => {
-  const w = { since: performance.now(), shift: 0, shifts: [], partial: [], stop: false };
+  const w = { since: performance.now(), shift: 0, shifts: [], answers: [], notes: {}, at: {}, stop: false };
   window.__layout = w;
   new PerformanceObserver((list) => {
     for (const e of list.getEntries()) {
@@ -208,90 +224,150 @@ const WATCH_LAYOUT = `(() => {
       if (w.shifts.length < 12) w.shifts.push({ ms: Math.round(e.startTime - w.since), value: +e.value.toFixed(4), nodes: (e.sources || []).map((s) => s.node && (s.node.className || s.node.nodeName)).slice(0, 3) });
     }
   }).observe({ type: "layout-shift", buffered: true });
-  const note = (what) => { if (!w.partial.includes(what)) w.partial.push(what); };
+  const mark = (key, seen) => { if (seen && w.at[key] === undefined) w.at[key] = Math.round(performance.now() - w.since); };
   const sample = () => {
     if (w.stop) return;
-    // Until the answer box says done, no answer text and no result description may show.
-    if (!document.querySelector(".answer.done")) {
-      if ((document.querySelector(".answer-text")?.textContent ?? "").trim()) note("answer text while the AI writes");
-      if ([...document.querySelectorAll(".results .result-snippet, .results .ai-summary")].some((el) => el.textContent.trim())) note("result description while the AI works");
+    const answer = (document.querySelector(".turn .answer-text")?.textContent ?? "").trim();
+    if (answer && !w.answers.includes(answer)) w.answers.push(answer);
+    for (const li of document.querySelectorAll(".sources .source")) {
+      const text = (li.querySelector(".source-ai-text")?.textContent ?? "").trim();
+      const seen = (w.notes[li.dataset.rank] ??= []);
+      if (text && !seen.includes(text)) seen.push(text);
     }
+    mark("text", answer);
+    mark("answer", document.querySelector(".turn.read"));
+    mark("ratings", document.querySelector(".source-rail[data-score]"));
+    mark("settled", document.querySelector(".turn.settled"));
     requestAnimationFrame(sample);
   };
   requestAnimationFrame(sample);
   return true;
 })()`;
 
-/** Document position of every result title and the answer box size. */
-const LAYOUT = `(() => ({
-  titles: Object.fromEntries([...document.querySelectorAll(".results .result-title")].map((a) => [a.href, Math.round(a.getBoundingClientRect().top + scrollY)])),
-  answer: Math.round(document.querySelector(".answer")?.getBoundingClientRect().height ?? -1),
-  results: Math.round((document.querySelector(".results")?.getBoundingClientRect().top ?? 0) + scrollY),
-}))()`;
+/** Position of every source title within the sources pane, and each row's height. */
+const LAYOUT = `(() => {
+  const pane = document.querySelector(".sources-pane");
+  const top = pane ? pane.getBoundingClientRect().top - pane.scrollTop : 0;
+  const rows = [...document.querySelectorAll(".sources .source")];
+  return {
+    titles: Object.fromEntries(rows.map((r) => [r.querySelector(".source-title")?.href, Math.round(r.getBoundingClientRect().top - top)])),
+    heights: [...new Set(rows.map((r) => Math.round(r.getBoundingClientRect().height)))],
+  };
+})()`;
 
 interface Layout {
   titles: Record<string, number>;
-  answer: number;
-  results: number;
+  heights: number[];
 }
 
 /**
- * A live search with a slow AI answer (about 4 s): titles and domains come first, no AI text or
- * description shows half done, and nothing moves when the answer, ratings and side panel arrive.
+ * A live search with a slow AI answer (about 4 s): titles, domains and snippets come at once
+ * without waiting for the AI; the answer then appears a whole sentence at a time, the ratings and
+ * AI notes fill lines kept for them, and nothing in the sources pane moves. Pointing at a citation
+ * lights its source and the other way round, and a follow-up is answered in the conversation.
  */
 async function checkStableWhileLoading(ctx: AppContext, h: Helpers, tabId: string, wc: WebContents): Promise<void> {
   const { win, check, capture } = h;
   ctx.search.setTestDeps({ engine: { retrievers: [fakeRetriever()], provider: fakeProvider(30) }, favicon: async (domain) => favicon(domain) });
   // A query of its own, so the answer is not replayed from the cache.
   win.loadUrl(tabId, `corvus://search/?q=${encodeURIComponent(`${QUERY} layout ${Date.now()}`)}`);
-  const shown = await waitFor(wc, "document.querySelectorAll('.results .result-title').length === 8");
+  const shown = await waitFor(wc, "document.querySelectorAll('.sources .source-title').length === 8");
   await wc.executeJavaScript(WATCH_LAYOUT);
   const first = (await wc.executeJavaScript(`(() => ({
-    writing: !document.querySelector(".answer.done"),
-    titles: [...document.querySelectorAll(".results .result")].every((r) => r.querySelector(".result-title")?.textContent.trim() && r.querySelector(".domain")?.textContent.trim()),
-    descriptions: [...document.querySelectorAll(".results .result-snippet, .results .ai-summary")].filter((el) => el.textContent.trim()).length,
-    answerText: (document.querySelector(".answer-text")?.textContent ?? "").trim().length,
-  }))()`)) as { writing: boolean; titles: boolean; descriptions: number; answerText: number };
+    writing: !document.querySelector(".turn.read"),
+    titles: [...document.querySelectorAll(".sources .source")].every((r) => r.querySelector(".source-title")?.textContent.trim() && r.querySelector(".source-domain")?.textContent.trim()),
+    snippets: [...document.querySelectorAll(".sources .source-snippet")].filter((el) => el.textContent.trim()).length,
+    notes: [...document.querySelectorAll(".sources .source-ai-text")].filter((el) => el.textContent.trim()).length,
+    found: document.querySelector(".steps .step.done")?.textContent ?? "",
+  }))()`)) as { writing: boolean; titles: boolean; snippets: number; notes: number; found: string };
   check(
-    "search: titles and domains come first, no AI text or description while the AI works",
-    shown && first.writing && first.titles && first.descriptions === 0 && first.answerText === 0,
+    "search: titles, domains and snippets come at once, and the steps say the results are in",
+    shown && first.writing && first.titles && first.snippets === 8 && first.notes === 0 && /8/.test(first.found),
     first,
   );
   const before = (await wc.executeJavaScript(LAYOUT)) as Layout;
   await capture("search-loading", wc);
   await new Promise((r) => setTimeout(r, 1200));
   await capture("search-loading-later", wc);
-  const settled = await waitFor(wc, "document.querySelector('.answer.done') && document.querySelectorAll('.result .meter[data-score]').length === 8 && document.querySelector('.entity-card')", 20_000);
+  const settled = await waitFor(wc, "document.querySelector('.turn.settled') && document.querySelectorAll('.source-rail[data-score]').length === 8 && document.querySelector('.turn-entity')", 20_000);
   await new Promise((r) => setTimeout(r, 400));
-  const watched = (await wc.executeJavaScript("(() => { window.__layout.stop = true; const { shift, shifts, partial } = window.__layout; return { shift: +shift.toFixed(4), shifts, partial }; })()")) as {
+  const watched = (await wc.executeJavaScript("(() => { window.__layout.stop = true; const { shift, shifts, answers, notes, at } = window.__layout; return { shift: +shift.toFixed(4), shifts, answers, notes, at }; })()")) as {
     shift: number;
     shifts: unknown[];
-    partial: string[];
+    answers: string[];
+    notes: Record<string, string[]>;
+    at: { text?: number; answer?: number; ratings?: number; settled?: number };
   };
   const after = (await wc.executeJavaScript(LAYOUT)) as Layout;
   const moved = Object.entries(before.titles)
     .map(([href, top]) => ({ href, by: (after.titles[href] ?? Number.NaN) - top }))
     .filter((t) => !(Math.abs(t.by) < 1));
-  check("search: no half-written answer or description is ever shown", settled && watched.partial.length === 0, watched.partial);
+  // The answer grows a whole sentence at a time: every text seen ends a sentence and starts the
+  // final one; each AI note is only ever seen whole.
+  const final = watched.answers.at(-1) ?? "";
+  const broken = watched.answers.filter((a) => !final.startsWith(a) || !/[.!?。！？]$/.test(a));
+  const rewritten = Object.entries(watched.notes).filter(([, seen]) => seen.length > 1);
   check(
-    "search: nothing moves while the answer, ratings and side panel arrive",
-    settled && watched.shift < 0.001 && moved.length === 0 && after.answer === before.answer && after.results === before.results,
-    { shift: watched.shift, shifts: watched.shifts, moved, answer: [before.answer, after.answer], results: [before.results, after.results] },
+    "search: the answer appears a whole sentence at a time, the AI notes whole",
+    settled && watched.answers.length >= 2 && broken.length === 0 && rewritten.length === 0,
+    { answers: watched.answers.length, broken, rewritten },
+  );
+  const { text: textAt, answer: answerAt, ratings: ratingsAt, settled: settledAt } = watched.at;
+  check(
+    "search: the first sentences come before the answer part is complete, then the ratings, then the rest",
+    textAt !== undefined && answerAt !== undefined && ratingsAt !== undefined && settledAt !== undefined && textAt < answerAt && answerAt < ratingsAt && ratingsAt <= settledAt,
+    watched.at,
+  );
+  check(
+    "search: nothing in the sources moves while the answer, ratings and notes arrive; every row has one height",
+    settled && watched.shift < 0.001 && moved.length === 0 && after.heights.length === 1 && before.heights.join() === after.heights.join(),
+    { shift: watched.shift, shifts: watched.shifts, moved, heights: [before.heights, after.heights] },
   );
   const filled = (await wc.executeJavaScript(`({
-    snippets: document.querySelectorAll(".results .result-snippet").length,
-    summaries: document.querySelectorAll(".results .ai-summary").length,
-    first: document.querySelector(".result")?.dataset.rank,
-    more: Boolean(document.querySelector(".answer.clipped .answer-more")),
-  })`)) as { snippets: number; summaries: number; first?: string; more: boolean };
-  check("search: descriptions fill in, results keep the order they were shown in", filled.snippets === 8 && filled.summaries === 8 && filled.first === "1", filled);
+    notes: [...document.querySelectorAll(".sources .source-ai-text")].filter((el) => el.textContent.trim()).length,
+    first: document.querySelector(".source")?.dataset.rank,
+  })`)) as { notes: number; first?: string };
+  check("search: AI notes fill in, results keep the order they were shown in", filled.notes === 8 && filled.first === "1", filled);
   await capture("search-settled", wc);
-  // Only the person's own clicks move things: the AI order and the whole answer are one click away.
-  await wc.executeJavaScript("document.querySelector('.sort-toggle button[data-sort=ai]').click(); document.querySelector('.answer-more')?.click()");
-  await new Promise((r) => setTimeout(r, 600));
-  const clicked = (await wc.executeJavaScript("({ first: document.querySelector('.result')?.dataset.rank, expanded: Boolean(document.querySelector('.answer.expanded')) })")) as { first?: string; expanded: boolean };
-  check("search: Sort AI relevance re-ranks and Show more opens the answer on click", clicked.first === "3" && clicked.expanded === filled.more, clicked);
-  await capture("search-expanded", wc);
+
+  // Pointing at a citation lights its source, and pointing at a source lights its citations.
+  const linked = (await wc.executeJavaScript(`(async () => {
+    const cite = document.querySelector(".turn.active .answer-text .cite:not(.dead)");
+    const n = Number(cite?.textContent);
+    cite?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const source = document.querySelector(".source.lit")?.dataset.rank;
+    cite?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    const row = document.querySelector('.source[data-rank="3"]');
+    row?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const cites = [...document.querySelectorAll(".turn.active .cite.lit")].map((c) => c.textContent);
+    row?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    return { n, source, cites };
+  })()`)) as { n: number; source?: string; cites: string[] };
+  check("search: a citation and its source light each other up", String(linked.n) === linked.source && linked.cites.length > 0 && linked.cites.every((c) => c === "3"), linked);
+
+  // Only the person's own clicks reorder: the AI order is one click away.
+  await wc.executeJavaScript("document.querySelector('.sort-toggle button[data-sort=ai]').click()");
+  await new Promise((r) => setTimeout(r, 400));
+  const sorted = await wc.executeJavaScript("document.querySelector('.source')?.dataset.rank");
+  check("search: Sort AI relevance re-ranks on click", sorted === "3", sorted);
+
+  // A suggested question is asked in the conversation, in the context of the first.
+  prompts.length = 0;
+  await wc.executeJavaScript("document.querySelector('.next button')?.click()");
+  const followed = await waitFor(wc, "document.querySelectorAll('.turn').length === 2 && document.querySelector('.turn:last-of-type.settled')", 20_000);
+  const conversation = (await wc.executeJavaScript(`({
+    turns: document.querySelectorAll(".turn").length,
+    active: document.querySelector(".turn.active") === document.querySelector(".turn:last-of-type"),
+    sources: document.querySelectorAll(".sources .source").length,
+  })`)) as { turns: number; active: boolean; sources: number };
+  check(
+    "search: a follow-up is answered below the first, in its context, with its own sources",
+    followed && conversation.turns === 2 && conversation.active && conversation.sources === 8 && prompts.some((p) => p.includes("<conversation>")),
+    { ...conversation, withContext: prompts.filter((p) => p.includes("<conversation>")).length },
+  );
+  await capture("search-follow-up", wc);
   ctx.search.setTestDeps({ engine: { retrievers: [fakeRetriever()], provider: fakeProvider() }, favicon: async (domain) => favicon(domain) });
 }
 
@@ -313,21 +389,28 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
         const name = category === "general" ? "all" : category;
         const ready =
           category === "general"
-            ? "document.querySelector('.answer.done') && document.querySelectorAll('.result .meter[data-score]').length === 8 && document.querySelector('.entity-card') && document.querySelectorAll('.related button').length === 3 && document.querySelector('.search-footer')"
+            ? "document.querySelector('.turn.settled') && document.querySelectorAll('.source-rail[data-score]').length === 8 && document.querySelector('.turn-entity') && document.querySelectorAll('.next button').length === 3 && document.querySelector('.turn-usage')"
             : category === "images"
-              ? "document.querySelectorAll('.image-tile img').length >= 12"
+              ? "document.querySelectorAll('.image-tile > img').length >= 12"
               : `document.querySelectorAll('.${category === "news" ? "news-item" : "video-card"}').length >= 5`;
         const ok = await waitFor(wc, ready);
         check(`search ${name} tab (${theme})`, ok, ok ? undefined : await wc.executeJavaScript("document.body.innerText.slice(0, 400)"));
         await waitFor(wc, "[...document.images].every((i) => i.complete)", 3000);
         await new Promise((r) => setTimeout(r, 450));
         await capture(`search-${name}-${theme}`, wc);
-        if (category === "general") {
-          // The rated result list sits below the answer.
-          await wc.executeJavaScript("document.querySelector('.results')?.scrollIntoView({ block: 'start' }); window.scrollBy(0, -130)");
-          await new Promise((r) => setTimeout(r, 250));
-          await capture(`search-results-${theme}`, wc);
-          await wc.executeJavaScript("window.scrollTo(0, 0)");
+        if (category === "images") {
+          // The caption's favicon arrives after the photos and must stay small, never cover the photo.
+          const tiles = (await wc.executeJavaScript(`(() => {
+            const tiles = [...document.querySelectorAll('.image-tile')].filter((t) => t.getBoundingClientRect().bottom < innerHeight);
+            const favs = [...document.querySelectorAll('.image-cap .fav')].map((f) => Math.round(f.getBoundingClientRect().width));
+            const covered = tiles.filter((t) => {
+              const r = t.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 3);
+              return hit !== t.querySelector(':scope > img');
+            }).length;
+            return { tiles: tiles.length, favs: favs.length, widest: Math.max(0, ...favs), covered };
+          })()`)) as { tiles: number; favs: number; widest: number; covered: number };
+          check(`search images: favicons stay small, photos stay visible (${theme})`, tiles.favs > 0 && tiles.widest <= 16 && tiles.tiles > 0 && tiles.covered === 0, tiles);
         }
       }
     }
@@ -335,45 +418,29 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
     nativeTheme.themeSource = "light";
     win.loadUrl(tab.id, pageUrl("general"));
     await new Promise((r) => setTimeout(r, 400));
-    await waitFor(wc, "document.querySelector('.answer.done') && document.querySelectorAll('.result .meter[data-score]').length === 8");
-    const firstAi = await wc.executeJavaScript("document.querySelector('.result')?.dataset.rank");
+    await waitFor(wc, "document.querySelector('.turn.settled') && document.querySelectorAll('.source-rail[data-score]').length === 8");
+    const firstAi = await wc.executeJavaScript("document.querySelector('.source')?.dataset.rank");
     // A cached search replays at once, so it opens in the saved (AI) order.
     check("search: a cached search opens in AI order", firstAi === "3", firstAi);
-    // The meter stays a circle while it rates too (a shared page style once stretched it into an oval).
-    const meters = (await wc.executeJavaScript(`(() => {
-      const result = document.querySelector('.results .result');
-      if (!result) return null;
-      const pending = document.createElement('div');
-      pending.className = 'meter unscored pending';
-      result.prepend(pending);
-      const size = (m) => (m ? [m.offsetWidth, m.offsetHeight] : null);
-      const out = { pending: size(pending), rated: size(document.querySelector('.result .meter[data-score]')) };
-      pending.remove();
-      return out;
-    })()`)) as { pending: [number, number] | null; rated: [number, number] | null } | null;
-    check(
-      "search: the rating meter is round while rating and once rated",
-      meters?.pending?.[0] === 40 && meters.pending[1] === 40 && meters.rated?.[0] === 40 && meters.rated[1] === 40,
-      meters,
-    );
     const structure = await wc.executeJavaScript(`({
       points: document.querySelectorAll('.key-points li').length,
-      chips: document.querySelectorAll('.answer .cite').length,
-      tags: document.querySelectorAll('.result .tag').length,
-      summaries: document.querySelectorAll('.result .ai-summary').length,
-      confidence: document.querySelector('.confidence')?.textContent ?? '',
-      disagree: Boolean(document.querySelector('.disagree')),
-      facts: document.querySelectorAll('.entity-card dt').length,
-      live: document.querySelector('[aria-live]')?.getAttribute('aria-live'),
+      chips: document.querySelectorAll('.turn .answer-text .cite').length,
+      tags: document.querySelectorAll('.source .tag').length,
+      notes: document.querySelectorAll('.source .source-ai-text').length,
+      confidence: document.querySelector('.turn .confidence')?.textContent ?? '',
+      disagree: Boolean(document.querySelector('.turn .disagree')),
+      facts: document.querySelectorAll('.turn-entity dt').length,
+      steps: [...document.querySelectorAll('.steps .step.done')].length,
+      live: document.querySelector('.turn-answer')?.getAttribute('aria-live'),
     })`);
     check(
       "search structured sections",
-      structure.points === 4 && structure.chips >= 3 && structure.tags >= 8 && structure.summaries === 8 && /high/i.test(structure.confidence) && structure.disagree && structure.facts === 5 && structure.live === "polite",
+      structure.points === 4 && structure.chips >= 3 && structure.tags >= 8 && structure.notes === 8 && /high/i.test(structure.confidence) && structure.disagree && structure.facts === 5 && structure.steps === 3 && structure.live === "polite",
       structure,
     );
     await wc.executeJavaScript("document.querySelector('.sort-toggle button[data-sort=original]').click()");
     await new Promise((r) => setTimeout(r, 300));
-    const firstOriginal = await wc.executeJavaScript("document.querySelector('.result')?.dataset.rank");
+    const firstOriginal = await wc.executeJavaScript("document.querySelector('.source')?.dataset.rank");
     check("search sort toggle: original order", firstOriginal === "1", firstOriginal);
     await wc.executeJavaScript("document.querySelector('.sort-toggle button[data-sort=ai]').click()");
 
@@ -385,7 +452,7 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
       wc.sendInputEvent({ type: "keyUp", keyCode: key });
       await new Promise((r) => setTimeout(r, 100));
     }
-    const focused = await wc.executeJavaScript("document.activeElement?.closest('.result')?.dataset.rank ?? document.activeElement?.tagName");
+    const focused = await wc.executeJavaScript("document.activeElement?.closest('.source')?.dataset.rank ?? document.activeElement?.tagName");
     check("search keyboard j/k navigation", focused === "1", focused);
     wc.sendInputEvent({ type: "keyDown", keyCode: "/" });
     wc.sendInputEvent({ type: "char", keyCode: "/" });
@@ -398,8 +465,22 @@ export async function runSearchSmoke(ctx: AppContext, h: Helpers): Promise<void>
 
     win.loadUrl(tab.id, "corvus://search/?q=common%20raven&narrow=1");
     tab.view.setBounds({ ...tab.view.getBounds(), width: 560 });
-    await waitFor(wc, "document.querySelector('.answer.done') && document.querySelector('.entity-card')");
+    await waitFor(wc, "document.querySelector('.turn.settled') && document.querySelector('.turn-entity')");
     await new Promise((r) => setTimeout(r, 400));
+    // Too narrow for two panes: one at a time, switched with Answer / Sources.
+    const narrow = (await wc.executeJavaScript(`(async () => {
+      const visible = (sel) => Boolean(document.querySelector(sel)?.getClientRects().length);
+      const answerFirst = { chat: visible(".chat"), sources: visible(".sources-pane") };
+      document.querySelectorAll(".pane-switch button")[1]?.click();
+      await new Promise((r) => setTimeout(r, 150));
+      const sourcesAfter = { chat: visible(".chat"), sources: visible(".sources-pane") };
+      return { answerFirst, sourcesAfter, wide: document.documentElement.scrollWidth <= innerWidth };
+    })()`)) as { answerFirst: { chat: boolean; sources: boolean }; sourcesAfter: { chat: boolean; sources: boolean }; wide: boolean };
+    check(
+      "search: a narrow window shows one pane at a time, without sideways scrolling",
+      narrow.answerFirst.chat && !narrow.answerFirst.sources && narrow.sourcesAfter.sources && !narrow.sourcesAfter.chat && narrow.wide,
+      narrow,
+    );
     await capture("search-all-narrow", wc);
   } finally {
     nativeTheme.themeSource = themeBefore;

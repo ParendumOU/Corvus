@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v0.40.0
+
+### Search
+- **A new results viewer: the sources on the left, the conversation on the right.** The left column lists the results in compact rows of one fixed size: number, site, title, a two-line snippet and a line where the AI notes what each source is and how it is tagged. A bar at the left edge of each row shows the AI reading the sources while it works, then how relevant each one is. The right column is a conversation: your question, what the AI is doing (searching, reading the sources, rating them, with the sites it reads), then the answer, its key points, how well the sources back it, facts about what you asked for, and questions to ask next. Pointing at a citation lights up its source on the left, and pointing at a source lights up where the answer cites it. Each column scrolls on its own and nothing in either moves while the rest arrives.
+- **Ask a follow-up in the same page.** A box under the conversation, and the suggested questions, ask the next question in the context of the earlier ones; the left column shows the sources of the question you pick.
+- **The answer appears as it is written, a whole sentence at a time**, never half a sentence, so the first sentences are there seconds before the rest.
+- In a narrow window, **Answer** and **Sources** under the search box switch between the two columns.
+
+### Fixed
+- **Search answers in about half the time, and results never wait for it.** Each result shows its title, site and snippet as soon as the search engine answers, instead of after the AI. The AI reply is written by two calls side by side, the answer and the result ratings, so each is done in about half the time, and each part shows as soon as it is complete. With the CLI provider, its start-up overlaps the web search, a call ends as soon as the reply does, and Corvus no longer runs into the CLI's output cap, which made it send the whole request a second time. Measured on Windows with the CLI provider and the default model (8 searches): snippets in 2.1 s instead of 14 s, the complete answer in 5.9 s instead of 14 s (up to 23 s before), with a third fewer tokens.
+- **The results page no longer jumps as it opens.** In about half the searches the result placeholders were drawn before the page knew an answer comes above them, and then pushed down by it.
+- **AI answers through the API provider keep every rating.** The "Answer length" setting (400 tokens) capped the whole reply, so the ratings of the last results and the follow-up questions were cut off; it now caps the answer only.
+- **Image results stay photos.** A moment after the images appeared, each one turned into its site's icon stretched over the whole tile; the icon now stays small in the caption.
+- **News and videos open on what you searched for.** Old Wikinews articles and Wikimedia Commons clips, unrelated to the search, often came first; they now come after the other sources' results.
+- **Searches keep working when search engines block the computer.** The bundled SearXNG asked only Google, Brave and DuckDuckGo, and a computer that searches a lot soon gets rate-limited by them, leaving searches with no results; it now also asks Bing and Yahoo, leaves out DuckDuckGo and Mojeek, which do not answer at all from some networks, and an engine that does not answer holds a search for 2 seconds at most instead of 3.
+
+### Security
+- **The Docker SearXNG and sync server listen on this computer only.** `docker compose up` published them on every network interface of the computer; they now bind to 127.0.0.1. Phones sync with the server built into the desktop app, which is unchanged.
+
 ## v0.39.1
 
 ### Fixed

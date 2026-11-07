@@ -1,4 +1,4 @@
-export { createSearchEngine, createProvider, DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_MAX_RESULTS } from "./engine.js";
+export { createSearchEngine, createProvider, DEFAULT_ANSWER_TOKENS, DEFAULT_MAX_RESULTS, ratingTokens } from "./engine.js";
 export type { SearchEngineDeps } from "./engine.js";
 export { insightEvents } from "./engine.js";
 export { RESULT_TAGS, rerankByRating, StructuredAnswerParser, SUMMARY_MAX_WORDS } from "./structured.js";
@@ -8,14 +8,17 @@ export type { FaviconFetchOptions } from "./favicon.js";
 export { detectLanguage, normalizeLocale, resolveLanguage } from "./language.js";
 export type { DetectedLanguage, DetectOptions } from "./language.js";
 export {
-  buildPrompt,
+  ANSWER_SYSTEM_PROMPT,
+  buildPrompts,
   estimateTokens,
   parseCitations,
-  SYSTEM_PROMPT,
+  RATING_SYSTEM_PROMPT,
   SNIPPET_MAX_CHARS,
   EXCERPT_MAX_CHARS,
 } from "./prompt.js";
-export type { BuiltPrompt, PageExtract } from "./prompt.js";
+export type { BuiltPrompt, PageExtract, SearchPrompts } from "./prompt.js";
+export { mergeStreams } from "./merge.js";
+export type { MergedItem } from "./merge.js";
 export * from "./retrievers/index.js";
 export { dedupeResults, domainOf, normalizeUrl, stripTracking } from "./url.js";
 export { SearchCache, cacheKey, normalizeQuery, DEFAULT_TTL_MS, CACHE_FORMAT } from "./cache.js";
@@ -53,7 +56,7 @@ export type {
   LocalToolSpec,
 } from "./providers/local.js";
 export { DEFAULT_MODEL } from "./providers/types.js";
-export type { AnswerProvider, AnswerRequest, ProviderEvent } from "./providers/types.js";
+export type { AnswerProvider, AnswerRequest, PreparedAnswer, PreparedCall, ProviderEvent } from "./providers/types.js";
 export { embedTexts, testEmbeddingConnection, EmbeddingError, DEFAULT_EMBEDDING_MODEL } from "./embeddings.js";
 export type { EmbeddingConfig } from "./embeddings.js";
 export * from "./assist.js";

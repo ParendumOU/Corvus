@@ -98,7 +98,7 @@ macOS packages must be built on a Mac (`scripts/release.sh mac`). Code signing i
 Optional services for AI search and sync:
 
 ```sh
-docker compose up -d searxng sync-server   # SearXNG on :8898, a self-hosted sync server on :8797 (optional: Corvus has one built in)
+docker compose up -d searxng sync-server   # on 127.0.0.1: SearXNG on :8898, a self-hosted sync server on :8797 (optional: Corvus has one built in)
 ```
 
 Then open `corvus://settings` to pick an AI provider, enable the MCP server and set up sync. The Claude Code CLI provider uses your own Claude Code login on that machine and is for personal use only.

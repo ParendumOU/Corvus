@@ -38,4 +38,6 @@ process.stdin.on("end", () => {
     setImmediate(step);
   };
   step();
+  // "linger": stay up after the result line, as Claude Code does while it shuts down.
+  if (process.env.FAKE_CLAUDE_MODE === "linger") setTimeout(() => undefined, 20_000);
 });

@@ -14,6 +14,8 @@ import {
 
 interface SearxngHit {
   url?: string;
+  engine?: string | null;
+  engines?: string[] | null;
   title?: string;
   content?: string;
   publishedDate?: string | null;
@@ -33,6 +35,30 @@ interface SearxngResponse {
 }
 
 const VERTICALS: readonly SearchCategory[] = ["news", "images", "videos"];
+
+/**
+ * How long SearXNG waits for its engines, in seconds (its default is 3). An engine that never
+ * answers (blocked, or unreachable from this network) otherwise holds every search for the whole
+ * default; the ones that work answer well within this.
+ */
+export const SEARXNG_TIMEOUT_S = 2;
+
+/**
+ * Engines whose vertical hits are archive material rather than what the query asks for: Wikinews
+ * articles from years ago, Wikimedia Commons files and clips, PeerTube videos. SearXNG often puts
+ * them first (with Google, DuckDuckGo or Brave blocked, a news search opened on five unrelated
+ * Wikinews interviews), so a hit only they found goes after the other engines' hits.
+ */
+const ARCHIVE_ENGINES = /^(wikinews|wikicommons|sepiasearch|peertube)/i;
+
+/** Vertical hits with those of the other engines first, each group in SearXNG's order. */
+export function archiveLast(hits: SearxngHit[]): SearxngHit[] {
+  const archive = (hit: SearxngHit): boolean => {
+    const engines = hit.engines?.length ? hit.engines : hit.engine ? [hit.engine] : [];
+    return engines.length > 0 && engines.every((e) => ARCHIVE_ENGINES.test(e));
+  };
+  return [...hits.filter((h) => !archive(h)), ...hits.filter(archive)];
+}
 
 function httpUrl(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
@@ -146,8 +172,9 @@ function parseImages(hits: SearxngHit[], maxResults: number): SearchResult[] {
 }
 
 export function parseSearxng(body: unknown, maxResults: number, category: SearchCategory = "general"): SearchResult[] {
-  const results = (body as SearxngResponse | null)?.results;
-  if (!Array.isArray(results)) throw new RetrieverError("searxng", "unexpected response shape");
+  const raw = (body as SearxngResponse | null)?.results;
+  if (!Array.isArray(raw)) throw new RetrieverError("searxng", "unexpected response shape");
+  const results = category === "general" ? raw : archiveLast(raw);
   if (category === "images") return parseImages(results, maxResults);
   const hits: RawHit[] = results.map((r) => ({ url: r.url, title: r.title, snippet: r.content }));
   const mapped = toResults(hits, maxResults);
@@ -168,6 +195,7 @@ export function createSearxngRetriever(baseUrl: string, http: RetrieverHttpOptio
       url.searchParams.set("format", "json");
       url.searchParams.set("language", opts.lang);
       url.searchParams.set("safesearch", "1");
+      url.searchParams.set("timeout_limit", String(SEARXNG_TIMEOUT_S));
       if (category !== "general") url.searchParams.set("categories", category);
       const res = await fetchWithTimeout(
         fetchImpl,

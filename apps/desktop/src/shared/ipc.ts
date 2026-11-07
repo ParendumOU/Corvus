@@ -8,7 +8,7 @@
 import type { HistoryFilter } from "./history-ops";
 import type { ImportKind, ImportResult, ImportScan, PasswordImportSummary } from "./browser-import";
 import type { LiveHistoryPatch, LiveHistoryView } from "./live-history";
-import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, PhoneServerAddress, Profile, SearchCategory, SearchEvent, Tab, TabGroup, TabId } from "@corvus/shared";
+import type { AccessLevel, Bookmark, DeviceInfo, GroupColor, GroupId, LocalModelApi, PhoneServerAddress, Profile, SearchCategory, SearchEvent, SearchTurn, Tab, TabGroup, TabId } from "@corvus/shared";
 import type { AdblockBarState, AdblockOptions, AdblockView } from "./adblock";
 import type { TranslateBarState } from "./translate";
 import type { Container, TabContainer } from "./containers";
@@ -492,7 +492,8 @@ export interface LocalServerInfo {
 export type SearchEventMessage = { searchId: string; event: SearchEvent } | { searchId: string; done: true };
 
 export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, KeePassRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc, NewTabRpc {
-  "search.start"(query: string, opts: { depth?: "quick" | "deep"; category?: SearchCategory }): string;
+  /** `context`: the earlier turns when the query follows up on them (the search is answered in their context). */
+  "search.start"(query: string, opts: { depth?: "quick" | "deep"; category?: SearchCategory; context?: SearchTurn[] }): string;
   /** data: URLs of result-site favicons (null when unavailable), fetched cookie-less by the main process. */
   "search.favicons"(domains: string[]): Record<string, string | null>;
   "search.cancel"(searchId: string): void;
