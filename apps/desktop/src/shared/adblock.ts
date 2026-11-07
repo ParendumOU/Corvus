@@ -13,8 +13,8 @@ export const ADBLOCK_SCRIPTLETS_CHANNEL = "corvus:adblock-scriptlets";
 export const ADBLOCK_COSMETIC_CHANNEL = "corvus:adblock-cosmetic";
 /** Whether the page should watch itself for new ids and classes. */
 export const ADBLOCK_COSMETIC_OBSERVE_CHANNEL = "corvus:adblock-cosmetic-observe";
-/** Main to page: rules CSS cannot express that arrived late (the annoyance lists wait for cookie banners). */
-export const ADBLOCK_COSMETIC_EXTENDED_CHANNEL = "corvus:adblock-cosmetic-extended";
+/** Main to page: element hiding that arrived late (the annoyance lists wait for cookie banners). */
+export const ADBLOCK_COSMETIC_PUSH_CHANNEL = "corvus:adblock-cosmetic-push";
 
 /** Main to page: new filter lists are in place, ask again for the page's element hiding. */
 export const ADBLOCK_COSMETIC_REFRESH_CHANNEL = "corvus:adblock-cosmetic-refresh";
@@ -25,6 +25,12 @@ export interface ExtendedRule {
   ast: unknown;
   attribute?: string;
   directive?: unknown;
+}
+
+/** A frame's element hiding: a style sheet it inserts itself, and the filters only a script can apply. */
+export interface CosmeticAnswer {
+  styles: string;
+  extended: ExtendedRule[];
 }
 
 /** What a starting frame gets: the scripts to run, and whether to watch YouTube's player for the loop. */
@@ -184,6 +190,8 @@ export interface AdblockListsInfo {
   source: AdblockListSource;
   filterCount: number;
   updating: boolean;
+  /** Days since the lists last moved, once that is long enough to warn about (the updates have stopped). */
+  staleDays: number | null;
 }
 
 /** Shown on corvus://settings. */
@@ -296,6 +304,8 @@ export interface AdblockBarState {
   host: string;
   /** Blocking is actually in effect for the active page. */
   active: boolean;
+  /** Days the filter lists have gone without updating, once that is worth a warning. */
+  listsStaleDays?: number;
   /** YouTube refused to play with its ads removed, so its ads are skipped instead for a while. */
   skippingYouTubeAds?: boolean;
   /** This site's cookies and data are deleted when its last tab closes. */

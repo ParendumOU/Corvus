@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.42.0
+
+### Ad blocker
+- **Videos embedded from YouTube lose their ads too, and page elements are hidden inside frames.** The scriptlets that keep YouTube ad-free and the element hiding only ran in the page itself, never in its frames, so a YouTube video embedded in another site played its ads. Every frame now gets them, with the rules meant only for frames inside certain sites.
+- **A warning when the filter lists stop updating.** The lists change every day; after a week without a new one, Settings and the shield say so, since the rules in use keep aging in silence (the source gone, a network that blocks it). Corvus keeps trying.
+
+### Fixed
+- **No more "No handler registered for corvus:dnr-default-rulesets" errors.** The extension preloads also ran in websites' own service workers, which asked for extension rulesets no one served; they now stay out of them, and those workers no longer see Corvus's extension API bridge.
+
+### Corvus for mobile 0.12.1
+- **Fresh filter lists on the phone.** It downloaded a copy of the lists that had not moved since August; it now asks the daily source the desktop uses once a day and downloads the lists that moved, and says when they stop updating.
+
 ## v0.41.0
 
 ### Profiles

@@ -1,15 +1,15 @@
-// Preload for every web frame of a profile session: element hiding for the tab's page. Reports the ids
+// Preload for every web frame of a profile session: element hiding for that frame. Reports the ids
 // and classes the page uses, so only rules that can match get inserted, and applies the procedural
 // filters CSS cannot express (:has-text, :upward...). Exposes nothing to the page.
-import { ipcRenderer } from "electron";
+import { ipcRenderer, webFrame } from "electron";
 import { DOMMonitor, extractFeaturesFromDOM } from "@ghostery/adblocker-content";
 import { handlePseudoDirective, querySelectorAll } from "@ghostery/adblocker-extended-selectors";
-import { ADBLOCK_COSMETIC_CHANNEL, ADBLOCK_COSMETIC_EXTENDED_CHANNEL, ADBLOCK_COSMETIC_OBSERVE_CHANNEL, ADBLOCK_COSMETIC_REFRESH_CHANNEL, type ExtendedRule } from "../shared/adblock";
+import { ADBLOCK_COSMETIC_CHANNEL, ADBLOCK_COSMETIC_OBSERVE_CHANNEL, ADBLOCK_COSMETIC_PUSH_CHANNEL, ADBLOCK_COSMETIC_REFRESH_CHANNEL, type CosmeticAnswer, type ExtendedRule } from "../shared/adblock";
 
 // Type-checked with the Node project (no DOM lib); declare the globals it reads.
 declare const location: { href: string; protocol: string };
 declare const document: { documentElement: never };
-declare const window: { top: unknown; addEventListener(type: string, listener: () => void, options?: { once?: boolean; passive?: boolean }): void };
+declare const window: { addEventListener(type: string, listener: () => void, options?: { once?: boolean; passive?: boolean }): void };
 type AnyMonitor = { queryAll(w: unknown): void; start(w: unknown): void; stop(): void };
 
 /** Pages like YouTube change all the time: a rule pass at most this often. */
@@ -36,18 +36,19 @@ function scheduleApply(): void {
   if (pending === null && rules.size > 0) pending = setTimeout(apply, APPLY_EVERY_MS);
 }
 
-function addRules(extended: unknown): void {
-  if (!Array.isArray(extended)) return;
-  for (const rule of extended as ExtendedRule[]) rules.set(rule.id, rule);
+function applyAnswer(answer: Partial<CosmeticAnswer> | undefined): void {
+  if (answer?.styles) webFrame.insertCSS(answer.styles, { cssOrigin: "user" });
+  if (!Array.isArray(answer?.extended)) return;
+  for (const rule of answer.extended) rules.set(rule.id, rule);
   scheduleApply();
 }
 
 function ask(features?: { classes: string[]; hrefs: string[]; ids: string[] }): void {
-  void ipcRenderer.invoke(ADBLOCK_COSMETIC_CHANNEL, location.href, features).then(addRules, () => undefined);
+  void ipcRenderer.invoke(ADBLOCK_COSMETIC_CHANNEL, location.href, features).then(applyAnswer, () => undefined);
 }
 
-if ((location.protocol === "http:" || location.protocol === "https:") && window.top === window) {
-  ipcRenderer.on(ADBLOCK_COSMETIC_EXTENDED_CHANNEL, (_event, extended: unknown) => addRules(extended));
+if (location.protocol === "http:" || location.protocol === "https:") {
+  ipcRenderer.on(ADBLOCK_COSMETIC_PUSH_CHANNEL, (_event, answer: CosmeticAnswer) => applyAnswer(answer));
   ipcRenderer.on(ADBLOCK_COSMETIC_REFRESH_CHANNEL, () => {
     ask();
     ask(extractFeaturesFromDOM());

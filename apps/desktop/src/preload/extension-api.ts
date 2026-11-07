@@ -6,12 +6,9 @@
 // main/extension-apis.ts).
 import { contextBridge, ipcRenderer } from "electron";
 import { EXTENSION_API_BRIDGE } from "../shared/extension-manifest";
+import { inExtensionContext } from "./extension-context";
 
-declare const location: { protocol: string } | undefined;
-
-const isWorker = process.type === "service-worker";
-
-if (isWorker || (typeof location !== "undefined" && location.protocol === "chrome-extension:")) {
+if (inExtensionContext()) {
   const bridge = {
     invoke: (extensionId: string, name: string, args: unknown[]): Promise<unknown> =>
       ipcRenderer.invoke("crx-msg", extensionId, name, ...args).catch((err: unknown) => {

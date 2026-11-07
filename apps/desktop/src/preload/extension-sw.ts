@@ -2,13 +2,11 @@
 // on each profile session after electron-chrome-extensions' own preload.
 import { contextBridge, ipcRenderer } from "electron";
 import { DNR_DEFAULTS_CHANNEL, EXTENSION_API_BRIDGE } from "../shared/extension-manifest";
+import { inExtensionContext } from "./extension-context";
 
-// The preload is type-checked with the Node project (no DOM lib); declare the one global it reads.
-declare const location: { protocol: string } | undefined;
+const inExtension = inExtensionContext();
 
-const isWorker = process.type === "service-worker";
-
-if (isWorker || (typeof location !== "undefined" && location.protocol === "chrome-extension:")) {
+if (inExtension) {
   // Chromium also exposes the `browser` namespace, a separate object from `chrome`. Extensions
   // such as uBlock Origin Lite use it, so mirror the APIs electron-chrome-extensions added to
   // `chrome` (windows, permissions, contextMenus, ...) onto it.
@@ -65,7 +63,7 @@ if (isWorker || (typeof location !== "undefined" && location.protocol === "chrom
   });
 }
 
-if (isWorker) {
+if (inExtension && process.type === "service-worker") {
   // Electron exposes chrome.declarativeNetRequest but never enables the static rulesets a
   // manifest marks as "enabled": ask the main process which ones to turn on (once per installed
   // version, so the extension's own later choices stick) and enable them in the worker.

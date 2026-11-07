@@ -404,6 +404,7 @@ export const ES: Record<string, string> = {
   'Every site forgets this phone: you are signed out of them, and their stored data and cached files go. Tabs, history and bookmarks stay.': 'Todos los sitios olvidan este móvil: se cierran tus sesiones en ellos y se borran sus datos guardados y su caché. Las pestañas, el historial y los marcadores se quedan.',
   'Cookies and site data cleared': 'Cookies y datos de los sitios borrados',
   'Downloading the filter lists…': 'Descargando las listas de filtros…',
+  'The filter lists have not updated for {days} days, so more ads may get through.': 'Las listas de filtros llevan {days} días sin actualizarse, así que pueden colarse más anuncios.',
   '{n} rules from the lists your computers use, updated {when}.': '{n} reglas de las listas que usan tus ordenadores, actualizadas {when}.',
   'The built-in list blocks the best-known ad and tracker hosts until the full lists download.': 'La lista incluida bloquea los servidores de anuncios y rastreadores más conocidos hasta que se descarguen las listas completas.',
   Browser: 'Navegador',

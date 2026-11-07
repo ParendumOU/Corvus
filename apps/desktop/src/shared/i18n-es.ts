@@ -472,6 +472,7 @@ export const ES: Record<string, string> = {
     "Abre las direcciones sin sus parámetros de rastreo (utm_*, fbclid, gclid, msclkid y similares), que solo sirven para que los rastreadores sepan de dónde vienes.",
   "Filter lists": "Listas de filtros",
   "{count} rules": "{count} reglas",
+  "The filter lists have not updated for {days} days, so more ads may get through. Corvus keeps trying.": "Las listas de filtros llevan {days} días sin actualizarse, así que pueden colarse más anuncios. Corvus sigue intentándolo.",
   "Using the bundled list until the first update succeeds.": "Usa la lista incluida hasta que funcione la primera actualización.",
   "uBlock Origin + EasyList + EasyPrivacy (cached)": "uBlock Origin + EasyList + EasyPrivacy (en caché)",
   "Built-in list (offline)": "Lista incluida (sin conexión)",

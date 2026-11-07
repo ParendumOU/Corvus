@@ -710,6 +710,7 @@ export class BrowserWindowCtl {
     const active = this.activeTab();
     const page = active ? pageOf(active.view) : null;
     const settings = this.ctx.settings.get();
+    const staleDays = this.ctx.adblock.listsStaleDays();
     return {
       windowId: this.id,
       platform: process.platform,
@@ -742,7 +743,7 @@ export class BrowserWindowCtl {
       downloads: this.ctx.downloads.summary(this.profile),
       copiedLinks: this.ctx.grabber.copiedLinks(),
       defaultBrowserOffer: this.ctx.defaultBrowser.offerFor(this),
-      adblock: this.profile.adblock.barState(page),
+      adblock: { ...this.profile.adblock.barState(page), ...(staleDays !== null ? { listsStaleDays: staleDays } : {}) },
       readerable: active ? this.ctx.reader.isReaderable(active) : false,
       translate: this.ctx.translate.barState(active),
       readerActive: this.ctx.reader.isActive(this),

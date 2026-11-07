@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("electron", () => ({}));
 
 import { replacesUnfiltered } from "../src/main/adblock-lists";
-import { downloadList, latestRevision, latestRevisions, type ListFetch } from "../src/main/adblock-sources";
+import { filterListsAgeDays, filterListsStale, latestFilterListRevision as latestRevision } from "@corvus/shared";
+import { downloadList, latestRevisions, type ListFetch } from "../src/main/adblock-sources";
 
 const a = "a".repeat(64);
 const b = "b".repeat(64);
@@ -44,5 +45,20 @@ describe("a new engine over one that barely filtered", () => {
     expect(replacesUnfiltered({ source: "cache", lists: "old-set" }, "set")).toBe(true);
     expect(replacesUnfiltered({ source: "cache", lists: "set" }, "set")).toBe(false);
     expect(replacesUnfiltered({ source: "network", lists: "set" }, "set")).toBe(false);
+  });
+});
+
+describe("filter lists that stopped updating", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = 1_800_000_000_000;
+
+  it("counts as stale after a week without a new list, which daily lists never do on their own", () => {
+    expect(filterListsStale(now - 7 * day, now)).toBe(false);
+    expect(filterListsStale(now - 7 * day - 1, now)).toBe(true);
+    expect(filterListsAgeDays(now - 12 * day - 5, now)).toBe(12);
+  });
+
+  it("leaves lists that never updated to their own message", () => {
+    expect(filterListsStale(null, now)).toBe(false);
   });
 });

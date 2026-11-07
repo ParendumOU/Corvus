@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { app, type WebContents } from "electron";
@@ -10,12 +11,20 @@ import { reviveSession } from "../shared/session-state";
 import type { AppContext } from "./context";
 import { parseLists } from "./adblock-lists";
 import { SiteSettingsStore } from "./site-settings";
+import { selfSignedCert } from "./smoke-assist";
 import { waitForInternalPage, waitForPage } from "./smoke-wait";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 const FIND_PAGE = `<!doctype html><html><head><title>Find</title></head><body>
 <h1>Find smoke</h1><p>needle one</p><p>needle two</p><p>a NEEDLE three</p><p>needles four</p><div>needle five</div>
 </body></html>`;
+// A page with frames: one with an element to hide, one with a stand-in embedded YouTube video
+// (youtube.com is HSTS-preloaded: it is served over HTTPS with a throwaway certificate).
+const framedPage = (site: string, embedPort: string): string => `<!doctype html><html><head><title>Framed</title></head><body>
+<iframe id="promo" src="${site}frame-promo"></iframe><iframe id="embed" src="https://www.youtube.com:${embedPort}/embed/stand-in"></iframe>
+</body></html>`;
+const FRAME_PROMO_PAGE = `<!doctype html><html><head><title>Promo</title></head><body><div class="frame-promo">Buy now!</div></body></html>`;
+const EMBED_PAGE = `<!doctype html><html><head><title>Embed</title></head><body><div id="movie_player" class="ad-showing"><video class="html5-main-video"></video></div></body></html>`;
 const PLAIN_PAGE = `<!doctype html><html><head><title>Permissions</title></head><body><h1>Permission smoke</h1></body></html>`;
 // Requests several known ad/tracker URLs so the built-in blocker cancels them (offline-safe: the
 // blocker runs before any network request). Classic ad slot markup lets cosmetic filters hide it.
@@ -52,6 +61,14 @@ export function serveBrowserSmokeRoute(req: http.IncomingMessage, res: http.Serv
     case "/perm":
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(PLAIN_PAGE);
+      return true;
+    case "/framed":
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(framedPage(`http://corvus-smoke.test:${(req.socket.address() as AddressInfo).port}/`, new URL(req.url ?? "/", "http://x").searchParams.get("embed") ?? ""));
+      return true;
+    case "/frame-promo":
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(FRAME_PROMO_PAGE);
       return true;
     case "/ads":
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -400,6 +417,32 @@ export async function runBrowserSmoke(ctx: AppContext, h: SmokeHelpers): Promise
   await waitForLoad(pageWc);
   await sleep(800);
   check("removing the rule shows the element again", (await promoDisplay()) !== "none");
+
+  // Filters reach the frames of a page, not only the page.
+  profile.adblock.setUserFilters("corvus-smoke.test##.frame-promo");
+  const embedServer = https.createServer(selfSignedCert("www.youtube.com") ?? {}, (_req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(EMBED_PAGE);
+  });
+  await new Promise<void>((resolve) => embedServer.listen(0, "127.0.0.1", resolve));
+  win.loadUrl(adTab.id, `${site}framed?embed=${(embedServer.address() as AddressInfo).port}`);
+  await waitForLoad(pageWc);
+  const frameOf = (part: string): Electron.WebFrameMain | undefined => pageWc.mainFrame.framesInSubtree.find((f) => f.url.includes(part));
+  const inFrame = async (part: string, js: string): Promise<unknown> => (await frameOf(part)?.executeJavaScript(js).catch(() => null)) ?? null;
+  const untilFrame = async (part: string, js: string, want: unknown): Promise<unknown> => {
+    let seen: unknown = null;
+    for (let i = 0; i < 40 && seen !== want; i++) {
+      await sleep(200);
+      seen = await inFrame(part, js);
+    }
+    return seen;
+  };
+  const promoDisplayInFrame = await untilFrame("/frame-promo", "getComputedStyle(document.querySelector('.frame-promo')).display", "none");
+  check("element hiding works inside a frame", promoDisplayInFrame === "none", promoDisplayInFrame);
+  const embedMuted = await untilFrame("/embed/stand-in", "document.querySelector('video').muted", true);
+  check("the YouTube ad skipper runs in a video embedded on another site", embedMuted === true, embedMuted);
+  profile.adblock.setUserFilters("");
+  embedServer.close();
 
   // Fingerprinting protection: a canvas reads back the same within a site, differently on another
   // site, and as drawn once the protection is off; the CPU count is capped.

@@ -707,6 +707,9 @@ export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarSt
         <span className="grow">{t("Block ads and trackers (all sites)")}</span>
         <input type="checkbox" checked={state.enabled} onChange={(e) => void api.call("adblock.setEnabled", e.target.checked)} />
       </label>
+      {state.listsStaleDays !== undefined && state.enabled && (
+        <div className="shield-stats muted small" data-lists-stale>{t("The filter lists have not updated for {days} days, so more ads may get through. Corvus keeps trying.", { days: state.listsStaleDays })}</div>
+      )}
       {state.skippingYouTubeAds && (
         <div className="shield-stats muted small" data-youtube-fallback>{t("YouTube stopped playing when its ads were removed, so for a couple of hours Corvus skips them instead.")}<button className="btn small ghost" data-youtube-block-again onClick={() => void api.call("adblock.youtubeBlockAgain")}>{t("Remove them again")}</button>
         </div>

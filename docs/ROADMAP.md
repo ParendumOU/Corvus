@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file is the one list of what is left to do; what shipped, release by release, is in [CHANGELOG.md](../CHANGELOG.md).
 
-Last updated: 2026-11-07 · current release: **v0.41.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.12.0** (Android preview)
+Last updated: 2026-11-07 · current release: **v0.42.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.12.1** (Android preview)
 
 ---
 
@@ -22,8 +22,6 @@ Nothing queued: pick the next item from Later.
 - **Code-signing certificate** for Windows: deferred, see Open decisions.
 
 ## Later
-- **Mobile filter lists**: the phone still downloads them weekly from Ghostery's GitHub assets, which stopped moving in August; the desktop moved to the daily CDN.
-- **Scriptlets in frames**: they run in top frames only, so a YouTube video embedded in another site can still show its ads.
 
 - **Corvus for mobile**: 2FA codes on the phone; saved passwords on iOS's HTTP sign-in (Android only today); sample saved logins in the demo chain for the stores' reviewers; the agent on the phone; ad blocking on iOS (content rule lists); generic element hiding and scriptlets on Android.
 - **Next Expo upgrade**: redo the expo-router patch (patches/expo-router@58.0.26.patch, the router binding after Android rebuilds the screen) and recheck Google Play's edge-to-edge warning (today it comes from library calls; the bitmap warning is a false positive).

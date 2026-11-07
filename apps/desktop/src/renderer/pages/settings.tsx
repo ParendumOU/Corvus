@@ -1241,6 +1241,7 @@ function AdblockSection() {
           {lists?.updating ? t("Updating…") : t("Update now")}
         </button>
       </Row>
+      {lists?.staleDays != null && <div className="notice warn" data-lists-stale>{t("The filter lists have not updated for {days} days, so more ads may get through. Corvus keeps trying.", { days: lists.staleDays })}</div>}
       <Row
         label={t("My filters")}
         hint={t("Your own rules, one per line, in uBlock Origin syntax (example.com##.banner hides .banner on example.com). “Hide this element” on a page adds its rule here.")}

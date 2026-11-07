@@ -1,11 +1,11 @@
+import { filterListMetadataUrl, filterListUrl, latestFilterListRevision } from "@corvus/shared";
+
 /**
  * Where the filter lists come from: Ghostery's CDN, which republishes uBlock Origin's, EasyList's and
  * Peter Lowe's lists every day in the syntax its engine reads (scriptlet arguments encoded). Its GitHub
  * assets, which the library's own helpers fetch, are test fixtures that only move when a maintainer
  * merges an update, and they leave out the newest uBlock Origin lists: YouTube's rules go stale there.
  */
-const CDN = "https://cdn.ghostery.com/adblocker/resources";
-
 export const ADS_AND_TRACKING_LISTS = [
   "easylist",
   "plowe-0",
@@ -38,22 +38,14 @@ async function getText(fetchImpl: ListFetch, url: string): Promise<string> {
   return response.text();
 }
 
-/** The newest revision named by a list's metadata.json. */
-export function latestRevision(metadata: string): string {
-  const revisions = (JSON.parse(metadata) as { revisions?: unknown }).revisions;
-  const latest = Array.isArray(revisions) ? revisions[revisions.length - 1] : undefined;
-  if (typeof latest !== "string" || !/^[0-9a-f]{16,128}$/i.test(latest)) throw new Error("no valid revision in the list metadata");
-  return latest;
-}
-
 /** The newest revision of each list, in order. */
 export function latestRevisions(fetchImpl: ListFetch, names: readonly string[]): Promise<string[]> {
-  return Promise.all(names.map(async (name) => latestRevision(await getText(fetchImpl, `${CDN}/${name}/metadata.json`))));
+  return Promise.all(names.map(async (name) => latestFilterListRevision(await getText(fetchImpl, filterListMetadataUrl(name)))));
 }
 
 /** One list at one revision. An empty answer is a failure: an engine built from it would block nothing. */
 export async function downloadList(fetchImpl: ListFetch, name: string, revision: string): Promise<string> {
-  const text = await getText(fetchImpl, `${CDN}/${name}/${revision}/list.txt`);
+  const text = await getText(fetchImpl, filterListUrl(name, revision));
   if (text.trim() === "") throw new Error(`${name}: empty list`);
   return text;
 }

@@ -228,6 +228,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runSettingsLayoutSmoke(ctx, { win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=extensions: only the extension checks (their service worker ones need the sandbox: --cap-add SYS_ADMIN).
+    if (process.env.CORVUS_SMOKE_ONLY === "extensions") {
+      await runExtensionSmoke(ctx, { check, capture, log });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=cert: only the certificate error checks.
     if (process.env.CORVUS_SMOKE_ONLY === "cert") {
       await runCertErrorSmoke(ctx, { win, check });

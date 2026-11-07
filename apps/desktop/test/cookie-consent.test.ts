@@ -202,7 +202,7 @@ describe("AdblockController cookie consent", () => {
     controller.setOptions({ cookieConsent: false, gpc: false });
     expect(controller.options()).toMatchObject({ cookieConsent: false, gpc: false });
     expect(controller.consentRunsOn("https://example.com/", "https://example.com/")).toBe(false);
-    expect(controller.view({ updatedAt: null, source: "bundled", filterCount: 0, updating: false })).toMatchObject({ cookieConsent: false, gpc: false, consentAllowedSites: [] });
+    expect(controller.view({ updatedAt: null, source: "bundled", filterCount: 0, updating: false, staleDays: null })).toMatchObject({ cookieConsent: false, gpc: false, consentAllowedSites: [] });
     controller.setOptions({ cookieConsent: true });
 
     const wc = { id: 7, isDestroyed: () => false, getURL: () => "https://news.example.org/a" } as unknown as Electron.WebContents;

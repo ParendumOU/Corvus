@@ -16,3 +16,4 @@ export * from "./asks.js";
 export * from "./newtab-guide.js";
 export * from "./tlds.js";
 export * from "./chain-server.js";
+export * from "./filter-lists.js";

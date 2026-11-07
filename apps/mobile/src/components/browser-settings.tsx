@@ -1,3 +1,4 @@
+import { filterListsAgeDays, filterListsStale } from '@corvus/shared';
 import { Platform, StyleSheet, Switch, View } from 'react-native';
 
 import { Button, IconButton } from '@/components/button';
@@ -62,6 +63,7 @@ export function BrowserSettings() {
     : blocking.updatedAt
       ? t('{n} rules from the lists your computers use, updated {when}.', { n: blocking.rules.toLocaleString(), when: ago(blocking.updatedAt) })
       : t('The built-in list blocks the best-known ad and tracker hosts until the full lists download.');
+  const staleLine = !blocking.updating && blocking.updatedAt !== null && filterListsStale(blocking.updatedAt, Date.now()) ? t('The filter lists have not updated for {days} days, so more ads may get through.', { days: filterListsAgeDays(blocking.updatedAt, Date.now()) }) : null;
 
   return (
     <View style={styles.section}>
@@ -93,7 +95,7 @@ export function BrowserSettings() {
           <ListRow
             leading={<IconTile name="shield" />}
             title={t('Block ads and trackers')}
-            subtitle={listsLine}
+            subtitle={staleLine ? `${listsLine} ${staleLine}` : listsLine}
             wrap
             trailing={
               <PrefSwitch

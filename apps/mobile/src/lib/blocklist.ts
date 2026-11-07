@@ -15,18 +15,19 @@
  * the Kotlin one passes the same cases (modules/browser-kit/android/src/test/resources/blocklist).
  */
 
-/** The filter lists the phone downloads: the ones the desktop blocks ads and trackers with, from the same place (Ghostery's mirror of the original lists). */
-export const FILTER_LISTS: readonly string[] = [
-  'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/easylist/easylist.txt',
-  'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/easylist/easyprivacy.txt',
-  'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/peter-lowe/serverlist.txt',
-  'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/ublock-origin/filters.txt',
-  'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/ublock-origin/privacy.txt',
-  'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/ublock-origin/unbreak.txt',
-];
+/** The filter lists the phone downloads (their names on the CDN, see @corvus/shared): the desktop's, without the older yearly lists a phone's small rule set does not need. */
+export const FILTER_LISTS: readonly string[] = ['easylist', 'easyprivacy', 'plowe-0', 'ublock-filters', 'ublock-filters-2025', 'ublock-filters-2026', 'ublock-quick-fixes', 'ublock-privacy', 'ublock-unbreak'];
 
-/** How often the lists are downloaded again. */
-export const LIST_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+/** How often to ask whether the lists moved; they are downloaded again only when one did. */
+export const LIST_REFRESH_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * What one check found, as one string to compare with the last build's: the lists' newest revisions.
+ * Null when a list could not be asked about: the next check must not count as "nothing moved".
+ */
+export function revisionsKey(revisions: readonly (string | null)[]): string | null {
+  return revisions.every((r) => r !== null) ? revisions.join(',') : null;
+}
 
 /** Bumped when the compiled format changes, so an older cache is rebuilt. */
 export const COMPILED_VERSION = 1;

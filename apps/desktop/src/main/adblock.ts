@@ -5,7 +5,7 @@ import { ipcMain, webContents as allWebContents, type IpcMainEvent, type IpcMain
 import { ElectronBlocker, Request, fromElectronDetails } from "@ghostery/adblocker-electron";
 import {
   ADBLOCK_COSMETIC_CHANNEL,
-  ADBLOCK_COSMETIC_EXTENDED_CHANNEL,
+  ADBLOCK_COSMETIC_PUSH_CHANNEL,
   ADBLOCK_COSMETIC_OBSERVE_CHANNEL,
   ADBLOCK_COSMETIC_REFRESH_CHANNEL,
   ADBLOCK_RESOURCE_SCHEME,
@@ -38,13 +38,15 @@ import {
   type AdblockListsInfo,
   type AdblockSettings,
   type AdblockView,
-  type ExtendedRule,
+  type CosmeticAnswer,
   type ScriptletsAnswer,
 } from "../shared/adblock";
 import {
   ConsentTabs,
   addSite,
   cmpDisplayName,
+  filterListsAgeDays,
+  filterListsStale,
   isConsentPageUrl,
   parseConsentEvent,
   removeSite,
@@ -77,6 +79,18 @@ interface CosmeticUpdate {
   classes?: string[];
   hrefs?: string[];
   ids?: string[];
+}
+
+type Ancestor = { hostname: string; domain: string };
+
+/** The frames above a frame, nearest first, for the rules that only apply inside certain sites. */
+function ancestorsOf(frame: Electron.WebFrameMain | null | undefined): Ancestor[] {
+  const out: Ancestor[] = [];
+  for (let parent = frame?.parent; parent; parent = parent.parent) {
+    const { hostname, domain } = Request.fromRawDetails({ url: parent.url });
+    out.push({ hostname, domain: domain ?? "" });
+  }
+  return out;
 }
 
 function stringList(value: unknown): string[] | undefined {
@@ -374,7 +388,7 @@ export class AdblockService {
     for (const wc of allWebContents.getAllWebContents()) {
       if (wc.isDestroyed() || !this.controllerFor(wc.session) || !isBlockablePageUrl(wc.getURL())) continue;
       if (unfilteredBefore && isYouTubeHost(hostFromUrl(wc.getURL()) ?? "")) wc.reload();
-      else wc.mainFrame.send(ADBLOCK_COSMETIC_REFRESH_CHANNEL);
+      else for (const frame of wc.mainFrame.framesInSubtree) frame.send(ADBLOCK_COSMETIC_REFRESH_CHANNEL);
     }
   }
 
@@ -548,7 +562,15 @@ export class AdblockService {
       source,
       filterCount: this.ads.meta.filterCount + this.annoyances.meta.filterCount,
       updating: this.ads.updating || this.annoyances.updating,
+      staleDays: this.listsStaleDays(),
     };
+  }
+
+  /** Days the lists have gone without moving, once they count as stale (null otherwise). */
+  listsStaleDays(): number | null {
+    const { updatedAt } = this.ads.meta;
+    const now = Date.now();
+    return updatedAt !== null && filterListsStale(updatedAt, now) ? filterListsAgeDays(updatedAt, now) : null;
   }
 
   /** Forces a fresh fetch of the filter lists now. */
@@ -600,15 +622,16 @@ export class AdblockService {
   }
 
   private registerCosmeticHandlers(): void {
-    ipcMain.handle(ADBLOCK_COSMETIC_CHANNEL, (event, url: unknown, msg?: unknown): ExtendedRule[] => {
-      // Styles go into the tab's page: subframes (which run the preload too) are not filtered from here.
-      if (event.senderFrame && event.senderFrame.parent !== null) return [];
+    ipcMain.handle(ADBLOCK_COSMETIC_CHANNEL, (event, url: unknown, msg?: unknown): CosmeticAnswer => {
+      const none: CosmeticAnswer = { styles: "", extended: [] };
       const controller = this.controllerFor(event.sender.session);
-      if (!controller || typeof url !== "string") return [];
-      if (!isBlockablePageUrl(url) || !shouldBlockPage(controller.settings(), hostFromUrl(url) ?? "")) return [];
-      return this.injectStyles(event, controller, url, msg);
+      if (!controller || typeof url !== "string" || !isBlockablePageUrl(url)) return none;
+      // The site allow list goes by the tab's page; a subframe asks with its own address.
+      const page = event.senderFrame?.parent ? event.sender.getURL() || url : url;
+      if (!isBlockablePageUrl(page) || !shouldBlockPage(controller.settings(), hostFromUrl(page) ?? "")) return none;
+      return this.elementHiding(event, controller, url, page, msg);
     });
-    ipcMain.handle(ADBLOCK_COSMETIC_OBSERVE_CHANNEL, (event) => (event.senderFrame && event.senderFrame.parent !== null ? false : ENGINE_CONFIG.enableMutationObserver));
+    ipcMain.handle(ADBLOCK_COSMETIC_OBSERVE_CHANNEL, () => ENGINE_CONFIG.enableMutationObserver);
     ipcMain.on(CONSENT_INIT_CHANNEL, (event, url: unknown) => {
       event.returnValue = this.consentInit(event, url);
     });
@@ -623,46 +646,49 @@ export class AdblockService {
    * Element hiding for a page: site and generic rules when it starts, then rules for the ids and
    * classes it adds. Scriptlets are not run from here: the scriptlets preload runs them earlier.
    */
-  private injectStyles(event: IpcMainInvokeEvent, controller: AdblockController, url: string, msg: unknown): ExtendedRule[] {
+  private elementHiding(event: IpcMainInvokeEvent, controller: AdblockController, url: string, page: string, msg: unknown): CosmeticAnswer {
     const update = msg && typeof msg === "object" ? (msg as CosmeticUpdate) : undefined;
+    const isTop = !event.senderFrame?.parent;
     const held = this.heldAnnoyances.get(event.sender.id);
-    if (held && update) {
+    if (held && update && isTop) {
       for (const [key, set] of [["classes", held.classes], ["hrefs", held.hrefs], ["ids", held.ids]] as const) {
         for (const value of stringList(update[key]) ?? []) if (set.size < MAX_HELD_FEATURES) set.add(value);
       }
     }
     // A site whose cookie banner you chose to keep shows it: the cookie notice lists do not hide it either.
-    const keepBanner = siteListMatches(hostFromUrl(url) ?? "", controller.consentAllowedSites());
-    const extended: ExtendedRule[] = [];
+    const keepBanner = siteListMatches(hostFromUrl(page) ?? "", controller.consentAllowedSites());
+    const answer: CosmeticAnswer = { styles: "", extended: [] };
     for (const engine of this.enginesFor(controller)) {
       if ((held || keepBanner) && engine === this.annoyances.blocker) continue;
-      extended.push(...this.insertStyles(event.sender, engine, url, update, update === undefined));
+      const one = this.engineHiding(engine, url, update, update === undefined, isTop, ancestorsOf(event.senderFrame));
+      answer.styles += one.styles;
+      answer.extended.push(...one.extended);
     }
-    return extended;
+    return answer;
   }
 
   /**
-   * One engine's element hiding for the tab's page: base and site rules when `first`, plus rules for
-   * `update`. Rules CSS cannot express (:has-text, :upward...) come back for the page to apply.
+   * One engine's element hiding for a frame: site rules when `first`, plus rules for `update`. The
+   * generic rules every page gets are a very large style sheet: only top pages take it, not each of
+   * the many frames of a page full of ads, which mostly lose their requests anyway.
    */
-  private insertStyles(wc: WebContents, engine: ElectronBlocker, url: string, update: CosmeticUpdate | undefined, first: boolean): ExtendedRule[] {
+  private engineHiding(engine: ElectronBlocker, url: string, update: CosmeticUpdate | undefined, first: boolean, isTop: boolean, ancestors: Ancestor[]): CosmeticAnswer {
     const { hostname, domain } = Request.fromRawDetails({ url });
     const { active, styles, extended } = engine.getCosmeticsFilters({
       url,
       hostname,
       domain,
+      ancestors,
       classes: stringList(update?.classes),
       hrefs: stringList(update?.hrefs),
       ids: stringList(update?.ids),
-      getBaseRules: first,
+      getBaseRules: first && isTop,
       getInjectionRules: false,
       getExtendedRules: true,
       getRulesFromHostname: first,
       getRulesFromDOM: update !== undefined,
-      callerContext: { frameId: wc.mainFrame.routingId, processId: wc.mainFrame.processId },
     });
-    if (active && styles.length > 0) void wc.insertCSS(styles, { cssOrigin: "user" }).catch(() => undefined);
-    return active ? extended : [];
+    return active ? { styles, extended } : { styles: "", extended: [] };
   }
 
   /**
@@ -687,8 +713,7 @@ export class AdblockService {
     const controller = this.controllerFor(wc.session);
     const url = wc.getURL();
     if (!controller || !controller.options().annoyances || !isBlockablePageUrl(url) || !shouldBlockPage(controller.settings(), hostFromUrl(url) ?? "")) return;
-    const extended = this.insertStyles(wc, this.annoyances.blocker, url, { classes: [...held.classes], hrefs: [...held.hrefs], ids: [...held.ids] }, true);
-    if (extended.length > 0) wc.mainFrame.send(ADBLOCK_COSMETIC_EXTENDED_CHANNEL, extended);
+    wc.mainFrame.send(ADBLOCK_COSMETIC_PUSH_CHANNEL, this.engineHiding(this.annoyances.blocker, url, { classes: [...held.classes], hrefs: [...held.hrefs], ids: [...held.ids] }, true, true, []));
   }
 
   /** A starting web frame asks whether to run Autoconsent and set navigator.globalPrivacyControl. */
@@ -741,17 +766,18 @@ export class AdblockService {
       const blocking = shouldBlockPage(settings, pageHost);
       // Fingerprinting protection has its own switch; a site you allowed is left alone entirely.
       const farbling = controller.options().fingerprinting && !isHostAllowed(pageHost, settings.allowed);
-      const first = farbling ? [farblingScript(fingerprintSeed(this.sessionKey, Request.fromRawDetails({ url: page }).domain || pageHost))] : [];
+      const first = farbling && isTop ? [farblingScript(fingerprintSeed(this.sessionKey, Request.fromRawDetails({ url: page }).domain || pageHost))] : [];
       if (!blocking) return { scripts: first, watchYouTube: false };
       const { hostname, domain } = Request.fromRawDetails({ url });
       const youtube = isYouTubeHost(hostname);
-      if (this.inYouTubeFallback(controller, pageHost)) return { scripts: [...first, ...(youtube ? [YOUTUBE_AD_SKIPPER] : [])], watchYouTube: false };
+      if (this.inYouTubeFallback(controller, youtube ? hostname : pageHost)) return { scripts: [...first, ...(youtube ? [YOUTUBE_AD_SKIPPER] : [])], watchYouTube: false };
       const scripts: string[] = [];
       for (const engine of this.enginesFor(controller)) {
         const found = engine.getCosmeticsFilters({
           url,
           hostname,
           domain,
+          ancestors: ancestorsOf(event.senderFrame),
           getBaseRules: false,
           getInjectionRules: true,
           getExtendedRules: false,

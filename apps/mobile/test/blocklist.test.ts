@@ -14,6 +14,8 @@ import {
   serializeRules,
   siteAllowed,
   siteOf,
+  FILTER_LISTS,
+  revisionsKey,
 } from '../src/lib/blocklist';
 
 // The same files the Android matcher's test reads (ContentBlockerTest), so both match alike.
@@ -76,5 +78,18 @@ describe('matching requests', () => {
     const script = cosmeticScript(['.a', 'div[x="1"]'])!;
     expect(script).toContain('corvus-hide');
     expect(script).toContain('.a{display:none!important}\\ndiv[x=\\"1\\"]{display:none!important}');
+  });
+});
+
+describe('filter list revisions', () => {
+  it('compares a full check, and never takes a partial one for "nothing moved"', () => {
+    expect(revisionsKey(['a', 'b'])).toBe('a,b');
+    expect(revisionsKey(['a', null])).toBeNull();
+  });
+
+  it('asks for names the CDN knows, not addresses', () => {
+    for (const name of FILTER_LISTS) expect(name).toMatch(/^[a-z0-9-]+$/);
+    expect(FILTER_LISTS).toContain('ublock-quick-fixes');
+    expect(FILTER_LISTS).toContain('ublock-filters-2026');
   });
 });
