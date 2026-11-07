@@ -53,11 +53,14 @@ export class PermissionManager {
   constructor(
     private readonly store: SiteSettingsStore,
     private readonly host: PermissionHost,
+    /** The profile is locked: its pages get no permission at all (no notification shows what they say). */
+    private readonly locked: () => boolean = () => false,
   ) {}
 
   install(session: Session): void {
-    session.setPermissionRequestHandler((wc, permission, callback, details) => this.handleRequest(wc, permission, callback, details));
+    session.setPermissionRequestHandler((wc, permission, callback, details) => (this.locked() ? callback(false) : this.handleRequest(wc, permission, callback, details)));
     session.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+      if (this.locked()) return false;
       const mediaTypes =
         permission === "media" ? (details.mediaType === "video" || details.mediaType === "audio" ? [details.mediaType] : ["video", "audio"]) : undefined;
       const origin = originOf(requestingOrigin);
@@ -73,7 +76,7 @@ export class PermissionManager {
         }
       };
       const wc = request.frame ? allWebContents.fromFrame(request.frame) : undefined;
-      if (!wc) return deny();
+      if (!wc || this.locked()) return deny();
       const origin = originOf(request.securityOrigin || request.frame?.url || "");
       const topOrigin = originOf(wc.getURL()) || origin;
       const verdict = this.decide(wc, origin, topOrigin, ["display-capture"]);

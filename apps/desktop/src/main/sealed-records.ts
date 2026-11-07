@@ -1,6 +1,7 @@
 import path from "node:path";
 import { generateVaultKey, openSecret, sealSecret } from "@corvus/sync-core";
 import { JsonFile } from "./json-file";
+import { isProfileLocked, verifyWrappedFile } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 
 /** What every sealed record has in the clear: its id and when it was made and last changed. */
@@ -45,10 +46,16 @@ type Listener = () => void;
  * ids and timestamps is ever at rest in the clear. Without a keychain it runs memory-only for the
  * session and never touches disk. Records that do not pass `isValid` are dropped on load and refused.
  */
+interface Opened<T> {
+  file: JsonFile<RecordsFile>;
+  key: Uint8Array;
+  cache: Map<string, T>;
+}
+
 export class SealedRecords<T extends SealedRecord> {
-  private readonly file: JsonFile<RecordsFile>;
-  private readonly cache = new Map<string, T>();
-  private readonly key: Uint8Array;
+  private readonly filePath: string;
+  /** Null until first used, and again once the profile locks (see unload). */
+  private opened: Opened<T> | null = null;
   private readonly persisted: boolean;
   private readonly listeners = new Set<Listener>();
   /** Fires on any local or remote change (drives the sync scheduler and page refreshes). */
@@ -65,35 +72,84 @@ export class SealedRecords<T extends SealedRecord> {
     private readonly cipher: SecretCipher,
     private readonly isValid: (v: unknown) => v is T,
   ) {
-    this.file = JsonFile.load(path.join(dir, fileName), emptyFile, reviveFile, 0);
-    const current = this.file.get();
+    this.filePath = path.join(dir, fileName);
     this.persisted = cipher.isEncryptionAvailable();
+    try {
+      this.open();
+    } catch (err) {
+      // A locked profile's records open on first use after unlocking.
+      if (!isProfileLocked(err)) throw err;
+    }
+  }
+
+  private get file(): JsonFile<RecordsFile> {
+    return this.open().file;
+  }
+
+  private get cache(): Map<string, T> {
+    return this.open().cache;
+  }
+
+  private get key(): Uint8Array {
+    return this.open().key;
+  }
+
+  /** Reads and decrypts the file (once); throws ProfileLockedError while the profile is locked. */
+  private open(): Opened<T> {
+    if (this.opened) return this.opened;
+    const fileName = path.basename(this.filePath);
+    const file = JsonFile.load(this.filePath, emptyFile, reviveFile, 0);
+    const current = file.get();
+    const cache = new Map<string, T>();
     let key: Uint8Array | null = null;
     if (this.persisted && current.key) {
       try {
-        key = Buffer.from(cipher.decryptString(Buffer.from(current.key.data, "base64")), "base64");
+        key = Buffer.from(this.cipher.decryptString(Buffer.from(current.key.data, "base64")), "base64");
         if (key.length !== 32) key = null;
       } catch (err) {
+        if (isProfileLocked(err)) throw err;
         console.warn(`[corvus] could not unwrap the key of ${fileName}; starting empty:`, (err as Error).message);
         key = null;
       }
     }
     if (key) {
-      this.key = key;
+      this.opened = { file, key, cache };
       for (const entry of current.entries) {
         try {
           const record: unknown = { ...JSON.parse(openSecret(key, entry.sealed, entry.id)), id: entry.id, createdAt: entry.createdAt, updatedAt: entry.updatedAt };
-          if (this.isValid(record)) this.cache.set(entry.id, record);
+          if (this.isValid(record)) cache.set(entry.id, record);
         } catch (err) {
           console.warn(`[corvus] dropped an unreadable record ${entry.id} of ${fileName}:`, (err as Error).message);
         }
       }
-      if (this.cache.size !== current.entries.length) this.write();
+      if (cache.size !== current.entries.length) this.write();
     } else {
-      this.key = generateVaultKey();
+      this.opened = { file, key: generateVaultKey(), cache };
       if (this.persisted) this.write();
-      else if (current.entries.length > 0) this.file.set(emptyFile());
+      else if (current.entries.length > 0) file.set(emptyFile());
     }
+    return this.opened;
+  }
+
+  /** The profile locked: the decrypted records and the key leave memory until opened again. */
+  unload(): void {
+    const opened = this.opened;
+    if (!opened) return;
+    this.opened = null;
+    opened.file.flush();
+    opened.key.fill(0);
+    opened.cache.clear();
+  }
+
+  /** Writes the wrapped key again with the cipher as it is now (a lock added or removed). */
+  rewrap(): void {
+    this.write();
+    this.file.flush();
+  }
+
+  /** Whether the file on disk opens with the cipher as it is now, to the key and records in memory. */
+  verify(): boolean {
+    return verifyWrappedFile(this.filePath, this.cipher, this.key, this.cache.size);
   }
 
   /** Whether records are written to disk (true when the OS keychain is available). */
@@ -136,6 +192,6 @@ export class SealedRecords<T extends SealedRecord> {
   }
 
   flush(): void {
-    this.file.flush();
+    this.opened?.file.flush();
   }
 }

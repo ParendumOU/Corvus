@@ -233,7 +233,7 @@ export class McpService {
    * through FlowService, which keeps its own risky-step approval gate — this never bypasses it.
    */
   private flowRunner(): FlowRunner | null {
-    const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
+    const window = this.ctx.windows.reachable();
     if (!window) return null;
     const runtime = window.profile;
     const summary = (f: SavedFlow): FlowSummary => ({
@@ -283,7 +283,7 @@ export class McpService {
 
   /** Read-only view of what the focused profile learned about a host (the compact prompt hints). */
   private siteMemoryReader(): SiteMemoryReader | null {
-    const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
+    const window = this.ctx.windows.reachable();
     if (!window) return null;
     const runtime = window.profile;
     return {

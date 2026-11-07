@@ -33,7 +33,7 @@ export class BackupReminder {
    * when the person answers (or at once when nothing is shown).
    */
   async remind(win: BrowserWindowCtl | undefined): Promise<void> {
-    if (!win || this.asked || win.isPrivate || win.activeTab()?.agentControlled || !this.due(win)) return;
+    if (!win || this.asked || win.isPrivate || win.profile.locked || win.activeTab()?.agentControlled || !this.due(win)) return;
     this.asked = true;
     const answer = await this.ctx.dialogs.ask(
       {

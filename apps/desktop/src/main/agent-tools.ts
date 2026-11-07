@@ -22,6 +22,7 @@ import { classifyAction, classifyPointAction, stricterRisk, type ActionRisk } fr
 import { parseKey, pointOf, shotToCss, wheelDelta, type Point, type ShotGeometry } from "../shared/visual-input";
 import type { AppContext } from "./context";
 import type { CertErrorPolicy } from "./controller";
+import type { ProfileRuntime } from "./profiles";
 import { agentScreenshot, clickAt, describeFocused, describePoint, hoverAt, pressKey, scrollAt, typeText } from "./visual-input";
 import { claudeCliEnv } from "../shared/settings";
 import { parseAgentDownloadRequest } from "../shared/download-ai";
@@ -669,7 +670,7 @@ export async function runAgentTool(
     case "queue_downloads":
       return queueDownloadsTool(ctx, state, input);
     case "remember": {
-      const profile = (state.tabId ? ctx.windows.findTab(state.tabId)?.window.profile : undefined) ?? ctx.windows.target().profile;
+      const profile = runProfile(ctx, state);
       const text = argStr(input, "note");
       const reason = rejectNote(text.replace(/\s+/g, " ").trim().slice(0, 200));
       if (reason) return { content: reason, isError: true };
@@ -695,7 +696,7 @@ function switchedTo(state: ToolRunState, id: TabId | null): void {
 /** queue_downloads: the run panel already asked the person (always), so the files go straight in. */
 function queueDownloadsTool(ctx: AppContext, state: ToolRunState, input: unknown): AgentToolResult {
   const request = parseAgentDownloadRequest(input);
-  const profile = (state.tabId ? ctx.windows.findTab(state.tabId)?.window.profile : undefined) ?? ctx.windows.target().profile;
+  const profile = runProfile(ctx, state);
   const result = ctx.queue.addAgentLinks(profile, request, "Corvus", state.lastUrl ?? "Corvus agent");
   const lines: string[] = [];
   for (const p of result.packages) lines.push(`Queued ${p.files} ${p.files === 1 ? "file" : "files"} as "${p.name}" (package ${p.id}).`);
@@ -744,4 +745,11 @@ async function webSearchTool(ctx: AppContext, query: string, depth: "quick" | "d
   }
   const body = [answer ? `answer: ${answer}` : "", results.join("\n")].filter(Boolean).join("\n\n");
   return wrapUntrusted(`web_search:${query}`, body || "No results.");
+}
+
+/** The profile an agent run works in: its working tab's, else the target window's; never a locked one. */
+function runProfile(ctx: AppContext, state: ToolRunState): ProfileRuntime {
+  const profile = (state.tabId ? ctx.windows.findTab(state.tabId)?.window.profile : undefined) ?? ctx.windows.target().profile;
+  if (profile.locked) throw new Error("That profile is locked.");
+  return profile;
 }

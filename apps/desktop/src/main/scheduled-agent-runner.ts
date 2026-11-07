@@ -103,7 +103,9 @@ export class ScheduledAgentRunner {
     if (!this.ctx.settings.get().scheduledAgents.enabled) return;
     const owners = new Map<string, string>();
     const all: AgentSchedule[] = [];
+    const locked = new Set(this.ctx.profiles.loaded().filter((r) => r.locked).map((r) => r.profile.id));
     for (const [profileId, store] of this.stores) {
+      if (locked.has(profileId)) continue;
       for (const s of store.list()) {
         owners.set(s.id, profileId);
         all.push(s);
@@ -183,6 +185,11 @@ export class ScheduledAgentRunner {
   }
 
   // ------------------------------------------------------------------- the run
+
+  /** The profile locked: its runs going on stop (its schedules wait in tick until it is unlocked). */
+  pauseProfile(profileId: string): void {
+    for (const [id, run] of this.active) if (run.profileId === profileId) this.cancelRun(id, true);
+  }
 
   private cancelRun(id: string, cancelled: boolean): void {
     const run = this.active.get(id);

@@ -99,7 +99,7 @@ export class WebScopeService {
   /** The engine for the focused window's profile, or null when WebScope is off. Used by the MCP tools. */
   activeEngine(): WebScopeEngine | null {
     if (!this.enabled) return null;
-    const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
+    const window = this.ctx.windows.reachable();
     if (!window) return null;
     return this.engineFor(window.profile);
   }
@@ -153,7 +153,7 @@ export class WebScopeService {
   setEnabled(enabled: boolean): WebScopeState {
     this.ctx.settings.update({ webscope: { enabled } });
     this.apply();
-    const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
+    const window = this.ctx.windows.reachable();
     return window ? this.state(window.profile) : { enabled, scope: this.emptyState().scope, rules: this.emptyState().rules, historySize: 0, attachedTabs: this.detachers.size, held: 0 };
   }
 
@@ -163,7 +163,7 @@ export class WebScopeService {
   }
 
   private activeProfileEngine(): WebScopeEngine | null {
-    const window = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
+    const window = this.ctx.windows.reachable();
     return window ? this.engineFor(window.profile) : null;
   }
 

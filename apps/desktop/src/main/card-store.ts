@@ -101,6 +101,19 @@ export class CardVault {
     if (this.records.put(apply)) this.records.flush();
   }
 
+  /** See SealedRecords: drop what is decrypted (the profile locked), wrap the key again, check the file. */
+  unload(): void {
+    this.records.unload();
+  }
+
+  rewrap(): void {
+    this.records.rewrap();
+  }
+
+  verify(): boolean {
+    return this.records.verify();
+  }
+
   flush(): void {
     this.records.flush();
   }

@@ -4,6 +4,7 @@ import { NEW_TAB_URL } from "../shared/internal-urls";
 import type { SessionWindow } from "../shared/session-state";
 import type { AppContext } from "./context";
 import type { PermissionHost } from "./permissions";
+import { ProfileLockedError } from "./profile-lock";
 import { BrowserWindowCtl, type TabRuntime, type WindowOpenOptions } from "./window";
 
 export class WindowManager implements PermissionHost {
@@ -53,9 +54,28 @@ export class WindowManager implements PermissionHost {
     return [...this.windows];
   }
 
-  /** Windows that are not private: what agents, sync and the saved session see. */
+  /** Windows that are not private: what sync and the saved session see. */
   regular(): BrowserWindowCtl[] {
     return this.windows.filter((w) => !w.isPrivate);
+  }
+
+  /** Windows agents and services may act in: not private, and not of a locked profile. */
+  usable(): BrowserWindowCtl[] {
+    return this.windows.filter((w) => !w.isPrivate && !w.profile.locked);
+  }
+
+  /** The window a service acts in when none is named: the focused one if usable, else the last usable one. */
+  reachable(): BrowserWindowCtl | undefined {
+    const focused = this.focused();
+    if (focused && !focused.isPrivate && !focused.profile.locked) return focused;
+    const usable = this.usable();
+    return usable[usable.length - 1];
+  }
+
+  /** A tab's window and runtime, unless its profile is locked (its pages may ask nothing then). */
+  byUnlockedTab(wc: WebContents): { window: BrowserWindowCtl; tab: TabRuntime } | undefined {
+    const found = this.byTabWebContents(wc);
+    return found && !found.window.profile.locked ? found : undefined;
   }
 
   forProfile(profileId: ProfileId): BrowserWindowCtl[] {
@@ -111,15 +131,19 @@ export class WindowManager implements PermissionHost {
   }
 
   /**
-   * Window that agent and extension actions target (never a private one), opening one if needed.
+   * Window that agent and extension actions target (never a private one, nor one of a locked
+   * profile: with no other, this throws ProfileLockedError), opening one if needed.
    * With no window open at all (Corvus kept running in the notification area), nobody is there to
    * see it: it opens in the background.
    */
   target(): BrowserWindowCtl {
+    const reachable = this.reachable();
+    if (reachable) return reachable;
+    // Every open window is private or locked: a new one, unless its profile is locked too.
     const focused = this.focused();
-    if (focused && !focused.isPrivate) return focused;
-    const regular = this.regular();
-    return regular[regular.length - 1] ?? this.open(focused?.profile.profile.id ?? this.ctx.profiles.manager.lastUsed, [], { background: !focused });
+    const profileId = focused?.profile.profile.id ?? this.ctx.profiles.manager.lastUsed;
+    if (this.ctx.profileLocks.isLocked(profileId)) throw new ProfileLockedError();
+    return this.open(profileId, [], { background: !focused });
   }
 
   removed(win: BrowserWindowCtl): void {

@@ -13,6 +13,7 @@ import {
   type ProxyServer,
 } from "../shared/connections";
 import { JsonFile } from "./json-file";
+import { blobsReadBack, rewrapBlobs } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 
 interface StoredConnections extends ConnectionsConfig {
@@ -40,17 +41,21 @@ export interface ProxyInput {
  * this session only.
  */
 export class ConnectionStore {
-  private readonly file: JsonFile<StoredConnections>;
+  private file: JsonFile<StoredConnections>;
   private readonly listeners = new Set<() => void>();
   /** Passwords kept in memory when the keychain is unavailable. */
   private readonly memory = new Map<string, string>();
 
   constructor(
-    dir: string,
+    private readonly dir: string,
     private readonly cipher: SecretCipher,
   ) {
-    this.file = JsonFile.load(
-      path.join(dir, "connections.json"),
+    this.file = this.read();
+  }
+
+  private read(): JsonFile<StoredConnections> {
+    return JsonFile.load(
+      path.join(this.dir, "connections.json"),
       () => ({ ...reviveConnections(null), secrets: {} }),
       (raw) => {
         const config = reviveConnections(raw);
@@ -63,6 +68,11 @@ export class ConnectionStore {
       },
       0,
     );
+  }
+
+  /** Reads connections.json again (put back after a profile lock change failed). */
+  reread(): void {
+    this.file = this.read();
   }
 
   /** The configuration without passwords (safe to show in a page). */
@@ -81,6 +91,17 @@ export class ConnectionStore {
     } catch {
       return null;
     }
+  }
+
+  /** Writes the proxy passwords again with the cipher as it is now (a profile lock added or removed). */
+  rewrap(): void {
+    this.file.update((f) => ({ ...f, secrets: rewrapBlobs(f.secrets, this.cipher) }));
+    this.file.flush();
+  }
+
+  verify(): boolean {
+    const blobsOf = (raw: unknown): string[] => Object.values(((raw as { secrets?: Record<string, string> } | null)?.secrets ?? {}) as Record<string, string>);
+    return blobsReadBack(this.file.filePath, this.cipher, blobsOf, Object.keys(this.file.get().secrets).length);
   }
 
   /** Adds a proxy (or updates the one with `id`); returns it. */

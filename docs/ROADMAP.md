@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file is the one list of what is left to do; what shipped, release by release, is in [CHANGELOG.md](../CHANGELOG.md).
 
-Last updated: 2026-11-07 · current release: **v0.40.1** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.12.0** (Android preview)
+Last updated: 2026-11-07 · current release: **v0.41.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.12.0** (Android preview)
 
 ---
 
@@ -18,6 +18,7 @@ Nothing queued: pick the next item from Later.
 - **On a real iPhone (TestFlight)**: cookie banners, pairing by QR code, the certificate error page and the saved passwords (Face ID before showing or filling one).
 - **On a real Windows PC**: pressing Import with real browser profiles (only the owner can): whether Chrome, Edge and Brave passwords are readable or protected, the guided export, and whether antivirus complains; the browsers' own icons in the address bar suggestions and Settings.
 - **Windows**: confirm a taskbar pin survives a real automatic update (the in-place update shipped in v0.31.0).
+- **Profile lock on a real Windows PC**: add and unlock with Windows Hello (face, fingerprint, PIN) and with a USB security key, with and without PRF support, cancelling the prompt, and a key of another profile.
 - **Code-signing certificate** for Windows: deferred, see Open decisions.
 
 ## Later

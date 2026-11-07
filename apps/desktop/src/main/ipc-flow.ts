@@ -139,7 +139,7 @@ export function flowInternalHandlers(ctx: AppContext): InternalHandlers<FlowInte
 /** Receives captured interactions from tab preloads (one-way; the sender is re-validated as a tab). */
 export function registerFlowCapture(ctx: AppContext): void {
   ipcMain.on(FLOW_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
     const profile = ctx.profiles.bySession(event.sender.session);
     if (!profile) return;

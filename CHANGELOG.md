@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.41.0
+
+### Profiles
+- **Lock a profile with Alt+H when you step away** (Option+H on macOS, or Lock profile in the Corvus menu and the profile menu). Its windows show only a lock screen: a blurred stand-in, nothing of your pages, and a form to unlock it. Locked, nobody can open its pages, Settings, passwords, history or bookmarks, sign in with its saved logins or 2FA codes, or let an AI agent use it; you can still close the browser, switch to another profile or create a new one. Unlocking brings the windows and tabs back as they were.
+- **A lock is optional, per profile**: none, a PIN of at least 6 digits or a password, chosen when you create the profile or later in Settings > Lock. A profile with a lock starts locked when Corvus starts. Wrong attempts make you wait a little longer each time.
+- **Real encryption**: with a lock, the keys of the profile's saved passwords, 2FA codes, cards, addresses, kept KeePass passwords, proxy passwords and sync phrase are sealed under a key only your PIN or password opens, on top of Windows' own protection. Adding or removing the lock never loses data: files are copied aside and checked before the old ones go.
+- **More ways to unlock**: a code from an authenticator app (set up with a QR code, separate from your 2FA codes), Windows Hello and a USB security key. Windows Hello and keys that support it (PRF) open the encryption themselves; Settings tells you when one only guards the key.
+
 ## v0.40.1
 
 ### Fixed

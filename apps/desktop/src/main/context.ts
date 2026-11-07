@@ -49,11 +49,14 @@ import type { NewTabService } from "./newtab-service";
 import type { DictationService } from "./dictation-service";
 import type { DialogService } from "./dialogs";
 import type { PageDialogs } from "./page-dialogs";
+import type { ProfileLockService } from "./profile-lock-service";
 
 /** Main-process services, wired together once in index.ts. */
 export interface AppContext {
   settings: SettingsStore;
   profiles: ProfileRegistry;
+  /** Locking profiles (Alt+H), their lock screens, and Settings > Lock. */
+  profileLocks: ProfileLockService;
   dictation: DictationService;
   /** Corvus's modal dialogs (main/dialogs.ts). */
   dialogs: DialogService;

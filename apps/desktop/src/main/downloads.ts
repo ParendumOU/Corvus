@@ -451,21 +451,24 @@ export class DownloadManager {
    * (it downloads meanwhile). Cancel discards it; "Don't ask again" makes that answer the setting.
    */
   private async askDestination(runtime: ProfileRuntime, window: BrowserWindowCtl, id: string, filename: string, site: string, held: HeldDownload): Promise<void> {
-    const answer = await this.ctx.dialogs.ask(
-      {
-        tone: "question",
-        title: tr("Save the file"),
-        message: filename,
-        ...(site ? { detail: tr("From {site}", { site }) } : {}),
-        buttons: [tr("Cancel"), tr("Choose where…"), tr("Downloads")],
-        defaultId: 2,
-        cancelId: 0,
-        checkbox: { label: tr("Don't ask again"), checked: false },
-        settingsHint: { text: tr("You can change this in Settings, Downloads."), section: "downloads" },
-      },
-      window,
-      held.destination?.abort.signal,
-    );
+    // Locked, nobody is there to answer, and the file name would show over the lock screen: it is discarded.
+    const answer = runtime.locked
+      ? { button: 0, checked: false, value: "" }
+      : await this.ctx.dialogs.ask(
+          {
+            tone: "question",
+            title: tr("Save the file"),
+            message: filename,
+            ...(site ? { detail: tr("From {site}", { site }) } : {}),
+            buttons: [tr("Cancel"), tr("Choose where…"), tr("Downloads")],
+            defaultId: 2,
+            cancelId: 0,
+            checkbox: { label: tr("Don't ask again"), checked: false },
+            settingsHint: { text: tr("You can change this in Settings, Downloads."), section: "downloads" },
+          },
+          window,
+          held.destination?.abort.signal,
+        );
     // Cancelled from the downloads list, failed or discarded meanwhile.
     if (this.held.get(id) !== held) return;
     const choose = held.settled ?? (answer.button === 1 ? true : answer.button === 2 ? false : undefined);

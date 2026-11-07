@@ -38,6 +38,7 @@ import type { SecretKey, SettingsPatch, SettingsView, TabLayout, UpdateChannel }
 import type { SplitState } from "./split";
 import type { GroupPatch } from "./tab-strip";
 import type { WatchBarState, WatchChromeRpc, WatchInternalEvent, WatchInternalRpc } from "./watch-ipc";
+import type { LockScreenView, NewProfileLock, ProfileLockChromeRpc, ProfileLockInternalRpc } from "./profile-lock";
 import type { WorkspaceChromeRpc } from "./workspace-ipc";
 import type { WebScopeInternalEvent, WebScopeRpc } from "./webscope-ipc";
 import type { UserNote } from "./user-memory";
@@ -109,6 +110,8 @@ export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, Co
   autofill: AutofillBarState;
   /** Two tabs tiled side by side, or null when the window shows a single tab. */
   split: SplitState | null;
+  /** The profile is locked: the window shows only this form (and the state carries nothing of its pages). */
+  lock?: LockScreenView;
 }
 
 export type ChromeCommand =
@@ -124,7 +127,7 @@ export type ChromeCommand =
   /** An extension's _execute_action shortcut: open its toolbar button (popup or onClicked). */
   | { type: "activate-extension"; extensionId: string };
 
-export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceChromeRpc, WatchChromeRpc, ReaderChromeRpc, CommandBarChromeRpc, AutofillChromeRpc, SemanticSearchChromeRpc, FlowChromeRpc {
+export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceChromeRpc, WatchChromeRpc, ReaderChromeRpc, CommandBarChromeRpc, AutofillChromeRpc, SemanticSearchChromeRpc, FlowChromeRpc, ProfileLockChromeRpc {
   "ui.setTabLayout"(layout: TabLayout): void;
   "ui.setSidebarWidth"(width: number): void;
   "ui.setSidebarCollapsed"(collapsed: boolean): void;
@@ -491,7 +494,7 @@ export interface LocalServerInfo {
 /** A streamed search event, or the end-of-stream marker sent once the engine is done. */
 export type SearchEventMessage = { searchId: string; event: SearchEvent } | { searchId: string; done: true };
 
-export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, KeePassRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc, NewTabRpc {
+export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInternalRpc, ScheduleInternalRpc, SiteProfileInternalRpc, AgentRunsInternalRpc, ReadingLibraryRpc, CredentialsRpc, KeePassRpc, PdfRpc, SemanticSearchInternalRpc, FlowInternalRpc, AnnotationLibraryRpc, NewTabRpc, ProfileLockInternalRpc {
   /** `context`: the earlier turns when the query follows up on them (the search is answered in their context). */
   "search.start"(query: string, opts: { depth?: "quick" | "deep"; category?: SearchCategory; context?: SearchTurn[] }): string;
   /** data: URLs of result-site favicons (null when unavailable), fetched cookie-less by the main process. */
@@ -530,8 +533,9 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "update.check"(): UpdateStatus;
   "update.download"(): UpdateStatus;
   "update.install"(): void;
-  "profiles.list"(): { profiles: Profile[]; current: string };
-  "profiles.create"(name: string): Profile;
+  /** `locked`: the profiles that are locked now. */
+  "profiles.list"(): { profiles: Profile[]; current: string; locked: string[] };
+  "profiles.create"(name: string, lock?: NewProfileLock | null): Profile;
   "profiles.rename"(id: string, name: string): void;
   "profiles.remove"(id: string): void;
   /** Saves a profile as one password-protected file (asks where); false when cancelled. */
@@ -706,6 +710,8 @@ export type InternalEvent =
   | { type: "annotations-changed" }
   /** What a profile reads live from the other browsers changed (Settings shows it again). */
   | { type: "live-history-changed" }
+  /** A profile was locked or unlocked, or its lock changed (Settings shows it again). */
+  | { type: "profile-lock-changed" }
   | BrowserInternalEvent
   | WatchInternalEvent
   | ScheduleInternalEvent

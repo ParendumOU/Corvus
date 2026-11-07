@@ -1,0 +1,290 @@
+/* The lock screen of a locked profile's window (LockScreen.tsx): it covers the whole window. */
+
+.lock-screen {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg-2);
+  user-select: none;
+  --lock-card: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+/* ------------------------------------------------ placeholder: nothing real, only shapes */
+
+.lock-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.lock-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  filter: blur(18px);
+  opacity: 0.9;
+}
+
+.ghost-bar {
+  height: 84px;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ghost-page {
+  flex: 1;
+  margin: 28px 9%;
+  padding: 36px 6%;
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ghost-line {
+  height: 18px;
+  border-radius: 9px;
+  background: var(--field-hover);
+}
+.ghost-line.w50 {
+  width: 50%;
+}
+.ghost-line.w60 {
+  width: 60%;
+  height: 30px;
+}
+.ghost-line.w75 {
+  width: 75%;
+}
+.ghost-line.w85 {
+  width: 85%;
+}
+.ghost-line.w90 {
+  width: 90%;
+}
+
+.ghost-cards {
+  display: flex;
+  gap: 18px;
+  margin: 10px 0;
+}
+.ghost-card {
+  flex: 1;
+  height: 150px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.lock-blob {
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.28;
+}
+.lock-blob.a {
+  left: -8vw;
+  top: -12vw;
+  background: var(--accent);
+}
+.lock-blob.b {
+  right: -10vw;
+  top: 18vh;
+  background: #3fb7a5;
+}
+.lock-blob.c {
+  left: 30vw;
+  bottom: -26vw;
+  background: #e8a24a;
+}
+
+/* ------------------------------------------------ the title bar stays draggable */
+
+.lock-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  -webkit-app-region: drag;
+}
+.lock-screen.wco .lock-drag {
+  right: 146px;
+}
+.lock-screen.mac .lock-drag {
+  left: 80px;
+}
+
+/* ------------------------------------------------ the form */
+
+.lock-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px 16px;
+  backdrop-filter: blur(6px);
+}
+
+.lock-card {
+  width: min(380px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 26px 26px 18px;
+  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  background: var(--lock-card);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: lock-rise 0.18s ease-out;
+}
+
+@keyframes lock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}
+
+.lock-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.lock-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 50%;
+  color: #1f2023;
+  font-weight: 600;
+}
+
+.lock-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.lock-name {
+  font-size: 18px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lock-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+}
+
+.lock-form,
+.lock-new,
+.lock-profiles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lock-field {
+  height: 40px;
+  font-size: 15px;
+  user-select: text;
+}
+
+.lock-go {
+  height: 38px;
+  justify-content: center;
+}
+
+.lock-error {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+.lock-wait {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.lock-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+.lock-methods .btn {
+  color: var(--accent);
+}
+
+.lock-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lock-foot .btn {
+  color: var(--text-2);
+}
+
+.lock-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.lock-kinds {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--field);
+}
+.lock-kind {
+  flex: 1;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.lock-kind.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.lock-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.lock-profile:hover {
+  background: var(--hover);
+}
+.lock-profile-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lock-profile svg {
+  color: var(--text-3);
+}

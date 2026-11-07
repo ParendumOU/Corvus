@@ -47,8 +47,9 @@ import { PageMonitor } from "./page-monitor";
 import { ProfileManager } from "./profile-manager";
 import { installConnectionHooks } from "./connection-hooks";
 import { ProfileRegistry, installUserAgents } from "./profiles";
+import { ProfileLockService } from "./profile-lock-service";
 import { ReaderService } from "./reader-service";
-import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setFaviconSource, setNewTabRoutes } from "./protocol";
+import { handleInternalProtocol, registerInternalScheme, setInternalPageLanguage, setFaviconSource, setLockGate, setNewTabRoutes } from "./protocol";
 import { NewTabService } from "./newtab-service";
 import { ScheduledAgentRunner } from "./scheduled-agent-runner";
 import { FlowService } from "./flow-service";
@@ -222,6 +223,7 @@ async function main(): Promise<void> {
   ctx.dialogs = new DialogService(ctx);
   ctx.pageDialogs = new PageDialogs(pageDialogPresenter(ctx));
   setExtensionMessageBox((options, window) => ctx.dialogs.messageBox(options, ctx.windows.all().find((w) => w.win === window)));
+  ctx.profileLocks = new ProfileLockService(ctx);
   ctx.windows = new WindowManager(ctx);
   ctx.search = new SearchService(settings);
   ctx.semanticSearch = new SemanticSearchService(ctx);
@@ -245,21 +247,23 @@ async function main(): Promise<void> {
   ctx.webscope = new WebScopeService(ctx);
   ctx.monitor = new PageMonitor(ctx);
   ctx.newtab = new NewTabService(ctx);
+  // A locked profile's pages, icons and pictures are not served (its windows show the lock screen).
+  setLockGate((s) => profiles.bySession(s)?.locked === true);
   setFaviconSource({
     forSession: (s) => {
       const runtime = profiles.bySession(s);
-      return runtime ? (url) => runtime.favicons.icon(url) : null;
+      return runtime && !runtime.locked ? (url) => runtime.favicons.icon(url) : null;
     },
-    forProfile: (id) => (profiles.list().some((p) => p.id === id) ? (url) => profiles.get(id).favicons.icon(url) : null),
+    forProfile: (id) => (profiles.list().some((p) => p.id === id) && !ctx.profileLocks.isLocked(id) ? (url) => profiles.get(id).favicons.icon(url) : null),
   });
   setNewTabRoutes({
     widget: (s, id, tone) => {
       const runtime = profiles.bySession(s);
-      return runtime ? ctx.newtab.widgetDoc(runtime, id, uiLanguage(), tone) : null;
+      return runtime && !runtime.locked ? ctx.newtab.widgetDoc(runtime, id, uiLanguage(), tone) : null;
     },
     media: (s, file) => {
       const runtime = profiles.bySession(s);
-      return runtime ? ctx.newtab.media(runtime, file) : null;
+      return runtime && !runtime.locked ? ctx.newtab.media(runtime, file) : null;
     },
   });
   ctx.scheduledAgents = new ScheduledAgentRunner(ctx);
@@ -272,7 +276,7 @@ async function main(): Promise<void> {
   ctx.annotations = new AnnotationService(ctx);
   ctx.mcp = new McpService(ctx);
   ctx.updater = new UpdateService(ctx);
-  ctx.sync = new SyncService(ctx, safeStorage, process.env.CORVUS_SYNC_URL || "http://localhost:8797");
+  ctx.sync = new SyncService(ctx, process.env.CORVUS_SYNC_URL || "http://localhost:8797");
   ctx.downloads = new DownloadManager(ctx);
   ctx.pdfCaptures = new PdfCaptures(app.getPath("temp"));
   ctx.grabber = new LinkGrabber(ctx);
@@ -308,6 +312,7 @@ async function main(): Promise<void> {
   });
   profiles.setDelegate(new ExtensionWindowBridge(ctx));
   installConnectionHooks(profiles);
+  profiles.onCreated((runtime) => ctx.profileLocks.attach(runtime));
   profiles.onCreated((runtime) => ctx.downloads.attach(runtime));
   profiles.onCreated((runtime) =>
     runtime.connections.onChange(() => {

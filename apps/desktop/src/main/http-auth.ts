@@ -46,6 +46,12 @@ export class HttpAuthService {
     app.on("login", (event, wc, details, authInfo, callback) => {
       if (authInfo.isProxy || !wc) return;
       const found = this.ctx.windows.byTabWebContents(wc);
+      // A locked profile's hidden pages sign in nowhere: the request is cancelled, no dialog shows.
+      if (found?.window.profile.locked) {
+        event.preventDefault();
+        callback();
+        return;
+      }
       if (!found || found.window.win.isDestroyed()) return;
       event.preventDefault();
       void this.challenge(found.window, found.tab, wc, details, authInfo, callback).catch(() => callback());

@@ -28,7 +28,8 @@ export type BrowserCommand =
   | { type: "command-palette" }
   | { type: "voice-command" }
   | { type: "organize-tabs" }
-  | { type: "view-source" };
+  | { type: "view-source" }
+  | { type: "lock-profile" };
 
 export interface KeyInput {
   type: string;
@@ -80,6 +81,8 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
   if (key === "BrowserForward") return { type: "forward" };
 
   if (input.alt && !mod && !input.shift && key === "Home") return { type: "home" };
+  // Alt+H locks the profile; Option+H types a symbol on macOS, so its physical key says it.
+  if (input.alt && !input.control && !input.meta && !input.shift && (key === "h" || input.code === "KeyH")) return { type: "lock-profile" };
   if (input.alt && !mod && !mac) {
     if (key === "ArrowLeft") return { type: "back" };
     if (key === "ArrowRight") return { type: "forward" };

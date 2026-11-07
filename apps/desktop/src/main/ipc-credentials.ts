@@ -334,19 +334,19 @@ function parseCapture(raw: unknown): CapturedSubmit | null {
 /** Receives submitted-login captures from tab preloads (one-way; sender is re-validated as a tab). */
 export function registerAutofillCapture(ctx: AppContext): void {
   ipcMain.on(AUTOFILL_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
     const data = parseCapture(raw);
     if (data) ctx.autofill.onSubmitCaptured(found.window, found.tab, data);
   });
   ipcMain.on(AUTOFILL_ADDRESS_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
     const data = parseAddressCapture(raw);
     if (data) ctx.autofill.onAddressCaptured(found.window, found.tab, data);
   });
   ipcMain.on(AUTOFILL_IDENTIFIER_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     const v = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
     if (!found || event.senderFrame !== event.sender.mainFrame || typeof v.origin !== "string" || typeof v.username !== "string") return;
     if (v.origin.length <= MAX_FIELD && v.username.trim() && v.username.length <= MAX_FIELD) ctx.autofill.onIdentifierSent(found.window, found.tab, { origin: v.origin, username: v.username.trim() });
@@ -354,7 +354,7 @@ export function registerAutofillCapture(ctx: AppContext): void {
   // Field clicks come from the top frame, and card and address field clicks also from its subframes (a
   // payment provider's iframe): the frame is remembered and only it is filled (see shared/frame-fill.ts).
   ipcMain.on(AUTOFILL_FIELD_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     const frame = event.senderFrame;
     if (!found || !frame) return;
     const click = parseFieldClick(raw);
@@ -365,17 +365,17 @@ export function registerAutofillCapture(ctx: AppContext): void {
   });
   // Closing the dropdown is harmless, so any frame of the tab may ask (a subframe whose field was clicked).
   ipcMain.on(AUTOFILL_DROPDOWN_DONE_CHANNEL, (event: IpcMainEvent) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (found && event.senderFrame) ctx.autofill.onDropdownDone(found.window, found.tab);
   });
   // A frame answers how many fields the card or address fill sent to it wrote.
   ipcMain.on(AUTOFILL_FRAME_FILLED_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const frame = event.senderFrame;
     const data = parseFrameFilled(raw);
-    if (frame && data && ctx.windows.byTabWebContents(event.sender)) ctx.autofill.onFrameFilled(frame.processId, frame.routingId, data);
+    if (frame && data && ctx.windows.byUnlockedTab(event.sender)) ctx.autofill.onFrameFilled(frame.processId, frame.routingId, data);
   });
   ipcMain.on(AUTOFILL_CARD_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (!found || event.senderFrame !== event.sender.mainFrame) return;
     const data = parseCardCapture(raw);
     if (data) ctx.autofill.onCardCaptured(found.window, found.tab, data);

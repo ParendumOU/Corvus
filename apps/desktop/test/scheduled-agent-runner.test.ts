@@ -128,6 +128,7 @@ function fakeContext(controller: ReturnType<typeof mockController>, maxSteps = 1
   const win = fakeWindow();
   const ctx = {
     controller,
+    profiles: { loaded: () => [] },
     agents: { clientConnected: vi.fn(), toolCall: vi.fn(), toolResult: vi.fn() },
     settings: {
       get: () => ({ scheduledAgents: { enabled: true, maxSteps, maxTokens: 60000 }, ai: { provider: "anthropic-api", model: "fake" } }),

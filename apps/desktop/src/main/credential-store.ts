@@ -25,6 +25,7 @@ import {
 import { historyMatches, mergeHistory, retire } from "./password-history";
 import { isValidTotpConfig, type TotpConfig } from "../shared/totp";
 import { JsonFile } from "./json-file";
+import { isProfileLocked, verifyWrappedFile } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 
 type Listener = () => void;
@@ -138,12 +139,19 @@ function reviveFile(raw: unknown): VaultFile {
  * never touches disk — matching how SettingsStore handles API keys. Cross-device sync is independent:
  * the sync engine re-encrypts each login with the phrase-derived key (see sync-adapters.ts).
  */
-export class CredentialVault {
-  private readonly file: JsonFile<VaultFile>;
-  private readonly cache = new Map<string, Credential>();
+/** What the vault holds once its key is unwrapped. */
+interface Opened {
+  file: JsonFile<VaultFile>;
+  key: Uint8Array;
+  cache: Map<string, Credential>;
   /** Deleted-login memory, keyed by `${origin}\n${username}`. */
-  private readonly deletions = new Map<string, DeletedLoginMemory>();
-  private key: Uint8Array;
+  deletions: Map<string, DeletedLoginMemory>;
+}
+
+export class CredentialVault {
+  private readonly filePath: string;
+  /** Null until first used, and again once the profile locks (see unload). */
+  private opened: Opened | null = null;
   private readonly persisted: boolean;
   /** Fires on any local or remote change (drives the sync scheduler and page refreshes). */
   readonly changes = new Emitter();
@@ -151,26 +159,59 @@ export class CredentialVault {
   private batchDirty = false;
 
   constructor(dir: string, private readonly cipher: SecretCipher) {
-    this.file = JsonFile.load(path.join(dir, "credentials.json"), emptyFile, reviveFile, 0);
-    const current = this.file.get();
+    this.filePath = path.join(dir, "credentials.json");
     this.persisted = cipher.isEncryptionAvailable();
+    try {
+      this.open();
+    } catch (err) {
+      // A locked profile's vault opens on first use after unlocking.
+      if (!isProfileLocked(err)) throw err;
+    }
+  }
 
+  private get file(): JsonFile<VaultFile> {
+    return this.open().file;
+  }
+
+  private get cache(): Map<string, Credential> {
+    return this.open().cache;
+  }
+
+  private get deletions(): Map<string, DeletedLoginMemory> {
+    return this.open().deletions;
+  }
+
+  private get key(): Uint8Array {
+    return this.open().key;
+  }
+
+  /**
+   * Reads and decrypts the vault (once). Throws ProfileLockedError while the profile is locked: the
+   * vault then never reads as empty, and nothing writes over it.
+   */
+  private open(): Opened {
+    if (this.opened) return this.opened;
+    const file = JsonFile.load(this.filePath, emptyFile, reviveFile, 0);
+    const current = file.get();
+    const cache = new Map<string, Credential>();
+    const deletions = new Map<string, DeletedLoginMemory>();
     let key: Uint8Array | null = null;
     if (this.persisted && current.key) {
       try {
-        key = Buffer.from(cipher.decryptString(Buffer.from(current.key.data, "base64")), "base64");
+        key = Buffer.from(this.cipher.decryptString(Buffer.from(current.key.data, "base64")), "base64");
         if (key.length !== 32) key = null;
       } catch (err) {
+        if (isProfileLocked(err)) throw err;
         console.warn("[corvus] could not unwrap the credential vault key; starting an empty vault:", (err as Error).message);
         key = null;
       }
     }
     if (key) {
-      this.key = key;
+      this.opened = { file, key, cache, deletions };
       for (const entry of current.entries) {
         try {
           const secret = JSON.parse(openSecret(key, entry.sealed, entry.id)) as Secret;
-          this.cache.set(entry.id, {
+          cache.set(entry.id, {
             id: entry.id,
             origin: entry.origin,
             username: secret.username,
@@ -189,18 +230,41 @@ export class CredentialVault {
       for (const stored of current.deletions ?? []) {
         try {
           const body = JSON.parse(openSecret(key, stored.sealed, stored.key)) as { username: string; hashes: PasswordHistoryEntry[] };
-          this.deletions.set(stored.key, { origin: stored.origin, username: body.username, hashes: body.hashes ?? [], at: stored.at });
+          deletions.set(stored.key, { origin: stored.origin, username: body.username, hashes: body.hashes ?? [], at: stored.at });
         } catch {
           // A deletion memory we cannot read is dropped; it only ever blocks a re-import.
         }
       }
-      if (this.cache.size !== current.entries.length) this.write();
+      if (cache.size !== current.entries.length) this.write();
     } else {
-      this.key = generateVaultKey();
+      this.opened = { file, key: generateVaultKey(), cache, deletions };
       // No key on disk (fresh vault, or keychain just became available): persist the wrapped key.
       if (this.persisted) this.write();
-      else if (current.entries.length > 0) this.file.set(emptyFile()); // can't read old entries without a key
+      else if (current.entries.length > 0) file.set(emptyFile()); // can't read old entries without a key
     }
+    return this.opened;
+  }
+
+  /** The profile locked: the decrypted logins and the vault key leave memory until it is opened again. */
+  unload(): void {
+    const opened = this.opened;
+    if (!opened) return;
+    this.opened = null;
+    opened.file.flush();
+    opened.key.fill(0);
+    opened.cache.clear();
+    opened.deletions.clear();
+  }
+
+  /** Writes the wrapped key again with the cipher as it is now (a lock added or removed). */
+  rewrap(): void {
+    this.write();
+    this.file.flush();
+  }
+
+  /** Whether the file on disk opens with the cipher as it is now, to the key and logins in memory. */
+  verify(): boolean {
+    return verifyWrappedFile(this.filePath, this.cipher, this.key, this.cache.size);
   }
 
   /** Whether secrets are written to disk (true when the OS keychain is available). */
@@ -504,6 +568,6 @@ export class CredentialVault {
   }
 
   flush(): void {
-    this.file.flush();
+    this.opened?.file.flush();
   }
 }

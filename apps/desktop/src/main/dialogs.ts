@@ -189,6 +189,8 @@ export function pageDialogPresenter(ctx: AppContext): PageDialogPresenter {
   return (wc: WebContents, page: DialogInfo, signal: AbortSignal): Promise<PageDialogAnswer> | null => {
     const found = ctx.windows.byTabWebContents(wc);
     if (!found || found.window.win.isDestroyed()) return null;
+    // A locked profile's hidden pages say nothing over its lock screen: their dialogs are cancelled.
+    if (found.window.profile.locked) return Promise.resolve({ accept: false, text: "", suppress: false });
     if (found.window.activeTab()?.id !== found.tab.id) found.window.activate(found.tab.id);
     const internal = page.url.startsWith("corvus:");
     const host = pageHost(page.url);

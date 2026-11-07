@@ -23,6 +23,7 @@ import { JsonFile } from "./json-file";
 import { entryFit, entryMatchScore, entrySimilar, entrySite, type KeePassEntry } from "./keepass-entries";
 import { deleteKdbxEntry, openKdbx, saveKdbxEntry, setKdbxTotps, type EntryInput, type EntryTotp } from "./keepass-format";
 import type { LoginCandidate, LoginProvider, LoginRecord } from "./login-sources";
+import { blobsReadBack, isProfileLocked, rewrapBlobs } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 import type { TotpConfig } from "../shared/totp";
 
@@ -127,7 +128,7 @@ export interface KeePassStoreOptions {
 }
 
 export class KeePassStore {
-  private readonly file: JsonFile<ConfigFile>;
+  private file: JsonFile<ConfigFile>;
   private readonly dbs = new Map<string, Db>();
   private readonly watchers = new Map<string, fs.FSWatcher>();
   private readonly listeners = new Set<Listener>();
@@ -426,6 +427,37 @@ export class KeePassStore {
     return locked;
   }
 
+  /**
+   * The profile locked: every database closes (its decrypted entries and keys gone), kept master
+   * passwords stay kept, wrapped under the profile's lock, and open the databases again on unlock.
+   */
+  suspend(): void {
+    for (const db of this.dbs.values()) {
+      if (db.status !== "unlocked" && db.status !== "unlocking") continue;
+      this.wipe(db);
+      db.status = "locked";
+    }
+    this.emit();
+  }
+
+  /** Writes the kept master passwords again with the cipher as it is now (a profile lock added or removed). */
+  rewrap(): void {
+    const config = this.file.get();
+    const blobs = rewrapBlobs(Object.fromEntries(Object.entries(config.remembered).map(([id, b]) => [id, b.data])), this.cipher);
+    this.file.set({ ...config, remembered: Object.fromEntries(Object.entries(blobs).map(([id, data]) => [id, { data }])) });
+    this.file.flush();
+  }
+
+  verify(): boolean {
+    const blobsOf = (raw: unknown): string[] => Object.values(reviveConfig(raw).remembered).map((b) => b.data);
+    return blobsReadBack(this.file.filePath, this.cipher, blobsOf, Object.keys(this.file.get().remembered).length);
+  }
+
+  /** Reads keepass.json again (put back after a profile lock change failed). */
+  reread(): void {
+    this.file = JsonFile.load(this.file.filePath, emptyConfig, reviveConfig, 0);
+  }
+
   /** Unlocks the databases whose master password was kept. Failures are shown per database. */
   async restoreRemembered(): Promise<void> {
     const remembered = this.file.get().remembered;
@@ -435,7 +467,9 @@ export class KeePassStore {
       let saved: { password: string; keyFile: string | null };
       try {
         saved = JSON.parse(this.cipher.decryptString(Buffer.from(blob.data, "base64"))) as { password: string; keyFile: string | null };
-      } catch {
+      } catch (err) {
+        // Locked, the profile keeps them for when it opens again.
+        if (isProfileLocked(err)) return;
         db.error = "The kept master password could not be read. Unlock the database again.";
         this.forget(id);
         continue;

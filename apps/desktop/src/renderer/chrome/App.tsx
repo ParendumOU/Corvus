@@ -25,6 +25,7 @@ import { Favicon, setFaviconProfile } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
 import { FindBar } from "./FindBar";
+import { LockScreen } from "./LockScreen";
 import { barMenuIcons } from "./menu-icons";
 import { Omnibox, PAGE_DRAG_MIME, type OmniboxHandle } from "./Omnibox";
 import { Organizer } from "./Organizer";
@@ -125,8 +126,8 @@ export function App() {
     };
   }, [api]);
 
-  // First render of a window: a new tab page starts with the caret in the omnibox.
-  const ready = state !== null;
+  // First render of a window (or of one unlocked): a new tab page starts with the caret in the omnibox.
+  const ready = state !== null && !state.lock;
   useEffect(() => {
     if (!state) return;
     const active = state.tabs.find((t) => t.id === state.activeTabId);
@@ -142,7 +143,7 @@ export function App() {
     const observer = new ResizeObserver(() => void api.call("ui.setChromeHeight", Math.ceil(bar.getBoundingClientRect().height)));
     observer.observe(bar);
     return () => observer.disconnect();
-  }, [api, state !== null]);
+  }, [api, state !== null && !state.lock]);
 
   const prompt = state?.permissionPrompt ?? null;
   const [extMenuOpen, setExtMenuOpen] = useState(false);
@@ -187,6 +188,14 @@ export function App() {
   }, []);
 
   if (!state) return null;
+  if (state.lock) {
+    return (
+      <>
+        <LockScreen key={state.lock.profileId} lock={state.lock} platform={state.platform} />
+        {state.dialog && <DialogModal key={state.dialog.id} view={state.dialog} />}
+      </>
+    );
+  }
   setFaviconProfile(state.profile.id, state.faviconRevision);
   const active = state.tabs.find((t) => t.id === state.activeTabId);
   const mac = state.platform === "darwin";

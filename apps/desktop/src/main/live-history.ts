@@ -168,6 +168,8 @@ export class LiveHistoryService {
 
   /** Reads every followed browser profile of `runtime` whose files changed. */
   async check(runtime: ProfileRuntime): Promise<void> {
+    // A locked profile reads nothing of the other browsers until it is unlocked.
+    if (runtime.locked) return;
     // A profile that was removed stops following anything.
     if (!this.ctx.profiles.loaded().includes(runtime)) {
       this.unfollow(runtime);

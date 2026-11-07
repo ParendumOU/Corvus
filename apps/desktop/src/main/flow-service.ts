@@ -53,6 +53,7 @@ import type { AppContext } from "./context";
 import { FlowStore } from "./flow-store";
 import { SiteMemoryService } from "./site-memory-service";
 import type { ProfileRuntime } from "./profiles";
+import { ProfileLockedError } from "./profile-lock";
 import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
@@ -453,6 +454,7 @@ export class FlowService {
   // ------------------------------------------------------------------ replay
 
   replay(runtime: ProfileRuntime, id: string, params?: Record<string, string>, by: "user" | "agent" = "user"): FlowView[] {
+    if (runtime.locked) throw new ProfileLockedError();
     const profileId = runtime.profile.id;
     if (this.replays.has(profileId)) return this.list(runtime);
     const saved = this.storeFor(runtime).get(id);
@@ -512,6 +514,19 @@ export class FlowService {
   private replayFor(profileId: string, id: string): Replay | undefined {
     const r = this.replays.get(profileId);
     return r && r.flowId === id ? r : undefined;
+  }
+
+  /** The profile locked: a recording goes to review and a replay stops (both act in its pages). */
+  pauseProfile(runtime: ProfileRuntime): void {
+    const profileId = runtime.profile.id;
+    const rec = this.recordings.get(profileId);
+    if (rec?.phase === "recording") {
+      rec.cleanup();
+      rec.phase = "review";
+      this.pushTo(profileId);
+    }
+    const replay = this.replays.get(profileId);
+    if (replay) this.stopReplayById(replay.flowId);
   }
 
   private stopReplayById(id: string): void {

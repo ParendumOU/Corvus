@@ -28,6 +28,7 @@ import { runTraySmoke } from "./smoke-tray";
 import { runUserActionSmoke } from "./smoke-user-action";
 import { runUxSmoke, serveUxSmokeRoute } from "./smoke-ux";
 import { runViewSourceSmoke } from "./smoke-view-source";
+import { runProfileLockSmoke } from "./smoke-profile-lock";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
 import { runChromeUiSmoke } from "./smoke-chrome-ui";
@@ -353,6 +354,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runWebscopeSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=profilelock: only the profile lock checks (Alt+H, the lock screen, what a locked profile refuses), with screenshots.
+    if (process.env.CORVUS_SMOKE_ONLY === "profilelock") {
+      await runProfileLockSmoke(ctx, { win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=search: only the corvus://search checks (tabs, themes, layout kept while the AI works).
     if (process.env.CORVUS_SMOKE_ONLY === "search") {
       await runSearchSmoke(ctx, { win, check, capture });
@@ -469,6 +475,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAssistAgentSmoke(ctx, { win, check, capture });
     if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentIsolationSmoke(ctx, { win, check, capture });
     await runWebscopeSmoke(ctx, { url, win, check, capture });
+    // Its keychain stand-in (Docker has none) stays on for the rest of the run: after the secret stores' checks.
+    await runProfileLockSmoke(ctx, { win, check, capture });
     // Closes every window but `win` (which it hides and brings back).
     await runTraySmoke(ctx, { url, win, check });
 

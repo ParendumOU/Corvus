@@ -38,6 +38,7 @@ import { BROWSER_INTERNAL_PERMISSIONS, browserChromeHandlers, browserInternalHan
 import { CREDENTIALS_INTERNAL_PERMISSIONS, KEEPASS_INTERNAL_PERMISSIONS, autofillChromeHandlers, credentialsInternalHandlers, keepassInternalHandlers, registerAutofillCapture } from "./ipc-credentials";
 import { FLOW_INTERNAL_PERMISSIONS, flowChromeHandlers, flowInternalHandlers, registerFlowCapture } from "./ipc-flow";
 import { NEWTAB_INTERNAL_PERMISSIONS, newtabInternalHandlers } from "./ipc-newtab";
+import { PROFILE_LOCK_INTERNAL_PERMISSIONS, newProfileLock, profileLockChromeHandlers, profileLockInternalHandlers } from "./ipc-profile-lock";
 import { READING_INTERNAL_PERMISSIONS, readerChromeHandlers, readingInternalHandlers, registerReaderIpc } from "./ipc-reader";
 import { PDF_INTERNAL_PERMISSIONS, pdfInternalHandlers } from "./ipc-pdf";
 import { SEMANTIC_INTERNAL_PERMISSIONS, semanticChromeHandlers, semanticInternalHandlers } from "./ipc-semantic";
@@ -108,6 +109,12 @@ type Handlers<T, C> = {
 
 // ------------------------------------------------------------------------- chrome UI
 
+/**
+ * What the chrome UI of a locked window may call: its state, its size and overlay, Corvus's own
+ * questions, and the lock screen's form. Everything else is refused until the profile is unlocked.
+ */
+const LOCKED_CHROME_METHODS: ReadonlySet<string> = new Set(["state.get", "ui.setChromeHeight", "ui.setOverlay", "ui.keyboardElsewhere", "dialog.answer", "lock.unlock", "lock.switchProfile", "lock.newProfile"]);
+
 function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> {
   return {
     ...browserChromeHandlers(ctx),
@@ -116,6 +123,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     ...autofillChromeHandlers(ctx),
     ...semanticChromeHandlers(ctx),
     ...flowChromeHandlers(ctx),
+    ...profileLockChromeHandlers(ctx),
     "state.get": (w) => w.state(),
     "dictation.transcribe": (_w, audio, mimeType) => ctx.dictation.transcribe(recordingBytes(audio), str(mimeType, "type", 200)),
     "ui.setChromeHeight": (w, h) => w.setChromeHeight(num(h, "height")),
@@ -278,6 +286,7 @@ const PERMISSIONS: Record<keyof InternalRpc, readonly InternalPage[]> = {
   ...WEBSCOPE_INTERNAL_PERMISSIONS,
   ...READING_INTERNAL_PERMISSIONS,
   ...NEWTAB_INTERNAL_PERMISSIONS,
+  ...PROFILE_LOCK_INTERNAL_PERMISSIONS,
   ...CREDENTIALS_INTERNAL_PERMISSIONS,
   ...KEEPASS_INTERNAL_PERMISSIONS,
   ...PDF_INTERNAL_PERMISSIONS,
@@ -472,6 +481,7 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
     ...webscopeInternalHandlers(ctx),
     ...readingInternalHandlers(),
     ...newtabInternalHandlers(ctx),
+    ...profileLockInternalHandlers(ctx),
     ...credentialsInternalHandlers(ctx),
     ...keepassInternalHandlers(ctx),
     ...pdfInternalHandlers(ctx),
@@ -572,14 +582,16 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       return ctx.updater.status();
     },
     "update.install": () => ctx.updater.install(),
-    "profiles.list": (c) => ({ profiles: ctx.profiles.list(), current: c.profile.profile.id }),
-    "profiles.create": (_c, name) => {
-      const profile = ctx.profiles.create(str(name, "name", 200));
-      ctx.windows.broadcastState();
-      return profile;
+    "profiles.list": (c) => {
+      const profiles = ctx.profiles.list();
+      return { profiles, current: c.profile.profile.id, locked: profiles.filter((p) => ctx.profileLocks.isLocked(p.id)).map((p) => p.id) };
     },
+    "profiles.create": (_c, name, lock) => ctx.profileLocks.createProfile(str(name, "name", 200), newProfileLock(lock)),
     "profiles.export": async (c, id, password) => {
-      const runtime = ctx.profiles.get(str(id, "id"));
+      const profileId = str(id, "id");
+      // A locked profile's data stays sealed: it is exported from its own window once unlocked.
+      if (ctx.profileLocks.isLocked(profileId)) throw new IpcError(tr("This profile is locked. Unlock it to export it."));
+      const runtime = ctx.profiles.get(profileId);
       const secret = str(password, "password", 1024);
       if (secret.length < MIN_BUNDLE_PASSWORD) throw new IpcError(`Use a password of at least ${MIN_BUNDLE_PASSWORD} characters.`);
       const options: Electron.SaveDialogOptions = {
@@ -609,7 +621,9 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       }
     },
     "profiles.rename": (_c, id, name) => {
-      ctx.profiles.rename(str(id, "id"), str(name, "name", 200));
+      const profileId = str(id, "id");
+      if (ctx.profileLocks.isLocked(profileId)) throw new IpcError(tr("This profile is locked."));
+      ctx.profiles.rename(profileId, str(name, "name", 200));
       ctx.windows.broadcastState();
     },
     "profiles.remove": async (c, id) => {
@@ -617,6 +631,31 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
       const others = ctx.profiles.list().filter((p) => p.id !== profileId);
       const fallback = others[0];
       if (!fallback) throw new IpcError("Cannot delete the only profile");
+      if (ctx.profileLocks.isLocked(profileId)) {
+        // Locked, its owner is not here to say so: deleting takes typing what it means.
+        const phrase = tr("delete everything");
+        const { button, values } = await ctx.dialogs.ask(
+          {
+            tone: "danger",
+            title: tr("Delete a locked profile?"),
+            message: tr("Delete a locked profile?"),
+            detail: tr("Everything in it is deleted from this device: its saved passwords, 2FA codes, cards, bookmarks, history, cookies and extensions. Type \"{phrase}\" to confirm.", { phrase }),
+            fields: [{ label: tr("Confirmation"), value: "", placeholder: phrase, required: tr("Type \"{phrase}\" to confirm.", { phrase }) }],
+            buttons: [tr("Cancel"), tr("Delete everything")],
+            defaultId: 0,
+            cancelId: 0,
+            dangerId: 1,
+          },
+          c.window,
+        );
+        if (button !== 1) return;
+        if ((values?.[0] ?? "").trim().toLowerCase() !== phrase.toLowerCase()) throw new IpcError(tr("Type \"{phrase}\" to confirm.", { phrase }));
+        if (ctx.windows.all().every((w) => w.profile.profile.id === profileId)) ctx.windows.open(fallback.id);
+        ctx.windows.closeProfileWindows(profileId);
+        await ctx.profiles.remove(profileId);
+        ctx.windows.broadcastState();
+        return;
+      }
       const { button } = await ctx.dialogs.ask(
         {
           tone: "danger",
@@ -1047,7 +1086,7 @@ export function registerIpc(ctx: AppContext): void {
 
   // A shortcut a tab's page let through (Ctrl+U), from whichever of its frames had the keyboard.
   ipcMain.on(PAGE_COMMAND_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (found) found.window.runPageCommand(found.tab, raw);
   });
 
@@ -1055,6 +1094,7 @@ export function registerIpc(ctx: AppContext): void {
     const window = ctx.windows.byChromeWebContents(event.sender);
     if (!window) throw new IpcError("Unauthorized sender");
     if (typeof method !== "string" || !Object.hasOwn(chrome, method)) throw new IpcError(`Unknown method ${String(method)}`);
+    if (window.locked && !LOCKED_CHROME_METHODS.has(method)) throw new IpcError("This profile is locked");
     const handler = chrome[method as keyof ChromeRpc] as (w: BrowserWindowCtl, ...a: unknown[]) => unknown;
     return handler(window, ...(Array.isArray(args) ? args : []));
   });
@@ -1069,6 +1109,8 @@ export function registerIpc(ctx: AppContext): void {
     const found = ctx.windows.byTabWebContents(event.sender);
     const profile = ctx.profiles.bySession(event.sender.session);
     if (!profile) throw new IpcError("Unknown profile");
+    // Nothing of a locked profile is read or changed from its pages (its windows show only the lock screen).
+    if (profile.locked) throw new IpcError("This profile is locked");
     const handler = internal[method as keyof InternalRpc] as (c: InternalContext, ...a: unknown[]) => unknown;
     return handler({ sender: event.sender, page, profile, window: found?.window }, ...(Array.isArray(args) ? args : []));
   });

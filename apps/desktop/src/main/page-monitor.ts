@@ -154,7 +154,8 @@ export class PageMonitor {
 
   private async check(profileId: string, watch: Watch): Promise<void> {
     const store = this.stores.get(profileId);
-    if (!store || this.running.has(watch.id)) return;
+    // A locked profile's watches wait: a check would fetch with its cookies and show what changed.
+    if (!store || this.running.has(watch.id) || this.ctx.profiles.loaded().some((r) => r.profile.id === profileId && r.locked)) return;
     this.running.add(watch.id);
     store.setChecking(watch.id, true);
     try {

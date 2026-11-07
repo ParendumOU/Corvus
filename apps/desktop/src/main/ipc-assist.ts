@@ -121,6 +121,7 @@ export function registerAssistIpc(ctx: AppContext): void {
   ipcMain.handle(ASSIST_RPC, (event: IpcMainInvokeEvent, method: unknown, args: unknown) => {
     const window = ctx.assist.windowForPanel(event.sender);
     if (!window || event.senderFrame !== event.sender.mainFrame) throw new IpcError("Unauthorized sender");
+    if (window.locked) throw new IpcError("This profile is locked");
     if (typeof method !== "string" || !Object.hasOwn(handlers, method)) throw new IpcError(`Unknown method ${String(method)}`);
     const handler = handlers[method as keyof AssistRpc] as (w: BrowserWindowCtl, ...a: unknown[]) => unknown;
     return handler(window, ...(Array.isArray(args) ? args : []));

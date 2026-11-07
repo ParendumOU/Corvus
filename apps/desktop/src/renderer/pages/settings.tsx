@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Profile } from "@corvus/shared";
 import type { AdblockView } from "../../shared/adblock";
 import type { UserNote } from "../../shared/user-memory";
+import type { LockKind } from "../../shared/profile-lock";
 import type { ConnectionTestResult, EngineInfo, LocalServerInfo, McpStatus, UpdateStatus } from "../../shared/ipc";
 import type { AccessLevel, ClaudeAccountMode, HomePage, SecretKey, SettingsPatch, SettingsView, TabLayout, ThemeSource, UiLanguageSetting, UpdateChannel } from "../../shared/settings";
 import { resolveMcpAccessLevel, resolveUiLanguage } from "../../shared/settings";
@@ -27,6 +28,7 @@ import {
 } from "./settings-browser";
 import { ConnectionsSection } from "./settings-connections";
 import { LiveHistorySection } from "./settings-live-history";
+import { NewSecretFields, ProfileLockSection } from "./settings-profile-lock";
 import { SettingsSearch } from "./settings-search";
 import { PageShell, Row, Section, mount } from "./shell";
 import "./settings.css";
@@ -1357,13 +1359,25 @@ function ProfileTransferForm({ transfer, onDone, onCancel }: { transfer: Profile
 
 function ProfilesSection() {
   const api = internalApi();
-  const [data, setData] = useState<{ profiles: Profile[]; current: string } | null>(null);
+  const [data, setData] = useState<{ profiles: Profile[]; current: string; locked: string[] } | null>(null);
   const [name, setName] = useState("");
+  const [lockKind, setLockKind] = useState<LockKind | "none">("none");
+  const [lockSecret, setLockSecret] = useState<string | null>(null);
+  const [lockProblem, setLockProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [transfer, setTransfer] = useState<ProfileTransfer | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const reload = useCallback(() => void api.call("profiles.list").then(setData), [api]);
-  useEffect(reload, [reload]);
+  useEffect(() => {
+    reload();
+    return api.onEvent((e) => {
+      if (e.type === "profile-lock-changed") reload();
+    });
+  }, [api, reload]);
+  const onLockSecret = useCallback((secret: string | null, problem: string | null) => {
+    setLockSecret(secret);
+    setLockProblem(problem);
+  }, []);
 
   const run = (p: Promise<unknown>): void => {
     setError(null);
@@ -1372,31 +1386,35 @@ function ProfilesSection() {
 
   return (
     <Section id="profiles" title={t("Profiles")} description={t("Each profile has its own cookies, history, bookmarks, extensions and sync.")}>
-      {data?.profiles.map((p) => (
-        <Row
-          key={p.id}
-          label={
-            <span className="inline">
-              <span className="avatar-dot" style={{ background: p.avatar ?? "var(--accent)" }}>
-                {p.name.charAt(0).toUpperCase()}
+      {data?.profiles.map((p) => {
+        const locked = data.locked.includes(p.id);
+        return (
+          <Row
+            key={p.id}
+            label={
+              <span className="inline">
+                <span className="avatar-dot" style={{ background: p.avatar ?? "var(--accent)" }}>
+                  {p.name.charAt(0).toUpperCase()}
+                </span>
+                {locked ? <span>{p.name}</span> : <LazyInput value={p.name} width={220} onSave={(v) => run(api.call("profiles.rename", p.id, v))} />}
+                {p.id === data.current && <span className="pill">{t("This window")}</span>}
+                {locked && <span className="pill">{t("Locked")}</span>}
+                {p.syncChainId && <span className="pill ok">{t("Synced")}</span>}
               </span>
-              <LazyInput value={p.name} width={220} onSave={(v) => run(api.call("profiles.rename", p.id, v))} />
-              {p.id === data.current && <span className="pill">{t("This window")}</span>}
-              {p.syncChainId && <span className="pill ok">{t("Synced")}</span>}
-            </span>
-          }
-        >
-          <button className="btn small" onClick={() => run(api.call("profiles.openWindow", p.id))}>
-            {t("Open window")}
-          </button>
-          <button className="btn small" onClick={() => setTransfer({ kind: "export", id: p.id, name: p.name })}>
-            {t("Export…")}
-          </button>
-          <button className="btn small ghost danger" disabled={data.profiles.length <= 1} onClick={() => run(api.call("profiles.remove", p.id))}>
-            {t("Delete")}
-          </button>
-        </Row>
-      ))}
+            }
+          >
+            <button className="btn small" onClick={() => run(api.call("profiles.openWindow", p.id))}>
+              {t("Open window")}
+            </button>
+            <button className="btn small" disabled={locked} onClick={() => setTransfer({ kind: "export", id: p.id, name: p.name })}>
+              {t("Export…")}
+            </button>
+            <button className="btn small ghost danger" disabled={data.profiles.length <= 1} onClick={() => run(api.call("profiles.remove", p.id))}>
+              {t("Delete")}
+            </button>
+          </Row>
+        );
+      })}
       <Row
         label={t("Move a profile")}
         hint={t("Export saves a profile as one file protected by a password: bookmarks, history, reading list, annotations, workspaces, site settings, containers, watched pages, workflows and saved logins. Cookies, extensions and KeePass databases stay on this computer.")}
@@ -1417,17 +1435,33 @@ function ProfilesSection() {
         />
       )}
       {notice && <div className="notice">{notice}</div>}
-      <Row label={t("Add profile")}>
-        <input className="input" placeholder={t("Profile name")} value={name} onChange={(e) => setName(e.target.value)} />
-        <button
-          className="btn small primary"
-          disabled={!name.trim()}
-          onClick={() => {
-            run(api.call("profiles.create", name).then(() => setName("")));
-          }}
-        >
-          {t("Create")}
-        </button>
+      <Row label={t("Add profile")} hint={t("A lock (a PIN or a password) keeps its pages and saved passwords from anyone at this computer. You can add or remove it later.")}>
+        <div className="profile-lock-new">
+          <input className="input" placeholder={t("Profile name")} value={name} data-new-profile-name onChange={(e) => setName(e.target.value)} />
+          <select className="input" value={lockKind} aria-label={t("Lock")} data-new-profile-lock onChange={(e) => setLockKind(e.target.value as LockKind | "none")}>
+            <option value="none">{t("No lock")}</option>
+            <option value="pin">{t("PIN")}</option>
+            <option value="password">{t("Password")}</option>
+          </select>
+          {lockKind !== "none" && <NewSecretFields key={lockKind} kind={lockKind} onChange={onLockSecret} />}
+          <button
+            className="btn small primary"
+            disabled={!name.trim() || (lockKind !== "none" && !lockSecret)}
+            data-new-profile-create
+            onClick={() => {
+              const lock = lockKind !== "none" && lockSecret ? { kind: lockKind, secret: lockSecret } : null;
+              run(
+                api.call("profiles.create", name, lock).then(() => {
+                  setName("");
+                  setLockKind("none");
+                }),
+              );
+            }}
+          >
+            {t("Create")}
+          </button>
+        </div>
+        {lockKind !== "none" && lockProblem && <div className="muted small">{lockProblem}</div>}
       </Row>
       <Feedback error={error} />
     </Section>
@@ -1619,6 +1653,7 @@ function SettingsPage() {
       t("System"),
       [
         ["profiles", t("Profiles")],
+        ["profile-lock", t("Lock")],
         ["sync", t("Sync")],
         ["updates", t("Updates")],
         ["crash-logs", t("Crash logs")],
@@ -1673,6 +1708,7 @@ function SettingsPage() {
           <McpRemoteSection view={view} update={update} />
           <WebScopeSection view={view} update={update} />
           <ProfilesSection />
+          <ProfileLockSection />
           <SyncSection />
           <UpdatesSection view={view} update={update} />
           <CrashLogsSection view={view} update={update} />

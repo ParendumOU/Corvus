@@ -1,4 +1,4 @@
-import { BaseWindow, View, WebContentsView, nativeTheme, screen, type Input, type WebContents } from "electron";
+import { BaseWindow, View, WebContentsView, nativeTheme, screen, type BrowserWindow, type Input, type WebContents } from "electron";
 import type { GroupColor, GroupId, Tab, TabGroup, TabId } from "@corvus/shared";
 import { hostFromUrl, isYouTubeHost } from "../shared/adblock";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
@@ -12,7 +12,7 @@ import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
-import { fallbackWindowState } from "../shared/window-state";
+import { fallbackWindowState, lockedWindowState } from "../shared/window-state";
 import { isDefaultZoom, stepZoom, zoomKey, zoomPercent } from "../shared/zoom";
 import { matchesPattern, routeFor } from "../shared/connections";
 import {
@@ -278,6 +278,14 @@ export class BrowserWindowCtl {
   /** Where tab pages go in the window (the last layout): hidden tabs that paint take this size. */
   private content = { x: 0, y: 0, width: 0, height: 0 };
   private paintResizeTimer: NodeJS.Timeout | null = null;
+  /** The profile is locked: the window shows its lock screen over every other view, all hidden. */
+  private lockScreen = false;
+  /** Tabs the lock muted, unmuted again on unlock. */
+  private readonly lockMuted = new Set<TabId>();
+  /** Windows pages opened (sign-in popups): hidden while the profile is locked. */
+  private readonly popups = new Set<BrowserWindow>();
+  /** Views that may show over a locked window (Windows Hello's and security keys' prompt). */
+  private readonly lockExempt = new Set<View>();
 
   /** A private window (see WindowOpenOptions.private). */
   readonly isPrivate: boolean;
@@ -397,6 +405,8 @@ export class BrowserWindowCtl {
     nativeTheme.on("updated", onTheme);
     this.cleanups.push(() => nativeTheme.off("updated", onTheme));
 
+    // A profile that starts locked shows its lock screen; its tabs load once it is unlocked.
+    this.lockScreen = profile.locked;
     initialUrls.forEach((url, i) => this.createTab(url, { activate: i === 0 }));
     this.layout();
   }
@@ -425,6 +435,10 @@ export class BrowserWindowCtl {
     // and the window comes back empty, since restoring it sends no resize. It lays out on restore.
     if (this.disposed || this.win.isMinimized()) return;
     const [width = 0, height = 0] = this.win.getContentSize();
+    if (this.lockScreen) {
+      this.layoutLocked(width, height);
+      return;
+    }
     const fullscreen = this.htmlFullscreen;
     // Vertical tabs: the toolbar keeps the top band across the window and the tabs take a sidebar
     // below it. The chrome UI then covers the whole window but sits under the page and the panels,
@@ -471,6 +485,89 @@ export class BrowserWindowCtl {
 
   relayout(): void {
     this.layout();
+  }
+
+  /**
+   * Locked: the chrome UI (the lock screen) covers the whole window, on top, and every other view
+   * (pages, side panels, Assist, the reader, popups of the UI) is hidden, also any that shows later.
+   */
+  private layoutLocked(width: number, height: number): void {
+    this.chrome.setVisible(true);
+    this.chrome.setBounds({ x: 0, y: 0, width, height });
+    this.stackChrome(true);
+    for (const child of this.win.contentView.children) {
+      if (child === this.chrome || this.lockExempt.has(child) || !child.getVisible()) continue;
+      child.setVisible(false);
+    }
+    // The field dropdown closes: its page is out of sight.
+    this.ctx.autofill.onWindowLayout(this);
+  }
+
+  /** Whether the window shows its lock screen. */
+  get locked(): boolean {
+    return this.lockScreen;
+  }
+
+  /**
+   * The profile locked or unlocked. Locking hides every view but the lock screen, mutes the tabs,
+   * ends picture-in-picture, DevTools and paint holds, hides pages' popups, and lets go of Corvus's
+   * own pages (they show the profile's data and load again when next shown). Unlocking puts the
+   * window back as it was.
+   */
+  applyLock(): void {
+    if (this.disposed) return;
+    if (this.profile.locked) this.enterLock();
+    else this.leaveLock();
+    this.pushState();
+  }
+
+  private enterLock(): void {
+    if (this.lockScreen) return;
+    this.lockScreen = true;
+    this.htmlFullscreen = false;
+    if (this.win.isFullScreen()) this.win.setFullScreen(false);
+    for (const tab of [...this.tabs.values()]) {
+      const wc = pageOf(tab.view);
+      if (!wc) continue;
+      if (wc.isDevToolsOpened()) wc.closeDevTools();
+      if (!wc.isAudioMuted()) {
+        wc.setAudioMuted(true);
+        this.lockMuted.add(tab.id);
+      }
+      void wc.executeJavaScriptInIsolatedWorld(PIP_WORLD_ID, [{ code: PIP_EXIT_SCRIPT }]).catch(() => undefined);
+      tab.autoPip = false;
+      if (this.isPainting(tab)) this.applyPaint(tab, false);
+      delete tab.paintHolds;
+      this.ctx.backgroundRender.forget(tab.id);
+      if (isInternalUrl(tab.url)) this.releasePage(tab);
+    }
+    for (const popup of this.popups) if (!popup.isDestroyed()) popup.hide();
+    // Questions asked in this window (an agent's, a page's) are cancelled: they would show over the lock screen.
+    this.ctx.dialogs.forget(this);
+    this.layout();
+    this.focusWebContents(this.chrome.webContents);
+  }
+
+  private leaveLock(): void {
+    if (!this.lockScreen) return;
+    this.lockScreen = false;
+    for (const id of this.lockMuted) pageOf(this.tabs.get(id)?.view)?.setAudioMuted(false);
+    this.lockMuted.clear();
+    for (const popup of this.popups) if (!popup.isDestroyed()) popup.showInactive();
+    // A Corvus page that loaded while locked got an empty page: it loads again now.
+    for (const tab of this.tabs.values()) if (isInternalUrl(tab.url) && !tab.pendingUrl) pageOf(tab.view)?.reload();
+    // The tabs on screen before come back (and load, when they were let go of or opened meanwhile);
+    // side panels, Assist and the reader show again as the layout puts them.
+    for (const id of this.shownTabIds) this.tabs.get(id)?.view.setVisible(false);
+    this.shownTabIds = [];
+    this.activeShown = null;
+    this.syncActive(this.win.isFocused());
+  }
+
+  /** A view (Windows Hello's prompt) may show over the lock screen while it is open. */
+  setLockExempt(view: View, exempt: boolean): void {
+    if (exempt) this.lockExempt.add(view);
+    else this.lockExempt.delete(view);
   }
 
   /**
@@ -535,6 +632,8 @@ export class BrowserWindowCtl {
   }
 
   private syncActive(focusContent: boolean): void {
+    // Locked, no tab shows; unlocking shows the ones that should be (see leaveLock).
+    if (this.lockScreen) return;
     const activeId = this.strip.activeId;
     // A tab outside the split shows on its own; the split waits until one of its panes is shown again.
     const visible = this.visibleTabIds();
@@ -607,6 +706,7 @@ export class BrowserWindowCtl {
   }
 
   state(): WindowState {
+    if (this.lockScreen) return this.lockedState();
     const active = this.activeTab();
     const page = active ? pageOf(active.view) : null;
     const settings = this.ctx.settings.get();
@@ -652,6 +752,28 @@ export class BrowserWindowCtl {
       ...this.ctx.assist.windowExtras(this),
       ...this.ctx.agentRunner.windowExtras(this),
     };
+  }
+
+  /** A locked window's state: the lock screen, built from nothing of the profile's pages. */
+  private lockedState(): WindowState {
+    const appearance = this.ctx.settings.get().appearance;
+    return lockedWindowState(
+      {
+        windowId: this.id,
+        platform: process.platform,
+        profile: this.profile.profile,
+        profiles: this.ctx.profiles.list(),
+        partition: this.profile.partition,
+        privateWindow: this.isPrivate,
+        maximized: this.win.isMaximized() || this.win.isFullScreen(),
+        dark: nativeTheme.shouldUseDarkColors,
+        tabLayout: appearance.tabLayout,
+        sidebarWidth: appearance.sidebarWidth,
+        sidebarCollapsed: appearance.sidebarCollapsed,
+        dialog: this.ctx.dialogs.current(this),
+      },
+      this.ctx.profileLocks.screen(this.profile),
+    );
   }
 
   setAdblockEnabled(enabled: boolean): void {
@@ -902,7 +1024,7 @@ export class BrowserWindowCtl {
    * belongs. Deferred because a focus change made while one is being dispatched is ignored.
    */
   private onTabFocus(tab: TabRuntime): void {
-    if (!tab.committed || !this.shownTabIds.includes(tab.id)) {
+    if (this.lockScreen || !tab.committed || !this.shownTabIds.includes(tab.id)) {
       if (this.focusRestoreQueued) return;
       this.focusRestoreQueued = true;
       setImmediate(() => {
@@ -917,6 +1039,10 @@ export class BrowserWindowCtl {
   }
 
   private restoreFocus(): void {
+    if (this.lockScreen) {
+      this.focusWebContents(this.chrome.webContents);
+      return;
+    }
     if (this.disposed) return;
     const target = this.lastFocused;
     const shown = target && this.shownTabIds.some((id) => this.tabs.get(id)?.view.webContents === target);
@@ -1022,7 +1148,8 @@ export class BrowserWindowCtl {
     const containerId = !this.isPrivate && opts.containerId && (!isInternalUrl(url) || isNewTabUrl(url)) && this.profile.containers.get(opts.containerId) ? opts.containerId : undefined;
     const view = this.newTabView(url, containerId, opened);
 
-    const lazy = opts.lazy === true && opts.activate === false;
+    // Locked, a new tab waits (unloaded) for the profile to be unlocked.
+    const lazy = (opts.lazy === true && opts.activate === false) || (this.lockScreen && !opened);
     const tab: TabRuntime = {
       ...(containerId ? { containerId } : {}),
       id,
@@ -1309,6 +1436,8 @@ export class BrowserWindowCtl {
       }
     });
     wc.setWindowOpenHandler(({ url, disposition }) => {
+      // A locked profile's hidden pages open nothing.
+      if (this.lockScreen) return { action: "deny" };
       if (isInternalUrl(url) && !isInternalUrl(wc.getURL())) return { action: "deny" };
       // A link to another app (target=_blank, window.open) opens no tab: Corvus asks to open the app.
       const kind = linkKind(url);
@@ -1348,6 +1477,8 @@ export class BrowserWindowCtl {
     // Sign-in popups ("Continue with Google") are windows of their own: same UA rule as tabs. The
     // first load started before this event, so a popup that opens on a sign-in host loads again.
     wc.on("did-create-window", (popup, details) => {
+      this.popups.add(popup);
+      popup.once("closed", () => this.popups.delete(popup));
       const pw = popup.webContents;
       followSignInUserAgent(pw, this.profile.userAgents);
       const ua = userAgentFor(details.url, this.profile.userAgents);
@@ -1608,9 +1739,15 @@ export class BrowserWindowCtl {
   sleepTab(id: TabId): boolean {
     const tab = this.tabs.get(id);
     if (!tab || tab.pendingUrl || this.shownTabIds.includes(id) || !/^https?:/i.test(tab.url)) return false;
+    return this.releasePage(tab);
+  }
+
+  /** Lets go of a tab's page and renderer, keeping its history to restore when it is next shown. */
+  private releasePage(tab: TabRuntime): boolean {
+    const id = tab.id;
     const old = tab.view;
     const wc = pageOf(old);
-    if (!wc) return false;
+    if (!wc || tab.pendingUrl) return false;
     const entries = wc.navigationHistory.getAllEntries();
     const index = wc.navigationHistory.getActiveIndex();
     if (entries.length === 0 || index < 0) return false;
@@ -1679,7 +1816,7 @@ export class BrowserWindowCtl {
    */
   setPaintHold(id: TabId, reason: PaintReason, on: boolean): void {
     const tab = this.tabs.get(id);
-    if (!tab || this.disposed) return;
+    if (!tab || this.disposed || (on && this.lockScreen)) return;
     const before = this.isPainting(tab);
     const holds = (tab.paintHolds ??= {});
     holds[reason] = reason === "capture" ? Math.max(0, (holds[reason] ?? 0) + (on ? 1 : -1)) : on ? 1 : 0;
@@ -1934,6 +2071,13 @@ export class BrowserWindowCtl {
     url = pdfViewerRedirect(this.ctx, tab.agentControlled, url) ?? url;
     delete tab.pendingUrl;
     tab.url = url;
+    // Locked, the page waits for the profile to be unlocked and loads when it is next shown.
+    if (this.lockScreen) {
+      tab.pendingUrl = url;
+      delete tab.asleep;
+      this.pushState();
+      return;
+    }
     const wc = pageOf(tab.view);
     wc?.loadURL(url).catch(() => {
       // Reported via did-fail-load.
@@ -2281,6 +2425,11 @@ export class BrowserWindowCtl {
 
   /** `page`: a key press in a tab's page, which gets page-first shortcuts itself (see runPageCommand). */
   private onInput(event: Electron.Event, input: Input, page = false): void {
+    // Locked, no shortcut of the browser or an extension does anything (the lock form takes the keys).
+    if (this.lockScreen) {
+      if (commandForInput(input, process.platform)) event.preventDefault();
+      return;
+    }
     const command = commandForInput(input, process.platform);
     if (command && page && isPageFirst(command)) return;
     if (command) {
@@ -2417,6 +2566,9 @@ export class BrowserWindowCtl {
       case "organize-tabs":
         this.focusWebContents(this.chrome.webContents);
         this.sendCommand({ type: "open-organizer" });
+        break;
+      case "lock-profile":
+        void this.ctx.profileLocks.lockFrom(this);
         break;
       case "view-source":
         if (active) this.viewSource(active.id);

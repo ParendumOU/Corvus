@@ -225,7 +225,7 @@ describe("SyncService and the built-in server", () => {
   function setup(state?: Partial<ProfileSyncState>) {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-builtin-sync-"));
     if (state) fs.writeFileSync(path.join(dataDir, "sync.json"), JSON.stringify(state));
-    const profile = { profile: { id: PROFILE_ID }, dataDir } as unknown as ProfileRuntime;
+    const profile = { profile: { id: PROFILE_ID }, dataDir, cipher, locked: false } as unknown as ProfileRuntime;
     const ctx = {
       profiles: { list: () => [{ id: PROFILE_ID, syncChainId: null }], loaded: () => [profile] },
       settings: { onChange: () => () => undefined },
@@ -233,7 +233,7 @@ describe("SyncService and the built-in server", () => {
     const procs: FakeProcess[] = [];
     let asked: () => void = () => undefined;
     const startAsked = new Promise<void>((resolve) => (asked = resolve));
-    const sync = new SyncService(ctx, cipher, "http://localhost:8797", () => {
+    const sync = new SyncService(ctx, "http://localhost:8797", () => {
       const proc = new FakeProcess((msg, self) => {
         if (msg.type === "start") asked();
         else self.emit("exit", 0);

@@ -140,9 +140,25 @@ async function faviconRoute(request: Request, url: URL, session: Session): Promi
   });
 }
 
+let sessionLocked: (session: Session) => boolean = () => false;
+
+/** Which sessions belong to a locked profile: their corvus:// pages, icons and pictures are not served. */
+export function setLockGate(locked: (session: Session) => boolean): void {
+  sessionLocked = locked;
+}
+
+/** What a locked profile's tab gets for any Corvus page: an empty page (its window shows the lock screen). */
+const LOCKED_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>Corvus</title></head><body></body></html>';
+
 async function handle(request: Request, session: Session): Promise<Response> {
   const url = new URL(request.url);
   const page = url.hostname;
+  if (sessionLocked(session)) {
+    const document = url.pathname === "/" || url.pathname === "";
+    return document && page !== "favicon"
+      ? new Response(LOCKED_PAGE, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": "default-src 'none'", "Cache-Control": "no-store" } })
+      : new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
   if (page === "favicon") return faviconRoute(request, url, session);
   if (!(INTERNAL_PAGES as readonly string[]).includes(page)) {
     return new Response("Not found", { status: 404 });

@@ -21,3 +21,46 @@
   min-width: 0;
   overflow-wrap: break-word;
 }
+
+/* Settings > Lock (settings-profile-lock.tsx) */
+.lock-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 460px;
+  margin: 4px 20px 14px;
+}
+.lock-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.lock-settings-kinds {
+  display: flex;
+  gap: 16px;
+}
+.lock-settings-form .error-text {
+  color: var(--danger);
+}
+.lock-qr {
+  width: 180px;
+  height: 180px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+}
+.lock-secret {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  user-select: text;
+}
+.profile-lock-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.lock-settings-form .notice {
+  margin: 0;
+}

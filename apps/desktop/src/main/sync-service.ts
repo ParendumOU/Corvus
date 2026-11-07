@@ -35,7 +35,7 @@ import { loadOptionalModule } from "./module-loader";
 import { LocalSyncServer, type ServerProcess } from "./local-sync-server";
 import { phonePairingAddress, probeHealth } from "./pairing-address";
 import type { ProfileRuntime } from "./profiles";
-import type { SecretCipher } from "./settings-store";
+import { blobsReadBack, type LockWrapped } from "./profile-lock";
 import { ReadingFiller } from "./reading-fill";
 import { SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
 import { SyncConflictStore } from "./sync-conflict-store";
@@ -161,7 +161,6 @@ export class SyncService {
 
   constructor(
     private readonly ctx: AppContext,
-    private readonly cipher: SecretCipher,
     private readonly defaultServerUrl: string,
     /** Starts a built-in server's process (a fake in tests). */
     private readonly forkServer?: () => ServerProcess,
@@ -203,6 +202,12 @@ export class SyncService {
         await this.keepLocalServer(profile);
       } catch (err) {
         this.errors.set(id, tr("The sync server on this computer could not start: {error}", { error: (err as Error).message }));
+        continue;
+      }
+      // A locked profile does not sync: its sync phrase is sealed (its built-in server, which only
+      // relays what devices sealed, keeps serving the other devices).
+      if (profile.locked) {
+        this.dispose(id);
         continue;
       }
       const rt = this.runtimes.get(id);
@@ -296,7 +301,7 @@ export class SyncService {
     if (memory) return memory;
     const stored = this.state(profile).get().phrase;
     if (!stored) return null;
-    return stored.enc ? this.cipher.decryptString(Buffer.from(stored.data, "base64")) : stored.data;
+    return stored.enc ? profile.cipher.decryptString(Buffer.from(stored.data, "base64")) : stored.data;
   }
 
   private runtime(profile: ProfileRuntime, mod: SyncCoreModule): Runtime {
@@ -430,6 +435,35 @@ export class SyncService {
     };
     this.runtimes.set(id, rt);
     return rt;
+  }
+
+  /** The profile locked: its sync stops (it starts again on the next check once unlocked). */
+  pause(profile: ProfileRuntime): void {
+    this.dispose(profile.profile.id);
+  }
+
+  /** A profile was unlocked: its sync starts again now rather than on the next check. */
+  resume(): void {
+    if (this.watcher) void this.watch();
+  }
+
+  /** The profile's sync phrase, as the profile lock seals it again (see rewrapAll). */
+  lockWrapped(profile: ProfileRuntime): LockWrapped {
+    const blobsOf = (raw: unknown): string[] => {
+      const phrase = (raw as { phrase?: { enc?: unknown; data?: unknown } | null } | null)?.phrase;
+      return phrase?.enc === true && typeof phrase.data === "string" ? [phrase.data] : [];
+    };
+    return {
+      rewrap: () => {
+        const stored = this.state(profile).get().phrase;
+        if (!stored?.enc) return;
+        const data = profile.cipher.encryptString(profile.cipher.decryptString(Buffer.from(stored.data, "base64"))).toString("base64");
+        this.state(profile).update((s) => ({ ...s, phrase: { enc: true, data } }));
+        this.state(profile).flush();
+      },
+      verify: () => blobsReadBack(path.join(profile.dataDir, "sync.json"), profile.cipher, blobsOf, this.state(profile).get().phrase?.enc ? 1 : 0),
+      reread: () => void this.states.delete(profile.profile.id),
+    };
   }
 
   private dispose(profileId: string): void {
@@ -897,7 +931,7 @@ export class SyncService {
     }
 
     this.dispose(id);
-    const encrypted = this.cipher.isEncryptionAvailable();
+    const encrypted = profile.cipher.isEncryptionAvailable();
     if (encrypted) this.memoryPhrases.delete(id);
     else this.memoryPhrases.set(id, phrase);
     this.state(profile).update((s) => ({
@@ -909,7 +943,7 @@ export class SyncService {
       serverUrl,
       ...(customUrl ? { customServerUrl: customUrl } : { retireLocalUntil: null }),
       deviceName: opts.deviceName.trim().slice(0, 64) || os.hostname(),
-      phrase: encrypted ? { enc: true, data: this.cipher.encryptString(phrase).toString("base64") } : null,
+      phrase: encrypted ? { enc: true, data: profile.cipher.encryptString(phrase).toString("base64") } : null,
     }));
     this.kv(profile).set({});
     this.remote(profile).clear();

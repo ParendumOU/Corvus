@@ -117,7 +117,8 @@ export class ExternalAppService {
     if (!scheme || !gate || wc.isDestroyed()) return;
     const found = this.ctx.windows.byTabWebContents(wc);
     const win = found?.window ?? this.ctx.windows.focused();
-    if (!win || win.win.isDestroyed()) return;
+    // A locked profile's hidden pages open no app and ask nothing over its lock screen.
+    if (!win || win.win.isDestroyed() || win.profile.locked) return;
     const allowed = mayLaunch(gate, this.openedByGesture(win, found?.tab, gate));
     gate.launch = ++this.counter;
     if (this.asking.has(wc)) return;

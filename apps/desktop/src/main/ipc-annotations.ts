@@ -69,7 +69,7 @@ function parseDelete(raw: unknown): AnnotationDeleteRequest | null {
  */
 export function registerAnnotationCapture(ctx: AppContext): void {
   const tabFor = (event: IpcMainEvent): { window: BrowserWindowCtl; profile: ProfileRuntime; url: string; title: string } | null => {
-    const found = ctx.windows.byTabWebContents(event.sender);
+    const found = ctx.windows.byUnlockedTab(event.sender);
     if (!found || event.senderFrame !== event.sender.mainFrame) return null;
     const url = event.sender.getURL();
     if (!isAnnotatableUrl(url)) return null;

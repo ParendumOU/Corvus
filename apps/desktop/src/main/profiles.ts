@@ -20,6 +20,7 @@ import { KeePassStore } from "./keepass-store";
 import { LiveHistoryStore } from "./live-history-store";
 import { LoginSources, vaultProvider } from "./login-sources";
 import { PermissionManager, type PermissionHost } from "./permissions";
+import { ProfileLock, type LockWrapped } from "./profile-lock";
 import { AgentRunStore } from "./agent-run-store";
 import { AssistHistoryStore } from "./assist-history-store";
 import { CommandHistoryStore } from "./command-history-store";
@@ -125,6 +126,9 @@ export class ProfileRuntime {
   readonly containers: ContainerStore;
   /** Proxies, and which one the profile and each container go through. */
   readonly connections: ConnectionStore;
+  /** The profile lock (Alt+H) and the cipher every secret store of the profile goes through. */
+  readonly lock: ProfileLock;
+  readonly cipher: SecretCipher;
   /** Each session's latest proxy change, until Chromium uses it. */
   private readonly connecting = new Map<Session, Promise<void>>();
   private readonly connected = new Set<Session>();
@@ -144,8 +148,11 @@ export class ProfileRuntime {
   ) {
     this.partition = ProfileManager.partition(profile.id);
     this.session = electronSession.fromPartition(this.partition);
-    // The proxy first, before anything of the profile goes online.
-    this.connections = new ConnectionStore(dataDir, cipher);
+    // The lock first: every secret store reads and writes through its cipher.
+    this.lock = new ProfileLock(dataDir, cipher);
+    this.cipher = this.lock.cipher;
+    // The proxy next, before anything of the profile goes online.
+    this.connections = new ConnectionStore(dataDir, this.cipher);
     this.applyConnections();
     this.connections.onChange(() => this.applyConnections());
     this.userAgents = installUserAgents();
@@ -153,7 +160,7 @@ export class ProfileRuntime {
     setClientHints(true);
     handleInternalProtocol(this.session);
     this.siteSettings = new SiteSettingsStore(dataDir);
-    this.permissions = new PermissionManager(this.siteSettings, delegate);
+    this.permissions = new PermissionManager(this.siteSettings, delegate, () => this.lock.locked);
     this.permissions.install(this.session);
     this.bookmarks = new BookmarkStore(dataDir);
     this.history = new HistoryStore(dataDir);
@@ -184,10 +191,10 @@ export class ProfileRuntime {
     );
     this.siteProfiles = new SiteProfileStore(dataDir);
     this.semanticIndex = new SemanticIndexStore(dataDir);
-    this.credentials = new CredentialVault(dataDir, cipher);
-    this.addresses = new AddressVault(dataDir, cipher);
-    this.cards = new CardVault(dataDir, cipher);
-    this.keepass = new KeePassStore(dataDir, cipher);
+    this.credentials = new CredentialVault(dataDir, this.cipher);
+    this.addresses = new AddressVault(dataDir, this.cipher);
+    this.cards = new CardVault(dataDir, this.cipher);
+    this.keepass = new KeePassStore(dataDir, this.cipher);
     this.autoSignIn = new AutoSignInStore(dataDir);
     this.backup = new BackupStore(dataDir);
     const vaultLogins = vaultProvider(this.credentials);
@@ -336,6 +343,28 @@ export class ProfileRuntime {
     const ses = this.containerSessions.get(containerId) ?? electronSession.fromPartition(containerPartition(this.partition, containerId));
     await ses.clearStorageData().catch(() => undefined);
     await ses.clearCache().catch(() => undefined);
+  }
+
+  /** Locked (Alt+H, or started with a lock): nothing of the profile may be shown, read or used. */
+  get locked(): boolean {
+    return this.lock.locked;
+  }
+
+  /** The profile locked: what its secret stores decrypted leaves memory (KeePass databases close). */
+  dropSecrets(): void {
+    this.credentials.unload();
+    this.addresses.unload();
+    this.cards.unload();
+    this.keepass.suspend();
+  }
+
+  /** The stores whose keys the lock key seals, and their files (see rewrapAll); `extra`: other services' own. */
+  sealedStores(extra: LockWrapped[]): { files: string[]; stores: LockWrapped[] } {
+    const vault = (s: { rewrap(): void; verify(): boolean; unload(): void }): LockWrapped => ({ rewrap: () => s.rewrap(), verify: () => s.verify(), reread: () => s.unload() });
+    return {
+      files: ["credentials.json", "addresses.json", "cards.json", "keepass.json", "connections.json", "sync.json"],
+      stores: [vault(this.credentials), vault(this.addresses), vault(this.cards), this.keepass, this.connections, ...extra],
+    };
   }
 
   flush(): void {

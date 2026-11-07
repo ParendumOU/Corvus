@@ -243,6 +243,8 @@ export class AutofillService {
 
   /** A page finished loading: probe it for a login form or 2FA field so the omnibox can offer autofill. */
   async onPageLoad(win: BrowserWindowCtl, tab: TabRuntime): Promise<void> {
+    // A locked profile's hidden pages are not probed, filled or signed in.
+    if (win.profile.locked) return;
     if ((await this.probe(win, tab)).login) await this.maybeAutoSignIn(win, tab);
   }
 
