@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file is the one list of what is left to do; what shipped, release by release, is in [CHANGELOG.md](../CHANGELOG.md).
 
-Last updated: 2026-11-08 · current release: **v0.45.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.12.2** (Android preview)
+Last updated: 2026-11-08 · current release: **v0.46.0** (Windows + Linux unsigned, macOS signed and notarized) · Corvus for mobile **0.12.2** (Android preview)
 
 ---
 
@@ -10,7 +10,7 @@ Last updated: 2026-11-08 · current release: **v0.45.0** (Windows + Linux unsign
 
 In order. Each item is one branch (`feat|fix/<name>`), validated and merged on its own.
 
-Nothing queued: pick the next item from Later.
+- Nothing queued: the next work is picked from Later or from the owner's requests.
 
 ## Waiting on the owner or on the stores
 
@@ -28,6 +28,7 @@ Nothing queued: pick the next item from Later.
 - **Demo sync chain**: Spanish sample content for reviewers who use the app in Spanish.
 - **Import from Google Authenticator**: AVIF photos (the decoder already reads them); a KeePass file blocked only by its access rights shows as writable until the write fails.
 - **Live history**: "Also sync them to my other devices", an opt-in second toggle under Settings > Live history from other browsers so pages read from other browsers sync like Corvus's own (today they stay on this computer).
+- **Autofill in frames, what is left**: about:blank and srcdoc frames get nothing (Electron runs no tab preload there); a frame covered by another element that lets clicks through (`pointer-events: none`) is not detected (IntersectionObserver v2 would, but it also rejects fields under their own floating labels); logins, cards and addresses sent from a form inside an iframe or a web component are not offered for saving (the submit capture listens on the top document).
 - **Parked**: WebScope active checks (opt-in), to revisit from another angle; Chrome extensions' declarativeNetRequest at scale, only if an extension needs it.
 
 ## Open decisions (owner)

@@ -1,7 +1,7 @@
 /**
  * Password fields and their part in a form: the current password, a new one, or its confirmation. The
  * tab preload uses this to tell a click in a field for a new password (where Corvus suggests a strong
- * one) and which password a submitted form sets; the autofill scripts (main/credential-scripts.ts)
+ * one) and which password a submitted form sets; the autofill scripts (shared/credential-scripts.ts)
  * embed both functions' source, so a suggestion fills the fields the click saw. Both functions are
  * self-contained on purpose: no imports and no outer names, only what they are handed (the preload is
  * type-checked without the DOM library, hence the small structural types below).

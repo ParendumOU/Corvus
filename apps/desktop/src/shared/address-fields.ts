@@ -1,9 +1,7 @@
 /**
  * Address form detection and fill values: which saved-address value each field of a page form takes.
- * Everything lives inside addressKit, which is self-contained on purpose (no imports, no outer names):
- * the fill script embeds its source with `String(addressKit)`, and the tab preload calls the same
- * functions, so the click, the fill and the save prompt all decide alike. The build minifies, so a
- * function that called another top-level one would break once embedded; inside the kit they are local.
+ * Everything lives inside addressKit; the tab preload calls its functions for the click, the fill and
+ * the save prompt alike.
  */
 import type { AddressFields } from "./addresses";
 

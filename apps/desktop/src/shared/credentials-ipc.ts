@@ -239,6 +239,8 @@ export interface FieldDropdownState {
   language: UiLanguage;
   /** The page's registrable domain, which names the section of the other hosts' accounts. */
   domain: string;
+  /** The field is in a frame of another site than the page's: its host, named over the accounts (the address bar shows the page's). Else "". */
+  formHost: string;
   /** Accounts listed first (the page's own host), and those of the domain's other hosts. */
   first: CredentialMatch[];
   others: CredentialMatch[];

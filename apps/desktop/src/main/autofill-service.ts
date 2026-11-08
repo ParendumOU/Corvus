@@ -7,11 +7,26 @@ import { autofillSiteOf, neverSaveHostOf, sendIdentifier, sentIdentifierFor, typ
 import { loginDomainOf, originKeyOf, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
 import { type AutofillBarState, type AutofillCode, type CapturedAddress, type CapturedCard, type CapturedIdentifier, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { dropdownAccounts, dropdownMayOpen } from "../shared/field-dropdown";
-import { AUTOFILL_FRAME_FILL_CHANNEL, cardFillAllowed, frameIsTarget, secureCardContext, validCvv, type FrameBox, type FrameTarget } from "../shared/frame-fill";
+import {
+  AUTOFILL_FRAME_FILL_CHANNEL,
+  MAX_FRAME_DEPTH,
+  cardFillAllowed,
+  fieldOnScreen,
+  formHostOf,
+  frameIsTarget,
+  frameOriginUsable,
+  secureCardContext,
+  validCvv,
+  type FieldSight,
+  type FrameAnswer,
+  type FrameFillRequest,
+  type FramePlace,
+  type FrameTarget,
+} from "../shared/frame-fill";
 import { offersGenerator } from "../shared/password-rules";
 import type { Settings } from "../shared/settings";
 import { codeToFill, totpCode } from "../shared/totp";
-import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillAddressScript, fillIdentifierScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "./credential-scripts";
+import { AUTOFILL_WORLD_ID, detectLoginScript, fillGeneratedScript, fillIdentifierScript, fillLoginScript, fillOtpScript, readPasswordFieldScript, type GeneratedFill, type LoginDetection } from "../shared/credential-scripts";
 import type { AppContext } from "./context";
 import { FieldDropdown, pageOf, type FieldBox, type PasswordOffer } from "./field-dropdown";
 import { toMatch, type LoginAccount } from "./login-sources";
@@ -74,13 +89,23 @@ interface PendingCard {
   shown: boolean;
 }
 
-/** The frame a field click came from: its ids and origin, and whether it is the tab's top frame. */
+/** The frame a field click came from: its ids, origin and document, and whether it is the tab's top frame. */
 export interface ClickFrame {
   processId: number;
   routingId: number;
   origin: string;
   top: boolean;
+  /** The frame's document then (its preload's token, see shared/frame-fill.ts). */
+  doc: string;
+  /** A subframe's: how the field shows in it. */
+  sight?: FieldSight;
 }
+
+/** A request to a frame before its token is added. */
+type Untokened<R> = R extends unknown ? Omit<R, "token"> : never;
+/** What a request for a frame's document carries besides its token and the target's origin, document and box. */
+type Unaddressed<R> = R extends unknown ? Omit<R, "token" | "origin" | "doc" | "box"> : never;
+type FrameRequestBody = Unaddressed<Exclude<FrameFillRequest, { kind: "place" }>>;
 
 /**
  * Asks the person for a card's CVV (Corvus's own prompt); null when they cancel. `site` is the site of
@@ -155,13 +180,15 @@ export class AutofillService {
   private readonly dropdowns = new Map<BrowserWindowCtl, FieldDropdown>();
   /** A private window's password generator choices: they last as long as the window, never saved. */
   private readonly privateGenerator = new WeakMap<BrowserWindowCtl, PasswordOptions>();
-  /** The page an address dropdown opened over: a pick fills only there. */
-  private readonly addressPages = new WeakMap<BrowserWindowCtl, { tabId: TabId; origin: string; target: FrameTarget | null }>();
+  /** The page or frame an address dropdown opened over: a pick fills only there, while its origin and document are the same. */
+  private readonly addressPages = new WeakMap<BrowserWindowCtl, { tabId: TabId; target: FrameTarget }>();
   /** The page and frame a card dropdown opened over: a pick fills only that frame, while its origin is the same. */
   private readonly cardPages = new WeakMap<BrowserWindowCtl, { tabId: TabId; target: FrameTarget }>();
   private readonly pendingCards = new Map<TabId, PendingCard>();
-  /** Card and address fills sent to a frame, waiting for its answer. */
-  private readonly frameFills = new Map<number, { processId: number; routingId: number; resolve: (filled: number) => void }>();
+  /** The subframe a login or 2FA dropdown opened over (its accounts are the frame's origin's): a pick fills only that frame. */
+  private readonly loginFrames = new WeakMap<BrowserWindowCtl, { tabId: TabId; target: FrameTarget }>();
+  /** Requests sent to a frame (fills, probes, where a child frame is), waiting for its answer. */
+  private readonly frameFills = new Map<number, { processId: number; routingId: number; resolve: (answer: FrameAnswer | null) => void }>();
   private lastFrameFill = 0;
   private cvvAsker: CvvAsker | null = null;
 
@@ -368,8 +395,8 @@ export class AutofillService {
     const existing = this.dropdowns.get(win);
     if (existing) return existing;
     const dropdown = new FieldDropdown(win, {
-      account: (kind, id) => void (kind === "otp" ? this.fillTotp(win, id) : this.fill(win, id)),
-      address: (id, field) => void this.fillAddress(win, id, field),
+      account: (kind, id) => void this.pickAccount(win, kind, id),
+      address: (id) => void this.fillAddress(win, id),
       card: (id) => void this.fillCard(win, id),
       manage: (kind) => win.openSingleton(kind === "address" ? "corvus://passwords/#addresses" : kind === "card" ? "corvus://passwords/#cards" : "corvus://passwords/"),
       usePassword: (password, field) => void this.fillGenerated(win, password, field),
@@ -423,11 +450,12 @@ export class AutofillService {
    * offersGenerator). The page keeps the keyboard. Only in the active, person-driven tab (never an
    * agent's), and only where the page has such a field: probed again when it was not seen yet, since a
    * two-step sign-in shows its code field after the page loaded. Nothing is filled until the person picks.
+   * A field in a subframe gets its frame's own accounts (see onFrameLoginField).
    */
-  async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame?: ClickFrame): Promise<void> {
+  async onFieldClicked(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame: ClickFrame): Promise<void> {
     if (click.kind === "card") return this.onCardField(win, tab, click, frame);
     if (click.kind === "address") return this.onAddressField(win, tab, click, frame);
-    if (frame && !frame.top) return;
+    if (!frame.top) return this.onFrameLoginField(win, tab, click, frame);
     const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
     const has = (d: Detected | undefined): boolean => Boolean(click.kind === "otp" ? d?.otp : d?.login || d?.identifier);
     if (!active()) return;
@@ -442,7 +470,64 @@ export class AutofillService {
     const similar = this.similarMatches(win, url, click.kind, matches);
     const page = pageOf(tab);
     if (!page || !active() || (matches.length === 0 && similar.length === 0 && !offer.copy && !offer.generator)) return;
+    this.loginFrames.delete(win);
     this.dropdownOf(win).show(tab, page, click, click.kind, loginDomainOf(hostOf(url)), matches, offer, similar);
+  }
+
+  /**
+   * A login or code field clicked in a subframe (a sign-in form embedded in a page, perhaps of another
+   * site): only the logins saved for the frame's own origin, never the page's, and only while the person
+   * can see the field (see subframeTarget). When the frame is of another site than the page's, the
+   * dropdown names it ("This form is on ..."): the address bar shows the page's. No password generator,
+   * "Copy password" or similar sites' logins there. Nothing is filled until the person picks.
+   */
+  private async onFrameLoginField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame: ClickFrame): Promise<void> {
+    const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
+    const page = pageOf(tab);
+    if (!page || !active()) return;
+    const sub = await this.subframeTarget(page, frame, click);
+    if (!sub || !active()) return;
+    const origin = sub.target.origin;
+    const matches = dropdownAccounts(click.kind, win.profile.logins.matchesFor(origin, win.profile.siteSettings.lastLogin(autofillSiteOf(origin))));
+    if (matches.length === 0) return;
+    this.loginFrames.set(win, { tabId: tab.id, target: sub.target });
+    this.dropdownOf(win).show(tab, page, sub.shown, click.kind, loginDomainOf(hostOf(origin)), matches, undefined, [], [], formHostOf(page.getURL(), origin));
+  }
+
+  /** An account picked in the dropdown (the smoke test awaits it): filled into the subframe it opened over, else into the page. */
+  pickAccount(win: BrowserWindowCtl, kind: FieldClick["kind"], id: string): Promise<void> {
+    const opened = this.loginFrames.get(win);
+    if (opened) return this.fillFrameAccount(win, opened.tabId, opened.target, id, kind === "otp" ? "code" : "account");
+    return kind === "otp" ? this.fillTotp(win, id) : this.fill(win, id);
+  }
+
+  /**
+   * An account of a subframe's origin, picked in its dropdown: filled into that frame alone, as fill()
+   * plans it for the frame's fields. Before each part (the login, then the 2FA code, which may wait for
+   * the next one) the frame must still be the one clicked, with the same origin and document, hold the
+   * keyboard and show the field (see frameReady); the frame's preload checks its origin and document
+   * again and writes only while the field it holds shows.
+   */
+  private async fillFrameAccount(win: BrowserWindowCtl, tabId: TabId, target: FrameTarget, id: string, pick: AccountPick): Promise<void> {
+    const tab = win.activeTab();
+    const account = win.profile.logins.accountFor(id, target.origin);
+    if (!tab || tab.id !== tabId || tab.agentControlled || !account) return;
+    const found = await this.frameReady(tab, target);
+    if (!found) return;
+    const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, found);
+    const totp = plan.code ? account.totp?.record.totp : undefined;
+    const code = totp ? await codeToFill(totp) : null;
+    if (plan.login === "none" && !code) return;
+    this.noteUsed(win, target.origin, account.id);
+    const password = plan.usernameOnly ? "" : (account.password?.record.password ?? "");
+    const secrets = [password, code?.code ?? ""].filter(Boolean);
+    // Secrets in the tab: agents may not script it until it navigates (see secret-fill-guard.ts).
+    if (secrets.length > 0 || !plan.usernameOnly) this.ctx.secretFills.mark(tab.id, secrets);
+    if (plan.login !== "none") await this.askFrame(tab, target, { kind: "login", username: account.username, password, usernameOnly: plan.usernameOnly, keepTyped: plan.login === "empty" });
+    if (!code) return;
+    if (code.waitMs > 0) await delay(code.waitMs);
+    // After the login fill, or the wait for the next code, the frame is checked again.
+    if (win.activeTab()?.id === tab.id && (await this.frameReady(tab, target))) await this.askFrame(tab, target, { kind: "otp", code: code.code });
   }
 
   /**
@@ -450,32 +535,30 @@ export class AutofillService {
    * recently used first. Only in the active, person-driven tab (never an agent's). Nothing is filled
    * until the person picks.
    */
-  private async onAddressField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame?: ClickFrame): Promise<void> {
+  private async onAddressField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame: ClickFrame): Promise<void> {
     if (!this.addressesOn() || tab.agentControlled || win.activeTab()?.id !== tab.id) return;
     const addresses = win.profile.addresses.all();
     const page = pageOf(tab);
     if (!page || addresses.length === 0) return;
-    const sub = frame && !frame.top ? await this.subframeTarget(page, frame, click) : null;
-    if (frame && !frame.top && !sub) return;
-    const origin = sub ? sub.target.origin : originOf(this.pageUrl(tab));
-    if (!origin || win.activeTab()?.id !== tab.id) return;
-    this.addressPages.set(win, { tabId: tab.id, origin, target: sub?.target ?? null });
+    const at = await this.fieldTarget(page, frame, click);
+    if (!at || win.activeTab()?.id !== tab.id) return;
+    this.addressPages.set(win, { tabId: tab.id, target: at.target });
     const options = addresses.map((a) => ({ id: a.id, title: a.label || a.name || a.company || a.email || a.phone, detail: [a.street.split("\n")[0] ?? "", a.city].filter(Boolean).join(", ") }));
-    this.dropdownOf(win).show(tab, page, sub?.shown ?? click, "address", "", [], undefined, [], options);
+    this.dropdownOf(win).show(tab, page, at.shown, "address", "", [], undefined, [], options);
   }
 
   /**
-   * A saved address picked in the dropdown: filled into the form of the field under it, on the page (or
-   * in the frame) the dropdown opened over. Its use is remembered (it is listed first next time), never
-   * from a private window.
+   * A saved address picked in the dropdown: filled into the form of the field under it, in the page or
+   * frame the dropdown opened over, by its tab preload. Its use is remembered (it is listed first next
+   * time), never from a private window.
    */
-  async fillAddress(win: BrowserWindowCtl, id: string, field: FieldBox): Promise<void> {
+  async fillAddress(win: BrowserWindowCtl, id: string): Promise<void> {
     const tab = win.activeTab();
     const opened = this.addressPages.get(win);
     const address = win.profile.addresses.get(id);
     if (!tab || tab.agentControlled || !opened || opened.tabId !== tab.id || !address) return;
-    const filled = opened.target ? await this.fillInFrame(tab, opened.target, { kind: "address", address }) : await this.run<number>(tab, fillAddressScript(address, field, opened.origin));
-    if (filled && filled > 0 && !win.isPrivate) win.profile.addresses.noteUsed(id);
+    const filled = await this.fillInFrame(tab, opened.target, { kind: "address", address });
+    if (filled > 0 && !win.isPrivate) win.profile.addresses.noteUsed(id);
   }
 
   /**
@@ -484,28 +567,28 @@ export class AutofillService {
    * only when the page and that frame are secure contexts (see cardFillAllowed). Nothing is filled
    * until the person picks a card and types its CVV.
    */
-  private async onCardField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame?: ClickFrame): Promise<void> {
+  private async onCardField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame: ClickFrame): Promise<void> {
     if (!this.cardsOn() || tab.agentControlled || win.activeTab()?.id !== tab.id) return;
     const cards = win.profile.cards.all();
     const page = pageOf(tab);
     if (!page || cards.length === 0 || !secureCardContext(page.getURL())) return;
-    let target: FrameTarget;
-    let shown: FieldBox = click;
-    if (frame && !frame.top) {
-      const sub = await this.subframeTarget(page, frame, click);
-      if (!sub) return;
-      target = sub.target;
-      shown = sub.shown;
-    } else {
-      const main = page.mainFrame;
-      const origin = originOf(page.getURL());
-      if (!origin) return;
-      target = { processId: main.processId, routingId: main.routingId, origin, box: { x: click.x, y: click.y, width: click.width, height: click.height } };
-    }
-    if (win.activeTab()?.id !== tab.id || !cardFillAllowed(page.getURL(), target.origin)) return;
-    this.cardPages.set(win, { tabId: tab.id, target });
+    const at = await this.fieldTarget(page, frame, click);
+    if (!at || win.activeTab()?.id !== tab.id || !cardFillAllowed(page.getURL(), at.target.origin)) return;
+    this.cardPages.set(win, { tabId: tab.id, target: at.target });
     const options = cards.map((c) => ({ id: c.id, title: cardLine(c), detail: c.label || c.nameOnCard }));
-    this.dropdownOf(win).show(tab, page, shown, "card", "", [], undefined, [], options);
+    this.dropdownOf(win).show(tab, page, at.shown, "card", "", [], undefined, [], options);
+  }
+
+  /**
+   * The frame a card or address field was clicked in, to fill, and where the field shows in the page:
+   * the page itself, or a subframe the person can see (see subframeTarget). Null for anything else.
+   */
+  private async fieldTarget(page: WebContents, frame: ClickFrame, click: FieldClick): Promise<{ target: FrameTarget; shown: FieldBox } | null> {
+    if (!frame.top) return this.subframeTarget(page, frame, click);
+    const main = page.mainFrame;
+    const origin = originOf(page.getURL());
+    const box = { x: click.x, y: click.y, width: click.width, height: click.height };
+    return origin ? { target: { processId: main.processId, routingId: main.routingId, origin, box, doc: frame.doc }, shown: box } : null;
   }
 
   /** Smoke tests answer the CVV prompt; null restores Corvus's prompt. */
@@ -567,17 +650,19 @@ export class AutofillService {
   }
 
   /**
-   * Where a field clicked in a subframe is: the frame to fill (its ids, its origin now, the field's box in
-   * it) and the field's box in the page, for the dropdown. Null when the frame is gone, not the tab's, or
-   * not a web page, or its place in the page cannot be found.
+   * Where a field clicked in a subframe is: the frame to fill (its ids, origin and document then, the
+   * field's box in it) and the field's box in the page, for the dropdown. Null when the frame is gone,
+   * not the tab's, or not a web page (an opaque origin: a sandboxed frame, a data: URL), or when the
+   * person cannot see the field there: a frame up the chain hidden, transparent, sandboxed, too small or
+   * off screen (see fieldOnScreen).
    */
   private async subframeTarget(page: WebContents, frame: ClickFrame, click: FieldClick): Promise<{ target: FrameTarget; shown: FieldBox } | null> {
-    const found = webFrameMain.fromId(frame.processId, frame.routingId);
-    if (!found || !frameIsTarget(frame, found) || !this.frameOfPage(page, found) || !originOf(found.origin)) return null;
-    const offset = await frameOffset(found);
-    if (!offset) return null;
-    const box: FrameBox = { x: click.x, y: click.y, width: click.width, height: click.height };
-    return { target: { processId: frame.processId, routingId: frame.routingId, origin: frame.origin, box }, shown: { ...box, x: box.x + offset.x, y: box.y + offset.y } };
+    const found = this.liveFrame(page, frame);
+    if (!found || !frameOriginUsable(found.origin) || !frame.sight) return null;
+    const places = await this.framePlaces(page, found);
+    const shown = places && fieldOnScreen(frame.sight, places);
+    if (!shown) return null;
+    return { target: { processId: frame.processId, routingId: frame.routingId, origin: frame.origin, box: { x: click.x, y: click.y, width: click.width, height: click.height }, doc: frame.doc }, shown };
   }
 
   /** The frame belongs to this tab's page. */
@@ -587,44 +672,99 @@ export class AutofillService {
     return Boolean(top) && top!.processId === main.processId && top!.routingId === main.routingId;
   }
 
-  /**
-   * Sends a card or address fill to the frame it is for, only while that frame is still the tab's and has
-   * the origin it had on the click; resolves with the fields its preload wrote (0 on refusal or timeout).
-   */
-  private fillInFrame(tab: TabRuntime, target: FrameTarget, body: { kind: "card"; card: CardFields; cvv: string } | { kind: "address"; address: AddressFields }): Promise<number> {
-    const page = pageOf(tab);
+  /** The target frame as it is now, while it is the same frame with the same origin, in this page. */
+  private liveFrame(page: WebContents, target: Pick<FrameTarget, "processId" | "routingId" | "origin">): WebFrameMain | null {
     const frame = webFrameMain.fromId(target.processId, target.routingId);
-    if (!page || !frame || !frameIsTarget(target, frame) || !this.frameOfPage(page, frame)) return Promise.resolve(0);
+    return frame && frameIsTarget(target, frame) && this.frameOfPage(page, frame) ? frame : null;
+  }
+
+  /**
+   * Where a subframe shows, from its parent up to the tab's page: each parent's preload reads its frame
+   * element (an isolated world: the page cannot fake it). Null when a parent is not a web page or does
+   * not answer, or the chain is deeper than MAX_FRAME_DEPTH.
+   */
+  private async framePlaces(page: WebContents, frame: WebFrameMain): Promise<FramePlace[] | null> {
+    const places: FramePlace[] = [];
+    for (let child = frame, parent = frame.parent; parent; child = parent, parent = parent.parent) {
+      const index = parent.frames.findIndex((f) => f.frameTreeNodeId === child.frameTreeNodeId);
+      if (places.length >= MAX_FRAME_DEPTH || index < 0 || !frameOriginUsable(parent.origin)) return null;
+      const place = (await this.request(parent, { kind: "place", index }))?.place;
+      if (!place) return null;
+      places.push(place);
+    }
+    return this.frameOfPage(page, frame) ? places : null;
+  }
+
+  /**
+   * A login or 2FA fill may go to the subframe now: still the frame clicked, with the same origin, the
+   * frame of the page that holds the keyboard, its document the same (its preload says so) and the field
+   * there in sight (see fieldOnScreen). What its probe found then, else null.
+   */
+  private async frameReady(tab: TabRuntime, target: FrameTarget): Promise<FrameAnswer["found"] | null> {
+    const page = pageOf(tab);
+    const frame = page && this.liveFrame(page, target);
+    const focused = page?.focusedFrame;
+    if (!page || !frame || !focused || focused.processId !== target.processId || focused.routingId !== target.routingId) return null;
+    const probe = await this.askFrame(tab, target, { kind: "probe" });
+    const places = probe?.found && probe.sight ? await this.framePlaces(page, frame) : null;
+    return places && probe?.sight && fieldOnScreen(probe.sight, places) ? probe.found : null;
+  }
+
+  /** Sends a request for the target frame's document (its preload checks origin and document), while the frame is still the one clicked. */
+  private askFrame(tab: TabRuntime, target: FrameTarget, body: FrameRequestBody): Promise<FrameAnswer | null> {
+    const page = pageOf(tab);
+    const frame = page && this.liveFrame(page, target);
+    return frame ? this.request(frame, { ...body, origin: target.origin, doc: target.doc, box: target.box }) : Promise.resolve(null);
+  }
+
+  /** Sends a request to a frame's preload; resolves with its answer (only that frame's counts), null on a timeout. */
+  private request(frame: WebFrameMain, body: Untokened<FrameFillRequest>): Promise<FrameAnswer | null> {
     const token = ++this.lastFrameFill;
-    return new Promise<number>((resolve) => {
+    return new Promise<FrameAnswer | null>((resolve) => {
       const timer = setTimeout(() => {
         this.frameFills.delete(token);
-        resolve(0);
+        resolve(null);
       }, SCRIPT_TIMEOUT_MS);
       this.frameFills.set(token, {
-        processId: target.processId,
-        routingId: target.routingId,
-        resolve: (filled) => {
+        processId: frame.processId,
+        routingId: frame.routingId,
+        resolve: (answer) => {
           clearTimeout(timer);
-          resolve(filled);
+          resolve(answer);
         },
       });
       try {
-        frame.send(AUTOFILL_FRAME_FILL_CHANNEL, { token, origin: target.origin, box: target.box, ...body });
+        frame.send(AUTOFILL_FRAME_FILL_CHANNEL, { token, ...body });
       } catch {
         this.frameFills.delete(token);
         clearTimeout(timer);
-        resolve(0);
+        resolve(null);
       }
     });
   }
 
-  /** A frame answered a fill sent to it (only the frame it was sent to counts). */
-  onFrameFilled(processId: number, routingId: number, data: { token: number; filled: number }): void {
+  /**
+   * Sends a card or address fill to the frame it is for, a subframe only while the person can still see
+   * the field there (see fieldOnScreen); resolves with the fields its preload wrote (0 on refusal or timeout).
+   */
+  private async fillInFrame(tab: TabRuntime, target: FrameTarget, body: { kind: "card"; card: CardFields; cvv: string } | { kind: "address"; address: AddressFields }): Promise<number> {
+    const page = pageOf(tab);
+    const frame = page && this.liveFrame(page, target);
+    if (!page || !frame) return 0;
+    if (frame.parent) {
+      const sight = (await this.askFrame(tab, target, { kind: "probe" }))?.sight;
+      const places = sight ? await this.framePlaces(page, frame) : null;
+      if (!sight || !places || !fieldOnScreen(sight, places)) return 0;
+    }
+    return (await this.askFrame(tab, target, body))?.filled ?? 0;
+  }
+
+  /** A frame answered a request sent to it (only the frame it was sent to counts). */
+  onFrameFilled(processId: number, routingId: number, data: FrameAnswer): void {
     const pending = this.frameFills.get(data.token);
     if (!pending || pending.processId !== processId || pending.routingId !== routingId) return;
     this.frameFills.delete(data.token);
-    pending.resolve(data.filled);
+    pending.resolve(data);
   }
 
   /**
@@ -963,39 +1103,6 @@ export class AutofillService {
 
 function nonEmptyCard(f: CardFields): Partial<CardFields> {
   return Object.fromEntries(Object.entries(f).filter(([, v]) => v !== "")) as Partial<CardFields>;
-}
-
-/**
- * Where a subframe's viewport is in the tab's page: the offset of each frame element up the chain,
- * read in each parent's main world (only the dropdown's position depends on it). Null when a frame
- * element cannot be found.
- */
-async function frameOffset(frame: WebFrameMain): Promise<{ x: number; y: number } | null> {
-  let x = 0;
-  let y = 0;
-  let child: WebFrameMain = frame;
-  for (let depth = 0; depth < 10; depth++) {
-    const parent = child.parent;
-    if (!parent) return { x, y };
-    const index = parent.frames.findIndex((f) => f.frameTreeNodeId === child.frameTreeNodeId);
-    if (index < 0) return null;
-    let box: { x: number; y: number } | null = null;
-    try {
-      box = (await withTimeout(
-        parent.executeJavaScript(
-          `(() => { const w = window.frames[${index}]; for (const el of document.querySelectorAll("iframe, frame")) { if (el.contentWindow === w) { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return { x: r.left + el.clientLeft + parseFloat(s.paddingLeft || "0"), y: r.top + el.clientTop + parseFloat(s.paddingTop || "0") }; } } return null; })()`,
-        ) as Promise<{ x: number; y: number } | null>,
-        SCRIPT_TIMEOUT_MS,
-      )) ?? null;
-    } catch {
-      return null;
-    }
-    if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.y)) return null;
-    x += box.x;
-    y += box.y;
-    child = parent;
-  }
-  return null;
 }
 
 /** A web page's origin ("https://shop.example"), or null for anything else. */

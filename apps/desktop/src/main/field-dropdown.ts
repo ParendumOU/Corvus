@@ -23,8 +23,8 @@ export function pageOf(tab: TabRuntime): WebContents | null {
 /** What the person chose in the dropdown: an account (for the field's kind), a saved address, the Passwords page, or one of its password actions. */
 export interface DropdownPicks {
   account(kind: AutofillFieldKind, id: string): void;
-  /** Fills a saved address into the form of the field at `field`. */
-  address(id: string, field: FieldBox): void;
+  /** Fills a saved address into the form of the field the dropdown opened under. */
+  address(id: string): void;
   /** Asks for the CVV of a saved card, then fills the card into the form of the field the dropdown opened under. */
   card(id: string): void;
   /** The Passwords page (on its Addresses tab under an address field, its Payment methods tab under a card field). */
@@ -173,9 +173,10 @@ export class FieldDropdown {
    * Opens the dropdown (or moves it) under a field of the active tab, listing `matches` and, under a
    * password field, what `offer` says: "Copy password" and a suggested strong password, and `similar`,
    * the accounts of similar sites (see similarFit), folded in a section of their own. Under an address
-   * field, `options` (the saved addresses, or under a card field the saved cards) instead.
+   * field, `options` (the saved addresses, or under a card field the saved cards) instead. `formHost`
+   * names the host of a frame of another site the field is in ("This form is on ...").
    */
-  show(tab: TabRuntime, page: WebContents, field: FieldBox, kind: AutofillFieldKind, domain: string, matches: CredentialMatch[], offer: PasswordOffer = NO_OFFER, similar: CredentialMatch[] = [], options: AddressOption[] = []): void {
+  show(tab: TabRuntime, page: WebContents, field: FieldBox, kind: AutofillFieldKind, domain: string, matches: CredentialMatch[], offer: PasswordOffer = NO_OFFER, similar: CredentialMatch[] = [], options: AddressOption[] = [], formHost = ""): void {
     if (this.tab !== tab) this.close();
     this.flushOptions();
     clearTimeout(this.copiedTimer);
@@ -192,6 +193,7 @@ export class FieldDropdown {
       kind,
       language: uiLanguage(),
       domain,
+      formHost,
       first,
       others,
       othersOpen: false,
@@ -382,7 +384,7 @@ export class FieldDropdown {
     }
     this.close();
     if (entry.type === "account") this.picks.account(state.kind, entry.account.id);
-    else if (entry.type === "address") this.picks.address(entry.address.id, this.field);
+    else if (entry.type === "address") this.picks.address(entry.address.id);
     else if (entry.type === "card") this.picks.card(entry.card.id);
     else this.picks.manage(state.kind);
   }

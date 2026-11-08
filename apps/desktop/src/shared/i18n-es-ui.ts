@@ -114,6 +114,7 @@ export const ES_UI: Record<string, string> = {
   "2FA code for": "Código 2FA de",
   "2FA code": "Código 2FA",
   "Other {domain} accounts": "Otras cuentas de {domain}",
+  "This form is on {host}": "Este formulario es de {host}",
   "Saved for {sites}": "Guardadas para {sites}",
   "Saved for another site with this name. Use them only if you trust this site.": "Guardadas para otro sitio con este nombre. Úsalas solo si confías en este sitio.",
   "Use this login": "Usar este inicio de sesión",

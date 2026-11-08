@@ -253,6 +253,12 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
       onMouseDownCapture={onPress}
       style={compact ? undefined : { width: state.maxWidth }}
     >
+      {state.formHost && (
+        <div className="fd-head fd-where" title={t("This form is on {host}", { host: state.formHost })}>
+          <IconWarning size={12} />
+          <span>{t("This form is on {host}", { host: state.formHost })}</span>
+        </div>
+      )}
       {state.kind === "otp" && <div className="fd-head">{t("2FA code")}</div>}
       <div className="af-list">
         {entries.slice(0, listed).map((entry, index) => {

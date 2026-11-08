@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillGeneratedScript, readPasswordFieldScript } from "../src/main/credential-scripts";
+import { fillGeneratedScript, readPasswordFieldScript } from "../src/shared/credential-scripts";
 import { passwordFieldFacts, passwordRoles, type PasswordFieldFacts, type PasswordInputElement } from "../src/shared/password-fields";
 
 const field = (hints = "", autocomplete = ""): PasswordFieldFacts => ({ hints, autocomplete });

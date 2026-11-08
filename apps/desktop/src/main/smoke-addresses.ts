@@ -45,10 +45,22 @@ const LOGIN_PAGE = `<!doctype html><html><head><title>Acceso</title></head><body
 <label for="p">Contraseña</label><input id="p" name="password" type="password" autocomplete="current-password"><button>Entrar</button></form>
 </body></html>`;
 
+/** The same kind of checkout built from web components, one per field, with no form element. */
+const COMPONENT_FIELDS = ["nombre", "direccion", "cp", "ciudad", "email"] as const;
+const COMPONENT_PAGE = `<!doctype html><html lang="es"><head><title>Envio</title></head><body><main><h1>Datos de envio</h1>
+<shop-field data-id="nombre" data-label="Nombre" data-ac="given-name"></shop-field>
+<shop-field data-id="direccion" data-label="Dirección" data-ac="address-line1"></shop-field>
+<shop-field data-id="cp" data-label="Código postal" data-ac="postal-code"></shop-field>
+<shop-field data-id="ciudad" data-label="Ciudad" data-ac="address-level2"></shop-field>
+<shop-field data-id="email" data-label="Email" data-ac="email" data-type="email"></shop-field>
+<script>customElements.define("shop-field", class extends HTMLElement { connectedCallback() { if (this.shadowRoot) return; const d = this.dataset; this.attachShadow({ mode: "open" }).innerHTML = '<p><label for="' + d.id + '">' + d.label + '</label> <input id="' + d.id + '" name="' + d.id + '" type="' + (d.type || "text") + '" autocomplete="' + d.ac + '"></p>'; } });</script>
+</main></body></html>`;
+const READ_COMPONENT = `Object.fromEntries(${JSON.stringify(COMPONENT_FIELDS)}.map((id) => [id, document.querySelector('shop-field[data-id="' + id + '"]').shadowRoot.getElementById(id).value]))`;
+
 /** The pages of the address autofill smoke, served by the shared smoke server. */
 export function serveAddressesSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
-  const page = pathname === "/addr-checkout" ? CHECKOUT_PAGE : pathname === "/addr-login" ? LOGIN_PAGE : null;
+  const page = pathname === "/addr-checkout" ? CHECKOUT_PAGE : pathname === "/addr-login" ? LOGIN_PAGE : pathname === "/addr-component" ? COMPONENT_PAGE : null;
   if (!page) return false;
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(page);
@@ -103,9 +115,10 @@ const SEEDED = {
 /**
  * Address autofill: a click into a Spanish checkout form's name field lists the saved address under it,
  * and a pick fills the whole form (street split in two lines, the country select set) without touching
- * what the person typed elsewhere. Sending a new address offers to save it, sending it again with a new
- * phone offers to update that same record. With addresses off in Settings, neither the dropdown nor the
- * offer shows. A sign-in form still gets the login dropdown. The Addresses tab lists the saved address.
+ * what the person typed elsewhere. A form of web components is filled the same way. Sending a new
+ * address offers to save it, sending it again with a new phone offers to update that same record. With
+ * addresses off in Settings, neither the dropdown nor the offer shows. A sign-in form still gets the
+ * login dropdown. The Addresses tab lists the saved address.
  */
 export async function runAddressesSmoke(ctx: AppContext, { url, win, check, capture }: Helpers): Promise<void> {
   const port = new URL(url).port;
@@ -195,6 +208,26 @@ export async function runAddressesSmoke(ctx: AppContext, { url, win, check, capt
     await submit(same);
     await sleep(1500);
     check("addresses: sending exactly a saved address (country chosen in the select) offers nothing", addressSave() === null, { addressSave: addressSave(), saved: vault.get(seeded.id) });
+
+    // 2b: a form whose fields are each a web component of their own: found and filled through their shadow roots.
+    const { wc: comp } = await open("/addr-component");
+    const compToken = dropdown.token();
+    const compBox = await js<{ x: number; y: number }>(comp, `(() => { const r = document.querySelector('shop-field[data-id="nombre"]').shadowRoot.getElementById("nombre").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+    if (compBox) {
+      comp.focus();
+      comp.sendInputEvent({ type: "mouseDown", ...compBox, button: "left", clickCount: 1 });
+      comp.sendInputEvent({ type: "mouseUp", ...compBox, button: "left", clickCount: 1 });
+    }
+    const compOpened = await dropdown.opened(compToken);
+    check("addresses: a click into an address field inside a web component lists the saved address", compOpened && dropdown.state()?.kind === "address", { compOpened, kind: dropdown.state()?.kind });
+    pickAddress(seeded.id);
+    let compValues: Record<string, string> | null = null;
+    const compFilled = await until(async () => {
+      const v = await js<Record<string, string>>(comp, READ_COMPONENT);
+      compValues = v;
+      return Boolean(v && v.nombre === "Lucia" && v.direccion?.startsWith("Calle Ficticia 12") && v.cp === "28999" && v.ciudad === "Villaejemplo" && v.email === "lucia.smoke@example.com");
+    }, 6000);
+    check("addresses: picking it fills every field of those web components", compFilled, compValues);
 
     // 3: a new address typed and sent: offered as new, saved on accept; sent again with a new phone: an update of that record.
     const typed: FormValues = {

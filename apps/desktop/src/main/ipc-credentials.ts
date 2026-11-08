@@ -3,7 +3,7 @@ import { clipboard, dialog, ipcMain, nativeImage, type IpcMainEvent } from "elec
 import { tr } from "./menu-i18n";
 import { parseAddressCapture, parseAddressSave } from "../shared/addresses";
 import { cardSummary, luhnValid, parseCardCapture, parseCardSave } from "../shared/cards";
-import { AUTOFILL_FRAME_FILLED_CHANNEL, parseFrameFilled, subframeFieldAllowed } from "../shared/frame-fill";
+import { AUTOFILL_FRAME_FILLED_CHANNEL, parseFieldSight, parseFrameAnswer, validDocToken } from "../shared/frame-fill";
 import { isBigChange } from "../shared/backup-reminder";
 import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
 import { parseDropdownAction } from "../shared/field-dropdown";
@@ -351,27 +351,30 @@ export function registerAutofillCapture(ctx: AppContext): void {
     if (!found || event.senderFrame !== event.sender.mainFrame || typeof v.origin !== "string" || typeof v.username !== "string") return;
     if (v.origin.length <= MAX_FIELD && v.username.trim() && v.username.length <= MAX_FIELD) ctx.autofill.onIdentifierSent(found.window, found.tab, { origin: v.origin, username: v.username.trim() });
   });
-  // Field clicks come from the top frame, and card and address field clicks also from its subframes (a
-  // payment provider's iframe): the frame is remembered and only it is filled (see shared/frame-fill.ts).
+  // Field clicks come from the top frame and its subframes (a payment provider's iframe, a sign-in form
+  // embedded in a page), each with its document's token, a subframe's also with how the field shows
+  // there: the frame is remembered and only it is filled (see shared/frame-fill.ts).
   ipcMain.on(AUTOFILL_FIELD_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byUnlockedTab(event.sender);
     const frame = event.senderFrame;
     if (!found || !frame) return;
     const click = parseFieldClick(raw);
-    if (!click) return;
+    const { doc, sight: rawSight } = (raw ?? {}) as { doc?: unknown; sight?: unknown };
+    if (!click || !validDocToken(doc)) return;
     const top = frame === event.sender.mainFrame;
-    if (!top && !subframeFieldAllowed(click.kind)) return;
-    void ctx.autofill.onFieldClicked(found.window, found.tab, click, { processId: frame.processId, routingId: frame.routingId, origin: frame.origin, top });
+    const sight = top ? undefined : parseFieldSight(rawSight);
+    if (sight === null) return;
+    void ctx.autofill.onFieldClicked(found.window, found.tab, click, { processId: frame.processId, routingId: frame.routingId, origin: frame.origin, top, doc, ...(sight ? { sight } : {}) });
   });
   // Closing the dropdown is harmless, so any frame of the tab may ask (a subframe whose field was clicked).
   ipcMain.on(AUTOFILL_DROPDOWN_DONE_CHANNEL, (event: IpcMainEvent) => {
     const found = ctx.windows.byUnlockedTab(event.sender);
     if (found && event.senderFrame) ctx.autofill.onDropdownDone(found.window, found.tab);
   });
-  // A frame answers how many fields the card or address fill sent to it wrote.
+  // A frame answers a request sent to it: how many fields a fill wrote, what a probe found, where a child frame is.
   ipcMain.on(AUTOFILL_FRAME_FILLED_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const frame = event.senderFrame;
-    const data = parseFrameFilled(raw);
+    const data = parseFrameAnswer(raw);
     if (frame && data && ctx.windows.byUnlockedTab(event.sender)) ctx.autofill.onFrameFilled(frame.processId, frame.routingId, data);
   });
   ipcMain.on(AUTOFILL_CARD_CAPTURE_CHANNEL, (event: IpcMainEvent, raw: unknown) => {

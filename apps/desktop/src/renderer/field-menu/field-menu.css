@@ -30,6 +30,23 @@ body,
   font-size: 11px;
   font-weight: 600;
 }
+/* A field in a frame of another site: its host, over the accounts. */
+.fd-where {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fd-where svg {
+  flex: none;
+  color: var(--warning);
+}
+.fd-where span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* The entry the arrows or the mouse are on. */
 .fd-menu .af-row.active,
 .fd-menu .af-others.active,

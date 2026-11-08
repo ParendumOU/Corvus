@@ -3,7 +3,7 @@ import { nativeTheme, type WebContents } from "electron";
 import type { FieldDropdownState } from "../shared/credentials-ipc";
 import { dropdownEntries } from "../shared/field-dropdown";
 import type { AppContext } from "./context";
-import { AUTOFILL_WORLD_ID, fillLoginByRefScript, type FillOutcome } from "./credential-scripts";
+import { AUTOFILL_WORLD_ID, fillLoginByRefScript, type FillOutcome } from "../shared/credential-scripts";
 import { windowShot } from "./smoke-cert-errors";
 import { clickAt, js, key, sleep, until } from "./smoke-pwgen";
 import type { BrowserWindowCtl, TabRuntime } from "./window";

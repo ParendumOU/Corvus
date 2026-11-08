@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressFieldFacts, addressKit, classifyAddressField, foldText, isAddressForm, matchOption, planAddressFill, valuesForRoles, type AddressFieldFacts, type AddressFillField, type AddressKit, type AddressRole } from "../src/shared/address-fields";
+import { addressFieldFacts, classifyAddressField, foldText, isAddressForm, matchOption, planAddressFill, valuesForRoles, type AddressFieldFacts, type AddressFillField, type AddressRole } from "../src/shared/address-fields";
 import { emptyAddressFields, type AddressFields } from "../src/shared/addresses";
 
 function facts(partial: Partial<AddressFieldFacts>): AddressFieldFacts {
@@ -169,13 +169,6 @@ describe("planAddressFill", () => {
   it("fills nothing outside an address form or from a field that is not an address field", () => {
     expect(planAddressFill([field("email", "", true), field("password")], home)).toEqual([null, null]);
     expect(planAddressFill([field("coupon", "", true), field("direccion"), field("cp"), field("poblacion")], home)).toEqual([null, null, null, null]);
-  });
-
-  it("works on its own, as the page script embeds it", () => {
-    const kit = new Function(`return (${String(addressKit)})()`)() as AddressKit;
-    const form = [field("direccion", "", true), field("cp"), field("poblacion")];
-    expect(kit.planAddressFill(form, home)).toEqual(["Calle Mayor 1, 2º B", "28001", "Madrid"]);
-    expect(kit.matchOption([{ value: "ES", text: "España" }], "es")).toBe("ES");
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * One-time-code (2FA) fields: which inputs of a page take the code an authenticator app shows. The tab
  * preload uses this to tell a click in a code field from one in a login field, and the autofill
- * scripts (main/credential-scripts.ts) embed both functions' source, so the page probe, the fills and
+ * scripts (shared/credential-scripts.ts) embed both functions' source, so the page probe, the fills and
  * the click all decide alike. Both functions are self-contained on purpose: no imports and no outer
  * names, only what they are handed (the preload is type-checked without the DOM library, hence the
  * small structural types below).

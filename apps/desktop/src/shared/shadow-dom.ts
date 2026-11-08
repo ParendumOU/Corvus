@@ -2,7 +2,7 @@
  * Form fields inside open shadow roots: sign-in forms built as web components keep their inputs there,
  * where a document-wide query, `document.activeElement` and `elementFromPoint` never reach (they stop
  * at the component's host). The tab preload uses these to read a click in such a field, and the
- * autofill scripts (main/credential-scripts.ts) embed their source to find and fill it. Each function
+ * autofill scripts (shared/credential-scripts.ts) embed their source to find and fill it. Each function
  * is self-contained on purpose: no imports and no outer names (the preload is type-checked without the
  * DOM library, hence the small structural types).
  */

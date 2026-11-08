@@ -39,6 +39,11 @@ const hostPage = (frameUrl: string): string =>
 
 const FRAME_PAGE = `<!doctype html><html lang="es"><head><title>Pasarela</title>${STYLE}</head><body style="margin:12px">${cardForm("text")}</body></html>`;
 
+/** The card fields inside a web component's open shadow root, with no form element around them. */
+const COMPONENT_PAGE = `<!doctype html><html lang="es"><head><title>Pago</title>${STYLE}</head><body><main><h1>Pago con tarjeta</h1><pay-card></pay-card></main><script>customElements.define("pay-card", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = ${JSON.stringify(
+  `<style>.field{display:flex;flex-direction:column;gap:4px;margin:0 0 10px;max-width:320px}</style><div class="field"><label for="numero">Número de tarjeta</label><input id="numero" type="text" inputmode="numeric" autocomplete="cc-number"></div><div class="field"><label for="titular">Titular de la tarjeta</label><input id="titular" type="text" autocomplete="cc-name"></div><div class="field"><label for="caducidad">Caducidad (MM/AA)</label><input id="caducidad" type="text" placeholder="MM/AA" maxlength="5" autocomplete="cc-exp"></div><div class="field"><label for="cvc">CVC</label><input id="cvc" type="text" autocomplete="cc-csc" maxlength="4"></div>`,
+)}; } });</script></body></html>`;
+
 /**
  * Cards are filled only in secure contexts, and over http that is this computer only: the shop and its
  * payment provider are two loopback names, two sites apart.
@@ -51,7 +56,7 @@ export function serveCardsSmokeRoute(req: http.IncomingMessage, res: http.Server
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
   const host = req.headers.host ?? "";
   const port = host.split(":")[1] ?? "";
-  const page = pathname === "/card-checkout" ? checkoutPage("text") : pathname === "/card-checkout-pw" ? checkoutPage("password") : pathname === "/card-host" ? hostPage(`${PAY_HOST}:${port}/card-frame`) : pathname === "/card-frame" ? FRAME_PAGE : null;
+  const page = pathname === "/card-checkout" ? checkoutPage("text") : pathname === "/card-checkout-pw" ? checkoutPage("password") : pathname === "/card-host" ? hostPage(`${PAY_HOST}:${port}/card-frame`) : pathname === "/card-frame" ? FRAME_PAGE : pathname === "/card-component" ? COMPONENT_PAGE : null;
   if (!page) return false;
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(page);
@@ -105,8 +110,8 @@ const same = (v: CardValues | null): boolean => Boolean(v) && (Object.keys(FILLE
  * Card autofill: a click into a checkout's card number lists the saved card ("Visa ...1111 - 08/28")
  * and Manage payment methods; a pick asks for the CVV and fills number, name, expiry (as MM/YY) and
  * that CVV; Cancel fills nothing. The same works in a payment provider's frame on another origin, and
- * fills only that frame. Sending a new card offers to save it (never its CVV). With payment methods
- * off in Settings no dropdown shows. The Payment methods tab lists the card.
+ * fills only that frame, and inside a web component. Sending a new card offers to save it (never its
+ * CVV). With payment methods off in Settings no dropdown shows. The Payment methods tab lists the card.
  */
 export async function runCardsSmoke(ctx: AppContext, { url, win, check, capture }: Helpers): Promise<void> {
   const port = new URL(url).port;
@@ -240,6 +245,28 @@ export async function runCardsSmoke(ctx: AppContext, { url, win, check, capture 
     check("cards: picking it there fills the payment frame (number, name, expiry, CVV), and nothing in the shop page", frameFilled && !String(hostText).includes("4111"), { frameValues });
     check("cards: in the payment frame too, a card field the person cannot see stays empty", (await frameJs<boolean>(frame, HIDDEN_EMPTY)) === true);
     check("cards: the CVV prompt names the payment frame's site when it is another site than the page's, and none for the page itself", askedSites.at(-1) === `127.0.0.1:${port}` && askedSites[0] === "", askedSites);
+
+    // 4a: the payment frame made transparent between the click and the pick: the card goes nowhere.
+    await frameJs(frame, writeForm({ numero: "", titular: "", caducidad: "", cvc: "" }));
+    const again = await clickAt(host, frameBox && fieldBox ? { x: frameBox.x + fieldBox.x, y: frameBox.y + fieldBox.y } : null, 5000, true);
+    await js(host, `document.getElementById("payframe").style.opacity = "0"; true`);
+    await ctx.autofill.fillCard(win, seeded.id);
+    const hiddenValues = await frameJs<CardValues>(frame, READ_FORM);
+    check("cards: a payment frame made transparent after the click gets no card", again && Boolean(hiddenValues) && Object.values(hiddenValues ?? {}).every((v) => v === ""), { again, hiddenValues });
+
+    // 4b: card fields inside a web component's shadow root, with no form element: listed and filled there.
+    const { wc: comp } = await open("/card-component");
+    const inComponent = (id: string): string => `document.querySelector("pay-card").shadowRoot.getElementById(${JSON.stringify(id)})`;
+    const compOpened = await clickAt(comp, await js(comp, `(() => { const r = ${inComponent("numero")}.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`));
+    const cs = dropdown.state();
+    check("cards: a click into a card number inside a web component lists the saved card", compOpened && cs?.kind === "card" && dropdownEntries(cs).some((e) => e.type === "card" && e.card.id === seeded.id), { compOpened, kind: cs?.kind });
+    pickCard(seeded.id);
+    let compValues: CardValues | null = null;
+    const compFilled = await until(async () => {
+      compValues = await js<CardValues>(comp, `({ numero: ${inComponent("numero")}.value, titular: ${inComponent("titular")}.value, caducidad: ${inComponent("caducidad")}.value, cvc: ${inComponent("cvc")}.value })`);
+      return same(compValues);
+    }, 6000);
+    check("cards: picking it fills number, name, expiry and CVV inside the web component", compFilled, compValues && { ...(compValues as CardValues), numero: (compValues as CardValues).numero.slice(-4) });
 
     // 5: sending a new card offers to save it, without a CVV; its CVV in a password field is no password to save.
     const { wc: fresh } = await open("/card-checkout-pw");

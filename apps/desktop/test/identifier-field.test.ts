@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectLoginScript, fillIdentifierScript, fillLoginByRefScript } from "../src/main/credential-scripts";
+import { detectLoginScript, fillIdentifierScript, fillLoginByRefScript } from "../src/shared/credential-scripts";
 import { dropdownMayOpen } from "../src/shared/field-dropdown";
 import { isIdentifierFacts, type IdentifierFieldFacts } from "../src/shared/identifier-field";
 

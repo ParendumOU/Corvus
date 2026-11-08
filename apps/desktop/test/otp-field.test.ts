@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectLoginScript, fillLoginByRefScript, fillLoginScript, fillOtpByRefScript, fillOtpScript } from "../src/main/credential-scripts";
+import { detectLoginScript, fillLoginByRefScript, fillLoginScript, fillOtpByRefScript, fillOtpScript } from "../src/shared/credential-scripts";
 import { isOtpFacts, otpFieldFacts, type OtpFieldFacts, type OtpInputElement } from "../src/shared/otp-field";
 
 const facts = (extra: Partial<OtpFieldFacts>): OtpFieldFacts => ({

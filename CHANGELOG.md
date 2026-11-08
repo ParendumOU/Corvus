@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.46.0
+
+### Passwords
+- **Saved logins and 2FA codes in sign-in forms inside iframes.** A click in a login or 2FA field of an embedded frame, nested frames included, offers the logins saved for that frame's own site, never the page's, and a pick fills that frame alone. When the frame belongs to another site than the page, the menu says "This form is on" that site, since the address bar shows the page's. Nothing is offered or filled in a frame that is hidden, transparent, tiny, off screen or sandboxed, and a password or code never reaches a frame that went to another page, became hidden or lost the keyboard after the click.
+- **Cards and addresses in forms built as web components** are offered and filled too, like logins already were.
+
 ## v0.45.0
 
 ### AI agents

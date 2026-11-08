@@ -2,7 +2,7 @@
  * The first step of a two-step ("identifier first") sign-in: a page that asks only for the e-mail or
  * username, and for the password on the next step (login.ionos.es, Google, Microsoft). The tab
  * preload uses this to tell a click in such a field from one in any other text field, and the
- * autofill scripts (main/credential-scripts.ts) embed both functions' source, so the probe, the fill
+ * autofill scripts (shared/credential-scripts.ts) embed both functions' source, so the probe, the fill
  * and the click decide alike. Both functions are self-contained on purpose: no imports and no outer
  * names, only what they are handed (the preload is type-checked without the DOM library, hence the
  * small structural types below).

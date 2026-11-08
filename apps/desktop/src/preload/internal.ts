@@ -1,6 +1,6 @@
 // Preload attached to every tab. It exposes window.corvusInternal only on corvus:// pages, so
 // regular web content never sees an IPC surface. The main process re-validates every call.
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webFrame, type IpcRendererEvent } from "electron";
 import { ANNOTATION_COLORS, ANNOTATION_COLOR_HEX, MAX_QUOTE_CHARS, buildAnchor, locateAnchor, type AnnotationColor } from "../shared/annotations";
 import { ANNOTATION_AGENT_CHANNEL, ANNOTATION_APPLY_CHANNEL, ANNOTATION_CREATE_CHANNEL, ANNOTATION_DELETE_CHANNEL, ANNOTATION_UPDATE_CHANNEL, type AnnotationApplyMessage, type AnnotationLabels } from "../shared/annotations-ipc";
 import { AUTOFILL_ADDRESS_CAPTURE_CHANNEL, AUTOFILL_CAPTURE_CHANNEL, AUTOFILL_CARD_CAPTURE_CHANNEL, AUTOFILL_DROPDOWN_CHANNEL, AUTOFILL_DROPDOWN_DONE_CHANNEL, AUTOFILL_FIELD_CHANNEL, AUTOFILL_IDENTIFIER_CHANNEL, type AutofillFieldKind } from "../shared/credentials-ipc";
@@ -8,9 +8,23 @@ import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-fi
 import { addressFieldFacts, classifyAddressField, isAddressForm, matchOption, planAddressFill } from "../shared/address-fields";
 import { cardFieldFacts, classifyCardField, isCardForm, matchCardOption, planCardFill } from "../shared/card-fields";
 import { isCardDataField, isCardDataForm } from "../shared/card-data-fields";
-import { AUTOFILL_FRAME_FILL_CHANNEL, AUTOFILL_FRAME_FILLED_CHANNEL, fieldShown, parseFrameFillRequest, type FrameFillRequest } from "../shared/frame-fill";
+import { AUTOFILL_WORLD_ID, detectLoginScript, fillIdentifierScript, fillLoginScript, fillOtpScript, type LoginDetection } from "../shared/credential-scripts";
+import {
+  AUTOFILL_FRAME_FILL_CHANNEL,
+  AUTOFILL_FRAME_FILLED_CHANNEL,
+  MIN_FRAME_OPACITY,
+  effectiveOpacity,
+  fieldShown,
+  newDocToken,
+  parseFrameFillRequest,
+  type FieldSight,
+  type FrameAnswer,
+  type FrameBox,
+  type FrameFillRequest,
+  type FramePlace,
+} from "../shared/frame-fill";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
-import { deepQueryAll } from "../shared/shadow-dom";
+import { deepActiveElement, deepElementFromPoint, deepQueryAll } from "../shared/shadow-dom";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 import { probePattern, type PasswordFieldClick } from "../shared/password-rules";
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
@@ -82,29 +96,111 @@ window.addEventListener(
 const FORM_FIELDS = "input:not([type=hidden]), select, textarea";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const formFieldsOf = (scope: any): any[] => Array.prototype.slice.call(scope.querySelectorAll(FORM_FIELDS), 0, 200);
+// The fields of the form a field is in: its form, else the shadow root of the web component it sits in
+// when that holds the form, else the page's fields through every open shadow root (a form whose fields
+// are each a web component of their own).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const formFieldsAround = (el: any): any[] => {
+  if (el.form) return formFieldsOf(el.form);
+  const root = el.getRootNode();
+  const own = root === document ? [] : formFieldsOf(root);
+  return own.length > 1 ? own : deepQueryAll(document, FORM_FIELDS).slice(0, 200);
+};
 // A field of a card form (shared/card-fields.ts, as the fill decides): the form has a card number field.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isCardField = (el: any): boolean => {
   if (classifyCardField(cardFieldFacts(el)) === null) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return isCardForm(formFieldsOf(el.form || document).map((f: any) => classifyCardField(cardFieldFacts(f))));
+  return isCardForm(formFieldsAround(el).map((f: any) => classifyCardField(cardFieldFacts(f))));
 };
 // A field that takes card data, password fields included (a CVV box often is one): never a login field,
 // never recorded (shared/card-data-fields.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isCardData = (el: any): boolean => isCardDataField(cardFieldFacts(el));
-// A text field of an address form (shared/address-fields.ts, as the fill script decides). A select is
+// A text field of an address form (shared/address-fields.ts, as the fill decides). A select is
 // never the one clicked: its own list opens there.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const isAddressField = (el: any): boolean => {
   if (classifyAddressField(addressFieldFacts(el)) === null) return false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return isAddressForm(formFieldsOf(el.form || document).map((f: any) => classifyAddressField(addressFieldFacts(f))));
+  return isAddressForm(formFieldsAround(el).map((f: any) => classifyAddressField(addressFieldFacts(f))));
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const usableField = (el: any): boolean => Boolean(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA") && !el.disabled && !el.readOnly;
 
 const isWeb = location.protocol === "https:" || location.protocol === "http:";
+// A web page with an origin of its own: never a sandboxed one (its origin is opaque, "null"), where
+// nothing is offered or filled. (Electron runs no tab preload in about:blank or srcdoc frames.)
+const webOrigin = /^https?:\/\//.test(location.origin);
+// This document, as the main process knows it from a field click: a fill names the document it is for,
+// so a frame that moved on to another page since the click gets nothing. Never shown to the page.
+const DOC = newDocToken((bytes) => (globalThis as unknown as { crypto: { getRandomValues(b: Uint8Array): Uint8Array } }).crypto.getRandomValues(bytes));
+
+// The password fields of a form that matter (the one at hand always does) and the part of each:
+// current password, new one or confirmation, as the autofill scripts decide (shared/password-fields.ts).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const passwordFieldsOf = (scope: any, anchor: unknown): { fields: any[]; roles: string[] } => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fields = Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).filter((el: any) => {
+    if (el === anchor) return true;
+    const r = el.getBoundingClientRect();
+    const s = document.defaultView.getComputedStyle(el);
+    return !el.disabled && !el.readOnly && r.width >= 1 && r.height >= 1 && s.visibility !== "hidden" && s.display !== "none" && !isOtpFacts(otpFieldFacts(el)) && !isCardData(el);
+  });
+  return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
+};
+// A two-step sign-in's username field (shared/identifier-field.ts, as the autofill scripts decide).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isIdentifier = (el: any): boolean =>
+  Boolean(el) && el.tagName === "INPUT" && !el.disabled && !el.readOnly && ["text", "email", "tel"].includes(String(el.getAttribute("type") || "text").toLowerCase()) && !isOtpFacts(otpFieldFacts(el)) && !isCardData(el) && isIdentifierFacts(identifierFieldFacts(el));
+
+// A click in a login field (a password field, or a text field of a form that has one) or in a
+// one-time-code field reports which kind it is and the field's box, so the main process can list the
+// saved accounts right under it. Only the kind and the box are sent.
+const TEXT_TYPES = ["text", "email", "tel", "password"];
+// A box of a row of 6 to 8 one-character boxes (one digit each).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isCodeBox = (el: any): boolean => {
+  if (el.maxLength !== 1) return false;
+  let node = el.parentElement;
+  for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+    const boxes = Array.prototype.filter.call(node.querySelectorAll("input"), (i: { maxLength: number }) => i.maxLength === 1).length;
+    if (boxes >= 6) return boxes <= 8;
+  }
+  return false;
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const loginKind = (el: any): AutofillFieldKind | null => {
+  const type = String(el.getAttribute("type") || "text").toLowerCase();
+  if (isOtpFacts(otpFieldFacts(el)) || (["text", "tel", "number"].includes(type) && isCodeBox(el))) return "otp";
+  if (!TEXT_TYPES.includes(type)) return null;
+  // A field of a web component sees the page's password fields in its own and other shadow roots too.
+  const passwords = el.form ? Array.prototype.slice.call(el.form.querySelectorAll("input[type=password]")) : deepQueryAll(document, "input[type=password]");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const loginPassword = passwords.some((p: any) => !isCardData(p));
+  return type === "password" || loginPassword || isIdentifier(el) ? "login" : null;
+};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fieldKind = (el: any): AutofillFieldKind | null => {
+  if (!usableField(el)) return null;
+  // A card field first: a security code box looks like a one-time-code box. Card fields are never
+  // password, e-mail or one-time-code fields, so logins keep theirs; card data the card fill does not
+  // write (a CVV in a password field) is no login field either.
+  if (isCardField(el)) return "card";
+  return (el.tagName === "INPUT" && !isCardData(el) ? loginKind(el) : null) ?? (isAddressField(el) ? "address" : null);
+};
+// The field the person clicked or typed in: a click in a web component's field reaches the document
+// as a click on the component itself, the field inside its shadow root heads the event's path.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const fieldOf = (e: any): unknown => (typeof e.composedPath === "function" && e.composedPath()[0]) || e.target;
+// How a field shows in this frame; the main process puts it together with where each frame up the
+// chain shows (shared/frame-fill.ts fieldOnScreen).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sightOf = (el: any): FieldSight => {
+  const r = el.getBoundingClientRect();
+  const view = document.defaultView;
+  return { box: { x: r.left, y: r.top, width: r.width, height: r.height }, shown: fieldShown(el, view), opacity: effectiveOpacity(el, view), viewWidth: view.innerWidth, viewHeight: view.innerHeight };
+};
 
 // A sent card form: number, name and expiry, so the main process can offer to save the card. The
 // security code field is recognised by its attributes only, and its value is never read.
@@ -143,15 +239,14 @@ const setFieldValue = (el: any, value: string): void => {
   el.dispatchEvent(new (document.defaultView.Event)("change", { bubbles: true }));
   el.blur();
 };
-const fillFrame = (req: FrameFillRequest): number => {
-  if (location.origin !== req.origin) return 0;
-  const active = document.activeElement;
-  const isText = (el: unknown): boolean => usableField(el);
-  const anchor = isText(active) ? active : document.elementFromPoint(req.box.x + req.box.width / 2, req.box.y + req.box.height / 2);
-  if (!isText(anchor)) return 0;
+const fillFrame = (req: Extract<FrameFillRequest, { kind: "card" | "address" }>): number => {
+  // The clicked field: it keeps the keyboard (in a web component's shadow root too), else the one at the box.
+  const active = deepActiveElement(document);
+  const anchor = usableField(active) ? active : deepElementFromPoint(document, req.box.x + req.box.width / 2, req.box.y + req.box.height / 2);
+  if (!usableField(anchor)) return 0;
   // Besides the clicked field, only fields the person can see: a page must not collect what it hides.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fields = formFieldsOf(anchor.form || document).filter((el: any) => el === anchor || (!el.disabled && !el.readOnly && fieldShown(el, document.defaultView)));
+  const fields = formFieldsAround(anchor).filter((el: any) => el === anchor || (!el.disabled && !el.readOnly && fieldShown(el, document.defaultView)));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const valueOf = (el: any): string => (el.tagName === "SELECT" ? (el.selectedIndex > 0 ? String(el.value || "") : "") : String(el.value || ""));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -182,40 +277,107 @@ const fillFrame = (req: FrameFillRequest): number => {
   });
   return filled;
 };
-if (isWeb) {
+
+// Where this frame's child frame number `index` (window.frames order) is, and whether it shows, read
+// from its frame element here: asked while a field in that frame, or in one inside it, is filled.
+const placeOf = (index: number): FramePlace | null => {
+  const view = document.defaultView;
+  const child = view.frames[index];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const el: any = child ? deepQueryAll(document, "iframe, frame").find((f: any) => f.contentWindow === child) : null;
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  const s = view.getComputedStyle(el);
+  const px = (v: string): number => parseFloat(v) || 0;
+  const scale = el.offsetWidth > 0 ? r.width / el.offsetWidth : 0;
+  return {
+    x: r.left + (el.clientLeft + px(s.paddingLeft)) * scale,
+    y: r.top + (el.clientTop + px(s.paddingTop)) * scale,
+    width: Math.max(0, el.clientWidth - px(s.paddingLeft) - px(s.paddingRight)),
+    height: Math.max(0, el.clientHeight - px(s.paddingTop) - px(s.paddingBottom)),
+    scale,
+    opacity: effectiveOpacity(el, view),
+    shown: r.width >= 2 && r.height >= 2 && s.visibility !== "hidden" && s.display !== "none",
+    sandboxed: el.hasAttribute("sandbox"),
+    viewWidth: view.innerWidth,
+    viewHeight: view.innerHeight,
+  };
+};
+// The field a fill is for: the one the person clicked here. The dropdown leaves the keyboard in it; a
+// fill moves the keyboard on, so else the field at the click's box.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const clickedField = (box: FrameBox): { el: any; kind: AutofillFieldKind } | null => {
+  const active = deepActiveElement(document);
+  const el = usableField(active) ? active : deepElementFromPoint(document, box.x + box.width / 2, box.y + box.height / 2);
+  const kind = fieldKind(el);
+  return kind ? { el, kind } : null;
+};
+// The login scripts of the top frame (shared/credential-scripts.ts), run in this frame's own autofill world.
+const inAutofillWorld = <T>(code: string): Promise<T | null> =>
+  webFrame.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code }]).then(
+    (v: unknown) => (v ?? null) as T | null,
+    () => null,
+  );
+// A request from the main process, for this document only (its origin and token): a fill the person
+// picked, a probe of the login fields before one, or where a child frame is.
+const answerFrame = async (req: FrameFillRequest): Promise<FrameAnswer> => {
+  const token = req.token;
+  if (req.kind === "place") {
+    const place = placeOf(req.index);
+    return place ? { token, filled: 0, place } : { token, filled: 0 };
+  }
+  if (location.origin !== req.origin || req.doc !== DOC) return { token, filled: 0 };
+  if (req.kind === "card" || req.kind === "address") return { token, filled: fillFrame(req) };
+  const clicked = clickedField(req.box);
+  if (!clicked) return { token, filled: 0 };
+  const sight = sightOf(clicked.el);
+  const login = clicked.kind === "login" || clicked.kind === "otp";
+  // A probe says how the field shows (a card or address fill checks that too) and, for a login or code
+  // field, what the frame's login fields are.
+  if (req.kind === "probe" && !login) return { token, filled: 0, sight };
+  if (req.kind === "probe") {
+    const found = await inAutofillWorld<LoginDetection>(detectLoginScript());
+    return { token, filled: 0, sight, found: { login: found?.hasPassword === true, identifier: found?.hasIdentifier === true, otp: found?.hasOtp === true } };
+  }
+  // A login or a 2FA code goes only into the login or code field the person clicked, while it shows.
+  if (!login || !sight.shown || sight.opacity < MIN_FRAME_OPACITY) return { token, filled: 0 };
+  if (req.kind === "login") {
+    const done = await inAutofillWorld<boolean>(req.usernameOnly ? fillIdentifierScript(req.username, { keepTyped: req.keepTyped }) : fillLoginScript(req.username, req.password, { keepTyped: req.keepTyped }));
+    return { token, filled: done === true ? 1 : 0 };
+  }
+  const written = await inAutofillWorld<number>(fillOtpScript(req.code));
+  return { token, filled: typeof written === "number" ? written : 0 };
+};
+if (webOrigin) {
   ipcRenderer.on(AUTOFILL_FRAME_FILL_CHANNEL, (_event: IpcRendererEvent, raw: unknown) => {
     const req = parseFrameFillRequest(raw);
     if (!req) return;
-    let filled = 0;
-    try {
-      filled = fillFrame(req);
-    } catch {
-      filled = 0;
-    }
-    ipcRenderer.send(AUTOFILL_FRAME_FILLED_CHANNEL, { token: req.token, filled });
+    void answerFrame(req)
+      .catch((): FrameAnswer => ({ token: req.token, filled: 0 }))
+      .then((answer) => ipcRenderer.send(AUTOFILL_FRAME_FILLED_CHANNEL, answer));
   });
 }
 
-// In a page's subframes (a payment provider's iframe), only a click in a card or address field is
-// reported, with the field's box in the frame; login and 2FA fields are left to the top frame. Typing
-// or scrolling there afterwards closes the dropdown.
-if (isWeb && window.top !== window) {
+// In a page's subframes (a payment provider's iframe, a sign-in form embedded in a page), a click in a
+// login, 2FA, card or address field is reported with the field's box in the frame, how it shows there
+// and this document's token; the main process checks where the frame shows before it offers anything.
+// Typing or scrolling there afterwards closes the dropdown.
+if (webOrigin && window.top !== window) {
   let reported = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const reportSub = (el: any): void => {
-    if (!usableField(el)) return;
-    const kind: AutofillFieldKind | null = isCardField(el) ? "card" : isAddressField(el) ? "address" : null;
+    const kind = fieldKind(el);
     if (!kind) return;
     const r = el.getBoundingClientRect();
     reported = true;
-    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height });
+    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height, doc: DOC, sight: sightOf(el) });
   };
   document.addEventListener(
     "click",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       try {
-        if (e.isTrusted && e.button === 0) reportSub(e.target);
+        if (e.isTrusted && e.button === 0) reportSub(fieldOf(e));
       } catch {
         // never let autofill break a page's own click handling
       }
@@ -227,7 +389,7 @@ if (isWeb && window.top !== window) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       try {
-        if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) reportSub(e.target);
+        if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) reportSub(fieldOf(e));
       } catch {
         // never let autofill break a page's own keys
       }
@@ -252,23 +414,6 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const hint = `${el.name || ""} ${el.id || ""} ${el.getAttribute("autocomplete") || ""} ${el.getAttribute("type") || ""}`.toLowerCase();
     return /email|user|login|account|phone|tel/.test(hint);
   };
-  // The password fields of a form that matter (the one at hand always does) and the part of each:
-  // current password, new one or confirmation, as the autofill scripts decide (shared/password-fields.ts).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const passwordFieldsOf = (scope: any, anchor: unknown): { fields: any[]; roles: string[] } => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fields = Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).filter((el: any) => {
-      if (el === anchor) return true;
-      const r = el.getBoundingClientRect();
-      const s = document.defaultView.getComputedStyle(el);
-      return !el.disabled && !el.readOnly && r.width >= 1 && r.height >= 1 && s.visibility !== "hidden" && s.display !== "none" && !isOtpFacts(otpFieldFacts(el)) && !isCardData(el);
-    });
-    return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
-  };
-  // A two-step sign-in's username field (shared/identifier-field.ts, as the autofill scripts decide).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isIdentifier = (el: any): boolean =>
-    Boolean(el) && el.tagName === "INPUT" && !el.disabled && !el.readOnly && ["text", "email", "tel"].includes(String(el.getAttribute("type") || "text").toLowerCase()) && !isOtpFacts(otpFieldFacts(el)) && !isCardData(el) && isIdentifierFacts(identifierFieldFacts(el));
   // The username typed on such a step, as it is sent (the form's submit, Enter) or left changed: the
   // next step may ask only for the password, and the save prompt then needs it. Only the username.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -345,42 +490,6 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     true,
   );
 
-  // A click in a login field (a password field, or a text field of a form that has one) or in a
-  // one-time-code field reports which kind it is and the field's box, so the main process can list the
-  // saved accounts right under it. Only the kind and the box are sent.
-  const TEXT_TYPES = ["text", "email", "tel", "password"];
-  // A box of a row of 6 to 8 one-character boxes (one digit each).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isCodeBox = (el: any): boolean => {
-    if (el.maxLength !== 1) return false;
-    let node = el.parentElement;
-    for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
-      const boxes = Array.prototype.filter.call(node.querySelectorAll("input"), (i: { maxLength: number }) => i.maxLength === 1).length;
-      if (boxes >= 6) return boxes <= 8;
-    }
-    return false;
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const loginKind = (el: any): AutofillFieldKind | null => {
-    const type = String(el.getAttribute("type") || "text").toLowerCase();
-    if (isOtpFacts(otpFieldFacts(el)) || (["text", "tel", "number"].includes(type) && isCodeBox(el))) return "otp";
-    if (!TEXT_TYPES.includes(type)) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // A field of a web component sees the page's password fields in its own and other shadow roots too.
-    const passwords = el.form ? Array.prototype.slice.call(el.form.querySelectorAll("input[type=password]")) : deepQueryAll(document, "input[type=password]");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const loginPassword = passwords.some((p: any) => !isCardData(p));
-    return type === "password" || loginPassword || isIdentifier(el) ? "login" : null;
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fieldKind = (el: any): AutofillFieldKind | null => {
-    if (!usableField(el)) return null;
-    // A card field first: a security code box looks like a one-time-code box. Card fields are never
-    // password, e-mail or one-time-code fields, so logins keep theirs; card data the card fill does not
-    // write (a CVV in a password field) is no login field either.
-    if (isCardField(el)) return "card";
-    return (el.tagName === "INPUT" && !isCardData(el) ? loginKind(el) : null) ?? (isAddressField(el) ? "address" : null);
-  };
   // A password field: its part in its form, whether it holds something (never what) and what it takes.
   // Its pattern is probed here, with the page's own pattern matching (on a detached copy of the field),
   // so a pattern that takes ages to match only slows this page.
@@ -408,19 +517,13 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       },
     };
   };
-  // The field the person clicked or typed in: a click in a web component's field reaches the document
-  // as a click on the component itself, the field inside its shadow root heads the event's path.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fieldOf = (e: any): unknown => (typeof e.composedPath === "function" && e.composedPath()[0]) || e.target;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const report = (el: any): void => {
     const kind = fieldKind(el);
     if (!kind) return;
-    // Logins and 2FA codes are found and filled inside web components; cards and addresses not yet.
-    if ((kind === "card" || kind === "address") && el.getRootNode() !== document) return;
     const r = el.getBoundingClientRect();
     const password = kind === "login" && String(el.getAttribute("type") || "").toLowerCase() === "password" ? passwordFacts(el) : undefined;
-    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height, password });
+    ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height, password, doc: DOC });
   };
   document.addEventListener(
     "click",

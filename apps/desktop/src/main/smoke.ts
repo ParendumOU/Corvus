@@ -45,6 +45,7 @@ import { runTotpEditSmoke } from "./smoke-totp-edit";
 import { runPasswordTablesSmoke } from "./smoke-password-tables";
 import { runAddressesSmoke, serveAddressesSmokeRoute } from "./smoke-addresses";
 import { runCardsSmoke, serveCardsSmokeRoute } from "./smoke-cards";
+import { runFrameFillSmoke, serveFrameFillSmokeRoute } from "./smoke-frame-fill";
 import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
 import { runSimilarLoginsSmoke } from "./smoke-similar-logins";
 import { runPasswordGeneratorSmoke, servePasswordGeneratorSmokeRoute } from "./smoke-pwgen";
@@ -119,6 +120,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveOtpFillSmokeRoute(req, res)) return;
     if (serveAddressesSmokeRoute(req, res)) return;
     if (serveCardsSmokeRoute(req, res)) return;
+    if (serveFrameFillSmokeRoute(req, res)) return;
     if (servePasswordGeneratorSmokeRoute(req, res)) return;
     if (serveIdentifierFirstSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
@@ -299,6 +301,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runCardsSmoke(ctx, { url, win, check, capture });
       return;
     }
+    // CORVUS_SMOKE_ONLY=framefill: only the checks of logins and 2FA codes in iframes (the frame's own logins, hidden, sandboxed and moved frames refused).
+    if (process.env.CORVUS_SMOKE_ONLY === "framefill") {
+      await runFrameFillSmoke(ctx, { url, win, check });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=pwgen: only the checks of the strong password generator under password fields (with screenshots).
     // CORVUS_SMOKE_ONLY=idfirst: only the checks of two-step ("identifier first") sign-ins (with screenshots).
     if (process.env.CORVUS_SMOKE_ONLY === "idfirst") {
@@ -466,6 +473,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runOtpFillSmoke(ctx, { url, win, check, capture });
     await runAddressesSmoke(ctx, { url, win, check, capture });
     await runCardsSmoke(ctx, { url, win, check, capture });
+    await runFrameFillSmoke(ctx, { url, win, check });
     await runSimilarLoginsSmoke(ctx, { url, win, check, capture });
     await runPasswordGeneratorSmoke(ctx, { url, win, check });
     await runIdentifierFirstSmoke(ctx, { url, win, check });

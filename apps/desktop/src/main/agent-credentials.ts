@@ -16,7 +16,7 @@ import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { totpCode } from "../shared/totp";
 import { approvalReason, pickAgentLogin, signsInWithoutAsking, type CredentialUse } from "./agent-credential-policy";
 import { askNativeApproval } from "./approval-dialog";
-import { AUTOFILL_WORLD_ID, fillLoginByRefScript, fillOtpByRefScript, type FillOutcome } from "./credential-scripts";
+import { AUTOFILL_WORLD_ID, fillLoginByRefScript, fillOtpByRefScript, type FillOutcome } from "../shared/credential-scripts";
 import type { AppContext } from "./context";
 import type { LoginRecord } from "./login-sources";
 import { pageOf } from "./tab-page";
