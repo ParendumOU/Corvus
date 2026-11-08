@@ -175,11 +175,11 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "groups.close": (w, id) => w.closeGroup(str(id, "group")),
     "groups.move": (w, id, toIndex) => w.moveGroup(str(id, "group"), num(toIndex, "index")),
     "groups.newTab": (w, id) => w.newTabInGroup(str(id, "group")),
-    "omnibox.suggest": async (w, input) => {
+    "omnibox.suggest": async (w, input, inline) => {
       const text = str(input, "input", 2048);
       // Pages just visited in the browsers Corvus follows come in first (never for a private window).
       if (!w.isPrivate) await ctx.liveHistory.fresh(w.profile);
-      const list = buildSuggestions(text, w.profile.history.all(), w.profile.bookmarks.list(), Date.now(), w.profile.siteSearch.list());
+      const list = buildSuggestions(text, w.profile.history.all(), w.profile.bookmarks.list(), Date.now(), w.profile.siteSearch.list(), { inline: inline === true });
       const icons = await ctx.browserIcons.icons(list.flatMap((s) => (s.source ? [s.source] : [])));
       return list.map((s) => (s.source && icons[s.source] ? { ...s, sourceIcon: icons[s.source] } : s));
     },

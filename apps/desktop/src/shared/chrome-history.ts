@@ -40,7 +40,7 @@ export const toHistoryItem = (e: HistoryRecord): ChromeHistoryItem => ({
   title: e.title,
   lastVisitTime: e.visitedAt,
   visitCount: e.visitCount,
-  typedCount: 0,
+  typedCount: e.typedCount ?? 0,
 });
 
 /** chrome.history.search(): every word in the title or address, last visit in the window, newest first. */

@@ -1,10 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import type { CredentialMatch } from "../../shared/credentials";
 import type { AutofillBarState } from "../../shared/credentials-ipc";
 import { GROUP_COLOR_HEX, type TabView } from "../../shared/ipc";
 import { isNewTabUrl } from "../../shared/internal-urls";
 import { displayUrl, searchQueryOf } from "../../shared/omnibox";
-import type { Suggestion } from "../../shared/suggest";
+import { keepCompletion, withoutInline, type Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
 import { languageName, type TranslateBarState } from "../../shared/translate";
 import { CorvusMark, IconBook, IconCard, IconGlobe, IconLocation, IconLock, IconSearch, IconSparkle, IconStar, IconTranslate, IconWarning, IconZoom } from "../common/icons";
@@ -148,6 +148,11 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     const [matches, setMatches] = useState<CredentialMatch[]>([]);
     const request = useRef(0);
     const typed = useRef(false);
+    // Inline autocomplete in the field: the text the person typed and the address filled in after it
+    // (selected, so the next key replaces it), like Chrome.
+    const completion = useRef<{ typed: string; fill: string } | null>(null);
+    // Selection to set once React has put a filled-in value in the field.
+    const selection = useRef<[number, number] | null>(null);
     const url = tab?.url ?? "";
     const open = focused && suggestions.length > 0;
     const showAutofill = Boolean(tab) && !focused && (autofill.available || autofill.canSave || autofill.addressSave !== null || autofill.cardSave !== null);
@@ -203,10 +208,46 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
     // The autofill panel also hangs below the toolbar, over the page: it needs the overlay too.
     useEffect(() => onOpenChange(open || autofillOpen), [open, autofillOpen, onOpenChange]);
 
+    useLayoutEffect(() => {
+      const range = selection.current;
+      const input = inputRef.current;
+      if (!range || !input) return;
+      selection.current = null;
+      if (document.activeElement === input) input.setSelectionRange(range[0], range[1]);
+    });
+
     const reset = (): void => {
       request.current++;
+      completion.current = null;
       setSuggestions([]);
       setSelected(0);
+    };
+
+    /** Shows the typed text with `fill` (the address it completes to) filled in after it and selected, or just the text. */
+    const fillIn = (text: string, fill: string | null): void => {
+      completion.current = fill ? { typed: text, fill } : null;
+      selection.current = [text.length, (fill ?? text).length];
+      setValue(fill ?? text);
+    };
+
+    /**
+     * Fills in the address the first suggestion completes the text to, while the field still holds just
+     * what was typed (with the completion kept from the last key, if any) and the caret at its end;
+     * returns the list to show, without the inline row first when it cannot be filled in.
+     */
+    const applyInline = (text: string, list: Suggestion[]): Suggestion[] => {
+      const input = inputRef.current;
+      if (!input) return withoutInline(list);
+      const rest = list[0]?.inline;
+      const shown = completion.current;
+      const field = input.value;
+      const untouched = input.selectionStart === text.length && input.selectionEnd === field.length && (field === text || (shown?.typed === text && field === shown.fill));
+      if (untouched) {
+        fillIn(text, rest === undefined ? null : text + rest);
+        return list;
+      }
+      // The person took the completion (Right, End): the page stays first while the field shows its address.
+      return rest !== undefined && field === text + rest ? list : withoutInline(list);
     };
 
     useImperativeHandle(ref, () => ({
@@ -223,15 +264,15 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       },
     }));
 
-    const updateSuggestions = (text: string): void => {
+    const updateSuggestions = (text: string, inline: boolean): void => {
       const id = ++request.current;
       if (!text.trim()) {
         setSuggestions([]);
         return;
       }
-      void api.call("omnibox.suggest", text).then((list) => {
+      void api.call("omnibox.suggest", text, inline).then((list) => {
         if (id !== request.current) return;
-        setSuggestions(list);
+        setSuggestions(applyInline(text, list));
         setSelected(0);
       });
     };
@@ -253,7 +294,8 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       } else if (e.key === "Enter") {
         e.preventDefault();
         const choice = suggestions[selected];
-        commit(choice && selected > 0 ? choice.url : value);
+        // The first row is what was typed, unless it is the page filled in (inline autocomplete).
+        commit(choice && (selected > 0 || choice.inline !== undefined) ? choice.url : value);
       } else if (e.key === "Escape") {
         e.preventDefault();
         if (suggestions.length > 0) {
@@ -306,8 +348,22 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
             }}
             onChange={(e) => {
               typed.current = true;
-              setValue(e.target.value);
-              updateSuggestions(e.target.value);
+              const input = e.target;
+              const text = input.value;
+              const { inputType, isComposing } = e.nativeEvent as InputEvent;
+              // Only typing at the end completes the address: never a paste, a deletion (Backspace takes
+              // the completion away first) or text an IME is still composing.
+              const inline = inputType === "insertText" && !isComposing && input.selectionStart === text.length && input.selectionEnd === text.length;
+              const kept = inline ? keepCompletion(completion.current?.fill, text) : null;
+              if (kept) {
+                fillIn(text, kept);
+              } else {
+                completion.current = null;
+                setValue(text);
+                // Until the new suggestions arrive, Enter goes where the text says, not to the page no longer filled in.
+                if (suggestions[0]?.inline !== undefined) setSuggestions(withoutInline(suggestions));
+              }
+              updateSuggestions(text, inline);
             }}
             onKeyDown={onKeyDown}
           />
@@ -372,7 +428,7 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
                 onMouseMove={hoverSelect(i)}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  commit(i === 0 ? value : s.url);
+                  commit(i === 0 && s.inline === undefined ? value : s.url);
                 }}
               >
                 <span className="sugg-icon">

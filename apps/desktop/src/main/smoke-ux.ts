@@ -131,6 +131,83 @@ export async function runUxSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<vo
   await runSettingsNavSmoke(h);
   await runSettingsLanguageSmoke(ctx, h);
   await runHomeButtonSmoke(ctx, h);
+  await runInlineAutocompleteSmoke(h);
+}
+
+function typeKeys(wc: WebContents, text: string): void {
+  for (const ch of text) {
+    wc.sendInputEvent({ type: "keyDown", keyCode: ch });
+    wc.sendInputEvent({ type: "char", keyCode: ch });
+    wc.sendInputEvent({ type: "keyUp", keyCode: ch });
+  }
+}
+
+function pressKey(wc: WebContents, keyCode: string): void {
+  wc.sendInputEvent({ type: "keyDown", keyCode });
+  wc.sendInputEvent({ type: "keyUp", keyCode });
+}
+
+/**
+ * Inline autocomplete: typing the start of a site's address fills in the rest, selected, with that
+ * site first in the list; typing on keeps it, Backspace removes it without filling it in again, and
+ * Enter opens the address filled in.
+ */
+async function runInlineAutocompleteSmoke(h: UxSmokeHelpers): Promise<void> {
+  const { win, check } = h;
+  const chrome = win.chrome.webContents;
+  const history = win.profile.history;
+  const site = "https://inline-smoke.example.com/";
+  history.recordVisit(site, "Inline smoke home", true);
+  history.recordVisit(`${site}login`, "Inline smoke login");
+  history.recordVisit(`${site}login`, "Inline smoke login");
+  const seeded = history.all().filter((e) => e.url.startsWith(site)).map((e) => e.id);
+  const tab = win.createTab(`${h.url}ux-plain?inline`, { activate: true });
+  const field = `(() => { const i = document.querySelector('.omni-input'); const rows = [...document.querySelectorAll('.omni-suggestions li')];
+    return { value: i.value, start: i.selectionStart, end: i.selectionEnd, rows: rows.slice(0, 2).map((r) => r.textContent), first: rows[0]?.getAttribute('aria-selected') }; })()`;
+  type Field = { value: string; start: number; end: number; rows: string[]; first: string | null };
+  const read = async (): Promise<Field> => (await chrome.executeJavaScript(field)) as Field;
+  try {
+    if (tab.view.webContents.isLoading()) await waitForLoad(tab.view.webContents);
+    chrome.focus();
+    win.sendCommand({ type: "focus-omnibox", selectAll: true });
+    await waitForJs(chrome, "document.activeElement?.classList.contains('omni-input') && document.hasFocus()");
+    await sleep(150);
+
+    typeKeys(chrome, "inline-sm");
+    const filled = await waitForJs(chrome, "document.querySelector('.omni-input').value === 'inline-smoke.example.com'");
+    const first = await read();
+    await h.capture("inline-autocomplete-filled", chrome);
+    check(
+      "inline autocomplete: fills in the site, the rest selected, the site first and preselected above the AI search",
+      filled && first.start === 9 && first.end === 24 && (first.rows[0] ?? "").includes("Inline smoke home") && first.first === "true" && (first.rows[1] ?? "").includes("Search with Corvus AI"),
+      first,
+    );
+
+    typeKeys(chrome, "o");
+    await sleep(60);
+    const kept = await read();
+    check("inline autocomplete: typing on along the address keeps it filled in", kept.value === "inline-smoke.example.com" && kept.start === 10 && kept.end === 24, kept);
+
+    pressKey(chrome, "Backspace");
+    await sleep(400);
+    const removed = await read();
+    await h.capture("inline-autocomplete-backspace", chrome);
+    check(
+      "inline autocomplete: Backspace removes the completion and does not fill it in again",
+      removed.value === "inline-smo" && removed.start === 10 && removed.end === 10 && (removed.rows[0] ?? "").includes("Search with Corvus AI"),
+      removed,
+    );
+
+    typeKeys(chrome, "k");
+    await waitForJs(chrome, "document.querySelector('.omni-input').value === 'inline-smoke.example.com'");
+    pressKey(chrome, "Return");
+    const opened = await waitFor(() => tab.url === site);
+    check("inline autocomplete: Enter opens the address filled in", Boolean(opened), tab.url);
+  } finally {
+    win.sendCommand({ type: "close-overlays" });
+    history.remove(seeded);
+    win.closeTab(tab.id);
+  }
 }
 
 /** The home button sits next to reload and opens the home page chosen in Settings. */
@@ -426,7 +503,8 @@ async function runFocusSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> 
     chrome.sendInputEvent({ type: "keyUp", keyCode: ch });
   }
   await sleep(200);
-  const typed = await chrome.executeJavaScript("document.querySelector('.omni-input')?.value");
+  // Only the typed part: inline autocomplete may fill in a site visited earlier, selected after it.
+  const typed = await chrome.executeJavaScript("(() => { const i = document.querySelector('.omni-input'); return i?.value.slice(0, i.selectionStart ?? undefined); })()");
   check("typing after a new tab goes into the omnibox", typed === "corvus", typed);
   win.sendCommand({ type: "close-overlays" });
   await sleep(150);

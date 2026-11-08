@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.44.0
+
+### Address bar
+- **Inline autocomplete, like Chrome and Brave.** Typing the start of a site's address fills in the rest in the field, selected: "edge" shows "edge" plus a selected ".example.com", and Enter opens it. That site becomes the first, preselected suggestion, above the AI search. Until you type a "/", it completes to the site's root, even when you only visited deeper pages. After a "/" it completes a whole address. The site or page is picked by frecency: visits weighed by how recent they are, with addresses you typed in the address bar counting more. Only sites you typed, bookmarked or went back to are filled in, never one seen once through a link. Typing on keeps the completion and Backspace removes it without filling it in again. Nothing is filled in while you paste, compose with an IME or edit before the end of the text.
+
 ## v0.43.0
 
 ### Profiles

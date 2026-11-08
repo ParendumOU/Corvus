@@ -225,8 +225,9 @@ export class HistoryStore {
     return this.file.get();
   }
 
-  recordVisit(url: string, title: string): void {
-    const next = recordVisit(this.file.get(), { url, title }, crypto.randomUUID(), Date.now());
+  /** `typed`: the person typed the address in the address bar (see HistoryRecord.typedCount). */
+  recordVisit(url: string, title: string, typed = false): void {
+    const next = recordVisit(this.file.get(), { url, title, typed }, crypto.randomUUID(), Date.now());
     this.file.set(next);
     this.changes.emit();
     const entry = next[0];

@@ -9,30 +9,38 @@ export interface HistoryRecord extends HistoryEntry {
    * an entry stays on this computer (sync leaves it out) until Corvus itself visits the page.
    */
   source?: string;
+  /**
+   * Visits the person started by typing the address in the address bar (or taking its inline
+   * autocomplete): they weigh more in what it fills in. Kept on this computer only, never synced.
+   */
+  typedCount?: number;
 }
 
 export const MAX_HISTORY_ENTRIES = 20_000;
 
 export function recordVisit(
   list: HistoryRecord[],
-  visit: { url: string; title: string },
+  visit: { url: string; title: string; typed?: boolean },
   id: string,
   now: number,
   max = MAX_HISTORY_ENTRIES,
 ): HistoryRecord[] {
+  const typed = visit.typed ? 1 : 0;
   const existing = list.find((e) => e.url === visit.url);
   if (existing) {
     // A page known only from another browser becomes Corvus's own, without that browser's visits.
     const { source, ...own } = existing;
+    const typedCount = (source ? 0 : (existing.typedCount ?? 0)) + typed;
     const updated: HistoryRecord = {
       ...own,
       title: visit.title || existing.title,
       visitedAt: now,
       visitCount: source ? 1 : existing.visitCount + 1,
+      ...(typedCount > 0 ? { typedCount } : {}),
     };
     return [updated, ...list.filter((e) => e.id !== existing.id)];
   }
-  const entry: HistoryRecord = { id, url: visit.url, title: visit.title, visitedAt: now, visitCount: 1 };
+  const entry: HistoryRecord = { id, url: visit.url, title: visit.title, visitedAt: now, visitCount: 1, ...(typed ? { typedCount: typed } : {}) };
   const next = [entry, ...list];
   return next.length > max ? prune(next, max) : next;
 }
@@ -209,7 +217,9 @@ export function applySyncedHistory(
     const current = existing && !existing.source ? toSyncedHistory(existing) : null;
     const merged = current ? mergeHistory(current, entry) : entry;
     if (current && sameEntry(merged, current)) continue;
-    byUrl.set(url, { id: existing?.id ?? newId(), ...merged, url });
+    // Typed visits are this computer's own: another device's version of the page keeps them.
+    const typedCount = existing && !existing.source ? existing.typedCount : undefined;
+    byUrl.set(url, { id: existing?.id ?? newId(), ...merged, url, ...(typedCount ? { typedCount } : {}) });
     changed = true;
   }
   if (!changed) return list;

@@ -34,6 +34,7 @@ import {
   type InternalPage,
 } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
+import { addressSite } from "../shared/suggest";
 import { siteSearchUrl } from "../shared/site-search";
 import { linkKind } from "../shared/external-apps";
 import { pageBaseColor } from "../shared/page-base";
@@ -167,6 +168,8 @@ export interface TabRuntime {
   redirects?: RedirectChain;
   /** The address of the page it shows, once one committed (`url` runs ahead to an address that is loading). */
   committedUrl?: string;
+  /** Site (host without "www.") of the address the person just typed in the address bar: its next page there counts as typed. */
+  typedSite?: string;
   /** The person's last click or key press in it, not counting input while an agent acts (epoch ms). */
   personInputAt?: number;
   /** The personInputAt that last opened a PDF in a new tab next to it: each input opens one at most. */
@@ -1309,7 +1312,10 @@ export class BrowserWindowCtl {
       this.ctx.secretFills.clear(tab.id);
       this.applySavedZoom(tab);
       if (tab.find) tab.find = { ...tab.find, active: 0, matches: 0 };
-      if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, "");
+      // The page an address typed in the address bar led to, redirects within that site included.
+      const typed = tab.typedSite !== undefined && tab.typedSite === addressSite(url);
+      delete tab.typedSite;
+      if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, "", typed);
       push();
     });
     wc.on("did-finish-load", () => {
@@ -2105,6 +2111,12 @@ export class BrowserWindowCtl {
   navigateInput(id: TabId, input: string): void {
     // A search shortcut's keyword first ("yt cats") searches that site.
     const url = siteSearchUrl(input, this.profile.siteSearch.list()) ?? intentToUrl(classifyOmnibox(input));
+    const tab = this.tabs.get(id);
+    if (tab) {
+      const site = addressSite(url);
+      if (site) tab.typedSite = site;
+      else delete tab.typedSite;
+    }
     this.loadUrl(id, url);
   }
 

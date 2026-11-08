@@ -175,7 +175,8 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "groups.close"(groupId: GroupId): void;
   "groups.move"(groupId: GroupId, toIndex: number): void;
   "groups.newTab"(groupId: GroupId): void;
-  "omnibox.suggest"(input: string): Suggestion[];
+  /** `inline`: the address bar may fill in the best page (inline autocomplete), which then comes first. */
+  "omnibox.suggest"(input: string, inline?: boolean): Suggestion[];
   "bookmarks.toggleActive"(): boolean;
   /** A page dropped on the bookmarks bar (the address bar's site chip, or a link), at `index`. */
   "bookmarks.addToBar"(url: string, title: string, index: number): boolean;
