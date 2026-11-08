@@ -75,7 +75,7 @@ export async function runSplitSmoke(_ctx: unknown, h: SplitSmokeHelpers): Promis
 
   // Omnibox/navigation acts on the focused pane only.
   win.navigateInput(win.activeTab()?.id ?? right.id, `${url}?split=navigated`);
-  await sleep(500);
+  await waitFor(() => right.view.webContents.getURL().includes("split=navigated"), 20_000);
   check(
     "navigation targets the focused pane, leaves the other untouched",
     right.view.webContents.getURL().includes("split=navigated") && left.view.webContents.getURL().includes("split=left"),

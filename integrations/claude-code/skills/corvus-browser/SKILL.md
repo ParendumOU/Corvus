@@ -23,7 +23,7 @@ The user chooses what you may do (Corvus → Settings → AI agents). Tools you 
 
 1. **Look before acting.** Call `page_snapshot` first — it returns the page's text plus interactive elements with stable `ref` ids (role, name, value). It is far cheaper in tokens than a screenshot. Use `screenshot` only when layout/visuals matter or when refs aren't enough, then act by coordinates (`click_at`, `type_text` after `click_at`, `scroll_at`).
 2. **Act by ref when you can.** `click({ref})`, `type_text`, `select_option`, `check`, `focus`, and `fill_form` (many fields at once) take refs from the latest snapshot. Re-snapshot after the page changes — refs can go stale.
-3. **Wait deliberately.** After a navigation or click that loads content, use `wait_for` (text / ref / url / network idle) or `tab_wait_load` instead of guessing.
+3. **Wait deliberately.** After a navigation or click that loads content, use `wait_for` (text / ref / url / network idle) or `tab_wait_load` instead of guessing. After a submit that updates one element (a status, a counter), `wait_for` with its `ref` or `selector` and `textChanged` set to the text you last saw.
 4. **Extract, don't scrape raw.** `extract` returns clean main-content markdown, tables as JSON, links and metadata. Prefer it over `get_html` for reading.
 5. **Search the web** with `web_search` (Corvus's AI search: ranked results + a short cited answer). Use it to find pages, then open the ones you need.
 
@@ -33,7 +33,7 @@ Work in tabs of your own and leave the user's alone: they may be typing in their
 
 ## Dialogs, downloads, uploads
 
-- A page that opens `alert`/`confirm` waits for an answer: `page_snapshot` shows the question (`dialog`), other actions on that tab are refused, and `handle_dialog` answers it (the user can also answer it in the browser). Accepting a question that spends money asks the user first. Corvus answers `prompt()` with Cancel by itself.
+- A page that opens `alert`/`confirm`/`prompt` waits for an answer: `page_snapshot` shows the question (`dialog`), other actions on that tab are refused, and `handle_dialog` answers it, with `promptText` for a `prompt()` (accepting without it answers the page's default text). The user can also answer it in the browser. Accepting a question that spends money asks the user first.
 - `upload_file` (Full) sets a file input from a local path the user gave you.
 - `pdf` (Full) saves the current page to the Downloads folder.
 - `wait_for_download` (Full) waits after a click that starts a download until the file is complete, and returns its path. Filter with `urlContains` or `filenameContains` when several downloads run. `blocked` means Corvus holds the file (a program, for example) until the user keeps or discards it: tell the user, do not retry.
@@ -70,4 +70,4 @@ A custom widget is HTML + CSS + JavaScript run in a sandbox with no network: dec
 
 ## Token economy
 
-Snapshots and extracts accept a `maxChars` cap and default to viewport-sized output. Keep screenshots for when you truly need pixels. One search is one small-model call; don't loop it.
+Snapshots and extracts accept a `maxChars` cap and default to viewport-sized output. With a dialog or drawer open, `page_snapshot` with `within` (its ref or a CSS selector such as `[role=dialog]`) reads only that container, and `changes: true` after an action returns only what changed since your last snapshot of the tab. Switches, checkboxes and radios show `="checked"`/`="unchecked"`; toggles show `[pressed]`, `[expanded]`/`[collapsed]`, `[selected]`. Keep screenshots for when you truly need pixels, and then prefer `mode: "element"` with a `ref` or `selector`, a low `scale` and JPEG: image cost follows the pixel size. One search is one small-model call; don't loop it.

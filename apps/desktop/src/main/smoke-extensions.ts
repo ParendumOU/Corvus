@@ -21,8 +21,14 @@ interface ProbeEvent {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Every wait here is for something that has to happen, so each gets at least WAIT_FLOOR_MS: on a busy
+ * machine it can take far longer than on an idle one, and a condition that holds returns at once.
+ */
+const WAIT_FLOOR_MS = 20_000;
+
 async function waitFor<T>(fn: () => T | Promise<T>, timeoutMs: number, intervalMs = 200): Promise<T | undefined> {
-  const end = Date.now() + timeoutMs;
+  const end = Date.now() + Math.max(timeoutMs, WAIT_FLOOR_MS);
   while (Date.now() < end) {
     try {
       const value = await fn();

@@ -95,9 +95,9 @@ function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function poll(fn: () => boolean, tries = 40): Promise<boolean> {
+async function poll(fn: () => boolean | Promise<boolean>, tries = 40): Promise<boolean> {
   for (let i = 0; i < tries; i++) {
-    if (fn()) return true;
+    if (await fn()) return true;
     await delay(150);
   }
   return fn();
@@ -716,8 +716,11 @@ async function keepassSmoke(ctx: AppContext, base: string, { url, win, check, ca
 
     // The passwords page lists the database and the entry, without the password.
     const page = win.createTab("corvus://passwords");
-    await delay(1400);
-    const pageText = String(await page.view.webContents.executeJavaScript(`document.getElementById("keepass")?.innerText ?? ""`));
+    let pageText = "";
+    await poll(async () => {
+      pageText = String(await page.view.webContents.executeJavaScript(`document.getElementById("keepass")?.innerText ?? ""`).catch(() => ""));
+      return pageText.includes("Smoke vault") && pageText.includes("Smoke site");
+    }, 100);
     check("corvus://passwords shows the unlocked KeePass database", pageText.includes("Smoke vault") && pageText.includes("Smoke site") && !pageText.includes(KP_PASSWORD), {
       hasDb: pageText.includes("Smoke vault"),
     });

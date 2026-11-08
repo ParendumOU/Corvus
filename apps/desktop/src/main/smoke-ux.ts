@@ -431,6 +431,13 @@ async function runPageBaseSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<voi
   await sleep(200);
 }
 
+/** A click into a page as the window delivers one: the page's view takes focus, then gets the click. */
+function clickInto(wc: WebContents): void {
+  wc.focus();
+  wc.sendInputEvent({ type: "mouseDown", x: 20, y: 300, button: "left", clickCount: 1 });
+  wc.sendInputEvent({ type: "mouseUp", x: 20, y: 300, button: "left", clickCount: 1 });
+}
+
 /** A new tab (any way it is opened) leaves the caret in the omnibox, also once its page has loaded. */
 async function runFocusSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> {
   const { url, check } = h;
@@ -442,6 +449,18 @@ async function runFocusSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> 
   await sleep(300);
   const firstFocus = await omniboxFocus(win);
   check("new tab focuses the omnibox: new window", firstTab !== null && firstFocus.ok, firstFocus);
+  if (firstTab) {
+    // A new window activating late on a busy computer hands focus to its new tab page by itself: the
+    // address bar takes it back. A click in the page (focus, then its input, as a real click) keeps it.
+    const ntp = firstTab.view.webContents;
+    ntp.focus();
+    let regained = await omniboxFocus(win);
+    for (const end = Date.now() + 5000; !regained.ok && Date.now() < end; regained = await omniboxFocus(win)) await sleep(50);
+    check("new tab focuses the omnibox: focus the new tab page took by itself goes back to the omnibox", regained.ok, regained);
+    clickInto(ntp);
+    await sleep(600);
+    check("new tab focuses the omnibox: a click in the new tab page keeps the keyboard there", ntp.isFocused() && !win.chrome.webContents.isFocused(), { page: ntp.isFocused(), chrome: win.chrome.webContents.isFocused() });
+  }
 
   const chrome = win.chrome.webContents;
   const web = win.createTab(`${url}ux-plain`);
@@ -512,7 +531,7 @@ async function runFocusSmoke(ctx: AppContext, h: UxSmokeHelpers): Promise<void> 
   // The user can still click into the new tab page once it has loaded.
   const ntp = win.activeTab();
   if (ntp && isNewTabUrl(ntp.url)) {
-    ntp.view.webContents.focus();
+    clickInto(ntp.view.webContents);
     await sleep(300);
     check("a loaded new tab page keeps focus when clicked into", ntp.view.webContents.isFocused() && !chrome.isFocused());
   }

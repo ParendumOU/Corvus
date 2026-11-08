@@ -72,12 +72,16 @@ export interface SnapshotOptions {
   /** Include the main text (default true). */
   text?: boolean;
   maxElements?: number;
+  /** Only this container's text and elements: an element ref ("e12") or a CSS selector (first match). */
+  within?: string;
 }
 
 export interface CaptureOptions {
   mode?: "viewport" | "full" | "element";
   /** Element ref for mode "element". */
   ref?: string;
+  /** CSS selector for mode "element" (its first match), instead of a ref. */
+  selector?: string;
   /** Output pixels per CSS pixel, 0.1-2. Default 1. */
   scale?: number;
   format?: "png" | "jpeg";
@@ -142,6 +146,11 @@ export interface WaitCondition {
   ref?: string;
   selector?: string;
   state?: "visible" | "hidden" | "attached" | "detached";
+  /**
+   * With ref or selector: the element's text (or a field's value) differs from this text, or with
+   * true from what it was when the wait began.
+   */
+  textChanged?: boolean | string;
   /** URL contains this string, or matches it as a glob when it contains "*". */
   url?: string;
   /** No network requests in flight for 500 ms. */

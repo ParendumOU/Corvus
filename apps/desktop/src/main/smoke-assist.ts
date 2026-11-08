@@ -290,6 +290,8 @@ export async function runAssistSmoke(ctx: AppContext, h: Helpers): Promise<void>
     await panel.executeJavaScript("[...document.querySelectorAll('.msg-actions .msg-copy')].find((b) => b.innerText.includes('Retry'))?.click()");
     const retried = await poll(panel, "document.querySelectorAll('.question').length === 1 && document.querySelectorAll('.msg.ask').length === 1 && document.querySelector('.msg.ask .code-block') && document.querySelector('.msg-actions')");
     check("retry asks the last question again and the new answer replaces the old one", retried, await panel.executeJavaScript("document.querySelectorAll('.msg.ask').length"));
+    // Edit shows once the question has stopped streaming, which can come after the answer's actions.
+    await poll(panel, "document.querySelector('.question-edit')", 15_000);
     await panel.executeJavaScript("document.querySelector('.question-edit')?.click()");
     const editing = await poll(panel, "document.querySelectorAll('.question').length === 0 && document.querySelector('.composer textarea')?.value === 'How do I install it? Keep it formatted'");
     check("edit takes the last question back into the composer", editing, await panel.executeJavaScript("document.querySelector('.composer textarea')?.value ?? ''"));

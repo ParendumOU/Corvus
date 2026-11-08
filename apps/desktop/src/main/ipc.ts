@@ -19,6 +19,7 @@ import { clampInterval, isWatchableUrl } from "../shared/page-watch";
 import type { ScheduleInput } from "../shared/schedule-ipc";
 import type { SiteProfileInput, SiteProfileMatch } from "../shared/site-profile-ipc";
 import { capAccessLevel } from "../shared/site-profiles";
+import { PAGE_PROMPT_CHANNEL } from "../shared/dialog";
 import { PAGE_COMMAND_CHANNEL } from "../shared/shortcuts";
 import { buildSuggestions } from "../shared/suggest";
 import { GROUP_COLORS, type GroupPatch } from "../shared/tab-strip";
@@ -1088,6 +1089,19 @@ export function registerIpc(ctx: AppContext): void {
   ipcMain.on(PAGE_COMMAND_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byUnlockedTab(event.sender);
     if (found) found.window.runPageCommand(found.tab, raw);
+  });
+
+  // A page's prompt() (the tab preload's own; Electron's throws). The page waits until returnValue is set.
+  ipcMain.on(PAGE_PROMPT_CHANNEL, (event: IpcMainEvent, message: unknown, defaultText: unknown) => {
+    let replied = false;
+    const reply = (text: string | null): void => {
+      if (replied) return;
+      replied = true;
+      event.returnValue = text;
+    };
+    if (!ctx.windows.byUnlockedTab(event.sender)) return reply(null);
+    const text = (v: unknown): string => (typeof v === "string" ? v.slice(0, 10_000) : "");
+    ctx.pageDialogs.prompt(event.sender, { message: text(message), defaultPrompt: text(defaultText), url: event.senderFrame?.url ?? "" }, reply);
   });
 
   ipcMain.handle(CHROME_RPC, (event: IpcMainInvokeEvent, method: unknown, args: unknown) => {

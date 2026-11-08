@@ -95,13 +95,15 @@ export function otpFieldFacts(el: OtpInputElement): OtpFieldFacts {
  */
 export function isOtpFacts(f: OtpFieldFacts): boolean {
   const OTP_HINT = /(one[-_ ]?time|\botp\b|totp|2fa|\bmfa\b|two[-_ ]?(factor|step)|verification[-_ ]?code|verify[-_ ]?code|auth(entication|enticator)?[-_ ]?code|security[-_ ]?code|login[-_ ]?code|sign[-_ ]?in[-_ ]?code|passcode|c[o\u00f3]digo de (verificaci[o\u00f3]n|seguridad|acceso|autenticaci[o\u00f3]n)|un solo uso|(doble|dos) (factor|pasos))/i;
-  const NEARBY_HINT = /(one[-_ ]?time|\botp\b|totp|2fa|\bmfa\b|two[-_ ]?(factor|step)|verification[-_ ]?code|verify[-_ ]?code|authenticator|authentication[-_ ]?code|login[-_ ]?code|sign[-_ ]?in[-_ ]?code|c[o\u00f3]digo de (verificaci[o\u00f3]n|acceso|autenticaci[o\u00f3]n)|autenticador|un solo uso|(doble|dos) (factor|pasos))/i;
+  const NEARBY_HINT = /(one[-_ ]?time|\botp\b|totp|2fa|\bmfa\b|two[-_ ]?(factor|step)|verification[-_ ]?code|verify[-_ ]?code|authenticator|authentication[-_ ]?code|login[-_ ]?code|sign[-_ ]?in[-_ ]?code|(\b[6-8]|six|seven|eight)[- ]?digit (code|number)|c[o\u00f3]digo de [6-8] d[i\u00ed]gitos|c[o\u00f3]digo de (verificaci[o\u00f3]n|acceso|autenticaci[o\u00f3]n)|autenticador|un solo uso|(doble|dos) (factor|pasos))/i;
   const NOT_OTP = /(card|cvv|cvc|csc|credit|zip|postal|promo|coupon|voucher|gift|captcha|phone|e-?mail|user|search|referral|invite|tarjeta|cup[o\u00f3]n|tel[e\u00e9]fono|usuario)/i;
   const NOT_NEARBY = /(card|cvv|cvc|csc|credit|zip|postal|promo|coupon|voucher|gift|captcha|tarjeta|cup[o\u00f3]n)/i;
   if (!["text", "tel", "number", "password"].includes(f.type)) return false;
   if (f.autocomplete.split(/\s+/).includes("one-time-code")) return true;
   if (f.type === "password") return false;
-  const own = `${f.attrs} ${f.placeholder} ${f.label}`;
+  // Names and ids as words: "otp_code", "mfaCode" and "twoFactorToken" read like "otp code", "mfa code".
+  const words = f.attrs.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+  const own = `${words} ${f.placeholder} ${f.label}`;
   if (NOT_OTP.test(own)) return false;
   if (OTP_HINT.test(own)) return true;
   const numeric = f.inputMode === "numeric" || f.type === "number";

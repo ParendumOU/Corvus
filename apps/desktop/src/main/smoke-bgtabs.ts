@@ -71,13 +71,18 @@ function loaded(wc: WebContents, ms = 15_000): Promise<void> {
   });
 }
 
-async function until(fn: () => boolean, ms = 8000): Promise<boolean> {
+async function until(fn: () => boolean | Promise<boolean>, ms = 8000): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (fn()) return true;
+    if (await fn()) return true;
     await sleep(50);
   }
   return fn();
+}
+
+/** Waits until the test page in `wc` has all its (lazy, slow) images, generously: a busy machine loads them late. */
+function imagesLoaded(wc: WebContents, ms = 20_000): Promise<boolean> {
+  return until(async () => (await pageState(wc))?.images === IMAGES, ms);
 }
 
 interface PageState {
@@ -233,8 +238,10 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     await middleClickLink(front.view.webContents);
     const linked = await openedFrom(win, front, ids);
     keep(linked);
-    if (linked) await loaded(linked.view.webContents);
-    await sleep(1500);
+    if (linked) {
+      await loaded(linked.view.webContents);
+      await imagesLoaded(linked.view.webContents);
+    }
     const state = linked ? await pageState(linked.view.webContents) : null;
     const shot = linked ? await linked.view.webContents.capturePage(undefined, { stayHidden: true }).catch(() => null) : null;
     const drawn = shot && !shot.isEmpty() ? showsPage(shot) : null;
@@ -251,7 +258,8 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
         drawn.image === true,
       { linked: Boolean(linked), active: win.activeTab()?.id === front.id, state, drawn, content },
     );
-    check("background tabs: it stops painting once loaded (it may sleep later by the usual rules)", linked ? !win.isPainting(linked) : false, linked?.paintHolds);
+    const stopped = linked ? await until(() => !win.isPainting(linked), 15_000) : false;
+    check("background tabs: it stops painting once loaded (it may sleep later by the usual rules)", stopped, linked?.paintHolds);
     if (linked) {
       const shown = await timeToComplete(win, linked);
       log("background tabs: shown complete after (ms)", shown);
@@ -266,6 +274,8 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     const focusBefore = front.view.webContents.isFocused();
     const mcpTab = await c.openTab(`${base}bg?title=Agent%20background`, { background: true, agent: true });
     keep(mcpTab);
+    // tab_open returns at the page's load; its lazy images come in after it.
+    await imagesLoaded(win.getTab(mcpTab.id)!.view.webContents);
     const snap = await c.snapshot(mcpTab.id, { maxChars: 500 });
     const mcpShot = await c.capture(mcpTab.id, { mode: "viewport", format: "png" });
     const mcpImage = decode(mcpShot.base64);
@@ -327,7 +337,7 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     const box = win.win.getContentBounds();
     const clicksBefore = (await pageState(front.view.webContents))?.clicks ?? 0;
     const sent = personInput(box.x + content.x + 160, box.y + content.y + 250);
-    await sleep(600);
+    if (sent !== null) await until(async () => ((await pageState(front.view.webContents))?.clicks ?? 0) > clicksBefore);
     const frontInput = await pageState(front.view.webContents);
     const agentInput = await Promise.all(agentTabs.map((t) => pageState(win.getTab(t.id)!.view.webContents)));
     if (sent === null) log("background tabs: person input check skipped", "no X test input on this display");

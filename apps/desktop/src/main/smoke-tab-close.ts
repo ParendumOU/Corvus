@@ -309,6 +309,8 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     const countLoad = (): void => void reloads++;
     crashedBack.view.webContents.on("did-start-loading", countLoad);
     crashedBack.view.webContents.forcefullyCrashRenderer();
+    // A busy machine reports the crash late; then a while for a reload that must not come.
+    await until(() => crashedBack.crashed, 20_000);
     await sleep(1500);
     crashedBack.view.webContents.removeListener("did-start-loading", countLoad);
     check("tab close: a crash of the recovery page itself does not load it again", reloads === 0 && crashedBack.crashed, { reloads });
@@ -495,7 +497,7 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     const assistTranslating = await open(article, { activate: false });
     ctx.assist.runPage(w, assistTranslating, "translate-page");
     await sleep(400);
-    const started = await until(() => w.state().translate?.state === "translating", 5000);
+    const started = await until(() => w.state().translate?.state === "translating", 20_000);
     w.closeTabs([translating.id, summarizing.id, assistTranslating.id]);
     // Longer than the provider takes to answer: whatever kept going has ended by now.
     await sleep(2500);

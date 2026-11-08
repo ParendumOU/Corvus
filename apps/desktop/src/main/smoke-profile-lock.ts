@@ -5,10 +5,11 @@ import type { AddressInfo } from "node:net";
 import { nativeTheme, safeStorage, type WebContents } from "electron";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import { base32Decode, totpAt } from "../shared/totp";
-import { computerLockSupported } from "./computer-lock";
+import { computerLockSupported, logindSessionPath } from "./computer-lock";
 import type { AppContext } from "./context";
 import { ProfileLock, isProfileLocked } from "./profile-lock";
 import { windowShot } from "./smoke-cert-errors";
+import { fakeBus, matchRules, type FakeBus } from "./smoke-fake-dbus";
 import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -67,6 +68,8 @@ export async function runProfileLockSmoke(ctx: AppContext, { win, check, capture
   const { theme: themeBefore, language: languageBefore } = ctx.settings.get().appearance;
   let lw: BrowserWindowCtl | null = null;
   let profileId: string | null = null;
+  let systemBus: FakeBus | null = null;
+  const systemBusBefore = process.env.DBUS_SYSTEM_BUS_ADDRESS;
   try {
     // Docker has no system keychain: Electron's in-memory one stands in for it (a lock needs one).
     if (!safeStorage.isEncryptionAvailable() && process.platform === "linux") safeStorage.setUsePlainTextEncryption(true);
@@ -242,22 +245,31 @@ export async function runProfileLockSmoke(ctx: AppContext, { win, check, capture
     const settingsAgain = pageOf(w.getTab(settingsTab.id)!.view)!;
     const toggle = "#profile-lock [role=switch]";
     await until(async () => (await js<boolean>(settingsAgain, `Boolean(document.querySelector("${toggle}"))`)) === true, 15_000);
-    // Docker has no D-Bus: there the switch is off limits and says why, and the option is turned on directly.
     const supported = computerLockSupported();
     const offered = (await js<boolean>(settingsAgain, `!document.querySelector("${toggle}").disabled`)) === supported;
-    if (supported) await js(settingsAgain, `document.querySelector("${toggle}").click()`);
-    else ctx.profileLocks.setWithComputer(runtime, true);
-    const turnedOn = await until(() => runtime.lock.locksWithComputer);
-    await sleep(300);
-    await capture(`${SHOTS}/settings-lock-with-computer`, settingsAgain);
     check("profile lock: Settings offers locking with the computer only where the computer says when it locks", offered, { supported });
-    ctx.profileLocks.computerLocked();
-    check("profile lock: the computer locking locks only the profiles with the option on", offStaysOpen && turnedOn && runtime.locked && (await until(() => w.locked)) && !win.profile.locked, {
-      offStaysOpen,
-      turnedOn,
-      locked: runtime.locked,
-      otherLocked: win.profile.locked,
-    });
+    // Docker has no D-Bus: there the computer gets a logind of its own (a fake system bus), so the
+    // person's switch and the real lock watcher run as on a Linux desktop.
+    const sessionPath = logindSessionPath(process.env.XDG_SESSION_ID ?? "c2");
+    if (!supported && process.platform === "linux") {
+      systemBus = await fakeBus((m) => (m.member === "Get" && m.path === "/org/freedesktop/login1/session/auto" ? { signature: "v", body: [{ signature: "s", value: "c2" }] } : undefined));
+      process.env.DBUS_SYSTEM_BUS_ADDRESS = systemBus.address;
+      settingsAgain.reload();
+    }
+    const switchable = await until(async () => (await js<boolean>(settingsAgain, `document.querySelector("${toggle}")?.disabled === false`)) === true, 15_000);
+    await js(settingsAgain, `document.querySelector("${toggle}").click()`);
+    const turnedOn = await until(() => runtime.lock.locksWithComputer);
+    await capture(`${SHOTS}/settings-lock-with-computer`, settingsAgain);
+    // The computer locks: logind says so to the watcher (a desktop smoke has no way to lock the real computer).
+    const bus = systemBus;
+    const watched = bus ? await until(() => matchRules(bus).length === 2, 15_000) : true;
+    if (bus) bus.emit({ path: sessionPath, interface: "org.freedesktop.login1.Session", member: "Lock" });
+    else ctx.profileLocks.computerLocked();
+    check(
+      "profile lock: the computer locking locks only the profiles with the option on",
+      offStaysOpen && switchable && turnedOn && watched && (await until(() => runtime.locked)) && (await until(() => w.locked)) && !win.profile.locked,
+      { offStaysOpen, switchable, turnedOn, watched, locked: runtime.locked, otherLocked: win.profile.locked },
+    );
     // The lock screen still shows the authenticator code form from before: the PIN goes in directly.
     const reopened = await ctx.profileLocks.unlock(w, { method: "secret", secret: PIN });
     check("profile lock: unlocked again after the computer locked it", reopened.ok && (await until(() => !runtime.locked && !w.locked)), reopened);
@@ -269,6 +281,11 @@ export async function runProfileLockSmoke(ctx: AppContext, { win, check, capture
     if (lw && !lw.isDisposed()) lw.close();
     await sleep(500);
     if (profileId) await ctx.profiles.remove(profileId).catch(() => undefined);
+    if (systemBus) {
+      if (systemBusBefore === undefined) delete process.env.DBUS_SYSTEM_BUS_ADDRESS;
+      else process.env.DBUS_SYSTEM_BUS_ADDRESS = systemBusBefore;
+      systemBus.close();
+    }
     server.close();
     win.relayout();
   }

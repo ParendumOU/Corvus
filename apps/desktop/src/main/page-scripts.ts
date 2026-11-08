@@ -16,7 +16,7 @@ export interface RawSnapshot {
   title: string;
   text: string;
   truncated: boolean;
-  elements: Array<{ ref: string; role: string; name: string; value?: string; bbox?: [number, number, number, number] }>;
+  elements: Array<{ ref: string; role: string; name: string; value?: string; states?: string[]; bbox?: [number, number, number, number] }>;
   viewport: { width: number; height: number; devicePixelRatio: number; scrollX: number; scrollY: number };
 }
 
@@ -29,7 +29,12 @@ export interface SnapshotScriptOptions {
   maxElements?: number;
   /** Include the main text (default true). */
   text?: boolean;
+  /** Only this container: an element ref ("e12") or a CSS selector (first match). */
+  within?: string;
 }
+
+/** An element ref as page_snapshot gives them ("e12"); anything else in `within` is a CSS selector. */
+export const REF_PATTERN = /^e\d+$/;
 
 /**
  * clean / roleOf / nameOf exactly as page_snapshot computes them, shared with describeTargetScript so
@@ -72,6 +77,37 @@ export const ROLE_NAME_FNS = `
     return clean(el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("alt") || (img && img.getAttribute("alt")) || el.getAttribute("name") || own);
   };`;
 
+/**
+ * stateOf(el): what a person sees of a control's state. value "checked" / "unchecked" / "mixed" for
+ * checkboxes, radios and switches (native or ARIA: aria-checked defaults to false on those roles);
+ * states for aria-pressed, aria-expanded (and an open details summary), aria-selected, aria-current
+ * and aria-disabled. Needs ROLE_NAME_FNS.
+ */
+export const STATE_FNS = `
+  const CHECKABLE_ROLES = ["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"];
+  const stateOf = (el) => {
+    const states = [];
+    let value;
+    const tag = el.tagName;
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    const checked = el.getAttribute("aria-checked");
+    if (tag === "INPUT" && (type === "checkbox" || type === "radio")) value = el.indeterminate ? "mixed" : el.checked ? "checked" : "unchecked";
+    else if (CHECKABLE_ROLES.includes(roleOf(el))) value = checked === "mixed" ? "mixed" : checked === "true" ? "checked" : "unchecked";
+    else if (checked === "true" || checked === "mixed") states.push(checked === "true" ? "checked" : "mixed");
+    const pressed = el.getAttribute("aria-pressed");
+    if (pressed === "true") states.push("pressed");
+    else if (pressed === "mixed") states.push("mixed");
+    else if (pressed === "false") states.push("not-pressed");
+    const expanded = tag === "SUMMARY" && el.parentElement && el.parentElement.tagName === "DETAILS" ? String(el.parentElement.open) : el.getAttribute("aria-expanded");
+    if (expanded === "true") states.push("expanded");
+    else if (expanded === "false") states.push("collapsed");
+    if (el.getAttribute("aria-selected") === "true") states.push("selected");
+    const current = el.getAttribute("aria-current");
+    if (current && current !== "false") states.push("current");
+    if (el.getAttribute("aria-disabled") === "true") states.push("disabled");
+    return { value, states };
+  };`;
+
 export function snapshotScript(maxChars: number, opts: SnapshotScriptOptions = {}): string {
   const maxElements = Math.max(1, Math.min(MAX_SNAPSHOT_ELEMENTS_CAP, Math.floor(opts.maxElements ?? MAX_SNAPSHOT_ELEMENTS)));
   return `(() => {
@@ -81,6 +117,13 @@ export function snapshotScript(maxChars: number, opts: SnapshotScriptOptions = {
   const VIEWPORT_ONLY = ${opts.viewportOnly === true};
   const WITH_TEXT = ${opts.text !== false};
   const doc = document;
+  let scope = null;
+  ${
+    opts.within
+      ? `try { scope = ${REF_PATTERN.test(opts.within) ? findRef(opts.within) : `document.querySelector(${JSON.stringify(opts.within)})`}; } catch (e) { return { error: "Invalid CSS selector: " + ${JSON.stringify(opts.within)} }; }
+  if (!scope) return { error: ${JSON.stringify(`Nothing matches within=${opts.within}; take a new page_snapshot`)} };`
+      : ""
+  }
   window.__corvusRefSeq = window.__corvusRefSeq || 0;
 
   const visible = (el) => {
@@ -90,18 +133,19 @@ export function snapshotScript(maxChars: number, opts: SnapshotScriptOptions = {
     return style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0;
   };
 ${ROLE_NAME_FNS}
+${STATE_FNS}
 
   const main = doc.querySelector("main, [role=main], article");
   const chromeLike = "nav, header, footer, aside, script, style, noscript, template, [aria-hidden=true]";
   // innerText of an element that is not rendered (display: none, e.g. a banner hidden by a cosmetic
   // filter) is its textContent, hidden text included: skip those.
-  let raw = !WITH_TEXT ? "" : main
+  let raw = !WITH_TEXT ? "" : scope ? scope.innerText : main
     ? main.innerText
     : Array.from(doc.body ? doc.body.children : [])
         .filter((c) => !c.matches(chromeLike) && getComputedStyle(c).display !== "none")
         .map((c) => c.innerText || "")
         .join("\\n");
-  if (WITH_TEXT && !(raw || "").trim() && doc.body) raw = doc.body.innerText;
+  if (WITH_TEXT && !scope && !(raw || "").trim() && doc.body) raw = doc.body.innerText;
   let text = (raw || "")
     .replace(/[ \\t\\f\\v\\u00a0]+/g, " ")
     .replace(/\\n\\s*\\n\\s*/g, "\\n\\n")
@@ -113,7 +157,7 @@ ${ROLE_NAME_FNS}
     "a[href]", "button", "input:not([type=hidden])", "textarea", "select", "summary",
     "[role=button]", "[role=link]", "[role=checkbox]", "[role=radio]", "[role=tab]", "[role=menuitem]",
     "[role=option]", "[role=switch]", "[role=combobox]", "[role=textbox]", "[role=searchbox]",
-    "[contenteditable='']", "[contenteditable=true]",
+    "[role=menuitemcheckbox]", "[role=menuitemradio]", "[contenteditable='']", "[contenteditable=true]",
   ].join(",");
   const elements = [];
   const refFor = (el) => {
@@ -136,8 +180,11 @@ ${ROLE_NAME_FNS}
     const ref = refFor(el);
     const item = { ref, role: roleOf(el), name: nameOf(el).slice(0, 80) };
     if (BOXES) item.bbox = [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)];
+    const state = stateOf(el);
+    if (state.value) item.value = state.value;
+    if (state.states.length) item.states = state.states;
     const tag = el.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+    if (!state.value && (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT")) {
       const type = (el.getAttribute("type") || "").toLowerCase();
       // Never report secrets: password fields, one-time-code fields, and anything Corvus filled with a
       // saved password or 2FA code (marked by the autofill scripts).
@@ -145,8 +192,7 @@ ${ROLE_NAME_FNS}
         type === "password" ||
         el.hasAttribute("data-corvus-secret") ||
         (el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/).includes("one-time-code");
-      if (type === "checkbox" || type === "radio") item.value = el.checked ? "checked" : "unchecked";
-      else if (!secret && el.value) item.value = String(el.value).slice(0, 80);
+      if (!secret && el.value) item.value = String(el.value).slice(0, 80);
     }
     elements.push(item);
   }
@@ -170,7 +216,16 @@ ${ROLE_NAME_FNS}
     elements.push(item);
   }
   };
-  collect(doc, 0, 0, 0);
+  if (scope) {
+    // The container's own frame offset (a ref may sit in a same-origin frame).
+    let ox = 0, oy = 0;
+    for (let w = scope.ownerDocument.defaultView; w && w.frameElement; w = w.parent) {
+      const r = w.frameElement.getBoundingClientRect();
+      ox += r.left + w.frameElement.clientLeft;
+      oy += r.top + w.frameElement.clientTop;
+    }
+    collect(scope, ox, oy, 0);
+  } else collect(doc, 0, 0, 0);
   const viewport = { width: innerWidth, height: innerHeight, devicePixelRatio: devicePixelRatio || 1, scrollX: scrollX, scrollY: scrollY };
   return { url: location.href, title: doc.title, text, truncated, elements, viewport };
 })()`;
@@ -446,12 +501,18 @@ export function viewportInfoScript(): string {
 })()`;
 }
 
-/** Scroll the element into view and return its box in viewport CSS px, or null. */
-export function rectScript(ref: string): string {
+/**
+ * The element's box in viewport CSS px (by ref, or the first match of a CSS selector), or null.
+ * `scroll`: first bring it into view, inside every scroll container it sits in (a side drawer's own
+ * scroll too), moving each as little as needed.
+ */
+export function rectScript(target: { ref?: string; selector?: string }, scroll = true): string {
+  const pick = target.ref ? findRef(target.ref) : `document.querySelector(${JSON.stringify(target.selector ?? "")})`;
   return `(() => {
-  const el = ${findRef(ref)};
+  let el = null;
+  try { el = ${pick}; } catch (e) { return { error: "Invalid CSS selector" }; }
   if (!el) return null;
-  el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  if (${scroll}) el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
   ${FRAME_OFFSET_FN}
   const r = el.getBoundingClientRect();
   const o = frameOffset(el);

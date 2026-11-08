@@ -139,4 +139,42 @@ describe("pages' dialogs", () => {
     expect(await other.emitDialog("alert", "hi")).toEqual([false, ""]);
     expect(electron).toHaveBeenCalledTimes(1);
   });
+  it("asks a page's prompt() from the preload: answered by the person or over MCP, dismissed with no window", async () => {
+    let answer: (a: PageDialogAnswer) => void = () => undefined;
+    const dialogs = new PageDialogs(() => new Promise<PageDialogAnswer>((resolve) => (answer = resolve)));
+    const wc = fakeTab();
+    const replies: Array<string | null> = [];
+    // A page Corvus does not watch gets null at once.
+    dialogs.prompt(wc as never, { message: "Name?", defaultPrompt: "", url: "" }, (t) => replies.push(t));
+    expect(replies).toEqual([null]);
+
+    dialogs.watch(wc as never);
+    dialogs.prompt(wc as never, { message: "Name?", defaultPrompt: "Ada", url: "https://shop.test/frame" }, (t) => replies.push(t));
+    expect(dialogs.pending(wc as never)).toMatchObject({ type: "prompt", message: "Name?", defaultPrompt: "Ada", url: "https://shop.test/frame" });
+    answer({ accept: true, text: "Grace", suppress: false });
+    await Promise.resolve();
+    expect(replies.at(-1)).toBe("Grace");
+
+    // handle_dialog: accepted without text answers the default, with text that text, dismissed null.
+    dialogs.prompt(wc as never, { message: "Name?", defaultPrompt: "Ada", url: "" }, (t) => replies.push(t));
+    expect(dialogs.answer(wc as never, true)?.type).toBe("prompt");
+    dialogs.prompt(wc as never, { message: "Name?", defaultPrompt: "Ada", url: "" }, (t) => replies.push(t));
+    dialogs.answer(wc as never, true, "Linus");
+    dialogs.prompt(wc as never, { message: "Name?", defaultPrompt: "Ada", url: "" }, (t) => replies.push(t));
+    dialogs.answer(wc as never, false, "ignored");
+    expect(replies.slice(-3)).toEqual(["Ada", "Linus", null]);
+
+    // The page navigates away: the waiting page still gets its answer (null), once.
+    dialogs.prompt(wc as never, { message: "Name?", defaultPrompt: "", url: "" }, (t) => replies.push(t));
+    wc.emit("-cancel-dialogs");
+    expect(replies.at(-1)).toBeNull();
+    expect(dialogs.pending(wc as never)).toBeNull();
+
+    const noWindow = new PageDialogs(() => null);
+    const other = fakeTab();
+    noWindow.watch(other as never);
+    noWindow.prompt(other as never, { message: "Name?", defaultPrompt: "", url: "" }, (t) => replies.push(t));
+    expect(replies.at(-1)).toBeNull();
+    expect(noWindow.pending(other as never)).toBeNull();
+  });
 });

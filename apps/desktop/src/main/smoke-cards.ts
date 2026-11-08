@@ -72,6 +72,12 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 10_000)
 const js = <T>(wc: WebContents, expr: string): Promise<T | null> => (wc.isDestroyed() ? Promise.resolve(null) : (wc.executeJavaScript(expr, true) as Promise<T>).catch(() => null));
 const frameJs = <T>(frame: WebFrameMain | undefined, expr: string): Promise<T | null> => (frame && !frame.detached ? (frame.executeJavaScript(expr, true) as Promise<T>).catch(() => null) : Promise.resolve(null));
 
+/**
+ * Every text a record keeps, where a secret could end up: without its ids and numbers (times, counts),
+ * whose random digits may contain the secret's by chance.
+ */
+const textOf = (value: unknown): string => JSON.stringify(value, (key, v: unknown) => (key === "id" || typeof v === "number" ? undefined : v));
+
 interface CardValues {
   numero: string;
   titular: string;
@@ -201,7 +207,7 @@ export async function runCardsSmoke(ctx: AppContext, { url, win, check, capture 
     const typed = recorded.filter((step) => step.kind === "type");
     check(
       "cards: a workflow recorded during the fill records the card fields as secret, never their values",
-      typed.length > 0 && typed.every((step) => step.kind === "type" && step.secret && step.value === undefined) && !JSON.stringify(recorded).includes("4111"),
+      typed.length > 0 && typed.every((step) => step.kind === "type" && step.secret && step.value === undefined) && !textOf(recorded).includes("4111"),
       recorded,
     );
     check("cards: a fill counts as a use of the card", (vault.get(seeded.id)?.useCount ?? 0) >= 1, vault.get(seeded.id)?.useCount);
@@ -247,8 +253,8 @@ export async function runCardsSmoke(ctx: AppContext, { url, win, check, capture 
     const added = vault.all().find((c) => !before.has(c.id) && c.id !== seeded.id);
     check(
       "cards: accepting saves number, name and expiry, never the CVV",
-      Boolean(added && added.number === "5555555555554444" && added.nameOnCard === "Mario Ensayo" && added.expMonth === "11" && added.expYear === "2029") && !JSON.stringify(added).includes("987"),
-      added && { name: added.nameOnCard, exp: `${added.expMonth}/${added.expYear}` },
+      Boolean(added && added.number === "5555555555554444" && added.nameOnCard === "Mario Ensayo" && added.expMonth === "11" && added.expYear === "2029") && !textOf(added).includes("987"),
+      added && { number: added.number, name: added.nameOnCard, exp: `${added.expMonth}/${added.expYear}`, cvvKept: textOf(added).includes("987") },
     );
 
     // 6: payment methods off in Settings: no dropdown.

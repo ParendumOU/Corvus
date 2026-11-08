@@ -118,7 +118,10 @@ export async function runAgentRunsSmoke(ctx: AppContext, h: Helpers): Promise<vo
     check("resume accepted over IPC", resumed === true, resumed);
     const finished = await waitFor(() => runView()?.id === runId && runView()?.status === "done" && (runView()?.finalText ?? "").includes("Resumed"), 12000);
     check("resumed run continued and finished", finished, { id: runView()?.id, status: runView()?.status, finalText: runView()?.finalText });
-    const stored = win.profile.agentRuns.views().find((r) => r.id === runId);
+    // The record is saved after the run's view moves on.
+    const storedRun = () => win.profile.agentRuns.views().find((r) => r.id === runId);
+    await waitFor(() => storedRun()?.status === "done", 15_000);
+    const stored = storedRun();
     check("resumed run recorded as done", stored?.status === "done", stored);
   } finally {
     ctx.agentRunner.stop(win);

@@ -196,6 +196,30 @@ describe("tools over HTTP", () => {
     expect(controller.calls.at(-1)).toEqual({ method: "scroll", args: [tab.id, "down", 500] });
   });
 
+  it("page_snapshot changes lists only what changed since the last one; within reaches the controller", async () => {
+    const tab = untrustedJson<TabJson>(await call(client, "tab_open", { url: "https://e.example/" }));
+    // No earlier snapshot of the page: the full one, said so.
+    const first = textOf(await call(client, "page_snapshot", { changes: true }));
+    expect(first).toContain('e3 button "Go"');
+    expect(first).toContain("No earlier snapshot of this page");
+    await call(client, "type", { ref: "e2", text: "raven" });
+    const changed = textOf(await call(client, "page_snapshot", { changes: true }));
+    expect(changed).toContain('"changesSince"');
+    expect(changed).toContain("text: unchanged");
+    expect(changed).toContain('e2 textbox "Search" ="raven"');
+    expect(changed).not.toContain('e3 button "Go"');
+    expect(textOf(await call(client, "page_snapshot", { changes: true }))).toContain("elements: unchanged");
+    await call(client, "page_snapshot", { within: "#drawer" });
+    expect(controller.calls.at(-1)).toEqual({ method: "snapshot", args: [tab.id, { maxChars: 4000, within: "#drawer" }] });
+  });
+
+  it("wait_for textChanged needs a ref or a selector and reaches the controller", async () => {
+    const tab = untrustedJson<TabJson>(await call(client, "tab_open", { url: "https://f.example/" }));
+    expect((await call(client, "wait_for", { textChanged: true })).isError).toBe(true);
+    await call(client, "wait_for", { ref: "e1", textChanged: "Saving", timeoutMs: 100 });
+    expect(controller.calls.at(-1)).toMatchObject({ method: "waitFor", args: [tab.id, { ref: "e1", textChanged: "Saving", timeoutMs: 100 }] });
+  });
+
   it("screenshot returns image content", async () => {
     const res = await call(client, "screenshot", { format: "png" });
     const image = res.content.find((c) => c.type === "image");

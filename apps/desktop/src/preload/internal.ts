@@ -10,10 +10,12 @@ import { cardFieldFacts, classifyCardField, isCardForm, matchCardOption, planCar
 import { isCardDataField, isCardDataForm } from "../shared/card-data-fields";
 import { AUTOFILL_FRAME_FILL_CHANNEL, AUTOFILL_FRAME_FILLED_CHANNEL, fieldShown, parseFrameFillRequest, type FrameFillRequest } from "../shared/frame-fill";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
+import { deepQueryAll } from "../shared/shadow-dom";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
 import { probePattern, type PasswordFieldClick } from "../shared/password-rules";
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
 import { INTERNAL_EVENT, INTERNAL_RPC, type InternalBridge, type InternalEvent } from "../shared/ipc";
+import { PAGE_PROMPT_CHANNEL } from "../shared/dialog";
 import { PAGE_COMMAND_CHANNEL, commandForInput, isPageFirst } from "../shared/shortcuts";
 
 // The preload is type-checked with the Node project (no DOM lib); declare the globals it reads.
@@ -33,6 +35,28 @@ if (location.protocol === "corvus:" && window.top === window) {
     },
   };
   contextBridge.exposeInMainWorld("corvusInternal", bridge);
+}
+
+// Electron's renderer replaces window.prompt with one that throws "prompt() is not supported.". The
+// page gets one that asks the main process instead: shown as Corvus's dialog, answerable by
+// handle_dialog, blocking the page meanwhile as a prompt does.
+const askPrompt = (message: string, defaultText: string): string | null => {
+  const answer: unknown = ipcRenderer.sendSync(PAGE_PROMPT_CHANNEL, message, defaultText);
+  return typeof answer === "string" ? answer : null;
+};
+try {
+  contextBridge.executeInMainWorld({
+    func: (ask: (message: string, defaultText: string) => string | null) => {
+      const g = globalThis as unknown as Record<string, unknown>;
+      const prompt = function prompt(message?: unknown, defaultText?: unknown): string | null {
+        return ask(message === undefined ? "" : String(message), defaultText === undefined ? "" : String(defaultText));
+      };
+      Object.defineProperty(g, "prompt", { value: prompt, writable: true, configurable: true, enumerable: true });
+    },
+    args: [askPrompt],
+  });
+} catch {
+  // Pages keep Electron's prompt(), which throws.
 }
 
 // Shortcuts the page gets first (shared/shortcuts.ts isPageFirst): once every handler in the page had
@@ -342,7 +366,10 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     if (isOtpFacts(otpFieldFacts(el)) || (["text", "tel", "number"].includes(type) && isCodeBox(el))) return "otp";
     if (!TEXT_TYPES.includes(type)) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const loginPassword = Array.prototype.some.call((el.form || document).querySelectorAll("input[type=password]"), (p: any) => !isCardData(p));
+    // A field of a web component sees the page's password fields in its own and other shadow roots too.
+    const passwords = el.form ? Array.prototype.slice.call(el.form.querySelectorAll("input[type=password]")) : deepQueryAll(document, "input[type=password]");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loginPassword = passwords.some((p: any) => !isCardData(p));
     return type === "password" || loginPassword || isIdentifier(el) ? "login" : null;
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -359,7 +386,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
   // so a pattern that takes ages to match only slows this page.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const passwordFacts = (el: any): PasswordFieldClick => {
-    const { fields, roles } = passwordFieldsOf(el.form || document, el);
+    const { fields, roles } = passwordFieldsOf(el.form || el.getRootNode(), el);
     let pattern: PasswordFieldClick["rules"]["pattern"] = null;
     if (el.getAttribute("pattern")) {
       const probe = document.createElement("input");
@@ -381,10 +408,16 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       },
     };
   };
+  // The field the person clicked or typed in: a click in a web component's field reaches the document
+  // as a click on the component itself, the field inside its shadow root heads the event's path.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fieldOf = (e: any): unknown => (typeof e.composedPath === "function" && e.composedPath()[0]) || e.target;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const report = (el: any): void => {
     const kind = fieldKind(el);
     if (!kind) return;
+    // Logins and 2FA codes are found and filled inside web components; cards and addresses not yet.
+    if ((kind === "card" || kind === "address") && el.getRootNode() !== document) return;
     const r = el.getBoundingClientRect();
     const password = kind === "login" && String(el.getAttribute("type") || "").toLowerCase() === "password" ? passwordFacts(el) : undefined;
     ipcRenderer.send(AUTOFILL_FIELD_CHANNEL, { kind, x: r.left, y: r.top, width: r.width, height: r.height, password });
@@ -394,7 +427,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       try {
-        if (e.isTrusted && e.button === 0) report(e.target);
+        if (e.isTrusted && e.button === 0) report(fieldOf(e));
       } catch {
         // never let autofill break a page's own click handling
       }
@@ -408,7 +441,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       try {
-        if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) report(e.target);
+        if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) report(fieldOf(e));
         else if (e.isTrusted && e.key === "Enter") reportIdentifier(e.target);
       } catch {
         // never let autofill break a page's own keys

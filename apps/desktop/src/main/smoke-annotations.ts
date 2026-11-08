@@ -14,9 +14,20 @@ function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function poll(fn: () => boolean | Promise<boolean>, tries = 40): Promise<boolean> {
+/** Polls every 150 ms, up to about 15 s by default: a busy machine is slow, and a check that holds returns at once. */
+async function poll(fn: () => boolean | Promise<boolean>, tries = 100): Promise<boolean> {
   for (let i = 0; i < tries; i++) {
     if (await fn()) return true;
+    await delay(150);
+  }
+  return fn();
+}
+
+/** The first value of `fn` that is not null, polled like poll(); null when none came. */
+async function pollValue<T>(fn: () => Promise<T | null>, tries = 100): Promise<T | null> {
+  for (let i = 0; i < tries; i++) {
+    const value = await fn();
+    if (value !== null) return value;
     await delay(150);
   }
   return fn();
@@ -56,11 +67,12 @@ export async function runAnnotationsSmoke(ctx: AppContext, { url, win, check, ca
   await capture("annotations-page", wc);
 
   const manager = win.createTab("corvus://annotations");
-  await delay(1200);
-  const listed = await manager.view.webContents.executeJavaScript(
-    `Boolean(window.corvusInternal) && Boolean(document.querySelector(".anno-quote")) && document.body.innerText.includes("Hello from the smoke test")`,
+  const listed = await poll(async () =>
+    manager.view.webContents
+      .executeJavaScript(`Boolean(window.corvusInternal) && Boolean(document.querySelector(".anno-quote")) && document.body.innerText.includes("Hello from the smoke test")`)
+      .then((v) => v === true, () => false),
   );
-  check("corvus://annotations lists the highlight", listed === true, listed);
+  check("corvus://annotations lists the highlight", listed, listed);
   await capture("annotations", manager.view.webContents);
 
   store.remove(matching!.id);
@@ -135,8 +147,7 @@ async function runToolbarSmoke(url: string, win: BrowserWindowCtl, check: SmokeC
     await poll(() => !wc.isDestroyed() && wc.getURL().endsWith("/annotations-csp") && !tab.loading);
     await delay(500);
     const { top } = await dragSelect(wc);
-    await delay(500);
-    const shown = await yellowBox(wc);
+    const shown = await pollValue(() => yellowBox(wc));
     check(
       "selection toolbar styled under a strict CSP, just above the selection",
       shown !== null && shown.bottom < top && shown.top > top - 70 && shown.bottom - shown.top <= 24,

@@ -4,11 +4,12 @@
  * card values never leave the page through them (outerHTML carries attributes only, not live values).
  */
 import type { ExtractKind, FindQuery } from "@corvus/shared";
-import { findRef, ROLE_NAME_FNS } from "./page-scripts";
+import { findRef, ROLE_NAME_FNS, STATE_FNS } from "./page-scripts";
 
 /** Visibility, the role a heading or image gets, and the page's main text, shared by the scripts below. */
 const READ_FNS = `
   ${ROLE_NAME_FNS}
+  ${STATE_FNS}
   const visible = (el) => {
     const rect = el.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return false;
@@ -57,15 +58,18 @@ export function findScript(query: FindQuery): string {
     candidates = Array.from(document.querySelectorAll("body *"));
   }
   const needle = q.text ? clean(q.text).toLowerCase() : null;
-  const textOf = (el) => clean(el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("alt") || "").toLowerCase();
+  // What the element shows and its accessible name (page_snapshot's): a switch's label sits outside it
+  // (label for=, aria-labelledby) and its own value is "on". Never a secret field's value.
+  const secretField = (el) => (el.getAttribute("type") || "").toLowerCase() === "password" || el.hasAttribute("data-corvus-secret");
+  const shownText = (el) => clean(el.innerText || (secretField(el) ? "" : el.value) || el.getAttribute("aria-label") || el.getAttribute("alt") || "").toLowerCase();
+  const matches = (t) => (q.exact ? t === needle : t.includes(needle));
   const hits = [];
   for (const el of candidates) {
     if (hits.length >= 2000) break;
     if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName) || !visible(el)) continue;
     if (q.role && fullRole(el) !== q.role) continue;
     if (needle) {
-      const t = textOf(el);
-      if (q.exact ? t !== needle : !t.includes(needle)) continue;
+      if (!matches(shownText(el)) && !matches(nameOf(el).toLowerCase())) continue;
     }
     hits.push(el);
   }
@@ -76,7 +80,10 @@ export function findScript(query: FindQuery): string {
     const out = { ref: refOf(el), role: fullRole(el), name: (nameOf(el) || clean(el.innerText || "")).slice(0, 100), bbox: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] };
     if (/^H[1-6]$/.test(el.tagName)) out.level = Number(el.tagName[1]);
     const type = (el.getAttribute("type") || "").toLowerCase();
-    if ((el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") && type !== "password" && !el.hasAttribute("data-corvus-secret") && el.value) out.value = String(el.value).slice(0, 100);
+    const state = stateOf(el);
+    if (state.value) out.value = state.value;
+    else if ((el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT") && type !== "password" && !el.hasAttribute("data-corvus-secret") && el.value) out.value = String(el.value).slice(0, 100);
+    if (state.states.length) out.states = state.states;
     return out;
   });
 })()`;
@@ -233,7 +240,9 @@ export function extractScript(kind: ExtractKind, ref: string | undefined, maxCha
 }
 
 /** The DOM parts of a wait_for condition, each true when it holds now. */
-export function waitProbeScript(cond: { text?: string; textGone?: string; ref?: string; selector?: string; state?: string }): string {
+export function waitProbeScript(cond: { text?: string; textGone?: string; ref?: string; selector?: string; state?: string; textChanged?: boolean | string }): string {
+  // textChanged alone does not ask for a state; the element's text comes back as elementText.
+  const stateCheck = !(cond.textChanged !== undefined && cond.textChanged !== false && !cond.state);
   const pick = cond.ref ? findRef(cond.ref) : cond.selector ? `document.querySelector(${JSON.stringify(cond.selector)})` : "null";
   return `(() => {
   ${READ_FNS}
@@ -246,7 +255,8 @@ export function waitProbeScript(cond: { text?: string; textGone?: string; ref?: 
       ? `let el = null;
   try { el = ${pick}; } catch (e) { return { error: "Invalid CSS selector" }; }
   const state = ${JSON.stringify(cond.state ?? "visible")};
-  out.element = state === "attached" ? Boolean(el) : state === "detached" ? !el : state === "hidden" ? !el || !visible(el) : Boolean(el) && visible(el);`
+  ${cond.textChanged !== undefined && cond.textChanged !== false ? `out.elementText = el ? squash(el.innerText || ((el.getAttribute("type") || "").toLowerCase() === "password" ? "" : el.value) || el.textContent || "") : null;` : ""}
+  if (${stateCheck}) out.element = state === "attached" ? Boolean(el) : state === "detached" ? !el : state === "hidden" ? !el || !visible(el) : Boolean(el) && visible(el);`
       : ""
   }
   return out;

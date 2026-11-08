@@ -39,10 +39,26 @@ const TWO_STEP_PAGE = `<!doctype html><html><head><title>Two-step verification</
 <script>setTimeout(() => { document.getElementById("step").innerHTML = '<form onsubmit="return false"><p>Enter the code from your authenticator app.</p><input id="token" name="token" inputmode="numeric" maxlength="6"><button>Verify</button></form>'; }, 900);</script>
 </body></html>`;
 
+/**
+ * A sign-in form built as web components: username and password in a component's open shadow root,
+ * the 2FA field in a component of its own inside it, named "mfaCode" with nothing else to tell it by.
+ */
+const COMPONENT_PAGE = `<!doctype html><html><head><title>Component sign-in</title></head><body>
+<main><h1>Sign in</h1><corvus-sign-in></corvus-sign-in></main>
+<script>
+customElements.define("corvus-code", class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = '<input name="mfaCode">'; } });
+customElements.define("corvus-sign-in", class extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" }).innerHTML = '<style>label{display:block;margin:8px 0}</style><form onsubmit="return false"><label>Username <input id="u" name="username" type="text"></label><label>Password <input id="p" name="password" type="password"></label><label>Code <corvus-code></corvus-code></label><button>Sign in</button></form>';
+  }
+});
+</script></body></html>`;
+
 /** The pages of the 2FA fill smoke, served by the shared smoke server. */
 export function serveOtpFillSmokeRoute(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const pathname = (req.url ?? "/").split("?")[0] ?? "/";
-  const page = pathname === "/otp-one-form" ? ONE_FORM_PAGE : pathname === "/otp-two-step" ? TWO_STEP_PAGE : null;
+  const page = pathname === "/otp-one-form" ? ONE_FORM_PAGE : pathname === "/otp-two-step" ? TWO_STEP_PAGE : pathname === "/otp-component" ? COMPONENT_PAGE : null;
   if (!page) return false;
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(page);
@@ -138,15 +154,17 @@ export async function runOtpFillSmoke(ctx: AppContext, { url, win, check }: Help
     const detected = await until(() => ctx.autofill.stateFor(win).otpAvailable && ctx.autofill.stateFor(win).matchCount > 0);
     check("2FA fill: a code field labelled apart, with a \"1 2 3 4 5 6\" placeholder and authenticator help, is detected", detected, ctx.autofill.stateFor(win));
 
-    const clickField = async (page: WebContents, selector: string): Promise<void> => {
+    /** A real click in the middle of the element an expression of the page gives. */
+    const clickAt = async (page: WebContents, element: string): Promise<void> => {
       const before = dropdown.token();
-      const box = await js<{ x: number; y: number }>(page, `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+      const box = await js<{ x: number; y: number }>(page, `(() => { const r = (${element}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
       if (!box) return;
       page.focus();
       page.sendInputEvent({ type: "mouseDown", x: box.x, y: box.y, button: "left", clickCount: 1 });
       page.sendInputEvent({ type: "mouseUp", x: box.x, y: box.y, button: "left", clickCount: 1 });
       await dropdown.opened(before);
     };
+    const clickField = (page: WebContents, selector: string): Promise<void> => clickAt(page, `document.querySelector(${JSON.stringify(selector)})`);
     const fields = (): Promise<{ u: string; p: string; code: string } | null> =>
       js(wc, `({ u: document.getElementById("u").value, p: document.getElementById("p").value, code: document.getElementById("code").value })`);
     const clear = (): Promise<unknown> => js(wc, `["u", "p", "code"].forEach((id) => { document.getElementById(id).value = ""; }); true`);
@@ -249,6 +267,31 @@ export async function runOtpFillSmoke(ctx: AppContext, { url, win, check }: Help
       { before, infoFilled, after, panelRows },
     );
     win.closeTab(again.step.id);
+
+    // A sign-in form inside web components (open shadow roots): a click in its fields reaches the page
+    // as a click on the component, and a document-wide search never finds them.
+    const comp = win.createTab(`${at("edge")}/otp-component`);
+    const cw = comp.view.webContents;
+    await until(() => !cw.isDestroyed() && cw.getURL().includes("/otp-component") && !comp.loading);
+    const shadow = `document.querySelector("corvus-sign-in").shadowRoot`;
+    const mfaCode = `${shadow}.querySelector("corvus-code").shadowRoot.querySelector("input")`;
+    const componentFields = (): Promise<{ u: string; p: string; code: string } | null> => js(cw, `({ u: ${shadow}.querySelector("#u").value, p: ${shadow}.querySelector("#p").value, code: ${mfaCode}.value })`);
+    await clickAt(cw, `${shadow}.querySelector("#p")`);
+    const componentMenu = menu();
+    pick(loginLabel);
+    const componentFilled = await until(async () => {
+      const f = await componentFields();
+      return Boolean(f && f.u === "edge-admin" && f.p === "pw-edge-smoke" && (await nearbyCodes(edgeTotp)).includes(f.code));
+    }, 8000);
+    check(
+      "2FA fill: a sign-in form inside a web component offers the account in its password field, and the pick fills username, password and its 2FA field (named mfaCode)",
+      componentMenu[0] === loginLabel && componentFilled,
+      { componentMenu, ...(await componentFields()), code: undefined },
+    );
+    await clickAt(cw, mfaCode);
+    const componentCodeMenu = menu();
+    check("2FA fill: a click in a web component's 2FA field offers the account's 2FA code", componentCodeMenu[0] === codeLabel, componentCodeMenu);
+    win.closeTab(comp.id);
     win.closeTab(tab.id);
 
     await copySmoke(ctx, win, { check, url: `${at("edge")}/login`, codes: () => nearbyCodes(edgeTotp) });

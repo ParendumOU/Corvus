@@ -103,3 +103,9 @@ export function cancelAnswer(spec: DialogSpec): DialogAnswer {
 export function toneOf(type: string | undefined): DialogTone {
   return type === "warning" ? "warning" : type === "error" ? "danger" : type === "question" ? "question" : "info";
 }
+
+/**
+ * A page's prompt(), from the tab preload to the main process over synchronous IPC (Electron's own
+ * prompt() throws): args (message, defaultText), the reply is the text or null.
+ */
+export const PAGE_PROMPT_CHANNEL = "corvus:page-prompt";

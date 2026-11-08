@@ -4,7 +4,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { dialog, nativeTheme, type WebContents } from "electron";
+import { dialog, nativeImage, nativeTheme, type WebContents } from "electron";
 import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
 import type { AppContext } from "./context";
 import { spendDialog } from "./spend-approvals";
@@ -53,8 +53,37 @@ const DIALOG_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <button type="button" onclick="document.getElementById('out').textContent = confirm('Delete this note?') ? 'Answer: deleted' : 'Answer: kept'">Delete note</button>
 <button type="button" onclick="document.getElementById('out').textContent = confirm('Buy the Raven umbrella for $42?') ? 'Answer: bought' : 'Answer: not bought'">Umbrella</button>
 <button type="button" onclick="alert('Saved'); document.getElementById('out').textContent = 'Answer: after alert'">Save</button>
+<button type="button" onclick="document.getElementById('out').textContent = 'Answer: name=' + prompt('New name?', 'Draft')">Rename</button>
 <p id="out">Answer: none</p>
 </main></body></html>`;
+
+/**
+ * An admin panel's side drawer: fixed, with its own scroll, over a long list. Its switches are
+ * buttons labelled from outside (label for=) with value "on", as UI libraries make them; green when
+ * on, red when off, so a screenshot shows which one it caught.
+ */
+const DRAWER_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Corvus Drawer Smoke</title>
+<style>
+body { margin: 0; font: 14px sans-serif; }
+#list p { height: 60px; margin: 0; padding: 0 20px; }
+#drawer { position: fixed; top: 0; right: 0; width: 320px; height: 300px; overflow-y: auto; background: #fff; border-left: 1px solid #888; }
+.row { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 12px; }
+.gap { height: 500px; }
+[role=switch] { width: 44px; height: 24px; border: 0; border-radius: 4px; }
+[role=switch][aria-checked=true] { background: rgb(0, 170, 0); }
+[role=switch][aria-checked=false] { background: rgb(220, 0, 0); }
+</style></head><body>
+<main id="list"><h1>Proxy hosts</h1>${Array.from({ length: 12 }, (_, i) => `<p>Host behind the drawer ${i + 1}</p>`).join("")}</main>
+<div id="drawer" role="dialog" aria-label="Edit host">
+<div class="gap"></div>
+<div class="row"><label for="https">Force HTTPS</label><button id="https" type="button" role="switch" aria-checked="true" value="on" onclick="toggle(this)"></button></div>
+<div class="gap"></div>
+<div class="row"><label for="h2">HTTP/2</label><button id="h2" type="button" role="switch" aria-checked="false" value="on" onclick="toggle(this)"></button></div>
+<div class="row"><button id="bold" type="button" aria-pressed="true">Bold</button><button id="more" type="button" aria-expanded="false">Advanced</button></div>
+<div class="row"><button id="cert" type="button" onclick="setTimeout(() => { document.getElementById('status').textContent = 'Certificate issued'; }, 700)">Request certificate</button><span id="status">Pending</span></div>
+</div>
+<script>function toggle(b) { b.setAttribute("aria-checked", String(b.getAttribute("aria-checked") !== "true")); }</script>
+</body></html>`;
 
 /** One same-origin and one cross-origin iframe. */
 function framesPage(port: number): string {
@@ -138,7 +167,9 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
               ? FRAME_INNER
               : req.url === "/dialogs"
                 ? DIALOG_PAGE
-                : PAGE,
+                : req.url === "/drawer"
+                  ? DRAWER_PAGE
+                  : PAGE,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -235,7 +266,8 @@ export async function runAgentSmoke(ctx: AppContext, h: Helpers): Promise<void> 
 
 export interface McpSession {
   tools(): Promise<string[]>;
-  tool(name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }>;
+  /** `image`: the base64 data of the result's first image, when it has one. */
+  tool(name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string; image?: string }>;
   close(): Promise<void>;
 }
 
@@ -283,7 +315,7 @@ export async function openMcpSession(endpoint: string, token: string, clientName
         const res = await post({ id: ++seq, method: "tools/call", params: { name, arguments: args } });
         const error = res?.error as { message?: string } | undefined;
         if (error) throw new Error(error.message ?? "MCP error");
-        const result = res?.result as { isError?: boolean; content?: Array<{ type: string; text?: string }> } | undefined;
+        const result = res?.result as { isError?: boolean; content?: Array<{ type: string; text?: string; data?: string }> } | undefined;
         const text = (result?.content ?? []).map((c) => c.text ?? "").join("\n");
         // The server's rate limit (a burst of 30, then 5 calls a second): wait as it says, like a client would.
         const wait = result?.isError === true ? /^Rate limit exceeded; retry in (\d+)s/.exec(text) : null;
@@ -291,7 +323,8 @@ export async function openMcpSession(endpoint: string, token: string, clientName
           await sleep(Number(wait[1]) * 1000);
           continue;
         }
-        return { isError: result?.isError === true, text };
+        const image = result?.content?.find((c) => c.type === "image")?.data;
+        return { isError: result?.isError === true, text, ...(image ? { image } : {}) };
       }
     },
     async close() {
@@ -366,6 +399,7 @@ async function mcpSpendSmoke(ctx: AppContext, shopUrl: string, check: Helpers["c
       { buy, field, shot: shot.text.slice(0, 300) },
     );
     allow = true;
+    await mcpDrawerChecks(session, shopUrl, check);
     const coordBuy = buy ? await session.tool("click_at", { tabId, x: buy.x, y: buy.y }) : { isError: true, text: "no box" };
     check(
       "MCP click_at on Buy now hits the spend dialog too (allowed once)",
@@ -483,7 +517,8 @@ async function mcpBridgeSmoke(ctx: AppContext, check: Helpers["check"]): Promise
     child.stderr?.on("data", (d: Buffer) => (stderr += d.toString()));
     const send = (m: unknown) => child?.stdin?.write(`${JSON.stringify(m)}\n`);
     const reply = async (id: number): Promise<{ result?: { content?: Array<{ text?: string }> }; error?: { message: string } }> => {
-      const deadline = Date.now() + 15_000;
+      // A cold start of the bridge on a busy machine can take a while.
+      const deadline = Date.now() + 30_000;
       for (;;) {
         const found = lines.find((l) => (l as { id?: number }).id === id);
         if (found) return found as { result?: { content?: Array<{ text?: string }> }; error?: { message: string } };
@@ -692,7 +727,7 @@ async function mcpDialogChecks(
     tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
     const snap = await session.tool("page_snapshot", { tabId, maxChars: 0 });
     const ref = (name: string): string => new RegExp(`\\b(e\\d+) button "${name}"`).exec(snap.text)?.[1] ?? "";
-    const [ask, buy, save] = [ref("Delete note"), ref("Umbrella"), ref("Save")];
+    const [ask, buy, save, rename] = [ref("Delete note"), ref("Umbrella"), ref("Save"), ref("Rename")];
     // A click whose page answer waits on a dialog: the click itself may report the dialog.
     const openWith = async (button: string): Promise<string> => {
       await session.tool("click", { tabId, ref: button });
@@ -753,6 +788,21 @@ async function mcpDialogChecks(
       "MCP handle_dialog answers alert()",
       saving.includes('"dialog":{"type":"alert","message":"Saved"}') && !ok.isError && (await answerShown("after alert")) && closed(),
       { saving: saving.slice(-200), ok: ok.text.slice(-160) },
+    );
+
+    // prompt(): Electron's own throws "prompt() is not supported."; Corvus's opens a dialog.
+    const naming = await openWith(rename);
+    const named = await session.tool("handle_dialog", { tabId, accept: true, promptText: "Ravena" });
+    const namedShown = await answerShown("name=Ravena");
+    await openWith(rename);
+    await session.tool("handle_dialog", { tabId, accept: true });
+    const defaultShown = await answerShown("name=Draft");
+    await openWith(rename);
+    await session.tool("handle_dialog", { tabId, accept: false });
+    check(
+      "MCP page_snapshot shows a page's prompt(); handle_dialog answers it with promptText, its default text, or null",
+      naming.includes('"dialog":{"type":"prompt","message":"New name?"}') && !named.isError && namedShown && defaultShown && (await answerShown("name=null")),
+      { naming: naming.slice(-200), named: named.text.slice(-160), namedShown, defaultShown },
     );
   } catch (err) {
     check("MCP dialog smoke", false, errorDetail(err));
@@ -818,7 +868,12 @@ async function mcpFormChecks(session: McpSession, baseUrl: string, check: Helper
     const focused = await session.tool("focus", { tabId, ref: name });
     const filled = await session.tool("fill_form", { tabId, fields: [{ ref: name, value: "Ravena" }, { ref: note, value: "Leave it at the door" }, { ref: size, value: "m" }] });
     const hovered = await session.tool("hover", { tabId, ref: hov });
-    const after = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    // The hover is a real mouse event: the page renames the button when it gets to it.
+    let after = { isError: true, text: "" };
+    for (const until = Date.now() + 15_000; Date.now() < until; await sleep(150)) {
+      after = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+      if (after.text.includes('button "Hovered"')) break;
+    }
     const has = (pattern: string): boolean => new RegExp(pattern).test(after.text);
     check(
       "MCP check, select_option, focus, fill_form and hover act on form controls",
@@ -889,7 +944,7 @@ async function mcpReadChecks(session: McpSession, tabId: string, check: Helpers[
     check("MCP get_html returns trimmed outerHTML", html.text.includes('<input id="q"') && html.text.includes("Buy now") && !html.text.includes("<script"), html.text.slice(-300));
     const appeared = await session.tool("wait_for", { tabId, text: "umbrella", timeoutMs: 3000 });
     const element = await session.tool("wait_for", { tabId, selector: "#out", state: "visible", timeoutMs: 3000 });
-    const idle = await session.tool("wait_for", { tabId, networkIdle: true, timeoutMs: 8000 });
+    const idle = await session.tool("wait_for", { tabId, networkIdle: true, timeoutMs: 20_000 });
     const missing = await session.tool("wait_for", { tabId, text: "no-such-text-on-this-page", timeoutMs: 600 });
     const loaded = await session.tool("tab_wait_load", { tabId, timeoutMs: 3000 });
     const requests = idle.isError ? (await session.tool("network_requests", { tabId, limit: 10 })).text.slice(-600) : "";
@@ -939,6 +994,86 @@ async function mcpDevtoolsChecks(session: McpSession, baseUrl: string, check: He
     );
   } catch (err) {
     check("MCP devtools smoke", false, errorDetail(err));
+  } finally {
+    if (tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
+  }
+}
+
+/** The colour at the centre of a screenshot an MCP tool returned (base64 PNG or JPEG). */
+function centreColour(base64: string | undefined): { r: number; g: number; b: number } | null {
+  if (!base64) return null;
+  const image = nativeImage.createFromBuffer(Buffer.from(base64, "base64"));
+  const { width, height } = image.getSize();
+  if (!width || !height) return null;
+  const bitmap = image.toBitmap();
+  const i = (Math.floor(height / 2) * width + Math.floor(width / 2)) * 4;
+  return { b: bitmap[i] ?? 0, g: bitmap[i + 1] ?? 0, r: bitmap[i + 2] ?? 0 };
+}
+
+/**
+ * An admin panel's side drawer over MCP (DRAWER_PAGE): page_snapshot within the drawer with the
+ * switches' and toggles' states, find by role and label, element screenshots of switches below the
+ * drawer's fold, a changes-only snapshot after a toggle, and wait_for an element's text to change.
+ */
+async function mcpDrawerChecks(session: McpSession, baseUrl: string, check: Helpers["check"]): Promise<void> {
+  let tabId = "";
+  try {
+    const opened = await session.tool("tab_open", { url: `${baseUrl}drawer` });
+    tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
+    const drawer = await session.tool("page_snapshot", { tabId, within: "#drawer", maxChars: 2000 });
+    const ref = (pattern: string): string => new RegExp(`\\b(e\\d+) ${pattern}`).exec(drawer.text)?.[1] ?? "";
+    const [https, h2] = [ref('switch "Force HTTPS"'), ref('switch "HTTP/2"')];
+    check(
+      "MCP page_snapshot within a drawer: only its content, with switch, pressed and expanded states",
+      /switch "Force HTTPS" ="checked"/.test(drawer.text) &&
+        /switch "HTTP\/2" ="unchecked"/.test(drawer.text) &&
+        /button "Bold" \[pressed\]/.test(drawer.text) &&
+        /button "Advanced" \[collapsed\]/.test(drawer.text) &&
+        drawer.text.includes("Pending") &&
+        !drawer.text.includes("Host behind the drawer"),
+      drawer.text.slice(-700),
+    );
+
+    const found = await session.tool("find", { tabId, role: "switch", text: "Force HTTPS" });
+    const exact = await session.tool("find", { tabId, role: "switch", text: "http/2", exact: true });
+    check(
+      "MCP find by role and label matches a switch labelled from outside it, below a drawer's fold",
+      new RegExp(`${https} switch "Force HTTPS" ="checked"`).test(found.text) && new RegExp(`${h2} switch "HTTP/2" ="unchecked"`).test(exact.text),
+      { found: found.text.slice(-200), exact: exact.text.slice(-200) },
+    );
+
+    const shotOn = await session.tool("screenshot", { tabId, mode: "element", ref: https, format: "png" });
+    const shotOff = await session.tool("screenshot", { tabId, mode: "element", ref: h2, format: "png" });
+    const bySelector = await session.tool("screenshot", { tabId, mode: "element", selector: "#https", format: "png" });
+    const [on, off, sel] = [centreColour(shotOn.image), centreColour(shotOff.image), centreColour(bySelector.image)];
+    const green = (c: typeof on): boolean => Boolean(c && c.g > 120 && c.r < 80);
+    const red = (c: typeof on): boolean => Boolean(c && c.r > 150 && c.g < 80);
+    check(
+      "MCP screenshot mode=element scrolls a drawer's own scroll and clips each switch (by ref and by selector)",
+      green(on) && red(off) && green(sel),
+      { on, off, sel, onMeta: shotOn.text.slice(0, 200), offMeta: shotOff.text.slice(0, 200) },
+    );
+
+    await session.tool("click", { tabId, ref: h2 });
+    const changes = await session.tool("page_snapshot", { tabId, within: "#drawer", maxChars: 2000, changes: true });
+    check(
+      "MCP page_snapshot changes lists only the switch a click turned on",
+      /switch "HTTP\/2" ="checked"/.test(changes.text) && changes.text.includes("text: unchanged") && !changes.text.includes("Force HTTPS") && !changes.text.includes('"Bold"'),
+      changes.text.slice(-500),
+    );
+
+    const cert = ref('button "Request certificate"');
+    await session.tool("click", { tabId, ref: cert });
+    const changed = await session.tool("wait_for", { tabId, selector: "#status", textChanged: "Pending", timeoutMs: 8000 });
+    const issued = await session.tool("get_text", { tabId, ref: (await session.tool("find", { tabId, selector: "#status" })).text.match(/\b(e\d+)/)?.[1] ?? "" });
+    const still = await session.tool("wait_for", { tabId, selector: "#status", textChanged: true, timeoutMs: 600 });
+    check(
+      "MCP wait_for textChanged waits for an element's text to change after a click; a text that stays times out",
+      !changed.isError && issued.text.includes("Certificate issued") && still.isError && still.text.includes("textChanged"),
+      { changed: changed.text.slice(-200), issued: issued.text.slice(-200), still: still.text.slice(-200) },
+    );
+  } catch (err) {
+    check("MCP drawer smoke", false, errorDetail(err));
   } finally {
     if (tabId) await session.tool("tab_close", { tabId }).catch(() => undefined);
   }

@@ -15,6 +15,7 @@ import { fieldShown } from "../shared/frame-fill";
 import { identifierFieldFacts, isIdentifierFacts } from "../shared/identifier-field";
 import { isOtpFacts, otpFieldFacts } from "../shared/otp-field";
 import { passwordFieldFacts, passwordRoles } from "../shared/password-fields";
+import { deepActiveElement, deepElementFromPoint, deepQueryAll } from "../shared/shadow-dom";
 
 /** Separate from the agent (1717), reader (1721) and assist worlds. */
 export const AUTOFILL_WORLD_ID = 1723;
@@ -56,6 +57,17 @@ const IS_VISIBLE = `
 `;
 
 /**
+ * Fields in open shadow roots too (see shared/shadow-dom.ts): `inputsIn(scope, selector)` searches a
+ * form or a shadow root as it is, and the whole page through its components' shadow roots.
+ */
+const SHADOW = `
+  const deepQueryAll = ${String(deepQueryAll)};
+  const deepActiveElement = ${String(deepActiveElement)};
+  const deepElementFromPoint = ${String(deepElementFromPoint)};
+  const inputsIn = (scope, selector) => scope === document ? deepQueryAll(document, selector) : Array.prototype.slice.call(scope.querySelectorAll(selector));
+`;
+
+/**
  * Locates the page's login form: the first visible, enabled password field and the text/email field
  * most likely to be its username (same form, prefers email/autocomplete hints, else the nearest
  * preceding text input). Returns `{ user, pass }` DOM elements or null.
@@ -65,17 +77,19 @@ const FIND_LOGIN = `
     const hint = ((el.name || "") + " " + (el.id || "") + " " + (el.getAttribute("autocomplete") || "") + " " + (el.getAttribute("type") || "")).toLowerCase();
     return /email|user|login|account|phone|tel/.test(hint);
   };
-  const userCandidates = (scope, exclude) => Array.prototype.slice
-    .call(scope.querySelectorAll("input[type=text], input[type=email], input[type=tel], input:not([type])"))
+  const userCandidates = (scope, exclude) => inputsIn(scope, "input[type=text], input[type=email], input[type=tel], input:not([type])")
     .filter((el) => el !== exclude && !el.disabled && !el.readOnly && isVisible(el) && !isOtpField(el));
   const userFor = (pass) => {
-    const candidates = userCandidates(pass.form || document, pass);
+    const scope = pass.form || pass.getRootNode();
+    let candidates = userCandidates(scope, pass);
+    // A web component may keep its password field apart from the username field (another shadow root).
+    if (!candidates.length && scope !== document) candidates = userCandidates(document, pass);
     const before = candidates.filter((el) => el.compareDocumentPosition(pass) & Node.DOCUMENT_POSITION_FOLLOWING);
     const pool = before.length ? before : candidates;
     return pool.filter(usernameLikely).pop() || pool.pop() || null;
   };
   const findLogin = () => {
-    const passwords = Array.prototype.slice.call(document.querySelectorAll("input[type=password]"));
+    const passwords = inputsIn(document, "input[type=password]");
     for (const pass of passwords) {
       if (pass.disabled || pass.readOnly || !isVisible(pass) || isOtpField(pass)) continue;
       return { user: userFor(pass), pass };
@@ -105,15 +119,15 @@ const FIND_OTP = `
     return null;
   };
   const splitBoxesAround = (seed) => {
-    const scope = (seed && (seed.form || seed.closest("fieldset, [role=group], div"))) || document;
-    const boxes = Array.prototype.slice.call((scope.querySelectorAll ? scope : document).querySelectorAll("input"))
+    const scope = (seed && (seed.form || seed.closest("fieldset, [role=group], div") || seed.getRootNode())) || document;
+    const boxes = inputsIn(scope.querySelectorAll ? scope : document, "input")
       .filter((el) => usableInput(el) && el.maxLength === 1 && typeOf(el) !== "password");
     if (boxes.length < 6 || boxes.length > 8) return null;
     if (seed && !boxes.includes(seed)) return null;
     return commonAncestor(boxes, 4) ? boxes : null;
   };
   const findOtp = () => {
-    const inputs = Array.prototype.slice.call(document.querySelectorAll("input")).filter(usableInput);
+    const inputs = inputsIn(document, "input").filter(usableInput);
     const exact = inputs.find(autoOtp);
     if (exact) return exact.maxLength === 1 ? splitBoxesAround(exact) || [exact] : [exact];
     const split = splitBoxesAround(null);
@@ -155,13 +169,13 @@ const PASSWORD_FIELD = `
   const passwordRoles = ${String(passwordRoles)};
   const isPasswordInput = (el) => Boolean(el) && el.tagName === "INPUT" && typeOf(el) === "password";
   const fieldAt = (box) => {
-    const active = document.activeElement;
+    const active = deepActiveElement(document);
     if (isPasswordInput(active)) return active;
-    const el = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    const el = deepElementFromPoint(document, box.x + box.width / 2, box.y + box.height / 2);
     return isPasswordInput(el) ? el : null;
   };
   const passwordFieldsOf = (anchor) => {
-    const fields = Array.prototype.slice.call((anchor.form || document).querySelectorAll("input[type=password]"))
+    const fields = inputsIn(anchor.form || anchor.getRootNode(), "input[type=password]")
       .filter((el) => el === anchor || (!el.disabled && !el.readOnly && isVisible(el) && !isOtpField(el)));
     return { fields, roles: passwordRoles(fields.map(passwordFieldFacts)) };
   };
@@ -174,11 +188,11 @@ const PASSWORD_FIELD = `
 const FIND_IDENTIFIER = `
   const identifierFieldFacts = ${String(identifierFieldFacts)};
   const isIdentifierFacts = ${String(isIdentifierFacts)};
-  const findIdentifier = () => Array.prototype.slice.call(document.querySelectorAll("input"))
+  const findIdentifier = () => inputsIn(document, "input")
     .find((el) => ["text", "email", "tel"].includes(typeOf(el)) && !el.disabled && !el.readOnly && isVisible(el) && !isOtpField(el) && isIdentifierFacts(identifierFieldFacts(el))) || null;
 `;
 
-const PRELUDE = `${IS_VISIBLE}${FIND_OTP}${FIND_LOGIN}${SET_VALUE}${PASSWORD_FIELD}${FIND_IDENTIFIER}`;
+const PRELUDE = `${IS_VISIBLE}${SHADOW}${FIND_OTP}${FIND_LOGIN}${SET_VALUE}${PASSWORD_FIELD}${FIND_IDENTIFIER}`;
 
 const findRef = (ref: string): string =>
   `document.querySelector('[data-corvus-ref="' + ${JSON.stringify(ref)}.replace(/["\\\\]/g, "") + '"]')`;

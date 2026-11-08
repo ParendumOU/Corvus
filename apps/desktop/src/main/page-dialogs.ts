@@ -60,19 +60,6 @@ export class PageDialogs {
     this.watched.add(wc);
     emitter.removeAllListeners("-run-dialog");
     emitter.on("-run-dialog", (info: RunDialogInfo, reply: DialogReply) => {
-      let answered = false;
-      const controller = new AbortController();
-      const once: DialogReply = (accept, promptText) => {
-        if (answered) return;
-        answered = true;
-        if (this.open.get(wc)?.reply === once) this.open.delete(wc);
-        controller.abort();
-        reply(accept, promptText);
-      };
-      if (this.silenced.has(wc)) {
-        once(false, "");
-        return;
-      }
       const type = DIALOG_TYPES.find((t) => t === info.dialogType) ?? "alert";
       const dialog: DialogInfo = {
         type,
@@ -81,32 +68,11 @@ export class PageDialogs {
         url: info.frame?.url || wc.getURL(),
         at: Date.now(),
       };
-      const shown = this.present?.(wc, dialog, controller.signal) ?? null;
-      if (shown) {
-        void shown.then(
-          (answer) => {
-            if (answer.suppress) this.silenced.add(wc);
-            once(answer.accept, answer.text.slice(0, 10_000));
-          },
-          () => once(false, ""),
-        );
-      } else {
+      this.run(wc, dialog, reply, (once) => {
         for (const listener of electron) {
           void Promise.resolve(listener.call(wc, info, once)).catch(() => undefined);
         }
-        // Electron answered at once (prompt, disabled dialogs): nothing stays open.
-        if (answered) return;
-      }
-      this.open.set(wc, {
-        info: dialog,
-        reply: once,
-        // The page is gone or the dialog was cancelled: no reply after that.
-        withdraw: () => {
-          answered = true;
-          controller.abort();
-        },
       });
-      for (const waiter of [...(this.waiters.get(wc) ?? [])]) waiter(dialog);
     });
     // Chromium cancels dialogs on navigation: withdraw Corvus's dialog too. A closed tab gets no
     // "-cancel-dialogs", so its dialog goes when its page does.
@@ -120,15 +86,79 @@ export class PageDialogs {
     wc.on("did-navigate", () => this.silenced.delete(wc));
   }
 
+  /**
+   * A page's prompt(). Electron's renderer replaces window.prompt with one that throws, so the tab
+   * preload puts its own in the page and asks here over synchronous IPC: shown and answered like
+   * alert() and confirm(). `reply` gets the text, or null when dismissed; with no window to show it
+   * in, or a page Corvus does not watch, it is dismissed at once (there is no stock box for it).
+   */
+  prompt(wc: WebContents, ask: { message: string; defaultPrompt: string; url: string }, reply: (text: string | null) => void): void {
+    if (!this.watched.has(wc) || wc.isDestroyed()) {
+      reply(null);
+      return;
+    }
+    const dialog: DialogInfo = { type: "prompt", message: ask.message, defaultPrompt: ask.defaultPrompt, url: ask.url || wc.getURL(), at: Date.now() };
+    this.run(wc, dialog, (accept, text) => reply(accept ? text : null), (once) => once(false, ""), true);
+  }
+
+  /**
+   * Shows the dialog (the presenter, else `fallback`, which may answer at once) and keeps it open for
+   * handle_dialog until answered. `replyOnWithdraw`: the page waits on Corvus itself (prompt over
+   * sync IPC), so a withdrawn dialog still answers it, dismissed.
+   */
+  private run(wc: WebContents, dialog: DialogInfo, reply: DialogReply, fallback: (once: DialogReply) => void, replyOnWithdraw = false): void {
+    let answered = false;
+    const controller = new AbortController();
+    const once: DialogReply = (accept, promptText) => {
+      if (answered) return;
+      answered = true;
+      if (this.open.get(wc)?.reply === once) this.open.delete(wc);
+      controller.abort();
+      reply(accept, promptText);
+    };
+    if (this.silenced.has(wc)) {
+      once(false, "");
+      return;
+    }
+    const shown = this.present?.(wc, dialog, controller.signal) ?? null;
+    if (shown) {
+      void shown.then(
+        (answer) => {
+          if (answer.suppress) this.silenced.add(wc);
+          once(answer.accept, answer.text.slice(0, 10_000));
+        },
+        () => once(false, ""),
+      );
+    } else {
+      fallback(once);
+      // Answered at once (disabled dialogs, a prompt with no window): nothing stays open.
+      if (answered) return;
+    }
+    this.open.set(wc, {
+      info: dialog,
+      reply: once,
+      // The page is gone or the dialog was cancelled: no reply after that (Chromium has closed it).
+      withdraw: () => {
+        if (replyOnWithdraw) return once(false, "");
+        answered = true;
+        controller.abort();
+      },
+    });
+    for (const waiter of [...(this.waiters.get(wc) ?? [])]) waiter(dialog);
+  }
+
   pending(wc: WebContents): DialogInfo | null {
     return this.open.get(wc)?.info ?? null;
   }
 
-  /** Replies to the open dialog and closes it (Corvus's dialog or Electron's box); null when none is open. */
-  answer(wc: WebContents, accept: boolean, promptText = ""): DialogInfo | null {
+  /**
+   * Replies to the open dialog and closes it (Corvus's dialog or Electron's box); null when none is
+   * open. A prompt accepted without text answers its default text, as OK in the dialog does.
+   */
+  answer(wc: WebContents, accept: boolean, promptText?: string): DialogInfo | null {
     const open = this.open.get(wc);
     if (!open) return null;
-    open.reply(accept, promptText);
+    open.reply(accept, promptText ?? open.info.defaultPrompt ?? "");
     (wc as unknown as NodeJS.EventEmitter).emit("-cancel-dialogs");
     return open.info;
   }

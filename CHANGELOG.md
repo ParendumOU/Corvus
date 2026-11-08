@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.45.0
+
+### AI agents
+- **Pages can ask with prompt().** A page's `prompt()` threw "prompt() is not supported." in every tab, so a page action that asks for a name or a reason silently did nothing. It now opens Corvus's dialog, like `alert()` and `confirm()`, and agents answer it with `handle_dialog` and `promptText` (accepting without text gives the page's default text).
+- **Agents see the state of switches and toggles.** `page_snapshot` and `find` show switches as `="checked"`/`="unchecked"`, like checkboxes, and buttons with `[pressed]`/`[not-pressed]`, `[expanded]`/`[collapsed]`, `[selected]` or `[current]`. Before, an agent could not tell whether a switch such as "Force HTTPS" was on, and turned it off by mistake.
+- **`find` matches what page_snapshot names an element.** Finding a switch by role and label found nothing when the label sat outside it (`label for=`), as in most UI libraries: `find` compared only the element's own text, and a switch's own value is "on".
+- **Element screenshots in side drawers.** `screenshot` with `mode: "element"` now brings the element into view inside every scroll container it sits in, moving each as little as needed, and measures it again once the scroll has painted. It also takes a CSS `selector` instead of a ref.
+- **Fewer tokens for agents.** `page_snapshot` takes `within` (an element ref or a CSS selector, such as the open dialog or drawer) to read only that container, and `changes: true` to return only what changed since the agent's last snapshot of the tab: new text lines, new or changed elements, and the refs that are gone.
+- **`wait_for` an element's text to change.** `textChanged` with a `ref` or `selector` waits until the element's text differs from the text the agent last saw (or, with `true`, from its text when the wait began), for a status that updates after a submit.
+
+### Fixed
+- **Saved logins and 2FA codes are offered in sign-in forms built as web components.** A click in a field inside a component reached Corvus as a click on the component itself, so no login was offered there, and a fill could not find the fields either. Now the menu opens under the field and a pick fills the username, password and 2FA code inside the component.
+- **More 2FA code fields are recognized**: fields named in one word, such as `mfaCode`, `otp_code` or `otpInput`, and code-sized fields next to text asking for "the 6-digit code".
+- **A new window keeps the keyboard in the address bar.** On a busy computer the window could finish opening late and hand the keyboard to the new tab page, so what you typed went into the page. The address bar now takes it back, unless you clicked or typed in the page.
+
 ## v0.44.0
 
 ### Address bar

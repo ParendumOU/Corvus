@@ -1,19 +1,14 @@
-import fs from "node:fs";
-import net from "node:net";
-import os from "node:os";
-import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ powerMonitor: {} }));
 
 import { logindLocked, logindSessionPath, screenSaverLocked, watchComputerLock } from "../src/main/computer-lock";
 import { DBusConnection, MESSAGE, decodeMessage, encodeMessage, socketPathOf, splitSignature, type DBusMessage, type OutgoingMessage } from "../src/main/dbus";
+import { fakeBus as startFakeBus, matchRules as matches, type FakeBus } from "../src/main/smoke-fake-dbus";
 
-const dirs: string[] = [];
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const c of cleanups.splice(0)) c();
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 const until = async (ok: () => boolean, ms = 3000): Promise<boolean> => {
@@ -139,59 +134,12 @@ describe("the computer's lock on Linux", () => {
   });
 });
 
-interface FakeBus {
-  address: string;
-  received: DBusMessage[];
-  emit(m: Omit<OutgoingMessage, "type">): void;
-  connected(): boolean;
+/** A bus closed after the test. */
+async function fakeBus(answer?: Parameters<typeof startFakeBus>[0]): Promise<FakeBus> {
+  const bus = await startFakeBus(answer);
+  cleanups.push(bus.close);
+  return bus;
 }
-
-/** A bus on a Unix socket: signs the client in, answers its calls with `answer`, and sends it signals. */
-async function fakeBus(answer: (m: DBusMessage) => Pick<OutgoingMessage, "signature" | "body"> | undefined = () => undefined): Promise<FakeBus> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-dbus-"));
-  dirs.push(dir);
-  const socketPath = path.join(dir, "bus");
-  const received: DBusMessage[] = [];
-  let client: net.Socket | null = null;
-  let serial = 100;
-  const server = net.createServer((socket) => {
-    client = socket;
-    let buf = Buffer.alloc(0);
-    let binary = false;
-    socket.on("data", (chunk) => {
-      buf = Buffer.concat([buf, chunk]);
-      while (!binary) {
-        if (buf[0] === 0) buf = buf.subarray(1);
-        const end = buf.indexOf("\r\n");
-        if (end < 0) return;
-        const line = buf.subarray(0, end).toString("latin1");
-        buf = buf.subarray(end + 2);
-        if (line.startsWith("AUTH EXTERNAL ")) socket.write("OK 0123456789abcdef0123456789abcdef\r\n");
-        else if (line === "BEGIN") binary = true;
-      }
-      for (let d = decodeMessage(buf); d; d = decodeMessage(buf)) {
-        buf = buf.subarray(d.size);
-        received.push(d.message);
-        const reply = d.message.member === "Hello" ? { signature: "s", body: [":1.42"] } : answer(d.message);
-        socket.write(encodeMessage({ type: MESSAGE.reply, replySerial: d.message.serial, destination: ":1.42", ...reply }, ++serial));
-      }
-    });
-    socket.on("error", () => undefined);
-  });
-  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-  cleanups.push(() => {
-    client?.destroy();
-    server.close();
-  });
-  return {
-    address: `unix:path=${socketPath}`,
-    received,
-    emit: (m) => client?.write(encodeMessage({ ...m, type: MESSAGE.signal, sender: ":1.5" }, ++serial)),
-    connected: () => client !== null && !client.destroyed && !client.readableEnded,
-  };
-}
-
-const matches = (bus: FakeBus): string[] => bus.received.filter((m) => m.member === "AddMatch").map((m) => String(m.body[0]));
 
 describe.runIf(process.platform === "linux")("watching the computer's lock over D-Bus", () => {
   it("signs in, calls and gets answers", async () => {

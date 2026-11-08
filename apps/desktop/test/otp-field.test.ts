@@ -28,6 +28,20 @@ describe("isOtpFacts", () => {
     expect(isOtpFacts(facts({ type: "tel", inputMode: "numeric", maxLength: 6, attrs: "code" }))).toBe(true);
   });
 
+  it("reads names and ids written as one word, in camelCase or with underscores", () => {
+    for (const attrs of ["otp_code", "otpCode", "mfaCode mfaCode", "mfa_code", "otpInput", "twoFactorToken", "app_otp app_totp"]) expect(isOtpFacts(facts({ attrs })), attrs).toBe(true);
+    expect(isOtpFacts(facts({ attrs: "emailCode" }))).toBe(false);
+    expect(isOtpFacts(facts({ attrs: "phoneOtp" }))).toBe(false);
+  });
+
+  it("takes a code-sized field beside text asking for a 6 to 8 digit code", () => {
+    expect(isOtpFacts(facts({ attrs: "code", maxLength: 6, context: "Enter the 6-digit code we sent you." }))).toBe(true);
+    expect(isOtpFacts(facts({ inputMode: "numeric", context: "Type the six-digit code" }))).toBe(true);
+    expect(isOtpFacts(facts({ attrs: "codigo", maxLength: 6, context: "Introduce el código de 6 dígitos" }))).toBe(true);
+    expect(isOtpFacts(facts({ attrs: "zip", maxLength: 6, context: "Your 6-digit postal code" }))).toBe(false);
+    expect(isOtpFacts(facts({ attrs: "nickname", context: "Enter the 6-digit code" }))).toBe(false);
+  });
+
   it("takes a code-shaped field whose label is apart, by the text beside it", () => {
     // The owner's sign-in page: label not tied to the field, a "1 2 3 4 5 6" placeholder, help text.
     expect(isOtpFacts(facts({ attrs: "code", placeholder: "1 2 3 4 5 6", context: "Verification code The 6-digit code shown by your authenticator app." }))).toBe(true);
@@ -162,6 +176,7 @@ describe("autofill scripts", () => {
     for (const script of scripts) {
       expect(() => new Function(script)).not.toThrow();
       expect(script).toContain("NEARBY_HINT");
+      expect(script).toContain("deepQueryAll");
     }
   });
 });

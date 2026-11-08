@@ -161,6 +161,11 @@ function scriptResult<T>(value: T | { error: string }): T {
   return value as T;
 }
 
+/** Text as the wait probe reads it (read-scripts squash): runs of spaces as one, trimmed. */
+function squashText(s: string): string {
+  return s.replace(/[ \t\f\v ]+/g, " ").replace(/\n\s*\n\s*/g, "\n\n").trim();
+}
+
 /** The tab closed under the call (by the person, or its page closed itself). */
 function tabClosed(id: TabId): AgentError {
   return new AgentError(`Tab ${id} is closed`);
@@ -386,14 +391,17 @@ export class Controller implements BrowserController {
     const dialog = this.dialogs.pending(wc);
     if (dialog) return { tabId: id, url: wc.getURL(), title: wc.getTitle(), text: "", elements: [], truncated: false, dialog };
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
-    const raw = await this.exec<RawSnapshot>(
-      wc,
-      snapshotScript(opts.maxChars ?? DEFAULT_SNAPSHOT_CHARS, {
-        ...(opts.boxes !== undefined ? { boxes: opts.boxes } : {}),
-        ...(opts.viewportOnly !== undefined ? { viewportOnly: opts.viewportOnly } : {}),
-        ...(opts.maxElements !== undefined ? { maxElements: opts.maxElements } : {}),
-        ...(opts.text !== undefined ? { text: opts.text } : {}),
-      }),
+    const raw = scriptResult(
+      await this.exec<RawSnapshot | { error: string }>(
+        wc,
+        snapshotScript(opts.maxChars ?? DEFAULT_SNAPSHOT_CHARS, {
+          ...(opts.boxes !== undefined ? { boxes: opts.boxes } : {}),
+          ...(opts.viewportOnly !== undefined ? { viewportOnly: opts.viewportOnly } : {}),
+          ...(opts.maxElements !== undefined ? { maxElements: opts.maxElements } : {}),
+          ...(opts.text !== undefined ? { text: opts.text } : {}),
+          ...(opts.within ? { within: opts.within } : {}),
+        }),
+      ),
     );
     const viewport = raw.viewport ? { ...raw.viewport, zoom: wc.getZoomFactor() } : undefined;
     return { tabId: id, url: raw.url, title: raw.title, text: raw.text, elements: raw.elements, truncated: raw.truncated, ...(viewport ? { viewport } : {}) };
@@ -709,6 +717,8 @@ export class Controller implements BrowserController {
     const limit = Math.max(100, Math.min(WAIT_MAX_MS, condition.timeoutMs ?? 10_000));
     const dom = condition.text || condition.textGone || condition.ref || condition.selector;
     let idleSince: number | null = null;
+    // textChanged: the text to differ from (given, or read at the first probe).
+    let before: string | null | undefined = typeof condition.textChanged === "string" ? squashText(condition.textChanged) : undefined;
     let detail = "";
     for (;;) {
       if (wc.isDestroyed()) throw tabClosed(id);
@@ -724,8 +734,15 @@ export class Controller implements BrowserController {
         else if (idleSince === null || Date.now() - idleSince < NETWORK_IDLE_MS) missing.push("networkIdle");
       }
       if (dom && !wc.isLoading()) {
-        const probe = scriptResult(await this.exec<Record<string, boolean> | { error: string }>(wc, waitProbeScript(condition)).catch(() => ({}) as Record<string, boolean>));
+        const { elementText, ...probe } = scriptResult(
+          await this.exec<Record<string, boolean> | { error: string }>(wc, waitProbeScript(condition)).catch(() => ({}) as Record<string, boolean>),
+        ) as Record<string, boolean> & { elementText?: string | null };
         for (const [k, ok] of Object.entries(probe)) if (!ok) missing.push(k);
+        if (condition.textChanged !== undefined && condition.textChanged !== false) {
+          const now = elementText ?? null;
+          if (before === undefined) before = now;
+          if (now === before) missing.push("textChanged");
+        }
       } else if (dom) {
         missing.push("page loading");
       }
@@ -767,16 +784,15 @@ export class Controller implements BrowserController {
     return this.dialogs.race(wc, timeout(wc.executeJavaScript(expression, true), EVALUATE_TIMEOUT_MS, "Evaluation timed out"), dialogBlocked);
   }
 
-  /** The alert or confirm the page waits on, when an agent's tab has one open. */
+  /** The alert, confirm or prompt the page waits on, when an agent's tab has one open. */
   async pendingDialog(id: TabId): Promise<DialogInfo | null> {
     const { wc } = this.readable(id, "allow");
     return this.dialogs.pending(wc);
   }
 
   /**
-   * Answers the page's alert or confirm and closes the native box the person sees. The MCP server
-   * asks the person first when accepting it spends money. prompt() never stays open (Electron answers
-   * it with null), so promptText has nothing to reach.
+   * Answers the page's alert, confirm or prompt (promptText is what prompt() returns) and closes the
+   * dialog the person sees. The MCP server asks the person first when accepting it spends money.
    */
   async handleDialog(id: TabId, opts: { accept: boolean; promptText?: string }): Promise<DialogInfo> {
     const { window, wc } = this.readable(id, "allow");

@@ -328,13 +328,23 @@ async function capturePainted(wc: WebContents, opts: CaptureOptions): Promise<Ca
 
   let clip = { x: 0, y: 0, width: view.width, height: view.height };
   if (mode === "element") {
-    if (!opts.ref) throw new Error("mode=element needs a ref");
-    const r = await exec<{ x: number; y: number; width: number; height: number } | null>(wc, rectScript(opts.ref));
-    if (!r) throw new Error(`Element ${opts.ref} not found; take a new page_snapshot`);
+    if (!opts.ref && !opts.selector) throw new Error("mode=element needs a ref or a selector");
+    const target = opts.ref ? { ref: opts.ref } : { selector: opts.selector! };
+    type Rect = { x: number; y: number; width: number; height: number } | { error: string } | null;
+    const measure = async (scroll: boolean): Promise<{ x: number; y: number; width: number; height: number }> => {
+      const r = await exec<Rect>(wc, rectScript(target, scroll));
+      if (r && "error" in r) throw new Error(r.error);
+      if (!r) throw new Error(opts.ref ? `Element ${opts.ref} not found; take a new page_snapshot` : `No element matches ${opts.selector}`);
+      return r;
+    };
+    await measure(true);
+    // Measured again once the scroll has painted: a drawer's scroll or a transition may still move it.
+    await sleep(SETTLE_MS);
+    const r = await measure(false);
     const x = Math.max(0, r.x);
     const y = Math.max(0, r.y);
+    if (x >= view.width || y >= view.height || r.x + r.width <= 0 || r.y + r.height <= 0) throw new Error("The element is not on screen (hidden or clipped by its container)");
     clip = { x, y, width: Math.max(1, Math.min(view.width, r.x + r.width) - x), height: Math.max(1, Math.min(view.height, r.y + r.height) - y) };
-    await sleep(SETTLE_MS);
   }
   const image = await wc.capturePage(undefined, { stayHidden: true });
   if (image.isEmpty()) throw new Error(NOT_PAINTED);

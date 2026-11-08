@@ -14,6 +14,16 @@ interface TransferSmokeHelpers {
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** Polls a script in a page until it returns true, up to 15 s (a busy machine is slow). */
+async function pageHolds(wc: WebContents, script: string, ms = 15_000): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if ((await wc.executeJavaScript(script).catch(() => false)) === true) return true;
+    await sleep(150);
+  }
+  return false;
+}
+
 /**
  * Profile export/import: the profile goes out as one sealed file (no login in clear in it) and
  * comes back as a new profile with its bookmarks and working logins; a wrong password is refused.
@@ -56,11 +66,10 @@ export async function runProfileTransferSmoke(ctx: AppContext, h: TransferSmokeH
     );
 
     const settings = win.createTab("corvus://settings/#profiles", { activate: true });
-    await sleep(1500);
-    await settings.view.webContents.executeJavaScript(
-      "[...document.querySelectorAll('#profiles .btn')].find((b) => b.textContent.includes('Export'))?.click()",
-    );
-    await sleep(300);
+    const exportButton = "[...document.querySelectorAll('#profiles .btn')].find((b) => b.textContent.includes('Export'))";
+    await pageHolds(settings.view.webContents, `Boolean(${exportButton})`);
+    await settings.view.webContents.executeJavaScript(`${exportButton}?.click()`);
+    await pageHolds(settings.view.webContents, "document.querySelectorAll('.profile-transfer input[type=password]').length === 2");
     const form = (await settings.view.webContents.executeJavaScript("document.querySelectorAll('.profile-transfer input[type=password]').length")) as number;
     check("profile transfer: Settings > Profiles asks for the export password twice", form === 2, form);
     await capture("settings-profile-export", settings.view.webContents);

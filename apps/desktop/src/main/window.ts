@@ -119,6 +119,8 @@ const SIDEBAR_COLLAPSED_WIDTH = 52;
 const SLEEP_CHECK_WORLD_ID = 1999;
 /** Input in a tab this soon after an agent acted on it may be the agent's own (see BrowserWindowCtl.downloadByAgent). */
 const AGENT_INPUT_GRACE_MS = 2000;
+/** How long after a new tab page took focus by itself its click or key would have arrived (see onTabFocus). */
+const STRAY_FOCUS_CHECK_MS = 60;
 /** Isolated world that waits for a hidden page to paint before it is captured. */
 const PAINT_WORLD_ID = 2003;
 /** A tab opened in the background keeps painting this long after its page loads (what it draws once loaded, images in view). */
@@ -172,6 +174,8 @@ export interface TabRuntime {
   typedSite?: string;
   /** The person's last click or key press in it, not counting input while an agent acts (epoch ms). */
   personInputAt?: number;
+  /** Its last click or key press, whoever made it (epoch ms): focus it took without one was not asked for. */
+  inputAt?: number;
   /** The personInputAt that last opened a PDF in a new tab next to it: each input opens one at most. */
   pdfBesideInputAt?: number;
   /** The last time an agent acted on it (epoch ms). */
@@ -1052,6 +1056,24 @@ export class BrowserWindowCtl {
       });
       return;
     }
+    // A new tab page takes the keyboard from the address bar only with the person's click or key in
+    // it. A new window activating late on a busy computer hands focus to its page by itself: the
+    // address bar takes it back. A click focuses the page and reaches it as input in the same native
+    // dispatch, so a moment later tells them apart.
+    if (isNewTabUrl(tab.url) && this.lastFocused === this.chrome.webContents) {
+      const focusedAt = Date.now();
+      setTimeout(() => {
+        if (this.disposed || !this.tabs.has(tab.id) || this.lastFocused !== this.chrome.webContents) return;
+        if ((tab.inputAt ?? 0) >= focusedAt) this.acceptTabFocus(tab);
+        // The address bar let go of its caret when the page took the keyboard: it takes both back.
+        else if (tab.view.webContents.isFocused()) this.focusOmnibox(false);
+      }, STRAY_FOCUS_CHECK_MS);
+      return;
+    }
+    this.acceptTabFocus(tab);
+  }
+
+  private acceptTabFocus(tab: TabRuntime): void {
     this.lastFocused = tab.view.webContents;
     // Clicking the non-focused pane of a split makes it the active tab (omnibox/keyboard target).
     if (this.splitSession && tab.id !== this.strip.activeId) this.focusSplitPane(tab.id);
@@ -1245,6 +1267,7 @@ export class BrowserWindowCtl {
         redirects.interrupt();
         // So is a download it starts, unless an agent is acting (its own input looks the same).
         const now = Date.now();
+        tab.inputAt = now;
         if (!this.ctx.agents.acting() && now - (tab.agentActedAt ?? 0) > AGENT_INPUT_GRACE_MS) tab.personInputAt = now;
       }
     });
