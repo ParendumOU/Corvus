@@ -3,7 +3,7 @@
  * payment to approve, a page's confirm()), shown as a modal in the window's UI with Corvus's look
  * instead of the system's message box.
  */
-import type { TabId } from "@corvus/shared";
+import type { TabId, UserActionBlock } from "@corvus/shared";
 
 export type DialogTone = "info" | "question" | "warning" | "danger";
 
@@ -53,6 +53,8 @@ export interface DialogSpec {
    * person to do something in it).
    */
   bar?: boolean;
+  /** What a bar shows under its question (long text, steps, values to copy, a form); answered in `values`, one per form block. */
+  blocks?: UserActionBlock[];
   /** The tab a bar is about: while another tab is active, the bar offers to go to it (without answering). */
   tabId?: TabId;
   /**
@@ -89,9 +91,39 @@ export interface DialogAnswer {
   choice?: number;
 }
 
+export type FormBlock = Extract<UserActionBlock, { name: string }>;
+
+/** The blocks the person fills in, in order. */
+export function formBlocks(blocks: UserActionBlock[] | undefined): FormBlock[] {
+  return (blocks ?? []).filter((b): b is FormBlock => "name" in b);
+}
+
+/** A form block's value before the person touches it (a checkbox as "true" or "false"). */
+export function formBlockValue(block: FormBlock): string {
+  if (block.kind === "checkbox") return block.checked ? "true" : "false";
+  return block.value ?? "";
+}
+
+/** What came back for a form, held to what each block can answer. */
+export function formValues(blocks: UserActionBlock[] | undefined, typed: unknown[]): string[] {
+  return formBlocks(blocks).map((block, i) => {
+    const value = typed[i];
+    if (typeof value !== "string") return formBlockValue(block);
+    if (block.kind === "checkbox") return value === "true" ? "true" : "false";
+    if (block.kind === "select") return block.options.includes(value) ? value : formBlockValue(block);
+    return value.slice(0, 10_000);
+  });
+}
+
+/** A form's answer as the agent gets it: by field name, checkboxes as booleans. */
+export function namedFormValues(blocks: UserActionBlock[] | undefined, values: string[]): Record<string, string | boolean> {
+  return Object.fromEntries(formBlocks(blocks).map((block, i) => [block.name, block.kind === "checkbox" ? values[i] === "true" : (values[i] ?? "")]));
+}
+
 /** What a dialog's fields hold when nothing was typed in them. */
 export function fieldValues(spec: DialogSpec): Pick<DialogAnswer, "values"> {
-  return spec.fields ? { values: spec.fields.map((f) => f.value) } : {};
+  if (spec.fields) return { values: spec.fields.map((f) => f.value) };
+  return formBlocks(spec.blocks).length ? { values: formBlocks(spec.blocks).map(formBlockValue) } : {};
 }
 
 /** What an unanswered dialog resolves to (Escape, the window closed, the page went away). */

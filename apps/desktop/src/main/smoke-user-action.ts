@@ -1,6 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { nativeTheme, type WebContents } from "electron";
+import { clipboard, nativeTheme, type WebContents } from "electron";
 import type { TabId, UserActionResult } from "@corvus/shared";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
@@ -298,6 +298,70 @@ export async function runUserActionSmoke(ctx: AppContext, { win, check, capture 
     still.abort();
     await Promise.race([still.done, sleep(4000)]);
     w.win.flashFrame = flashFrame;
+
+    // ------------------------------------------------------------ blocks: long text, copy, a form
+    const longAsk = `Review the invoice before it goes out. ${"The totals, the tax lines and the delivery address must match the order. ".repeat(6)}`.slice(0, 480);
+    const richController = new AbortController();
+    pending.push(richController);
+    let rich: UserActionResult | null = null;
+    void ctx.controller
+      .requestUserAction(
+        asking.id,
+        {
+          message: longAsk,
+          timeoutMs: 120_000,
+          actions: ["Approve", "Reject"],
+          blocks: [
+            { kind: "steps", items: ["Open the attachment", "Compare the totals"] },
+            { kind: "copy", label: "Reference", value: "INV-2026-0042" },
+            { kind: "input", name: "note", label: "Note for accounting", required: true },
+            { kind: "select", name: "team", label: "Team", options: ["Ops", "Sales"], value: "Ops" },
+            { kind: "checkbox", name: "urgent", label: "Urgent" },
+          ],
+        },
+        richController.signal,
+      )
+      .then((r) => (rich = r));
+    await until(async () => Boolean(await chrome.executeJavaScript("Boolean(document.querySelector('.dialog-bar.has-blocks'))")));
+    await until(() => w.chrome.getBounds().height > 200);
+    await sleep(250);
+    const shown = (await chrome.executeJavaScript(`(() => {
+      const detail = document.querySelector('.dialog-bar.has-blocks .dialog-bar-detail');
+      return { text: detail.textContent, clipped: detail.scrollWidth > detail.clientWidth, rows: detail.getClientRects()[0].height };
+    })()`)) as { text: string; clipped: boolean; rows: number };
+    check("user action: a long request shows whole, wrapped, not cut at the bar's width", shown.text === longAsk.trim() && !shown.clipped && shown.rows > 20, shown);
+    await shoot("user-action-blocks-light");
+    nativeTheme.themeSource = "dark";
+    await sleep(350);
+    await shoot("user-action-blocks-dark");
+    nativeTheme.themeSource = "light";
+    await sleep(200);
+
+    await press(".dialog-bar.has-blocks [data-dialog-button='1']");
+    await until(async () => Boolean(await chrome.executeJavaScript("Boolean(document.querySelector('.dialog-bar.has-blocks .dialog-field-error'))")));
+    check("user action: a required field keeps the bar open until it is filled", rich === null && ctx.dialogs.bars(w).some((b) => b.blocks?.length), rich);
+
+    clipboard.writeText("");
+    await press(".dialog-bar.has-blocks [data-dialog-copy='1']");
+    await until(async () => (await clipboard.readText()) === "INV-2026-0042");
+    const copiedText = await clipboard.readText();
+    check("user action: the copy button puts the value on the clipboard", copiedText === "INV-2026-0042", copiedText);
+
+    await chrome.executeJavaScript(`(() => {
+      const note = document.querySelector("[data-dialog-block='note']");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(note, 'Looks right');
+      note.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector("[data-dialog-block='urgent']").click();
+    })()`);
+    await sleep(100);
+    await press(".dialog-bar.has-blocks [data-dialog-button='1']");
+    await until(() => rich !== null);
+    const richAnswer = rich as UserActionResult | null;
+    check(
+      "user action: the agent gets the button pressed and the form by name",
+      richAnswer?.outcome === "done" && richAnswer.action === "Approve" && richAnswer.values?.note === "Looks right" && richAnswer.values?.team === "Ops" && richAnswer.values?.urgent === true,
+      richAnswer,
+    );
   } catch (err) {
     check("user action smoke", false, err instanceof Error ? err.stack : String(err));
   } finally {

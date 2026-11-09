@@ -53,6 +53,7 @@ export const ROLE_NAME_FNS = `
     if (tag === "input") {
       const type = (el.getAttribute("type") || "text").toLowerCase();
       if (["button", "submit", "reset", "image"].includes(type)) return "button";
+      if (type === "file") return "file-input";
       if (type === "checkbox") return "checkbox";
       if (type === "radio") return "radio";
       if (type === "range") return "slider";
@@ -173,10 +174,12 @@ ${STATE_FNS}
   const collect = (root, ox, oy, depth) => {
   for (const el of root.querySelectorAll(selector)) {
     if (elements.length >= MAX_ELEMENTS) break;
-    if (el.disabled || !visible(el) || el.closest("[aria-hidden=true]")) continue;
+    const fileInput = el.tagName === "INPUT" && (el.getAttribute("type") || "").toLowerCase() === "file";
+    // Pages hide their file input behind a nicer button; agents still need its ref to upload.
+    if (el.disabled || (!fileInput && (!visible(el) || el.closest("[aria-hidden=true]")))) continue;
     const r = el.getBoundingClientRect();
     const box = { left: r.left + ox, top: r.top + oy, width: r.width, height: r.height, right: r.right + ox, bottom: r.bottom + oy };
-    if (VIEWPORT_ONLY && (box.bottom < 0 || box.right < 0 || box.top > innerHeight || box.left > innerWidth)) continue;
+    if (VIEWPORT_ONLY && !fileInput && (box.bottom < 0 || box.right < 0 || box.top > innerHeight || box.left > innerWidth)) continue;
     const ref = refFor(el);
     const item = { ref, role: roleOf(el), name: nameOf(el).slice(0, 80) };
     if (BOXES) item.bbox = [Math.round(box.left), Math.round(box.top), Math.round(box.width), Math.round(box.height)];
@@ -193,6 +196,7 @@ ${STATE_FNS}
         el.hasAttribute("data-corvus-secret") ||
         (el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/).includes("one-time-code");
       if (!secret && el.value) item.value = String(el.value).slice(0, 80);
+      else if (fileInput && el.getAttribute("accept")) item.value = "accept: " + el.getAttribute("accept").slice(0, 60);
     }
     elements.push(item);
   }

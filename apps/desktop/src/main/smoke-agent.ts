@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { dialog, nativeImage, nativeTheme, type WebContents } from "electron";
 import type { AgentModelProvider, AgentTurnRequest, TurnEvent } from "@corvus/ai-engine";
+import type { DialogView } from "../shared/dialog";
 import type { AppContext } from "./context";
 import { spendDialog } from "./spend-approvals";
 import type { BrowserWindowCtl } from "./window";
@@ -40,6 +41,7 @@ const FORM_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><m
 <label for="note">Note</label><textarea id="note"></textarea>
 <button id="hov" type="button" onmouseenter="this.textContent='Hovered'">Hover me</button>
 <label for="doc">Attachment</label><input type="file" id="doc" onchange="document.getElementById('files').textContent = Array.from(this.files).map((f) => f.name).join(',')">
+<input type="file" id="hid" aria-label="Hidden attachment" style="display:none" onchange="document.getElementById('files').textContent = 'chooser:' + this.files[0].name"><button type="button" onclick="document.getElementById('hid').click()">Attach a file</button>
 <div id="files">no files</div>
 </main></body></html>`;
 
@@ -616,6 +618,7 @@ async function mcpActivityChecks(ctx: AppContext, spendClient: string, check: He
 async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["check"]): Promise<void> {
   const clientName = "corvus-smoke-full";
   const before = ctx.settings.get().mcp;
+  const trustedBefore = ctx.settings.get().passwords.agentSignInWithoutAsking;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-upload-"));
   const file = path.join(dir, "raven-notes.txt");
   fs.writeFileSync(file, "Ravens are clever.");
@@ -630,7 +633,8 @@ async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["c
     const opened = await session.tool("tab_open", { url: `${baseUrl}form` });
     tabId = /"id":"([^"]+)"/.exec(opened.text)?.[1] ?? "";
     const snap = await session.tool("page_snapshot", { tabId, maxChars: 0 });
-    const doc = /\b(e\d+) textbox "Attachment"/.exec(snap.text)?.[1] ?? "";
+    const doc = /\b(e\d+) file-input "Attachment"/.exec(snap.text)?.[1] ?? "";
+    ctx.settings.update({ passwords: { agentSignInWithoutAsking: true } });
     const uploaded = await session.tool("upload_file", { tabId, ref: doc, paths: [file] });
     const shown = await session.tool("wait_for", { tabId, text: "raven-notes.txt", timeoutMs: 3000 });
     const program = await session.tool("upload_file", { tabId, ref: doc, paths: [path.join(dir, "setup.exe")] });
@@ -638,6 +642,55 @@ async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["c
       "MCP upload_file puts a local file on a file input (full access); refuses missing files",
       Boolean(doc) && uploaded.text === "uploaded 1 file(s)" && !shown.isError && program.isError,
       { doc, uploaded: uploaded.text, shown: shown.text.slice(-120), program: program.text.slice(-160) },
+    );
+
+    // As most sites do it: the input is hidden and a button opens its chooser.
+    const hidden = await session.tool("page_snapshot", { tabId, maxChars: 0 });
+    const attach = /\b(e\d+) button "Attach a file"/.exec(hidden.text)?.[1] ?? "";
+    check("MCP page_snapshot lists a hidden file input", /\be\d+ file-input "Hidden attachment"/.test(hidden.text), hidden.text.slice(-400));
+    await session.tool("click", { tabId, ref: attach });
+    let chooserNote = "";
+    for (const end = Date.now() + 5000; Date.now() < end && !chooserNote.includes("file_chooser_open"); await sleep(150)) {
+      chooserNote = (await session.tool("page_snapshot", { tabId, maxChars: 0 })).text;
+    }
+    check("MCP: a click that opens a file chooser reaches the agent, not a system window", chooserNote.includes("file_chooser_open"), chooserNote.slice(-300));
+    const fromChooser = await session.tool("upload_file", { tabId, paths: [file] });
+    const chosen = await session.tool("wait_for", { tabId, text: "chooser:raven-notes.txt", timeoutMs: 3000 });
+    const noChooser = await session.tool("upload_file", { tabId, paths: [file] });
+    check(
+      "MCP upload_file without a ref answers the open chooser, and refuses when none is open",
+      fromChooser.text === "uploaded 1 file(s)" && !chosen.isError && noChooser.isError && noChooser.text.includes("No file chooser"),
+      { fromChooser: fromChooser.text, chosen: chosen.text.slice(-120), noChooser: noChooser.text.slice(-160) },
+    );
+
+    // An agent that was not trusted with this has to ask.
+    ctx.settings.update({ passwords: { agentSignInWithoutAsking: false } });
+    const window = ctx.windows.findTab(tabId)!.window;
+    const question = async (): Promise<DialogView | null> => {
+      for (const end = Date.now() + 5000; Date.now() < end; await sleep(100)) {
+        const open = ctx.dialogs.bars(window).find((b) => b.tabId === tabId) ?? ctx.dialogs.current(window);
+        if (open) return open;
+      }
+      return null;
+    };
+    const declining = session.tool("upload_file", { tabId, ref: doc, paths: [file] });
+    const declineQuestion = await question();
+    ctx.dialogs.answer(window, declineQuestion?.id ?? "", { button: 0 });
+    const declined = await declining;
+    const allowing = session.tool("upload_file", { tabId, ref: doc, paths: [file] });
+    const bar = await question();
+    ctx.dialogs.answer(window, bar?.id ?? "", { button: 1 });
+    let review = bar;
+    if (bar?.bar) {
+      await sleep(200);
+      review = await question();
+      ctx.dialogs.answer(window, review?.id ?? "", { button: 1 });
+    }
+    const allowed = await allowing;
+    check(
+      "MCP upload_file shows the files and the site and waits for the person: declined stops it, allowed uploads",
+      declined.isError && declined.text.includes("did not allow") && allowed.text === "uploaded 1 file(s)" && (review?.detail ?? "").includes(file),
+      { declined: declined.text.slice(-160), allowed: allowed.text, review },
     );
     const printed = await session.tool("pdf", { tabId });
     pdfPath = /"path":"((?:[^"\\]|\\.)*)"/.exec(printed.text)?.[1]?.replace(/\\\\/g, "\\") ?? "";
@@ -654,6 +707,7 @@ async function mcpFullChecks(ctx: AppContext, baseUrl: string, check: Helpers["c
     await session?.close();
     if (pdfPath) fs.rmSync(pdfPath, { force: true });
     fs.rmSync(dir, { recursive: true, force: true });
+    ctx.settings.update({ passwords: { agentSignInWithoutAsking: trustedBefore } });
     ctx.settings.update({ mcp: { enabled: before.enabled, accessLevel: before.accessLevel, approvedClients: before.approvedClients } });
     await ctx.mcp.apply();
   }

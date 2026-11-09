@@ -146,6 +146,7 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
    * `choice`: the ready answer picked instead of a button.
    */
   "dialog.answer"(id: string, button: number, checked: boolean, value: string, values?: string[], choice?: number): void;
+  "dialog.copy"(id: string, block: number): void;
   /**
    * The bar's bookmarks from index `from` on, which do not fit in the bar. `icons`: each one's icon
    * as the bar draws it (bookmark id to a 32px PNG data: URL, shown at 16px).

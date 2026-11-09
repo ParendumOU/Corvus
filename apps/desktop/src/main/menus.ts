@@ -10,7 +10,8 @@ import type { ConnectionChoice } from "../shared/connections";
 import { editBookmark, openBookmarkFolder } from "./bookmark-actions";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
-import { tr } from "./menu-i18n";
+import { inviteLink } from "../shared/invite-link";
+import { tr, uiLanguage } from "./menu-i18n";
 import { pageOf, pageUrl } from "./tab-page";
 
 /** One item per container of the profile (with "No container" first when `none` is given). */
@@ -147,6 +148,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
           void ctx.updater.check();
         },
       },
+      { label: tr("Copy invite link"), click: () => clipboard.writeText(inviteLink(uiLanguage())) },
       { type: "separator" },
       { label: tr("Exit"), click: () => app.quit() },
     ],

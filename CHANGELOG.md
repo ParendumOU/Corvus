@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.47.0
+
+### Added
+- **Agents ask for what they need in a bar made for it.** The bar above the page shows the whole request instead of cutting it at one line, and an agent can add long text, numbered steps, values with a Copy button and form fields, and name its own buttons. Long requests scroll inside the bar. The agent gets back the button pressed and what was filled in.
+- **Agents can upload files to a form.** They now find the file fields sites hide behind a button, and when a click opens a file chooser they answer it themselves, without a system window opening in front of you. The Command Bar agent can do it too. Corvus shows which files go to which site and asks you first, unless you let agents sign in on their own.
+- **Copy invite link.** The app menu copies a link to the Corvus download site, in the language Corvus is in, to send to someone who wants to install it.
+
 ## v0.46.0
 
 ### Passwords

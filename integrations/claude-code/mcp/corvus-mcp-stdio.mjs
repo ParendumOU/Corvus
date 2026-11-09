@@ -10,8 +10,8 @@ var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+  for (var name2 in all)
+    __defProp(target, name2, { get: all[name2], enumerable: true });
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -296,9 +296,9 @@ var require_scope = __commonJS({
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
     var code_1 = require_code();
     var ValueError = class extends Error {
-      constructor(name) {
-        super(`CodeGen: "code" for ${name} not defined`);
-        this.value = name.value;
+      constructor(name2) {
+        super(`CodeGen: "code" for ${name2} not defined`);
+        this.value = name2.value;
       }
     };
     var UsedValueState;
@@ -365,8 +365,8 @@ var require_scope = __commonJS({
         var _a3;
         if (value.ref === void 0)
           throw new Error("CodeGen: ref must be passed in value");
-        const name = this.toName(nameOrPrefix);
-        const { prefix } = name;
+        const name2 = this.toName(nameOrPrefix);
+        const { prefix } = name2;
         const valueKey = (_a3 = value.key) !== null && _a3 !== void 0 ? _a3 : value.ref;
         let vs = this._values[prefix];
         if (vs) {
@@ -376,12 +376,12 @@ var require_scope = __commonJS({
         } else {
           vs = this._values[prefix] = /* @__PURE__ */ new Map();
         }
-        vs.set(valueKey, name);
+        vs.set(valueKey, name2);
         const s = this._scope[prefix] || (this._scope[prefix] = []);
         const itemIndex = s.length;
         s[itemIndex] = value.ref;
-        name.setValue(value, { property: prefix, itemIndex });
-        return name;
+        name2.setValue(value, { property: prefix, itemIndex });
+        return name2;
       }
       getValue(prefix, keyOrRef) {
         const vs = this._values[prefix];
@@ -390,17 +390,17 @@ var require_scope = __commonJS({
         return vs.get(keyOrRef);
       }
       scopeRefs(scopeName, values = this._values) {
-        return this._reduceValues(values, (name) => {
-          if (name.scopePath === void 0)
-            throw new Error(`CodeGen: name "${name}" has no value`);
-          return (0, code_1._)`${scopeName}${name.scopePath}`;
+        return this._reduceValues(values, (name2) => {
+          if (name2.scopePath === void 0)
+            throw new Error(`CodeGen: name "${name2}" has no value`);
+          return (0, code_1._)`${scopeName}${name2.scopePath}`;
         });
       }
       scopeCode(values = this._values, usedValues, getCode) {
-        return this._reduceValues(values, (name) => {
-          if (name.value === void 0)
-            throw new Error(`CodeGen: name "${name}" has no value`);
-          return name.value.code;
+        return this._reduceValues(values, (name2) => {
+          if (name2.value === void 0)
+            throw new Error(`CodeGen: name "${name2}" has no value`);
+          return name2.value.code;
         }, usedValues, getCode);
       }
       _reduceValues(values, valueCode, usedValues = {}, getCode) {
@@ -410,20 +410,20 @@ var require_scope = __commonJS({
           if (!vs)
             continue;
           const nameSet = usedValues[prefix] = usedValues[prefix] || /* @__PURE__ */ new Map();
-          vs.forEach((name) => {
-            if (nameSet.has(name))
+          vs.forEach((name2) => {
+            if (nameSet.has(name2))
               return;
-            nameSet.set(name, UsedValueState.Started);
-            let c = valueCode(name);
+            nameSet.set(name2, UsedValueState.Started);
+            let c = valueCode(name2);
             if (c) {
               const def = this.opts.es5 ? exports.varKinds.var : exports.varKinds.const;
-              code = (0, code_1._)`${code}${def} ${name} = ${c};${this.opts._n}`;
-            } else if (c = getCode === null || getCode === void 0 ? void 0 : getCode(name)) {
+              code = (0, code_1._)`${code}${def} ${name2} = ${c};${this.opts._n}`;
+            } else if (c = getCode === null || getCode === void 0 ? void 0 : getCode(name2)) {
               code = (0, code_1._)`${code}${c}${this.opts._n}`;
             } else {
-              throw new ValueError(name);
+              throw new ValueError(name2);
             }
-            nameSet.set(name, UsedValueState.Completed);
+            nameSet.set(name2, UsedValueState.Completed);
           });
         }
         return code;
@@ -500,10 +500,10 @@ var require_codegen = __commonJS({
       }
     };
     var Def = class extends Node {
-      constructor(varKind, name, rhs) {
+      constructor(varKind, name2, rhs) {
         super();
         this.varKind = varKind;
-        this.name = name;
+        this.name = name2;
         this.rhs = rhs;
       }
       render({ es5, _n }) {
@@ -553,9 +553,9 @@ var require_codegen = __commonJS({
       }
     };
     var Label = class extends Node {
-      constructor(label) {
+      constructor(label2) {
         super();
-        this.label = label;
+        this.label = label2;
         this.names = {};
       }
       render({ _n }) {
@@ -563,14 +563,14 @@ var require_codegen = __commonJS({
       }
     };
     var Break = class extends Node {
-      constructor(label) {
+      constructor(label2) {
         super();
-        this.label = label;
+        this.label = label2;
         this.names = {};
       }
       render({ _n }) {
-        const label = this.label ? ` ${this.label}` : "";
-        return `break${label};` + _n;
+        const label2 = this.label ? ` ${this.label}` : "";
+        return `break${label2};` + _n;
       }
     };
     var Throw = class extends Node {
@@ -723,17 +723,17 @@ var require_codegen = __commonJS({
       }
     };
     var ForRange = class extends For {
-      constructor(varKind, name, from, to) {
+      constructor(varKind, name2, from, to) {
         super();
         this.varKind = varKind;
-        this.name = name;
+        this.name = name2;
         this.from = from;
         this.to = to;
       }
       render(opts) {
         const varKind = opts.es5 ? scope_1.varKinds.var : this.varKind;
-        const { name, from, to } = this;
-        return `for(${varKind} ${name}=${from}; ${name}<${to}; ${name}++)` + super.render(opts);
+        const { name: name2, from, to } = this;
+        return `for(${varKind} ${name2}=${from}; ${name2}<${to}; ${name2}++)` + super.render(opts);
       }
       get names() {
         const names = addExprNames(super.names, this.from);
@@ -741,11 +741,11 @@ var require_codegen = __commonJS({
       }
     };
     var ForIter = class extends For {
-      constructor(loop, varKind, name, iterable) {
+      constructor(loop, varKind, name2, iterable) {
         super();
         this.loop = loop;
         this.varKind = varKind;
-        this.name = name;
+        this.name = name2;
         this.iterable = iterable;
       }
       render(opts) {
@@ -762,9 +762,9 @@ var require_codegen = __commonJS({
       }
     };
     var Func = class extends BlockNode {
-      constructor(name, args, async) {
+      constructor(name2, args, async) {
         super();
-        this.name = name;
+        this.name = name2;
         this.args = args;
         this.async = async;
       }
@@ -851,10 +851,10 @@ var require_codegen = __commonJS({
       }
       // reserves unique name in the external scope and assigns value to it
       scopeValue(prefixOrName, value) {
-        const name = this._extScope.value(prefixOrName, value);
-        const vs = this._values[name.prefix] || (this._values[name.prefix] = /* @__PURE__ */ new Set());
-        vs.add(name);
-        return name;
+        const name2 = this._extScope.value(prefixOrName, value);
+        const vs = this._values[name2.prefix] || (this._values[name2.prefix] = /* @__PURE__ */ new Set());
+        vs.add(name2);
+        return name2;
       }
       getScopeValue(prefix, keyOrRef) {
         return this._extScope.getValue(prefix, keyOrRef);
@@ -868,11 +868,11 @@ var require_codegen = __commonJS({
         return this._extScope.scopeCode(this._values);
       }
       _def(varKind, nameOrPrefix, rhs, constant) {
-        const name = this._scope.toName(nameOrPrefix);
+        const name2 = this._scope.toName(nameOrPrefix);
         if (rhs !== void 0 && constant)
-          this._constants[name.str] = rhs;
-        this._leafNode(new Def(varKind, name, rhs));
-        return name;
+          this._constants[name2.str] = rhs;
+        this._leafNode(new Def(varKind, name2, rhs));
+        return name2;
       }
       // `const` declaration (`var` in es5 mode)
       const(nameOrPrefix, rhs, _constant) {
@@ -953,20 +953,20 @@ var require_codegen = __commonJS({
       }
       // `for` statement for a range of values
       forRange(nameOrPrefix, from, to, forBody, varKind = this.opts.es5 ? scope_1.varKinds.var : scope_1.varKinds.let) {
-        const name = this._scope.toName(nameOrPrefix);
-        return this._for(new ForRange(varKind, name, from, to), () => forBody(name));
+        const name2 = this._scope.toName(nameOrPrefix);
+        return this._for(new ForRange(varKind, name2, from, to), () => forBody(name2));
       }
       // `for-of` statement (in es5 mode replace with a normal for loop)
       forOf(nameOrPrefix, iterable, forBody, varKind = scope_1.varKinds.const) {
-        const name = this._scope.toName(nameOrPrefix);
+        const name2 = this._scope.toName(nameOrPrefix);
         if (this.opts.es5) {
           const arr = iterable instanceof code_1.Name ? iterable : this.var("_arr", iterable);
           return this.forRange("_i", 0, (0, code_1._)`${arr}.length`, (i) => {
-            this.var(name, (0, code_1._)`${arr}[${i}]`);
-            forBody(name);
+            this.var(name2, (0, code_1._)`${arr}[${i}]`);
+            forBody(name2);
           });
         }
-        return this._for(new ForIter("of", varKind, name, iterable), () => forBody(name));
+        return this._for(new ForIter("of", varKind, name2, iterable), () => forBody(name2));
       }
       // `for-in` statement.
       // With option `ownProperties` replaced with a `for-of` loop for object keys
@@ -974,20 +974,20 @@ var require_codegen = __commonJS({
         if (this.opts.ownProperties) {
           return this.forOf(nameOrPrefix, (0, code_1._)`Object.keys(${obj})`, forBody);
         }
-        const name = this._scope.toName(nameOrPrefix);
-        return this._for(new ForIter("in", varKind, name, obj), () => forBody(name));
+        const name2 = this._scope.toName(nameOrPrefix);
+        return this._for(new ForIter("in", varKind, name2, obj), () => forBody(name2));
       }
       // end `for` loop
       endFor() {
         return this._endBlockNode(For);
       }
       // `label` statement
-      label(label) {
-        return this._leafNode(new Label(label));
+      label(label2) {
+        return this._leafNode(new Label(label2));
       }
       // `break` statement
-      break(label) {
-        return this._leafNode(new Break(label));
+      break(label2) {
+        return this._leafNode(new Break(label2));
       }
       // `return` statement
       return(value) {
@@ -1040,8 +1040,8 @@ var require_codegen = __commonJS({
         return this;
       }
       // `function` heading (or definition if funcBody is passed)
-      func(name, args = code_1.nil, async, funcBody) {
-        this._blockNode(new Func(name, args, async));
+      func(name2, args = code_1.nil, async, funcBody) {
+        this._blockNode(new Func(name2, args, async));
         if (funcBody)
           this.code(funcBody).endFunc();
         return this;
@@ -3723,10 +3723,10 @@ var require_schemes = __commonJS({
         "urn:uuid"
       ]
     );
-    function isValidSchemeName(name) {
+    function isValidSchemeName(name2) {
       return supportedSchemeNames.indexOf(
         /** @type {*} */
-        name
+        name2
       ) !== -1;
     }
     function wsIsSecure(wsComponent) {
@@ -4717,10 +4717,10 @@ var require_core = __commonJS({
         return this;
       }
       // Add format
-      addFormat(name, format) {
+      addFormat(name2, format) {
         if (typeof format == "string")
           format = new RegExp(format);
-        this.formats[name] = format;
+        this.formats[name2] = format;
         return this;
       }
       errorsText(errors = this.errors, { separator = ", ", dataVar = "data" } = {}) {
@@ -4837,10 +4837,10 @@ var require_core = __commonJS({
           this.addSchema(optsSchemas[key], key);
     }
     function addInitialFormats() {
-      for (const name in this.opts.formats) {
-        const format = this.opts.formats[name];
+      for (const name2 in this.opts.formats) {
+        const format = this.opts.formats[name2];
         if (format)
-          this.addFormat(name, format);
+          this.addFormat(name2, format);
       }
     }
     function addInitialKeywords(defs) {
@@ -5819,7 +5819,7 @@ var require_contains = __commonJS({
           const count = gen.let("count", 0);
           validateItems(schValid, () => gen.if(schValid, () => checkLimits(count)));
         }
-        function validateItems(_valid, block) {
+        function validateItems(_valid, block2) {
           gen.forRange("i", 0, len, (i) => {
             cxt.subschema({
               keyword: "contains",
@@ -5827,7 +5827,7 @@ var require_contains = __commonJS({
               dataPropType: util_1.Type.Num,
               compositeRule: true
             }, _valid);
-            block();
+            block2();
           });
         }
         function checkLimits(count) {
@@ -7280,11 +7280,11 @@ var require_dist = __commonJS({
         (0, limit_1.default)(ajv);
       return ajv;
     };
-    formatsPlugin.get = (name, mode = "full") => {
+    formatsPlugin.get = (name2, mode = "full") => {
       const formats = mode === "fast" ? formats_1.fastFormats : formats_1.fullFormats;
-      const f = formats[name];
+      const f = formats[name2];
       if (!f)
-        throw new Error(`Unknown format "${name}"`);
+        throw new Error(`Unknown format "${name2}"`);
       return f;
     };
     function addFormats(ajv, list, fs, exportName) {
@@ -8525,12 +8525,12 @@ function merge(a, b) {
   });
   return clone(a, def);
 }
-function partial(Class2, schema, mask, name = "partial") {
+function partial(Class2, schema, mask, name2 = "partial") {
   const currDef = schema._zod.def;
   const checks = currDef.checks;
   const hasChecks = checks && checks.length > 0;
   if (hasChecks) {
-    throw new Error(`.${name}() cannot be used on object schemas containing refinements`);
+    throw new Error(`.${name2}() cannot be used on object schemas containing refinements`);
   }
   const selected = mask ? new Set(maskedKeys(schema, mask)) : void 0;
   const newShape = {};
@@ -8870,7 +8870,7 @@ function newError(Definition) {
   return new Definition();
 }
 // @__NO_SIDE_EFFECTS__
-function $constructor(name, initializer3, proto, params) {
+function $constructor(name2, initializer3, proto, params) {
   const zodProto = {};
   function Internals(def) {
     this.def = def;
@@ -8888,10 +8888,10 @@ function $constructor(name, initializer3, proto, params) {
       } finally {
         _zodDesc.value = void 0;
       }
-    } else if (inst._zod.traits.has(name)) {
+    } else if (inst._zod.traits.has(name2)) {
       return;
     }
-    inst._zod.traits.add(name);
+    inst._zod.traits.add(name2);
     initializer3(inst, def);
     if (initialized) {
       const own2 = Object.getPrototypeOf(inst);
@@ -8917,7 +8917,7 @@ function $constructor(name, initializer3, proto, params) {
   const Parent = params?.Parent ?? Object;
   class Definition extends Parent {
   }
-  Object.defineProperty(Definition, "name", { value: name });
+  Object.defineProperty(Definition, "name", { value: name2 });
   function _(def) {
     const inst = params?.Parent ? newError(Definition) : this;
     init(inst, def);
@@ -8938,10 +8938,10 @@ function $constructor(name, initializer3, proto, params) {
     value: (inst) => {
       if (params?.Parent && inst instanceof params.Parent)
         return true;
-      return inst?._zod?.traits?.has(name);
+      return inst?._zod?.traits?.has(name2);
     }
   });
-  Object.defineProperty(_, "name", { value: name });
+  Object.defineProperty(_, "name", { value: name2 });
   return _;
 }
 var $brand = /* @__PURE__ */ Symbol("zod_brand");
@@ -8951,8 +8951,8 @@ var $ZodAsyncError = class extends Error {
   }
 };
 var $ZodEncodeError = class extends Error {
-  constructor(name) {
-    super(`Encountered unidirectional transform during encode: ${name}`);
+  constructor(name2) {
+    super(`Encountered unidirectional transform during encode: ${name2}`);
     this.name = "ZodEncodeError";
   }
 };
@@ -20479,13 +20479,13 @@ ${code}
   return fn;
 }
 function addConstant(ctx, value) {
-  for (const [name2, v] of ctx.constants) {
+  for (const [name3, v] of ctx.constants) {
     if (v === value)
-      return name2;
+      return name3;
   }
-  const name = `c${ctx.constantCounter++}`;
-  ctx.constants.set(name, value);
-  return name;
+  const name2 = `c${ctx.constantCounter++}`;
+  ctx.constants.set(name2, value);
+  return name2;
 }
 function addUserConstant(ctx, fn) {
   ctx.definite = false;
@@ -20626,9 +20626,9 @@ function codePointLengthVar(doc, ctx, accessor, inDoubt) {
   doc.write(`const ${v} = typeof ${accessor} === "string" && ${inDoubt} ? ${cpLen}(${accessor}) : ${accessor}.length;`);
   return v;
 }
-function numericOperand(value, label) {
+function numericOperand(value, label2) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new ZodCompileUnsupportedError(`${label} bound of type ${typeof value}`);
+    throw new ZodCompileUnsupportedError(`${label2} bound of type ${typeof value}`);
   }
   return `${value}`;
 }
@@ -30423,8 +30423,8 @@ var GlobalHeaders = globalThis.Headers;
 var materializeHeaders = (rawHeaders, HeadersCtor = GlobalHeaders) => {
   const headers2 = new HeadersCtor();
   for (let i = 0; i < rawHeaders.length; i += 2) {
-    const name = rawHeaders[i];
-    if (!name.startsWith(":")) headers2.append(name, rawHeaders[i + 1]);
+    const name2 = rawHeaders[i];
+    if (!name2.startsWith(":")) headers2.append(name2, rawHeaders[i + 1]);
   }
   return headers2;
 };
@@ -30447,10 +30447,10 @@ var RequestHeaders = class {
     }
     return this.#headers;
   }
-  #normalizedName(name) {
-    if (typeof name !== "string") return;
-    if (!validHeaderName.test(name)) throw new TypeError(`Invalid header name: ${name}`);
-    return name.toLowerCase();
+  #normalizedName(name2) {
+    if (typeof name2 !== "string") return;
+    if (!validHeaderName.test(name2)) throw new TypeError(`Invalid header name: ${name2}`);
+    return name2.toLowerCase();
   }
   #lookupHttp1(lowerName) {
     const headers2 = this.#incoming instanceof Http2ServerRequest ? void 0 : this.#incoming.headers;
@@ -30478,34 +30478,34 @@ var RequestHeaders = class {
     }
     return value;
   }
-  append(name, value) {
-    this.#native.append(name, value);
+  append(name2, value) {
+    this.#native.append(name2, value);
   }
-  delete(name) {
-    this.#native.delete(name);
+  delete(name2) {
+    this.#native.delete(name2);
   }
-  get(name) {
-    const lowerName = this.#normalizedName(name);
+  get(name2) {
+    const lowerName = this.#normalizedName(name2);
     if (lowerName && !this.#headers && !this.#invalidValue) {
       const http1Value = this.#lookupHttp1(lowerName);
       if (http1Value !== void 0) return http1Value;
       const value = this.#lookup(this.#lazyRawHeaders, lowerName);
       if (value !== void 0) return value;
     }
-    return this.#native.get(name);
+    return this.#native.get(name2);
   }
-  has(name) {
-    const lowerName = this.#normalizedName(name);
+  has(name2) {
+    const lowerName = this.#normalizedName(name2);
     if (lowerName && !this.#headers && !this.#invalidValue) {
       const http1Value = this.#lookupHttp1(lowerName);
       if (http1Value !== void 0) return http1Value !== null;
       const value = this.#lookup(this.#lazyRawHeaders, lowerName);
       if (value !== void 0) return value !== null;
     }
-    return this.#native.has(name);
+    return this.#native.has(name2);
   }
-  set(name, value) {
-    this.#native.set(name, value);
+  set(name2, value) {
+    this.#native.set(name2, value);
   }
   getSetCookie() {
     return this.#native.getSetCookie();
@@ -31755,6 +31755,26 @@ var HARD_MAX_BYTES = 500 * 1024 * 1024;
 
 // src/tools/fill-fields.ts
 var fieldValue = external_exports.union([external_exports.string().max(1e4), external_exports.boolean(), external_exports.array(external_exports.string().max(1e3)).max(100)]);
+
+// src/tools/handoff.ts
+var name = external_exports.string().min(1).max(60);
+var label = external_exports.string().min(1).max(200);
+var block = external_exports.discriminatedUnion("kind", [
+  external_exports.object({ kind: external_exports.literal("text"), text: external_exports.string().min(1).max(4e3) }),
+  external_exports.object({ kind: external_exports.literal("steps"), items: external_exports.array(external_exports.string().min(1).max(500)).min(1).max(20) }),
+  external_exports.object({ kind: external_exports.literal("copy"), label: label.optional(), value: external_exports.string().min(1).max(4e3) }),
+  external_exports.object({
+    kind: external_exports.literal("input"),
+    name,
+    label,
+    value: external_exports.string().max(4e3).optional(),
+    placeholder: external_exports.string().max(200).optional(),
+    required: external_exports.boolean().optional(),
+    multiline: external_exports.boolean().optional()
+  }),
+  external_exports.object({ kind: external_exports.literal("select"), name, label, options: external_exports.array(external_exports.string().min(1).max(200)).min(1).max(50), value: external_exports.string().max(200).optional(), required: external_exports.boolean().optional() }),
+  external_exports.object({ kind: external_exports.literal("checkbox"), name, label, checked: external_exports.boolean().optional() })
+]);
 
 // src/tools/newtab.ts
 var box = {

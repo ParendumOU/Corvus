@@ -66,7 +66,7 @@ export function findScript(query: FindQuery): string {
   const hits = [];
   for (const el of candidates) {
     if (hits.length >= 2000) break;
-    if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName) || !visible(el)) continue;
+    if (["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(el.tagName) || (!visible(el) && !(el.tagName === "INPUT" && el.type === "file"))) continue;
     if (q.role && fullRole(el) !== q.role) continue;
     if (needle) {
       if (!matches(shownText(el)) && !matches(nameOf(el).toLowerCase())) continue;

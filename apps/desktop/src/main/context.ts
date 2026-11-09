@@ -1,5 +1,6 @@
 import type { AdblockService } from "./adblock";
 import type { AgentActivityService } from "./agent-activity-service";
+import type { AgentFileChoosers } from "./agent-file-chooser";
 import type { AgentCredentialService } from "./agent-credentials";
 import type { AgentRunner } from "./agent-runner";
 import type { AnnotationService } from "./annotation-service";
@@ -100,6 +101,7 @@ export interface AppContext {
   translate: TranslateService;
   reader: ReaderService;
   agents: AgentActivityService;
+  fileChoosers: AgentFileChoosers;
   agentRunner: AgentRunner;
   /** Agent use of opted-in saved logins and 2FA codes (fill by reference, approval-gated). */
   agentCredentials: AgentCredentialService;

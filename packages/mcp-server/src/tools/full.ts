@@ -36,9 +36,9 @@ export function registerFullTools({ controller, register, resolveTab }: ToolCont
   register(
     "upload_file",
     {
-      description: "Set local files on an <input type=file> (absolute paths).",
+      description: "Upload local files (absolute paths) to a file input by ref, or to the open file chooser without ref.",
       requires: "uploadFiles",
-      inputSchema: { ref, paths: z.array(z.string().min(1).max(4096)).min(1).max(20), tabId: optionalTabId },
+      inputSchema: { ref: ref.optional(), paths: z.array(z.string().min(1).max(4096)).min(1).max(20), tabId: optionalTabId },
     },
     async (a) => {
       const bad = a.paths.find((p) => !isAbsolutePath(p));

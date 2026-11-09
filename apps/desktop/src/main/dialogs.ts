@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { dialog } from "electron";
 import { attentionNotice } from "../shared/attention";
-import { cancelAnswer, fieldValues, toneOf, type DialogAnswer, type DialogSpec, type DialogView } from "../shared/dialog";
+import { cancelAnswer, fieldValues, formBlocks, formValues, toneOf, type DialogAnswer, type DialogSpec, type DialogView } from "../shared/dialog";
 import type { DialogInfo, TabId } from "@corvus/shared";
 import type { WebContents } from "electron";
 import type { AppContext } from "./context";
@@ -97,10 +97,14 @@ export class DialogService {
     if (!pending) return;
     const button = typeof answer.button === "number" && answer.button >= 0 && answer.button < pending.view.buttons.length ? answer.button : pending.view.cancelId;
     const typed = Array.isArray(answer.values) ? answer.values : [];
-    const values = pending.view.fields?.map((f, i) => {
-      const v = typed[i];
-      return typeof v === "string" ? v.slice(0, 10_000) : f.value;
-    });
+    const values = pending.view.fields
+      ? pending.view.fields.map((f, i) => {
+          const v = typed[i];
+          return typeof v === "string" ? v.slice(0, 10_000) : f.value;
+        })
+      : formBlocks(pending.view.blocks).length
+        ? formValues(pending.view.blocks, typed)
+        : undefined;
     const choice = answer.choice;
     const picked = typeof choice === "number" && Number.isInteger(choice) && choice >= 0 && choice < (pending.view.choices?.length ?? 0);
     this.settle(win, id, {
@@ -110,6 +114,12 @@ export class DialogService {
       ...(values ? { values } : {}),
       ...(picked ? { choice } : {}),
     });
+  }
+
+  /** The value a question offers to copy (its block `block`), or null when it offers none there. */
+  copyable(win: BrowserWindowCtl, id: string, block: number): string | null {
+    const found = this.queues.get(win)?.find((p) => p.view.id === id)?.view.blocks?.[block];
+    return found?.kind === "copy" ? found.value : null;
   }
 
   /** The window closes: whatever it was asking is cancelled. */

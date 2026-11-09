@@ -134,6 +134,10 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "ui.connectionMenu": (w, x, y) => showConnectionMenu(w, num(x, "x"), num(y, "y")),
     "ui.tabMenu": (w, id, x, y) => showTabMenu(ctx, w, str(id, "tab"), num(x, "x"), num(y, "y")),
     "ui.groupMenu": (w, id, x, y) => showGroupMenu(w, str(id, "group"), num(x, "x"), num(y, "y")),
+    "dialog.copy": (w, id, block) => {
+      const value = ctx.dialogs.copyable(w, str(id, "dialog", 64), num(block, "block"));
+      if (value !== null) clipboard.writeText(value);
+    },
     "dialog.answer": (w, id, button, checked, value, values, choice) =>
       ctx.dialogs.answer(w, str(id, "dialog", 64), {
         button: num(button, "button"),

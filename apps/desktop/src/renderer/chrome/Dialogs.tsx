@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import "./dialogs.css";
-import type { DialogView } from "../../shared/dialog";
+import { formBlocks, formBlockValue, type DialogView, type FormBlock } from "../../shared/dialog";
 import { chromeApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconEye, IconEyeOff, IconLock, IconSettings, IconShield, IconSparkle } from "../common/icons";
@@ -219,22 +219,156 @@ export function DialogBars({ bars, activeTabId }: { bars: DialogView[]; activeTa
   return (
     <>
       {bars.map((view) => (
-        <div key={view.id} className={`dialog-bar tone-${view.tone}`} role="status" data-dialog-bar={view.id}>
-          <span className="dialog-glyph" aria-hidden>
-            <IconSparkle size={15} />
-          </span>
-          <div className="grow dialog-bar-text">
-            <strong>{view.message}</strong>
-            {view.detail ? <span className="dialog-bar-detail">{view.detail.split("\n\n")[0]}</span> : null}
-          </div>
-          {view.tabId && view.tabId !== activeTabId ? (
-            <button type="button" className="btn" data-dialog-goto onClick={() => void chromeApi().call("tabs.activate", view.tabId!)}>
-              {t("Go to tab")}
-            </button>
-          ) : null}
-          <Buttons view={view} focus={false} onPress={(button) => answer(view, button, false, "")} />
-        </div>
+        <DialogBar key={view.id} view={view} activeTabId={activeTabId} />
       ))}
     </>
+  );
+}
+
+function DialogBar({ view, activeTabId }: { view: DialogView; activeTabId: string | null }) {
+  const blocks = view.blocks ?? [];
+  const [values, setValues] = useState(() => formBlocks(blocks).map(formBlockValue));
+  const [missing, setMissing] = useState<string | null>(null);
+  const [copied, setCopied] = useState<number | null>(null);
+  const form = formBlocks(blocks);
+  const hasForm = form.length > 0;
+
+  const setValue = (block: FormBlock, value: string): void => {
+    setValues((all) => all.map((v, i) => (form[i] === block ? value : v)));
+    if (missing === block.name) setMissing(null);
+  };
+  const valueOf = (block: FormBlock): string => values[form.indexOf(block)] ?? "";
+  const press = (button: number): void => {
+    if (button !== view.cancelId) {
+      const empty = form.find((b) => b.kind !== "checkbox" && b.required && !valueOf(b).trim());
+      if (empty) {
+        setMissing(empty.name);
+        return;
+      }
+    }
+    answer(view, button, false, "", hasForm ? values : undefined);
+  };
+  const copy = (index: number): void => {
+    void chromeApi().call("dialog.copy", view.id, index);
+    setCopied(index);
+    setTimeout(() => setCopied((c) => (c === index ? null : c)), 1500);
+  };
+  const onEnter = (e: KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    press(view.defaultId);
+  };
+  const error = (block: FormBlock) =>
+    missing === block.name ? (
+      <span className="dialog-field-error" role="alert">
+        {t("Fill this in")}
+      </span>
+    ) : null;
+
+  return (
+    <div className={`dialog-bar tone-${view.tone}${blocks.length ? " has-blocks" : ""}`} role="status" data-dialog-bar={view.id}>
+      <span className="dialog-glyph" aria-hidden>
+        <IconSparkle size={15} />
+      </span>
+      <div className="grow dialog-bar-text">
+        <strong>{view.message}</strong>
+        {view.detail ? <span className="dialog-bar-detail">{view.detail.split("\n\n")[0]}</span> : null}
+        {blocks.map((block, i) => {
+          switch (block.kind) {
+            case "text":
+              return (
+                <p key={i} className="dialog-bar-para">
+                  {block.text}
+                </p>
+              );
+            case "steps":
+              return (
+                <ol key={i} className="dialog-bar-steps">
+                  {block.items.map((item, n) => (
+                    <li key={n}>{item}</li>
+                  ))}
+                </ol>
+              );
+            case "copy":
+              return (
+                <div key={i} className="dialog-bar-copy">
+                  {block.label ? <span className="dialog-field-label">{block.label}</span> : null}
+                  <div className="dialog-bar-copy-row">
+                    <code>{block.value}</code>
+                    <button type="button" className="btn" data-dialog-copy={i} onClick={() => copy(i)}>
+                      {copied === i ? t("Copied") : t("Copy")}
+                    </button>
+                  </div>
+                </div>
+              );
+            case "input":
+              return (
+                <label key={i} className="dialog-field">
+                  <span className="dialog-field-label">{block.label}</span>
+                  {block.multiline ? (
+                    <textarea
+                      className="input"
+                      rows={3}
+                      value={valueOf(block)}
+                      placeholder={block.placeholder}
+                      spellCheck={false}
+                      data-dialog-block={block.name}
+                      aria-invalid={missing === block.name || undefined}
+                      onChange={(e) => setValue(block, e.target.value)}
+                    />
+                  ) : (
+                    <input
+                      className="input"
+                      value={valueOf(block)}
+                      placeholder={block.placeholder}
+                      spellCheck={false}
+                      autoComplete="off"
+                      data-dialog-block={block.name}
+                      aria-invalid={missing === block.name || undefined}
+                      onChange={(e) => setValue(block, e.target.value)}
+                      onKeyDown={onEnter}
+                    />
+                  )}
+                  {error(block)}
+                </label>
+              );
+            case "select":
+              return (
+                <label key={i} className="dialog-field">
+                  <span className="dialog-field-label">{block.label}</span>
+                  <select
+                    className="input"
+                    value={valueOf(block)}
+                    data-dialog-block={block.name}
+                    aria-invalid={missing === block.name || undefined}
+                    onChange={(e) => setValue(block, e.target.value)}
+                  >
+                    {block.value === undefined ? <option value="">{t("Choose one")}</option> : null}
+                    {block.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  {error(block)}
+                </label>
+              );
+            case "checkbox":
+              return (
+                <label key={i} className="dialog-check">
+                  <input type="checkbox" checked={valueOf(block) === "true"} data-dialog-block={block.name} onChange={(e) => setValue(block, String(e.target.checked))} />
+                  <span>{block.label}</span>
+                </label>
+              );
+          }
+        })}
+      </div>
+      {view.tabId && view.tabId !== activeTabId ? (
+        <button type="button" className="btn" data-dialog-goto onClick={() => void chromeApi().call("tabs.activate", view.tabId!)}>
+          {t("Go to tab")}
+        </button>
+      ) : null}
+      <Buttons view={view} focus={false} onPress={press} />
+    </div>
   );
 }

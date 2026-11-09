@@ -73,6 +73,44 @@ describe("request_user_action", () => {
     expect(home.pushes).toBeGreaterThan(pushes);
   });
 
+  it("shows the agent's blocks and buttons, and returns the button and the form by name", async () => {
+    const home = fakeWindow();
+    const { ctx, service } = setup({ t1: home }, home);
+    const asked = service.ask(
+      "t1",
+      {
+        ...prompt,
+        actions: ["Approve", "Reject"],
+        blocks: [
+          { kind: "copy", label: "Reference", value: "INV-42" },
+          { kind: "input", name: "note", label: "Note" },
+          { kind: "select", name: "team", label: "Team", options: ["Ops", "Sales"] },
+          { kind: "checkbox", name: "urgent", label: "Urgent" },
+        ],
+      },
+      60_000,
+    );
+    const [bar] = ctx.dialogs.bars(home);
+    expect(bar!.buttons).toEqual(["Cancel", "Approve", "Reject"]);
+    expect(bar!.detail).toBe("Sign in");
+    expect(ctx.dialogs.copyable(home, bar!.id, 0)).toBe("INV-42");
+    expect(ctx.dialogs.copyable(home, bar!.id, 1)).toBeNull();
+    // An option the select does not have falls back to its starting value.
+    ctx.dialogs.answer(home, bar!.id, { button: 2, values: ["see attached", "Nowhere", "true"] });
+    expect(await asked).toMatchObject({ outcome: "done", action: "Reject", values: { note: "see attached", team: "", urgent: true } });
+  });
+
+  it("returns nothing typed when the person cancels", async () => {
+    const home = fakeWindow();
+    const { ctx, service } = setup({ t1: home }, home);
+    const asked = service.ask("t1", { ...prompt, blocks: [{ kind: "input", name: "note", label: "Note" }] }, 60_000);
+    const [bar] = ctx.dialogs.bars(home);
+    ctx.dialogs.answer(home, bar!.id, { button: 0, values: ["half typed"] });
+    const result = await asked;
+    expect(result.outcome).toBe("cancelled");
+    expect(result.values).toBeUndefined();
+  });
+
   it("ends as closed when the tab closes, and as timeout when time runs out or the client goes away", async () => {
     vi.useFakeTimers();
     const home = fakeWindow();

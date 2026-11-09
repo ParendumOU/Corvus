@@ -106,8 +106,9 @@ describe("capAgentTools", () => {
     expect(names).toContain("navigate");
     expect(names).toContain("ask_user");
   });
-  it("standard and full keep every tool", () => {
-    expect(capAgentTools(TOOLS, "standard")).toHaveLength(TOOLS.length);
+  it("standard drops only the full-access tools, full keeps every tool", () => {
+    expect(capAgentTools(TOOLS, "standard").map((t) => t.name)).toEqual(TOOLS.filter((t) => AGENT_TOOL_ACCESS[t.name] !== "full").map((t) => t.name));
+    expect(capAgentTools(TOOLS, "standard").map((t) => t.name)).not.toContain("upload_file");
     expect(capAgentTools(TOOLS, "full")).toHaveLength(TOOLS.length);
   });
   it("every tool has a declared access level", () => {
@@ -118,7 +119,7 @@ describe("capAgentTools", () => {
     const read = capAgentTools(tools, "read").map((t) => t.name);
     expect(read).toEqual(expect.arrayContaining(["hover_at", "scroll_at", "screenshot"]));
     for (const t of ["click", "type", "click_at", "press_key", "type_text"]) expect(read).not.toContain(t);
-    expect(capAgentTools(tools, "standard").map((t) => t.name)).toEqual(tools.map((t) => t.name));
+    expect(capAgentTools(tools, "standard").map((t) => t.name)).toEqual(tools.filter((t) => t.name !== "upload_file").map((t) => t.name));
   });
   it("credential tools need full access, so a capped site profile drops them", () => {
     const { tools } = agentToolset(true);

@@ -363,6 +363,11 @@ describe("agent tools", () => {
     expect(textOf(rel)).toContain("Not an absolute path");
   });
 
+  it("upload_file without a ref answers the open file chooser", async () => {
+    expect(textOf(await call(client, "upload_file", { paths: ["/home/me/a.png"] }))).toBe("uploaded 1 file(s)");
+    expect(controller.calls.at(-1)).toMatchObject({ method: "uploadFiles", args: [expect.any(String), undefined, ["/home/me/a.png"]] });
+  });
+
   it("pdf and downloads_list", async () => {
     expect(textOf(await call(client, "pdf"))).toContain('"path":"/downloads/Checkout.pdf"');
     expect(textOf(await call(client, "downloads_list"))).toContain('"filename":"invoice.pdf"');
@@ -413,6 +418,34 @@ describe("request_user_action", () => {
     expect(controller.pendingUserActions[0]?.request).toEqual({ message: "Solve the CAPTCHA", timeoutMs: 300_000 });
     controller.pendingUserActions[0]!.answer("done");
     expect(textOf(await pending)).toMatch(/^done: the user finished/);
+  });
+
+  it("passes blocks and actions, and reports the button and the form", async () => {
+    const blocks = [
+      { kind: "copy", value: "INV-42" },
+      { kind: "input", name: "note", label: "Note", required: true },
+    ];
+    const pending = call(client, "request_user_action", { message: "Check this invoice", blocks, actions: ["Approve"] });
+    await waitPending();
+    expect(controller.pendingUserActions[0]?.request).toEqual({ message: "Check this invoice", timeoutMs: 300_000, blocks, actions: ["Approve"] });
+    controller.pendingUserActions[0]!.answer("done", { action: "Approve", values: { note: "ok" } });
+    const reply = textOf(await pending);
+    expect(reply).toContain('They pressed "Approve".');
+    expect(reply).toContain('They filled in: {"note":"ok"}.');
+  });
+
+  it("refuses two fields with one name and a select starting outside its options", async () => {
+    const twice = await call(client, "request_user_action", {
+      message: "Fill",
+      blocks: [
+        { kind: "input", name: "a", label: "A" },
+        { kind: "checkbox", name: "a", label: "B" },
+      ],
+    });
+    expect(twice.isError).toBe(true);
+    const outside = await call(client, "request_user_action", { message: "Pick", blocks: [{ kind: "select", name: "s", label: "S", options: ["x"], value: "y" }] });
+    expect(outside.isError).toBe(true);
+    expect(controller.pendingUserActions).toEqual([]);
   });
 
   it("reports Cancel", async () => {

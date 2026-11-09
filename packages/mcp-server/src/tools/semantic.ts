@@ -97,6 +97,7 @@ export function renderSnapshotChanges(prev: SnapshotMemory | undefined, snap: Pa
 function snapshotNotes(snap: PageSnapshot): string | undefined {
   const notes: string[] = [];
   if (snap.dialog) notes.push(`dialog_open: ${snap.dialog.type}. The page is blocked until you call handle_dialog.`);
+  if (snap.fileChooser) notes.push(`file_chooser_open: the page asks for ${snap.fileChooser.multiple ? "one or more files" : "one file"}. Call upload_file without ref.`);
   const challenge = challengeNote(snap.challenge);
   if (challenge) notes.push(challenge);
   return notes.length ? notes.join("\n") : undefined;

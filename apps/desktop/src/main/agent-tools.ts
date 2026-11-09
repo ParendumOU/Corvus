@@ -172,6 +172,7 @@ export const TOOLS: AgentTool[] = [
   { name: "navigate", description: "Open an http(s) URL in the agent tab.", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
   { name: "click", description: "Click an element by its ref from the latest snapshot.", inputSchema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"] } },
   { name: "type", description: "Type text into a field by ref. Set submit to true to press Enter after.", inputSchema: { type: "object", properties: { ref: { type: "string" }, text: { type: "string" }, submit: { type: "boolean" } }, required: ["ref", "text"] } },
+  { name: "upload_file", description: "Upload local files to the page, only files the person named, by absolute path. Pass the ref of its file input (role file-input), or omit ref after a click opened a file chooser. The person is asked first; if they decline, do not retry.", inputSchema: { type: "object", properties: { ref: { type: "string" }, paths: { type: "array", items: { type: "string" } } }, required: ["paths"] } },
   { name: "scroll", description: "Scroll the page up or down.", inputSchema: { type: "object", properties: { direction: { type: "string", enum: ["up", "down"] }, amount: { type: "number" } }, required: ["direction"] } },
   { name: "extract", description: "Get a larger plain-text extract of the current page's main content.", inputSchema: { type: "object", properties: { maxChars: { type: "number" } } } },
   { name: "screenshot", description: "Capture a PNG of the visible page. Use only when text is not enough.", inputSchema: { type: "object", properties: {} } },
@@ -408,11 +409,13 @@ export const AGENT_TOOL_ACCESS: Record<string, AccessLevel> = {
   // Saved secrets: only at full, so a site profile capped at standard or read never offers them.
   fill_login: "full",
   fill_totp: "full",
+  // Sends local files to a site.
+  upload_file: "full",
 };
 
 const ACCESS_RANK: Record<AccessLevel, number> = { read: 0, standard: 1, full: 2 };
 
-/** Narrow a tool set to a access level. Returns TOOLS unchanged at standard/full. Never widens. */
+/** Narrow a tool set to an access level: read and full-only tools leave as the level drops. Never widens. */
 export function capAgentTools(tools: AgentTool[], level: AccessLevel): AgentTool[] {
   return tools.filter((t) => ACCESS_RANK[AGENT_TOOL_ACCESS[t.name] ?? "standard"] <= ACCESS_RANK[level]);
 }
@@ -563,7 +566,15 @@ export async function runAgentTool(
       const challenge = snap.challenge
         ? `\n${challengeGuidance(snap.challenge.kind, snap.challenge.detail, "ask_user")}`
         : "";
-      return { content: wrapUntrusted(snap.url, renderSnapshot(snap, SNAPSHOT_CHARS)) + challenge };
+      const chooser = snap.fileChooser ? "\nThe page opened a file chooser: call upload_file without ref, with the files the person named." : "";
+      return { content: wrapUntrusted(snap.url, renderSnapshot(snap, SNAPSHOT_CHARS)) + challenge + chooser };
+    }
+    case "upload_file": {
+      const raw = (input as { paths?: unknown })?.paths;
+      const paths = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === "string") : [];
+      const ref = (input as { ref?: unknown })?.ref;
+      const { files } = await c.uploadFiles(tabId!, typeof ref === "string" && ref ? ref : undefined, paths);
+      return { content: `Uploaded ${files} ${files === 1 ? "file" : "files"}.` };
     }
     case "navigate": {
       const tab = await c.navigate(tabId!, argStr(input, "url"), state.certErrors ?? "refuse");

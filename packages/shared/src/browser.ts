@@ -80,6 +80,8 @@ export interface PageSnapshot {
    * calls ask_user only if it cannot (see challengeGuidance in @corvus/shared).
    */
   challenge?: ChallengeInfo;
+  /** The page opened a file chooser for the agent: upload_file without a ref answers it. */
+  fileChooser?: { multiple: boolean };
   /** An open JavaScript dialog blocks the page until handled. */
   dialog?: DialogInfo;
 }

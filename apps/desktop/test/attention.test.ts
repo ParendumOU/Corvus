@@ -30,6 +30,7 @@ describe("notifications for questions an agent waits on", () => {
     expect(attentionNotice(spec({ notify: "open" }))?.buttons).toEqual([]);
     expect(attentionNotice(spec({ notify: "buttons", fields: [{ label: "Name", value: "" }] }))?.buttons).toEqual([]);
     expect(attentionNotice(spec({ notify: "buttons", input: { value: "" } }))?.buttons).toEqual([]);
+    expect(attentionNotice(spec({ notify: "buttons", blocks: [{ kind: "text", text: "Read this first" }] }))?.buttons).toEqual([]);
     expect(attentionNotice(spec({ notify: "buttons", choices: [{ label: "ana@example.com" }] }))?.buttons).toEqual([]);
     expect(attentionNotice(spec({ notify: "buttons", buttons: ["A", "B", "C", "D"] }))?.buttons).toEqual([]);
   });

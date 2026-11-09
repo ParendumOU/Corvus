@@ -956,6 +956,7 @@ export const ES: Record<string, string> = {
   "View page source": "Ver código fuente de la página",
   "Developer tools": "Herramientas para desarrolladores",
   "Check for updates…": "Buscar actualizaciones…",
+  "Copy invite link": "Copiar enlace de invitación",
   "Exit": "Salir",
   "Open Corvus": "Abrir Corvus",
   "Quit Corvus": "Salir de Corvus",

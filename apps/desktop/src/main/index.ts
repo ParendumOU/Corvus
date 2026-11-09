@@ -8,6 +8,7 @@ import { AdblockService } from "./adblock";
 import { CleanExitTracker } from "./clean-exit";
 import { CrashReporter, installCrashHandlers } from "./crash-log";
 import { AgentActivityService } from "./agent-activity-service";
+import { AgentFileChoosers } from "./agent-file-chooser";
 import { AgentRunner } from "./agent-runner";
 import { AnnotationService } from "./annotation-service";
 import { AssistService } from "./assist-service";
@@ -229,6 +230,7 @@ async function main(): Promise<void> {
   ctx.search = new SearchService(settings);
   ctx.semanticSearch = new SemanticSearchService(ctx);
   ctx.agents = new AgentActivityService(ctx);
+  ctx.fileChoosers = new AgentFileChoosers();
   ctx.assist = new AssistService(ctx);
   ctx.translate = new TranslateService(ctx);
   ctx.tabSleeper = new TabSleeper(ctx);

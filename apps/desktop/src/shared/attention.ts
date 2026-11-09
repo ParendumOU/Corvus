@@ -13,11 +13,11 @@ const MAX_BUTTONS = 3;
 
 /**
  * The notification for a question an agent waits on, or null when it asks for none. Buttons only
- * for a plain choice: what has fields, a text box or a list to pick from is answered in Corvus.
+ * for a plain choice: what has fields, a text box, a list to pick from or more to read is answered in Corvus.
  */
 export function attentionNotice(spec: DialogSpec): AttentionNotice | null {
   if (!spec.notify) return null;
-  const plain = !spec.fields?.length && !spec.input && !spec.choices?.length && spec.buttons.length <= MAX_BUTTONS;
+  const plain = !spec.fields?.length && !spec.input && !spec.choices?.length && !spec.blocks?.length && spec.buttons.length <= MAX_BUTTONS;
   return {
     title: spec.title.slice(0, 120),
     body: spec.message.slice(0, 200),

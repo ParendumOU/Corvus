@@ -7,7 +7,8 @@
  * page stays usable while it is open, and it closes by itself at the timeout, when the client gives
  * up or when the tab closes. The Command Bar agent asks in its run panel instead (ask_user).
  */
-import type { TabId, UserActionResult } from "@corvus/shared";
+import type { TabId, UserActionBlock, UserActionResult } from "@corvus/shared";
+import { namedFormValues } from "../shared/dialog";
 import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 import type { BrowserWindowCtl } from "./window";
@@ -19,6 +20,10 @@ export interface UserActionPrompt {
   message: string;
   /** Host of the tab it is about. */
   host: string;
+  /** What the bar shows under the ask: long text, steps, values to copy, a form. */
+  blocks?: UserActionBlock[];
+  /** Button labels in place of Done. */
+  actions?: string[];
 }
 
 /** Answers a prompt without a person (smoke tests). */
@@ -37,7 +42,7 @@ export function userActionDialog(prompt: UserActionPrompt): { title: string; mes
   return {
     title: tr("AI agent needs you"),
     message,
-    detail: `${prompt.message.trim().slice(0, 500)}\n\n${tr("Click Done when you have finished, or Cancel to tell it you will not do it.")}`,
+    detail: prompt.actions?.length ? prompt.message.trim().slice(0, 500) : `${prompt.message.trim().slice(0, 500)}\n\n${tr("Click Done when you have finished, or Cancel to tell it you will not do it.")}`,
   };
 }
 
@@ -99,13 +104,32 @@ export class UserActionService {
         return { outcome, waitedMs: Date.now() - started };
       }
       const text = userActionDialog(prompt);
+      const actions = prompt.actions?.length ? prompt.actions : [tr("Done")];
       const res = await this.ctx.dialogs.ask(
-        { tone: "info", title: text.title, message: text.message, detail: text.detail, buttons: [tr("Cancel"), tr("Done")], defaultId: 1, cancelId: 0, bar: true, tabId, notify: "buttons" },
+        {
+          tone: "info",
+          title: text.title,
+          message: text.message,
+          detail: text.detail,
+          buttons: [tr("Cancel"), ...actions],
+          defaultId: 1,
+          cancelId: 0,
+          bar: true,
+          tabId,
+          notify: "buttons",
+          ...(prompt.blocks?.length ? { blocks: prompt.blocks } : {}),
+        },
         window,
         controller.signal,
       );
-      const outcome = closed ? "closed" : controller.signal.aborted ? "timeout" : res.button === 1 ? "done" : "cancelled";
-      return { outcome, waitedMs: Date.now() - started };
+      const outcome = closed ? "closed" : controller.signal.aborted ? "timeout" : res.button >= 1 ? "done" : "cancelled";
+      if (outcome !== "done") return { outcome, waitedMs: Date.now() - started };
+      return {
+        outcome,
+        waitedMs: Date.now() - started,
+        ...(prompt.actions?.length ? { action: actions[res.button - 1]! } : {}),
+        ...(res.values ? { values: namedFormValues(prompt.blocks, res.values) } : {}),
+      };
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener("abort", stop);

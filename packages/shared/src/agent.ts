@@ -240,15 +240,32 @@ export interface CookieInfo {
   sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
 }
 
+/** One part of what an agent shows the person when it asks for a hand, in the order given. */
+export type UserActionBlock =
+  | { kind: "text"; text: string }
+  | { kind: "steps"; items: string[] }
+  | { kind: "copy"; label?: string; value: string }
+  | { kind: "input"; name: string; label: string; value?: string; placeholder?: string; required?: boolean; multiline?: boolean }
+  | { kind: "select"; name: string; label: string; options: string[]; value?: string; required?: boolean }
+  | { kind: "checkbox"; name: string; label: string; checked?: boolean };
+
 export interface UserActionRequest {
   message: string;
   timeoutMs: number;
+  /** More than the one-line ask: long text, steps, values to copy, a form. */
+  blocks?: UserActionBlock[];
+  /** Button labels in place of Done (Cancel is always there). */
+  actions?: string[];
 }
 
 export interface UserActionResult {
   /** closed: the tab was closed before the person answered. */
   outcome: "done" | "cancelled" | "timeout" | "closed";
   waitedMs: number;
+  /** The button pressed, when the request named its own (`actions`). */
+  action?: string;
+  /** What the person filled in the request's form, by field name. */
+  values?: Record<string, string | boolean>;
 }
 
 export interface ViewportOverride {
@@ -292,7 +309,8 @@ export interface AgentCapabilities {
   describeFocused?(id: TabId): Promise<PointTarget | null>;
   elementAction?(id: TabId, ref: string, action: ElementAction): Promise<void>;
   fill?(id: TabId, ref: string, value: FieldValue): Promise<void>;
-  uploadFiles?(id: TabId, ref: string, paths: string[]): Promise<{ files: number }>;
+  /** Without `ref`, answers the file chooser the page opened (PageSnapshot.fileChooser). */
+  uploadFiles?(id: TabId, ref: string | undefined, paths: string[]): Promise<{ files: number }>;
   find?(id: TabId, query: FindQuery): Promise<SnapshotElement[]>;
   waitFor?(id: TabId, condition: WaitCondition, signal?: AbortSignal): Promise<WaitResult>;
   getText?(id: TabId, opts?: { ref?: string; maxChars?: number }): Promise<{ text: string; truncated: boolean }>;

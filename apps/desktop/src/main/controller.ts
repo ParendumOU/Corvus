@@ -46,6 +46,8 @@ import { isAgentAllowedUrl } from "../shared/internal-urls";
 import { classifyOmnibox, intentToUrl } from "../shared/omnibox";
 import { resolveMcpAccessLevel } from "../shared/settings";
 import { GROUP_COLORS } from "../shared/tab-strip";
+import { signsInWithoutAsking } from "./agent-credential-policy";
+import { tr } from "./menu-i18n";
 import type { AppContext } from "./context";
 import {
   AGENT_WORLD_ID,
@@ -81,6 +83,16 @@ const ZOOM_MAX = 5;
 /** upload_file: the most files and bytes an agent may put on one file input. */
 const UPLOAD_MAX_FILES = 20;
 const UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
+/** How long an upload waits for the person to allow it. */
+const UPLOAD_APPROVAL_MS = 5 * 60 * 1000;
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
 const DEFAULT_SNAPSHOT_CHARS = 8_000;
 const REF_RE = /^e\d{1,7}$/;
 const COOKIE_LIMIT = 500;
@@ -404,7 +416,8 @@ export class Controller implements BrowserController {
       ),
     );
     const viewport = raw.viewport ? { ...raw.viewport, zoom: wc.getZoomFactor() } : undefined;
-    return { tabId: id, url: raw.url, title: raw.title, text: raw.text, elements: raw.elements, truncated: raw.truncated, ...(viewport ? { viewport } : {}) };
+    const chooser = this.ctx.fileChoosers.pending(wc);
+    return { tabId: id, url: raw.url, title: raw.title, text: raw.text, elements: raw.elements, truncated: raw.truncated, ...(viewport ? { viewport } : {}), ...(chooser ? { fileChooser: { multiple: chooser.multiple } } : {}) };
   }
 
   async click(id: TabId, ref: string): Promise<void> {
@@ -564,7 +577,8 @@ export class Controller implements BrowserController {
     } catch {
       host = "";
     }
-    return this.ctx.userActions.ask(id, { client: this.ctx.agents.currentClient, message: request.message, host }, request.timeoutMs, signal);
+    const { blocks, actions } = request;
+    return this.ctx.userActions.ask(id, { client: this.ctx.agents.currentClient, message: request.message, host, ...(blocks ? { blocks } : {}), ...(actions ? { actions } : {}) }, request.timeoutMs, signal);
   }
 
   /** Page zoom for the tab only (the site's remembered zoom is left as the person set it). */
@@ -624,9 +638,9 @@ export class Controller implements BrowserController {
    * Puts local files on an <input type=file> through the tab's DevTools protocol (full access only,
    * by the MCP server). The files must exist; programs are refused, like downloads for agents.
    */
-  async uploadFiles(id: TabId, ref: string, paths: string[]): Promise<{ files: number }> {
+  async uploadFiles(id: TabId, ref: string | undefined, paths: string[]): Promise<{ files: number }> {
     const { window, wc } = this.readable(id);
-    this.validRef(ref);
+    if (ref !== undefined) this.validRef(ref);
     if (paths.length === 0 || paths.length > UPLOAD_MAX_FILES) throw new AgentError(`Pass 1 to ${UPLOAD_MAX_FILES} files`);
     let total = 0;
     for (const p of paths) {
@@ -638,6 +652,15 @@ export class Controller implements BrowserController {
     }
     if (total > UPLOAD_MAX_BYTES) throw new AgentError(`The files add up to ${total} bytes, over the ${UPLOAD_MAX_BYTES} byte cap`);
     this.touch(window, id);
+    if (ref === undefined) {
+      const chooser = this.ctx.fileChoosers.pending(wc);
+      if (!chooser) throw new AgentError("No file chooser is open. Click the page's upload button first, or pass the ref of its file input (role file-input in page_snapshot).");
+      if (chooser.backendNodeId === null) throw new AgentError("This page's file picker has no file input to fill. Call request_user_action so the user can pick the file.");
+      if (!chooser.multiple && paths.length > 1) throw new AgentError("This file chooser takes one file");
+      await this.approveUpload(window, id, wc, paths);
+      await this.ctx.fileChoosers.answer(wc, chooser, paths);
+      return { files: paths.length };
+    }
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "click", ref });
     const dbg = wc.debugger;
     if (!dbg.isAttached()) dbg.attach("1.3");
@@ -653,8 +676,37 @@ export class Controller implements BrowserController {
     })) as { result?: { value?: string } };
     if (kind.result?.value === "other") throw new AgentError(`Element ${ref} is not a file input`);
     if (kind.result?.value === "single" && paths.length > 1) throw new AgentError(`Element ${ref} takes one file`);
+    await this.approveUpload(window, id, wc, paths);
     await dbg.sendCommand("DOM.setFileInputFiles", { files: paths, objectId });
     return { files: paths.length };
+  }
+
+  /**
+   * A page's text can talk an agent into sending a private file, so the person sees which files go
+   * to which site and allows it, unless they let this agent act on its own (signsInWithoutAsking).
+   */
+  private async approveUpload(window: BrowserWindowCtl, id: TabId, wc: WebContents, paths: string[]): Promise<void> {
+    const client = this.ctx.agents.currentClient;
+    if (signsInWithoutAsking(this.ctx.settings.get(), client)) return;
+    const vars = { client, host: hostOf(wc.getURL()) };
+    const answer = await this.ctx.dialogs.askAboutTab(
+      window,
+      id,
+      { message: tr("\"{client}\" wants to upload files to {host}", vars), action: tr("Review") },
+      {
+        tone: "warning",
+        title: tr("Upload files?"),
+        message: tr("\"{client}\" wants to upload these files to {host}:", vars),
+        detail: paths.join("\n"),
+        buttons: [tr("Don't upload"), tr("Upload")],
+        defaultId: 0,
+        cancelId: 0,
+        tabId: id,
+        notify: "open",
+      },
+      AbortSignal.timeout(UPLOAD_APPROVAL_MS),
+    );
+    if (answer.button !== 1) throw new AgentError("The user did not allow this upload. Do not retry it without asking them.");
   }
 
   /** Waits until the tab finishes loading (or the timeout passes), then returns it. */

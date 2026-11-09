@@ -13,6 +13,7 @@ import {
 import type { AgentActivityView } from "../shared/assist-ipc";
 import { AgentOverlayView } from "./assist-views";
 import { describeRefScript, type RefBox } from "./assist-scripts";
+import { canAnswerFileChooser } from "./agent-file-chooser";
 import type { AppContext } from "./context";
 import { AGENT_WORLD_ID } from "./page-scripts";
 import type { BrowserWindowCtl } from "./window";
@@ -175,6 +176,8 @@ export class AgentActivityService {
   async beforeAction(win: BrowserWindowCtl, tabId: TabId, wc: WebContents, step: AgentStep): Promise<void> {
     this.lastActive.set(win, Date.now());
     win.pushState();
+    const canOpenChooser = step.kind === "click" || step.kind === "type" || step.kind === "key" || (step.kind === "point" && step.action === "click");
+    if (canOpenChooser && canAnswerFileChooser(this.ctx.settings.get(), this.lastClient)) await this.ctx.fileChoosers.arm(wc);
     if (win.activeTab()?.id !== tabId || !win.win.isVisible() || win.win.isMinimized() || wc.isDestroyed()) return;
     let box: RefBox | null = null;
     if (step.kind === "click" || step.kind === "type") {

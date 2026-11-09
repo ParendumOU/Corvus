@@ -56,7 +56,7 @@ export interface MockPage {
 export interface PendingUserAction {
   tabId: TabId;
   request: UserActionRequest;
-  answer(outcome: "done" | "cancelled" | "closed"): void;
+  answer(outcome: "done" | "cancelled" | "closed", answer?: Pick<UserActionResult, "action" | "values">): void;
 }
 
 export interface MockCall {
@@ -489,9 +489,10 @@ export class MockBrowserController implements BrowserController {
     s.inputs.set(ref, value);
   }
 
-  async uploadFiles(id: TabId, ref: string, paths: string[]): Promise<{ files: number }> {
+  async uploadFiles(id: TabId, ref: string | undefined, paths: string[]): Promise<{ files: number }> {
     this.record("uploadFiles", id, ref, paths);
     const s = this.state(id);
+    if (ref === undefined) return { files: paths.length };
     const el = this.element(s, ref);
     if (el.role !== "file") throw new Error(`Element ${ref} is not a file input`);
     s.inputs.set(ref, paths.map((p) => p.split(/[\\/]/).pop()).join(", "));
@@ -735,11 +736,11 @@ export class MockBrowserController implements BrowserController {
     this.state(id);
     const started = Date.now();
     return new Promise((resolve) => {
-      const finish = (outcome: UserActionResult["outcome"]): void => {
+      const finish = (outcome: UserActionResult["outcome"], answer?: Pick<UserActionResult, "action" | "values">): void => {
         clearTimeout(timer);
         const i = this.pendingUserActions.indexOf(pending);
         if (i >= 0) this.pendingUserActions.splice(i, 1);
-        resolve({ outcome, waitedMs: Date.now() - started });
+        resolve({ outcome, waitedMs: Date.now() - started, ...answer });
       };
       const timer = setTimeout(() => finish("timeout"), request.timeoutMs);
       const pending: PendingUserAction = { tabId: id, request, answer: finish };
