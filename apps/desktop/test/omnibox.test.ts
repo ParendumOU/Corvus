@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyOmnibox, displayUrl, intentToUrl, searchQueryOf, searchUrl } from "../src/shared/omnibox";
+import { classifyOmnibox, displayUrl, intentToUrl, sanitizePastedText, searchQueryOf, searchUrl } from "../src/shared/omnibox";
 
 const url = (input: string): string => {
   const intent = classifyOmnibox(input);
@@ -40,6 +40,18 @@ describe("classifyOmnibox: explicit schemes", () => {
 
   it("searches when a scheme URL contains spaces", () => {
     expect(search("https://example.com and more")).toBe("https://example.com and more");
+  });
+});
+
+describe("sanitizePastedText", () => {
+  it("joins a URL a terminal wrapped onto indented lines", () => {
+    const wrapped = "https://example.com/oauth/authorize?scope=org%3Acreate_ap\r\n  i_key+user%3Aprofile&st\n  ate=abc\n";
+    expect(sanitizePastedText(wrapped)).toBe("https://example.com/oauth/authorize?scope=org%3Acreate_api_key+user%3Aprofile&state=abc");
+    expect(url(sanitizePastedText(wrapped))).toBe("https://example.com/oauth/authorize?scope=org%3Acreate_api_key+user%3Aprofile&state=abc");
+  });
+
+  it("keeps spaces without a line break", () => {
+    expect(sanitizePastedText(" hello  world ")).toBe("hello  world");
   });
 });
 

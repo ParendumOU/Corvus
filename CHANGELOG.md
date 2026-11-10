@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.47.1
+
+### Fixed
+- **Links from other apps open even when Corvus was started as administrator.** On Windows, a Corvus started from an elevated terminal or by an agent running elevated never received links from normal apps (a sign-in page from a mail app, a link in a document): Windows dropped the hand-off and nothing opened. Corvus now notices it is running as administrator and starts itself again as the normal user, with the same links and settings; the portable build starts through its own launcher again, so it keeps its taskbar icon and updates. `CORVUS_ALLOW_ELEVATED=1`, or a launch that picks its profile with `CORVUS_USER_DATA` / `CORVUS_HOME` (which a relaunch as the normal user would lose), keeps it elevated.
+- **A long link copied from a terminal opens from the address bar.** A terminal wraps a long URL onto several indented lines, so pasting it gave the address bar spaces in the middle and it searched for the text instead of opening the page. Pasting now drops the line breaks and the spaces around them, as Chrome does.
+
 ## v0.47.0
 
 ### Added

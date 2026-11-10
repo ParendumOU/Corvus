@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEELEVATED_SWITCH,
   DEFAULT_BROWSER_EXTENSIONS,
+  ENABLE_MCP_SWITCH,
   LINUX_MIME_TYPES,
   WINDOWS_REGISTRY_KEYS,
   agentLaunch,
+  deelevatedArgs,
   launchTargets,
   linuxDesktopEntry,
+  parseElevated,
   parseRegistered,
   parseUserChoice,
+  quoteWindowsArg,
+  staysElevated,
   windowsRegFile,
 } from "../src/shared/default-browser";
 
@@ -87,5 +93,46 @@ describe("what a launch opens", () => {
       "file:///bad%E0.html",
       "file:///home/ana/doc.PDF",
     ]);
+  });
+});
+
+describe("running as administrator", () => {
+  it("reads the integrity level from whoami /groups", () => {
+    expect(parseElevated("Mandatory Label\High Mandatory Level   Label   S-1-16-12288")).toBe(true);
+    expect(parseElevated("Etiqueta obligatoria\Nivel obligatorio alto   S-1-16-12288")).toBe(true);
+    expect(parseElevated("Mandatory Label\System Mandatory Level   S-1-16-16384")).toBe(true);
+    expect(parseElevated("Mandatory Label\Medium Mandatory Level   S-1-16-8192")).toBe(false);
+    expect(parseElevated("")).toBe(false);
+  });
+
+  it("quotes arguments the way Windows splits them", () => {
+    expect(quoteWindowsArg("https://a.test/?x=1&y=2")).toBe("https://a.test/?x=1&y=2");
+    expect(quoteWindowsArg("")).toBe('""');
+    expect(quoteWindowsArg(String.raw`C:\Mis cosas\a.html`)).toBe(String.raw`"C:\Mis cosas\a.html"`);
+    expect(quoteWindowsArg("C:\\dir with space\\")).toBe('"C:\\dir with space\\\\"');
+    expect(quoteWindowsArg('say "hi"')).toBe(String.raw`"say \"hi\""`);
+  });
+
+  it("relaunches the same launch with the marker before --", () => {
+    const exe = String.raw`C:\Corvus\Corvus.exe`;
+    expect(deelevatedArgs([exe, "--", "https://login.test/a b"])).toBe(`${DEELEVATED_SWITCH} -- "https://login.test/a b"`);
+    expect(deelevatedArgs([exe, ENABLE_MCP_SWITCH])).toBe(`${ENABLE_MCP_SWITCH} ${DEELEVATED_SWITCH}`);
+    expect(deelevatedArgs([exe])).toBe(DEELEVATED_SWITCH);
+    expect(deelevatedArgs([exe, DEELEVATED_SWITCH])).toBe(DEELEVATED_SWITCH);
+  });
+
+  it("stays elevated when asked to or when the launch lives in environment variables", () => {
+    expect(staysElevated({})).toBe(false);
+    expect(staysElevated({ CORVUS_ALLOW_ELEVATED: "1" })).toBe(true);
+    expect(staysElevated({ CORVUS_ALLOW_ELEVATED: "0" })).toBe(false);
+    expect(staysElevated({ CORVUS_USER_DATA: String.raw`C:\Temp\corvus-test` })).toBe(true);
+    expect(staysElevated({ CORVUS_HOME: String.raw`C:\Temp\corvus-home` })).toBe(true);
+    expect(staysElevated({ CORVUS_SMOKE_TEST: "1" })).toBe(true);
+    expect(staysElevated({ CORVUS_USER_DATA: "" })).toBe(false);
+    expect(staysElevated({ CORVUS_BIN: String.raw`C:\Corvus\Corvus.exe` })).toBe(false);
+  });
+
+  it("the marker is a switch, never a link", () => {
+    expect(launchTargets(["exe", DEELEVATED_SWITCH, "--", "https://a.test/"], () => false, (p) => p)).toEqual(["https://a.test/"]);
   });
 });

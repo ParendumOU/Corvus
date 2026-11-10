@@ -39,6 +39,14 @@ export function searchQueryOf(url: string): string | null {
   }
 }
 
+/**
+ * Text pasted into the address bar, as Chrome cleans it: whitespace runs holding a line break go away
+ * entirely, so a long URL a terminal wrapped onto several lines (indent included) pastes back whole.
+ */
+export function sanitizePastedText(text: string): string {
+  return text.replace(/\s*[\r\n]\s*/g, "").trim();
+}
+
 function isIPv4(host: string): boolean {
   const m = IPV4_RE.exec(host);
   return m !== null && m.slice(1).every((octet) => Number(octet) <= 255);

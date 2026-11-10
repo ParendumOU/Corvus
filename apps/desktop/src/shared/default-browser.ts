@@ -165,3 +165,52 @@ function hasWebExtension(path: string): boolean {
   const lower = path.toLowerCase().replace(/[?#].*$/, "");
   return DEFAULT_BROWSER_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
+
+/** Marks the copy Corvus starts for itself when it gave up administrator rights: it never relaunches again. */
+export const DEELEVATED_SWITCH = "--deelevated";
+
+/**
+ * Whether `whoami /groups` shows a high (or system) integrity level: Corvus runs as administrator.
+ * Windows then drops the hand-off from a normal launch (a link from another app), so the link never opens.
+ */
+export function parseElevated(whoamiGroups: string): boolean {
+  return /S-1-16-(12288|16384)\b/.test(whoamiGroups);
+}
+
+/**
+ * Environment variables that pick another profile or a test run. A copy started through Explorer gets the
+ * person's own environment, so it would open their everyday profile instead: such a launch stays elevated.
+ */
+export const ENVIRONMENT_ONLY_LAUNCH = ["CORVUS_USER_DATA", "CORVUS_HOME", "CORVUS_SMOKE_TEST", "CORVUS_CAPTURE"] as const;
+
+/** Whether an elevated Corvus keeps running as administrator instead of starting itself again as the normal user. */
+export function staysElevated(env: Readonly<Record<string, string | undefined>>): boolean {
+  return env.CORVUS_ALLOW_ELEVATED === "1" || ENVIRONMENT_ONLY_LAUNCH.some((name) => Boolean(env[name]));
+}
+
+/** One argument quoted the way Windows splits a command line (CommandLineToArgvW). */
+export function quoteWindowsArg(arg: string): string {
+  if (arg !== "" && !/[\s"]/.test(arg)) return arg;
+  let out = '"';
+  let slashes = 0;
+  for (const ch of arg) {
+    if (ch === "\\") {
+      slashes++;
+      continue;
+    }
+    out += ch === '"' ? "\\".repeat(slashes * 2 + 1) + '"' : "\\".repeat(slashes) + ch;
+    slashes = 0;
+  }
+  return `${out}${"\\".repeat(slashes * 2)}"`;
+}
+
+/**
+ * The arguments for the copy that runs without administrator rights: the same launch (links, files,
+ * --enable-mcp) plus DEELEVATED_SWITCH, kept before any "--" so it stays a switch.
+ */
+export function deelevatedArgs(argv: readonly string[]): string {
+  const args = argv.slice(1).filter((a) => a !== DEELEVATED_SWITCH);
+  const end = args.indexOf("--");
+  const withSwitch = end === -1 ? [...args, DEELEVATED_SWITCH] : [...args.slice(0, end), DEELEVATED_SWITCH, ...args.slice(end)];
+  return withSwitch.map(quoteWindowsArg).join(" ");
+}

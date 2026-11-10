@@ -3,7 +3,7 @@ import type { CredentialMatch } from "../../shared/credentials";
 import type { AutofillBarState } from "../../shared/credentials-ipc";
 import { GROUP_COLOR_HEX, type TabView } from "../../shared/ipc";
 import { isNewTabUrl } from "../../shared/internal-urls";
-import { displayUrl, searchQueryOf } from "../../shared/omnibox";
+import { displayUrl, sanitizePastedText, searchQueryOf } from "../../shared/omnibox";
 import { keepCompletion, withoutInline, type Suggestion } from "../../shared/suggest";
 import { chromeApi } from "../common/api";
 import { languageName, type TranslateBarState } from "../../shared/translate";
@@ -230,6 +230,14 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
       setValue(fill ?? text);
     };
 
+    /** Shows edited text with no completion filled in. */
+    const edit = (text: string): void => {
+      completion.current = null;
+      setValue(text);
+      // Until the new suggestions arrive, Enter goes where the text says, not to the page no longer filled in.
+      if (suggestions[0]?.inline !== undefined) setSuggestions(withoutInline(suggestions));
+    };
+
     /**
      * Fills in the address the first suggestion completes the text to, while the field still holds just
      * what was typed (with the completion kept from the last key, if any) and the caret at its end;
@@ -355,15 +363,22 @@ export const Omnibox = forwardRef<OmniboxHandle, OmniboxProps>(
               // the completion away first) or text an IME is still composing.
               const inline = inputType === "insertText" && !isComposing && input.selectionStart === text.length && input.selectionEnd === text.length;
               const kept = inline ? keepCompletion(completion.current?.fill, text) : null;
-              if (kept) {
-                fillIn(text, kept);
-              } else {
-                completion.current = null;
-                setValue(text);
-                // Until the new suggestions arrive, Enter goes where the text says, not to the page no longer filled in.
-                if (suggestions[0]?.inline !== undefined) setSuggestions(withoutInline(suggestions));
-              }
+              if (kept) fillIn(text, kept);
+              else edit(text);
               updateSuggestions(text, inline);
+            }}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData("text/plain");
+              const clean = sanitizePastedText(pasted);
+              if (clean === pasted) return;
+              e.preventDefault();
+              typed.current = true;
+              const input = e.currentTarget;
+              const start = input.selectionStart ?? value.length;
+              const text = value.slice(0, start) + clean + value.slice(input.selectionEnd ?? start);
+              selection.current = [start + clean.length, start + clean.length];
+              edit(text);
+              updateSuggestions(text, false);
             }}
             onKeyDown={onKeyDown}
           />

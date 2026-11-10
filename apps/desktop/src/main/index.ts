@@ -59,6 +59,7 @@ import { SemanticSearchService } from "./semantic-search-service";
 import { SessionRestore } from "./session-restore";
 import { restorePlan } from "../shared/session-state";
 import { agentLaunch, launchTargets } from "../shared/default-browser";
+import { relaunchWithoutAdminRights } from "./deelevate";
 import { resolveUiLanguage, type UiLanguage } from "../shared/settings";
 import { setMenuLanguage, tr } from "./menu-i18n";
 import { SettingsStore } from "./settings-store";
@@ -465,6 +466,9 @@ function reportStartup(ctx: AppContext): void {
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
+} else if (relaunchWithoutAdminRights()) {
+  app.releaseSingleInstanceLock();
+  app.exit(0);
 } else {
   app.on("open-url", (event, url) => {
     event.preventDefault();
