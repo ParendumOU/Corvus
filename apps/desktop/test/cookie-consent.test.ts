@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runInNewContext } from "node:vm";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { evalSnippets, filterCompactRules, type IndexedCMPRuleset } from "@duckduckgo/autoconsent";
 import compactRules from "@duckduckgo/autoconsent/rules/compact-rules.json";
 import {
@@ -183,12 +183,16 @@ describe("Global Privacy Control", () => {
 
 describe("AdblockController cookie consent", () => {
   const dirs: string[] = [];
+  let AdblockController: typeof import("../src/main/adblock").AdblockController;
+  // Loading the adblock module graph takes far longer than a test's 5 s on a busy runner.
+  beforeAll(async () => {
+    ({ AdblockController } = await import("../src/main/adblock"));
+  }, 120_000);
   afterEach(() => {
     for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("is on by default, keeps excepted sites and shows the tab's banner", async () => {
-    const { AdblockController } = await import("../src/main/adblock");
+  it("is on by default, keeps excepted sites and shows the tab's banner", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corvus-consent-"));
     dirs.push(dir);
     const controller = new AdblockController(dir);

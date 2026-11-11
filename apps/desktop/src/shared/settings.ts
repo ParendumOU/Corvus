@@ -477,3 +477,14 @@ export function claudeCliEnv(ai: Settings["ai"]): Record<string, string> {
   if (ai.claudeAccount === "mcp" && ai.mcpClaudeAt > 0) env.CLAUDE_CONFIG_DIR = ai.mcpClaudeConfigDir;
   return env;
 }
+
+/**
+ * The CLI path to use instead of a removed `ccm` account switcher (retired for Pitwall, which drops
+ * `pitwall` next to it): that `pitwall` when it is there, else plain `claude`. Null keeps the path.
+ */
+export function replaceRetiredClaudeCli(cliPath: string, exists: (file: string) => boolean): string | null {
+  const match = /^(.*[\\/])ccm(\.cmd|\.ps1|\.exe)?$/i.exec(cliPath.trim());
+  if (!match || exists(cliPath.trim())) return null;
+  const dir = match[1]!;
+  return [`${dir}pitwall.cmd`, `${dir}pitwall`].find(exists) ?? "claude";
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type M
 import type { TabGroup } from "@corvus/shared";
 import { GROUP_COLOR_HEX, type TabView, type WindowState } from "../../shared/ipc";
 import { computeDropTarget, type TabStripState } from "../../shared/tab-strip";
-import { buildStripRows, groupsNeedingYou } from "../../shared/tab-strip-view";
+import { buildStripRows, closesOnClick, groupsNeedingYou } from "../../shared/tab-strip-view";
 import { chromeApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconClose, IconPlus, IconSparkle, IconVolume } from "../common/icons";
 import { Favicon } from "../common/ui";
@@ -236,6 +236,7 @@ function Tab({
   const api = chromeApi();
   const close = (e: MouseEvent): void => {
     e.stopPropagation();
+    if (!closesOnClick(e.detail)) return;
     const element = (e.currentTarget as HTMLElement).closest<HTMLElement>(".tab");
     if (element && !tab.pinned) onMouseClose(element);
     void api.call("tabs.close", tab.id);
@@ -426,7 +427,7 @@ function VTab({
   const api = chromeApi();
   const close = (e: MouseEvent): void => {
     e.stopPropagation();
-    void api.call("tabs.close", tab.id);
+    if (closesOnClick(e.detail)) void api.call("tabs.close", tab.id);
   };
   const classes = [
     "v-tab",

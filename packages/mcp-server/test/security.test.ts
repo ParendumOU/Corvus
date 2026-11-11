@@ -223,7 +223,9 @@ describe("idle sessions", () => {
   });
 
   it("closes sessions idle for longer than sessionIdleMs, freeing their slot", async () => {
-    harness = await startHarness({ sessionIdleMs: 50, maxSessions: 1 });
+    // Wide enough that the second request lands before the first session expires on a loaded runner;
+    // the wait covers the idle time plus one sweep (sessionIdleMs / 2).
+    harness = await startHarness({ sessionIdleMs: 1000, maxSessions: 1 });
     const { port } = harness.handle;
     const first = await rawRequest(port, { headers: auth, body: initializeBody() });
     expect(first.status).toBe(200);
@@ -233,7 +235,7 @@ describe("idle sessions", () => {
     const blocked = await rawRequest(port, { headers: auth, body: initializeBody() });
     expect(blocked.status).toBe(503);
 
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 2000));
     const second = await rawRequest(port, { headers: auth, body: initializeBody() });
     expect(second.status).toBe(200);
 

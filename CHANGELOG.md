@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.47.2
+
+### Fixed
+- **The CLI provider works again after moving from `ccm` to Pitwall.** Uninstalling the `ccm` account switcher left Corvus pointing at a `ccm.cmd` that no longer exists, so every request failed with Windows' "is not recognized as an internal or external command". On start, Corvus now replaces a missing `ccm` CLI path with the `pitwall` installed next to it, or with the provider's own CLI when there is none.
+- **Closing a tab closes only that tab.** Closing a tab (its X, a middle click, Ctrl+W or an agent's tab_close) also closed every tab its page had opened with a link in a new tab or window.open, which sit to its right, so one close could empty half the strip. Those tabs now stay open, as in Chrome. A double click on a tab's X also closes just that tab: the second click used to land on the next tab's X, which slides under the pointer.
+
 ## v0.47.1
 
 ### Fixed

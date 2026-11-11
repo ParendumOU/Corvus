@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TabGroup } from "@corvus/shared";
-import { buildStripRows, groupsNeedingYou, renderedTabs, type ViewTab } from "../src/shared/tab-strip-view";
+import { buildStripRows, closesOnClick, groupsNeedingYou, renderedTabs, type ViewTab } from "../src/shared/tab-strip-view";
 
 const g = (id: string, extra: Partial<TabGroup> = {}): TabGroup => ({ id, title: id, color: "blue", collapsed: false, ...extra });
 const t = (id: string, extra: Partial<ViewTab & { needsYou: boolean }> = {}): ViewTab & { needsYou?: boolean } => ({ id, pinned: false, active: false, ...extra });
@@ -60,5 +60,17 @@ describe("groupsNeedingYou", () => {
     ];
     expect([...groupsNeedingYou(tabs, groups)]).toEqual(["A"]);
     expect(groupsNeedingYou(tabs.map((x) => ({ ...x, needsYou: false })), groups).size).toBe(0);
+  });
+});
+
+describe("closing a tab with the mouse", () => {
+  it("closes on a single click, or a synthetic one (no click count)", () => {
+    expect(closesOnClick(1)).toBe(true);
+    expect(closesOnClick(0)).toBe(true);
+  });
+
+  it("ignores the later clicks of a double or triple click, which land on the next tab's close button", () => {
+    expect(closesOnClick(2)).toBe(false);
+    expect(closesOnClick(3)).toBe(false);
   });
 });

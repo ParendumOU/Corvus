@@ -83,7 +83,7 @@ import { claimPdfBeside, pdfViewerRedirect } from "./pdf-intercept";
 import type { ProfileRuntime } from "./profiles";
 import { applyWindowTaskbarIdentity } from "./taskbar";
 import { currentUserAgent, followSignInUserAgent, userAgentFor } from "./user-agent";
-import { pageOf, pageUrl } from "./tab-page";
+import { openInTab, pageOf, pageUrl } from "./tab-page";
 
 let seq = 0;
 const nextId = (prefix: string): string => `${prefix}${Date.now().toString(36)}${(++seq).toString(36)}`;
@@ -1494,18 +1494,19 @@ export class BrowserWindowCtl {
       // A new tab hosts the page Chromium creates, so window.open returns it to the opener as in any
       // browser: pages that open "" and then navigate or write into it (window.open("", "_blank"))
       // would otherwise be left with null and an empty tab. Form posts into a new tab keep their body.
-      const inTab = (): Electron.WindowOpenHandlerResponse => ({
-        action: "allow",
-        createWindow: (options) =>
-          this.createTab(url, {
-            activate: disposition !== "background-tab",
-            preload: true,
-            openerId: tab.id,
-            ...(tab.agentControlled ? { agent: true } : {}),
-            ...container,
-            windowOpen: options,
-          }).view.webContents,
-      });
+      // The new tab stays open when this one closes (see openInTab).
+      const inTab = (): Electron.WindowOpenHandlerResponse =>
+        openInTab(
+          (options) =>
+            this.createTab(url, {
+              activate: disposition !== "background-tab",
+              preload: true,
+              openerId: tab.id,
+              ...(tab.agentControlled ? { agent: true } : {}),
+              ...container,
+              windowOpen: options,
+            }).view.webContents,
+        );
       if (tab.agentControlled) return inTab();
       if (disposition === "new-window") {
         return {

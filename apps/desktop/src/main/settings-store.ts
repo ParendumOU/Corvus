@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { JsonFile } from "./json-file";
 import {
   defaultSettings,
   mergeSettings,
+  replaceRetiredClaudeCli,
   type SecretKey,
   type Settings,
   type SettingsPatch,
@@ -51,6 +53,8 @@ export class SettingsStore {
     this.defaults = defaultSettings(env);
     this.file = JsonFile.load(path.join(dir, "settings.json"), () => this.defaults, (raw) => mergeSettings(this.defaults, raw), 0);
     this.secretsFile = JsonFile.load(path.join(dir, "secrets.json"), () => ({}), (raw) => (typeof raw === "object" && raw ? raw : {}), 0);
+    const cliPath = replaceRetiredClaudeCli(this.file.get().ai.claudeCliPath, existsSync);
+    if (cliPath !== null) this.file.set(mergeSettings(this.file.get(), { ai: { claudeCliPath: cliPath } }));
   }
 
   get(): Settings {

@@ -78,3 +78,12 @@ export function groupsNeedingYou(tabs: ReadonlyArray<ViewTab & { needsYou?: bool
   const collapsed = new Set(groups.filter((g) => g.collapsed).map((g) => g.id));
   return new Set(tabs.flatMap((t) => (t.needsYou && !t.active && t.groupId && collapsed.has(t.groupId) ? [t.groupId] : [])));
 }
+
+/**
+ * Whether a click on a tab's close button (or a middle click on the tab) closes it. Tabs keep their
+ * width while the pointer is on the strip, so the next tab's button slides under the pointer: the
+ * later clicks of a double or triple click (`detail` > 1) land there and must not close it too.
+ */
+export function closesOnClick(detail: number): boolean {
+  return detail <= 1;
+}

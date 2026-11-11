@@ -107,6 +107,106 @@ function slowProvider(): AnswerProvider {
 }
 
 /**
+ * Closing a tab closes that tab and no other. Tabs a page opened (window.open, target=_blank links)
+ * sit to its right; Electron used to destroy them along with their opener, and each destroyed page
+ * closed its tab, so closing one tab took all the tabs it had opened with it.
+ */
+async function checkOneTabPerClose(
+  ctx: AppContext,
+  w: BrowserWindowCtl,
+  at: (name: string) => string,
+  h: {
+    check: Helpers["check"];
+    verify: (step: string) => Promise<void>;
+    loaded: (tab: TabRuntime) => Promise<boolean>;
+    gone: (id: string) => Promise<boolean>;
+  },
+): Promise<void> {
+  const { check, verify, loaded, gone } = h;
+  const opens = async (from: TabRuntime, name: string, how: "open" | "link"): Promise<TabRuntime | null> => {
+    const before = new Set(w.tabIds());
+    const url = at(name);
+    const script =
+      how === "open"
+        ? `window.open(${JSON.stringify(url)}, "_blank"); true`
+        : `(() => { const a = document.createElement("a"); a.href = ${JSON.stringify(url)}; a.target = "_blank"; a.textContent = "x"; document.body.append(a); a.click(); a.remove(); return true; })()`;
+    await js(from.view.webContents, script, true);
+    await until(() => w.tabIds().some((id) => !before.has(id)), 5000);
+    const id = w.tabIds().find((t) => !before.has(t));
+    const tab = id ? w.getTab(id) : undefined;
+    if (tab) await loaded(tab);
+    return tab ?? null;
+  };
+  const openedAll = (tabs: Array<TabRuntime | null>): tabs is TabRuntime[] => tabs.every((t) => t !== null);
+  // Long enough for a cascade (page destroyed, then its tab closed) to have happened.
+  const stillOpen = async (ids: string[]): Promise<boolean> => {
+    await sleep(1500);
+    return ids.every((id) => w.hasTab(id));
+  };
+  const press = (id: string, detail: number): string =>
+    `document.querySelector('.tab-strip .tab[data-tab-id=${JSON.stringify(id)}] .tab-close')?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, detail: ${detail} }));`;
+
+  // A person's tab with tabs it opened (window.open and a target=_blank link), next to an agent's tab
+  // with one it opened, closed from the strip's X: only that tab goes.
+  const keeper = w.createTab(at("keeper"));
+  await loaded(keeper);
+  const parent = w.createTab(at("parent"));
+  await loaded(parent);
+  const children = [await opens(parent, "child-1", "open"), await opens(parent, "child-2", "link"), await opens(parent, "child-3", "open")];
+  const agentTab = w.createTab(at("agent-parent"), { agent: true });
+  w.markAgent(agentTab.id);
+  await loaded(agentTab);
+  const agentChild = await opens(agentTab, "agent-child", "open");
+  if (!openedAll(children) || !agentChild) {
+    check("tab close: pages open tabs of their own", false, { children: children.map((c) => c?.url), agentChild: agentChild?.url });
+    return;
+  }
+  check("tab close: tabs a page opens sit to its right", children.every((c) => w.tabIds().indexOf(c.id) > w.tabIds().indexOf(parent.id)), w.tabIds());
+  const others = [keeper.id, ...children.map((c) => c.id), agentTab.id, agentChild.id];
+  w.activate(parent.id);
+  await verify("a page with tabs it opened, shown");
+  const count = w.tabIds().length;
+  await js(w.chrome.webContents, `${press(parent.id, 1)} true`);
+  check("tab close: the X closes its tab", await gone(parent.id));
+  check("tab close: closing a tab with the X leaves the tabs it opened open", (await stillOpen(others)) && w.tabIds().length === count - 1, { open: w.tabIds(), expected: others });
+  await verify("a tab that opened others closed with its X");
+
+  // An agent closing its own tab (MCP tab_close, by id) leaves the tab that page opened.
+  const agentCount = w.tabIds().length;
+  await ctx.controller.closeTab(agentTab.id);
+  check("tab close: tab_close closes the agent's tab", await gone(agentTab.id));
+  check("tab close: tab_close leaves the tabs that page opened open", (await stillOpen([agentChild.id, keeper.id])) && w.tabIds().length === agentCount - 1, w.tabIds());
+  await verify("an agent's tab closed by tab_close");
+
+  // A middle click closes one tab and leaves the tabs it opened.
+  const [first, second, third] = children as [TabRuntime, TabRuntime, TabRuntime];
+  const grandchild = await opens(first, "grandchild", "open");
+  if (grandchild) {
+    const middleCount = w.tabIds().length;
+    await js(w.chrome.webContents, `document.querySelector('.tab-strip .tab[data-tab-id=${JSON.stringify(first.id)}]')?.dispatchEvent(new MouseEvent('auxclick', { button: 1, bubbles: true, detail: 1 })); true`);
+    check("tab close: a middle click closes its tab", await gone(first.id));
+    check("tab close: a middle click leaves the tabs that page opened open", (await stillOpen([grandchild.id, keeper.id])) && w.tabIds().length === middleCount - 1, w.tabIds());
+  } else {
+    check("tab close: a page opens a tab of its own", false);
+  }
+
+  // Fast clicks: the second click of a double click lands on the next tab's X (tabs keep their width
+  // while the pointer is on the strip) and must not close that one too; a repeated event on the same
+  // X closes nothing more.
+  w.activate(second.id);
+  await verify("a tab shown before a double click on its X");
+  const fastCount = w.tabIds().length;
+  await js(w.chrome.webContents, `${press(second.id, 1)} ${press(second.id, 1)} ${press(third.id, 2)} true`);
+  check("tab close: a double click on the X closes one tab", (await gone(second.id)) && (await stillOpen([third.id, keeper.id])) && w.tabIds().length === fastCount - 1, w.tabIds());
+  await verify("a double click on a tab's X");
+  // A click of its own closes the next tab as usual.
+  await js(w.chrome.webContents, `${press(third.id, 1)} true`);
+  check("tab close: a later single click closes the next tab", await gone(third.id));
+  for (const id of [keeper.id, agentChild.id, ...(grandchild ? [grandchild.id] : [])]) if (w.hasTab(id)) w.closeTab(id);
+  await verify("tabs of the one-tab-per-close checks closed");
+}
+
+/**
  * Closing tabs never leaves the chrome UI behind (tabs that stay on the strip after they closed, an
  * address bar stuck on an old page): tabs in every state (internal pages, certificate errors, crashed,
  * asleep, not loaded yet, a page dialog or permission prompt open, split, agent run, pinned, grouped,
@@ -474,6 +574,7 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     } else {
       check("tab close: window.open opens a second tab", false, { active: w.activeTab()?.url });
     }
+    await checkOneTabPerClose(ctx, w, at, { check, verify, loaded, gone });
 
     // Background work still running when its tab (or its window) closes: once the page is gone, what
     // comes after an await finds it gone and stops, with nothing thrown in the main process.

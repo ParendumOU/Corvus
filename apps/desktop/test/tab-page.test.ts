@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { WebContents } from "electron";
 import type { AppContext } from "../src/main/context";
 import { ReaderService } from "../src/main/reader-service";
-import { pageOf, pageUrl } from "../src/main/tab-page";
+import { openInTab, pageOf, pageUrl } from "../src/main/tab-page";
 import { TranslateService } from "../src/main/translate-service";
 import type { BrowserWindowCtl, TabRuntime } from "../src/main/window";
 import { defaultSettings } from "../src/shared/settings";
@@ -153,5 +153,14 @@ describe("background work on a tab that closes meanwhile", () => {
     const translate = new TranslateService(ctx);
     await translate.onPageLoad(win, tab);
     expect(translate.barState(tab)).toMatchObject({ state: "offer", pageLang: "de", target: "en" });
+  });
+});
+
+describe("a page that window.open puts in a tab", () => {
+  it("outlives the page that opened it, so closing the opener's tab closes no other tab", () => {
+    const page = {} as WebContents;
+    const response = openInTab(() => page);
+    expect(response).toMatchObject({ action: "allow", outlivesOpener: true });
+    expect(response.action === "allow" && response.createWindow?.({})).toBe(page);
   });
 });

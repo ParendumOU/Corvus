@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeCliEnv, defaultSettings, mergeSettings, parseEnvLines } from "../src/shared/settings";
+import { claudeCliEnv, defaultSettings, mergeSettings, parseEnvLines, replaceRetiredClaudeCli } from "../src/shared/settings";
 
 const ai = (patch: Record<string, unknown>) => mergeSettings(defaultSettings(), { ai: patch }).ai;
 
@@ -34,5 +34,26 @@ describe("Claude Code account and CLI environment", () => {
 
   it("drops an unknown account mode from stored settings", () => {
     expect(ai({ claudeAccount: "ccm" }).claudeAccount).toBe("default");
+  });
+});
+
+describe("retired ccm CLI path", () => {
+  const files = (...present: string[]) => (f: string) => present.includes(f);
+  const bin = "C:\\Users\\me\\AppData\\Local\\pnpm\\bin\\";
+
+  it("switches a removed ccm wrapper to the pitwall one installed next to it", () => {
+    expect(replaceRetiredClaudeCli(`${bin}ccm.cmd`, files(`${bin}pitwall`, `${bin}pitwall.cmd`))).toBe(`${bin}pitwall.cmd`);
+    expect(replaceRetiredClaudeCli("/home/me/.local/bin/ccm", files("/home/me/.local/bin/pitwall"))).toBe("/home/me/.local/bin/pitwall");
+  });
+
+  it("falls back to claude when pitwall is not there", () => {
+    expect(replaceRetiredClaudeCli(`${bin}ccm.cmd`, files())).toBe("claude");
+  });
+
+  it("keeps ccm while it is still installed, and any other path", () => {
+    expect(replaceRetiredClaudeCli(`${bin}ccm.cmd`, files(`${bin}ccm.cmd`, `${bin}pitwall.cmd`))).toBeNull();
+    expect(replaceRetiredClaudeCli("claude", files())).toBeNull();
+    expect(replaceRetiredClaudeCli("ccm", files())).toBeNull();
+    expect(replaceRetiredClaudeCli("C:\\Tools\\myccm.cmd", files())).toBeNull();
   });
 });
