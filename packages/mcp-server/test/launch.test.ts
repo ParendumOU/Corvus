@@ -1,12 +1,42 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ENABLE_MCP_SWITCH, corvusExecutable, readDiscovery, waitForCorvus } from "../src/index.js";
+import { startCorvus } from "../src/launch.js";
 
 const TARGET = { url: "http://127.0.0.1:40123/mcp", token: "tok-0123456789abcdef" };
 /** No process has this id (Linux caps pids far lower). */
 const DEAD_PID = 2 ** 30;
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until<T>(check: () => Promise<T>, timeoutMs = 5_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await check();
+    if (value || Date.now() > deadline) return value;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** Parent ids up to init, from /proc (Linux). */
+async function ancestors(pid: number): Promise<number[]> {
+  const chain: number[] = [];
+  for (let current = pid; current > 1; ) {
+    const stat = await readFile(`/proc/${current}/stat`, "utf8");
+    current = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    chain.push(current);
+  }
+  return chain;
+}
 
 describe("finding and starting Corvus", () => {
   let home: string;
@@ -84,6 +114,33 @@ describe("finding and starting Corvus", () => {
     ).rejects.toThrow(/Enable MCP server/);
     expect(started).toEqual([]);
     expect(logs.join("\n")).toContain("waiting for Corvus");
+  });
+
+  // A tree kill of the agent session (taskkill /T, tree-kill) follows parent ids: Corvus must not have the bridge as an ancestor.
+  it.skipIf(process.platform !== "linux")("starts Corvus outside the bridge's process tree", async () => {
+    const exe = join(home, "corvus");
+    await writeFile(exe, '#!/bin/sh\necho "$$ $PPID $1" > "$0.started"\nexec sleep 30\n', { mode: 0o755 });
+    startCorvus(exe, () => {});
+    const line = await until(async () => (await readFile(`${exe}.started`, "utf8").catch(() => "")).trim());
+    const [pid, parent, flag] = line.split(" ");
+    const browser = Number(pid);
+    const handoff = Number(parent);
+    try {
+      expect(flag).toBe(ENABLE_MCP_SWITCH);
+      expect(handoff).not.toBe(process.pid);
+      expect(await until(async () => !alive(handoff), 10_000)).toBe(true);
+      expect(alive(browser)).toBe(true);
+      expect(await ancestors(browser)).not.toContain(process.pid);
+    } finally {
+      process.kill(browser, "SIGKILL");
+    }
+  });
+
+  it("logs when the executable cannot be started", async () => {
+    const logs: string[] = [];
+    startCorvus(join(home, "missing"), (m) => logs.push(m));
+    await until(async () => logs.length > 0);
+    expect(logs[0]).toContain("could not start Corvus");
   });
 
   it("says so when Corvus is not installed where it looks", async () => {

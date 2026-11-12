@@ -79,11 +79,29 @@ export async function corvusExecutable(
   return null;
 }
 
-/** Starts Corvus detached from the bridge with its MCP server on (it opens minimized, see apps/desktop agentLaunch). */
+/** Run by a short-lived Node process: starts argv[1] with the other arguments, detached, and exits (1 when it could not). */
+const HANDOFF_SCRIPT =
+  'const c=require("node:child_process").spawn(process.argv[1],process.argv.slice(2),{detached:true,stdio:"ignore"});' +
+  'c.once("error",()=>process.exit(1));c.unref();';
+
+/**
+ * Starts Corvus with its MCP server on (it opens minimized, see apps/desktop agentLaunch) outside
+ * the bridge's process tree. `detached` alone is not enough: the browser's parent would still be
+ * this bridge, a child of the agent session, and closing or killing that session kills its tree by
+ * parent id (Windows `taskkill /T`, tree-kill on Unix), browser included. A Node process that
+ * starts Corvus and exits at once leaves Corvus with no living parent, so it outlives the session.
+ */
 export function startCorvus(exe: string, log: (message: string) => void): void {
-  const child = spawn(exe, [ENABLE_MCP_SWITCH], { detached: true, stdio: "ignore" });
-  child.once("error", (err) => log(`could not start Corvus (${exe}): ${err.message}`));
-  child.unref();
+  const handoff = spawn(process.execPath, ["-e", HANDOFF_SCRIPT, "--", exe, ENABLE_MCP_SWITCH], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  handoff.once("error", (err) => log(`could not start Corvus (${exe}): ${err.message}`));
+  handoff.once("exit", (code) => {
+    if (code) log(`could not start Corvus (${exe})`);
+  });
+  handoff.unref();
 }
 
 export interface WaitOptions {

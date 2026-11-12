@@ -31901,10 +31901,18 @@ async function corvusExecutable(home, env = process.env, platform = process.plat
   for (const file2 of candidates) if (file2 && await exists(file2)) return file2;
   return null;
 }
+var HANDOFF_SCRIPT = 'const c=require("node:child_process").spawn(process.argv[1],process.argv.slice(2),{detached:true,stdio:"ignore"});c.once("error",()=>process.exit(1));c.unref();';
 function startCorvus(exe, log) {
-  const child = spawn(exe, [ENABLE_MCP_SWITCH], { detached: true, stdio: "ignore" });
-  child.once("error", (err) => log(`could not start Corvus (${exe}): ${err.message}`));
-  child.unref();
+  const handoff2 = spawn(process.execPath, ["-e", HANDOFF_SCRIPT, "--", exe, ENABLE_MCP_SWITCH], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  handoff2.once("error", (err) => log(`could not start Corvus (${exe}): ${err.message}`));
+  handoff2.once("exit", (code) => {
+    if (code) log(`could not start Corvus (${exe})`);
+  });
+  handoff2.unref();
 }
 async function waitForCorvus(opts = {}) {
   const home = opts.home ?? corvusHome();

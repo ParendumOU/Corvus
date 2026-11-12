@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.47.3
+
+### Fixed
+- **Corvus stays open when the agent session that started it ends.** When an agent session started Corvus to use it, Corvus stayed that session's child process, so ending the session (closing its terminal, quitting it, or a launcher restarting it on another account) closed the browser with all your tabs, and the next session opened it again. The agent connector now starts Corvus through a helper that exits at once, so the browser belongs to no session and stays open; a new session connects to the Corvus already running.
+
 ## v0.47.2
 
 ### Fixed
