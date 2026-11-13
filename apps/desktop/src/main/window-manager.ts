@@ -1,7 +1,8 @@
-import { app, type WebContents } from "electron";
-import type { ProfileId, TabId } from "@corvus/shared";
+import { app, screen, type WebContents } from "electron";
+import type { GroupId, ProfileId, TabId } from "@corvus/shared";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import type { SessionWindow } from "../shared/session-state";
+import { tearOffBounds, tearsOff, type Point } from "../shared/tab-tearoff";
 import type { AppContext } from "./context";
 import type { PermissionHost } from "./permissions";
 import { ProfileLockedError } from "./profile-lock";
@@ -48,6 +49,74 @@ export class WindowManager implements PermissionHost {
     win.restoreTabs(saved);
     this.ctx.sessionRestore.resume();
     return win;
+  }
+
+  // ---------------------------------------------------------------- moving tabs between windows
+
+  /**
+   * Moves tabs, pages and all (nothing reloads), from one window to another of the same profile and
+   * kind; `from` closes when it has none left. False when they may not move there.
+   */
+  moveTabs(from: BrowserWindowCtl, ids: readonly TabId[], to: BrowserWindowCtl, opts: { index?: number; groupId?: GroupId | null; activeId?: TabId } = {}): boolean {
+    if (!from.canTradeTabsWith(to)) return false;
+    const parcel = from.releaseTabs(ids);
+    if (parcel.tabs.length === 0) return false;
+    to.adoptTabs(parcel, opts);
+    if (from.tabCount === 0) from.close();
+    return true;
+  }
+
+  /**
+   * Tabs to a new window of their own ("Move to new window", or dragged out of the strip and let go
+   * at `pointer`, which then holds the new window by its first tab). All of a window's tabs: that
+   * window itself goes there. Returns the window they are in.
+   */
+  tearOff(from: BrowserWindowCtl, ids: readonly TabId[], pointer?: Point): BrowserWindowCtl | null {
+    const going = ids.filter((id) => from.hasTab(id));
+    if (going.length === 0 || from.isDisposed() || from.profile.locked) return null;
+    const bounds = from.win.getNormalBounds();
+    const placed = pointer ? tearOffBounds(pointer, bounds) : { ...bounds, x: bounds.x + 32, y: bounds.y + 32 };
+    if (going.length === from.tabCount) {
+      if (pointer) {
+        if (from.win.isMaximized()) from.win.unmaximize();
+        from.win.setBounds(placed);
+      }
+      return from;
+    }
+    const win = new BrowserWindowCtl(this.ctx, from.profile, [], { bounds: placed, private: from.isPrivate });
+    this.windows.push(win);
+    this.lastFocused = win;
+    if (!win.isPrivate) this.ctx.sessionRestore.resume();
+    this.moveTabs(from, going, win);
+    return win;
+  }
+
+  /** A tab of another window dropped on `to`'s strip: it moves there, with the tabs selected with it. */
+  dropTab(to: BrowserWindowCtl, id: TabId, index: number, groupId: GroupId | null): boolean {
+    const found = this.findTab(id);
+    if (!found || found.window === to) return false;
+    const moved = this.moveTabs(found.window, found.window.actionTabIds(id), to, { index, groupId, activeId: id });
+    if (moved) to.present();
+    return moved;
+  }
+
+  /** A group of another window dropped on `to`'s strip: it moves there whole, with its id. */
+  dropGroup(to: BrowserWindowCtl, groupId: GroupId, index: number): boolean {
+    const from = this.windows.find((w) => w !== to && w.hasGroup(groupId));
+    if (!from) return false;
+    const moved = this.moveTabs(from, from.groupTabIds(groupId), to, { index });
+    if (moved) to.present();
+    return moved;
+  }
+
+  /**
+   * A drag of tabs (`ids`) out of `from`'s strip ended on no tab strip: let go away from the strip,
+   * they go to a new window there; near it, the drag was given up.
+   */
+  dragEnded(from: BrowserWindowCtl, ids: readonly TabId[]): BrowserWindowCtl | null {
+    const pointer = screen.getCursorScreenPoint();
+    if (!tearsOff(pointer, from.stripOnScreen())) return null;
+    return this.tearOff(from, ids, pointer);
   }
 
   all(): BrowserWindowCtl[] {

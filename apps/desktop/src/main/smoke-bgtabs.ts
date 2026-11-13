@@ -93,12 +93,13 @@ interface PageState {
   images: number;
   clicks: number;
   keys: number;
+  referrer: string;
 }
 
 function pageState(wc: WebContents): Promise<PageState | null> {
   return wc
     .executeJavaScript(
-      "({ ready: document.readyState, title: document.title, width: innerWidth, height: innerHeight, images: [...document.images].filter((i) => i.complete && i.naturalWidth > 0).length, clicks: window.__input?.clicks ?? -1, keys: window.__input?.keys ?? -1 })",
+      "({ ready: document.readyState, title: document.title, width: innerWidth, height: innerHeight, images: [...document.images].filter((i) => i.complete && i.naturalWidth > 0).length, clicks: window.__input?.clicks ?? -1, keys: window.__input?.keys ?? -1, referrer: document.referrer })",
     )
     .catch(() => null) as Promise<PageState | null>;
 }
@@ -211,11 +212,13 @@ async function timeToComplete(win: BrowserWindowCtl, tab: TabRuntime): Promise<{
 }
 
 /**
- * Background tabs (CORVUS_SMOKE_ONLY=bgtabs; also in the full run): a tab the person opens in the
- * background is loaded and drawn before it is shown; tabs an MCP client opens in the background
- * render, so screenshots show the page without taking the person's tab or focus; only the most
- * recently used agent tabs keep painting, and a capture paints any other; the person's clicks and
- * keys reach only the tab on screen; with both settings off, tabs behave as before.
+ * Background tabs (CORVUS_SMOKE_ONLY=bgtabs; also in the full run): with the setting on, a tab the
+ * person opens in the background is loaded and drawn before it is shown; tabs an MCP client opens in
+ * the background render, so screenshots show the page without taking the person's tab or focus; only
+ * the most recently used agent tabs keep painting, and a capture paints any other; the person's
+ * clicks and keys reach only the tab on screen. With both settings off (the default for the
+ * person's tabs), a tab the person opens in the background waits unloaded until shown, while agents'
+ * tabs still load; an agent reading such a tab loads it first.
  */
 export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Promise<void> {
   const { win, check, capture, log } = h;
@@ -226,7 +229,7 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
   const keep = (tab: { id: string } | undefined): void => void (tab && opened.push(tab.id));
   const c = ctx.controller;
   try {
-    ctx.settings.update({ memory: { preloadBackgroundTabs: true }, agent: { renderInBackground: true } });
+    ctx.settings.update({ memory: { loadBackgroundTabs: true }, agent: { renderInBackground: true } });
     const front = win.createTab(`${base}bg?title=Front`, { activate: true });
     keep(front);
     await loaded(front.view.webContents);
@@ -363,23 +366,46 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     );
     win.profile.bookmarks.remove(folder.id);
 
-    // Both settings off: as before (a background tab is neither sized nor drawn, agent tabs do not paint), but screenshots still work.
-    ctx.settings.update({ memory: { preloadBackgroundTabs: false }, agent: { renderInBackground: false } });
+    // Both settings off: a background tab the person opens waits unloaded until shown (ten videos do
+    // not all start); agent tabs do not paint, but still load, and their screenshots still work.
+    ctx.settings.update({ memory: { loadBackgroundTabs: false }, agent: { renderInBackground: false } });
     check("background tabs: turning agent rendering off stops every agent tab painting", ctx.backgroundRender.rendering().length === 0 && agentTabs.every((t) => !win.isPainting(win.getTab(t.id)!)));
     ids = win.tabIds();
+    const plainUrl = `${base}bg?title=Front%20plain`;
     await front.view.webContents.executeJavaScript("document.getElementById('go').href = '/bg?title=Front%20plain'; true");
     await middleClickLink(front.view.webContents);
     const plain = await openedFrom(win, front, ids);
     keep(plain);
-    if (plain) await loaded(plain.view.webContents);
     await sleep(1200);
-    const plainState = plain ? await pageState(plain.view.webContents) : null;
-    const plainShot = plain ? await plain.view.webContents.capturePage(undefined, { stayHidden: true }).catch(() => null) : null;
+    const waiting = plain && { pending: plain.pendingUrl, page: plain.view.webContents.getURL(), loading: plain.loading, title: plain.title, painting: win.isPainting(plain), active: win.activeTab()?.id === front.id };
     check(
-      "background tabs: with the setting off, a middle-clicked tab loads as before (unsized, nothing drawn)",
-      plainState?.ready === "complete" && plainState.title === "Front plain" && plainState.width === 0 && plain !== undefined && !win.isPainting(plain) && (plainShot?.isEmpty() ?? true),
-      { ...plainState, drawn: plainShot ? !plainShot.isEmpty() : null },
+      "background tabs: with the setting off, a middle-clicked link waits unloaded until shown, named after its address",
+      waiting?.pending === plainUrl && waiting.page === "" && !waiting.loading && waiting.title === plainUrl && !waiting.painting && waiting.active,
+      waiting,
     );
+    // An agent asked to read it loads it first (it would otherwise read an empty page).
+    const read = plain ? await c.getText(plain.id, { maxChars: 200 }).catch((err: unknown) => ({ text: String(err) })) : null;
+    check("background tabs: an agent reading a tab that waits unloaded loads it first", Boolean(read?.text.includes("Linked page")) && plain?.pendingUrl === undefined, read);
+    if (plain) win.clearAgentMark(plain.id);
+    // Shown, a waiting tab loads, with the page that opened it as its referrer.
+    ids = win.tabIds();
+    await front.view.webContents.executeJavaScript("document.getElementById('go').href = '/bg?title=Front%20shown'; true");
+    await middleClickLink(front.view.webContents);
+    const shownLater = await openedFrom(win, front, ids);
+    keep(shownLater);
+    const stillWaiting = shownLater?.pendingUrl !== undefined;
+    if (shownLater) {
+      win.activate(shownLater.id);
+      await loaded(shownLater.view.webContents);
+    }
+    const shownState = shownLater ? await pageState(shownLater.view.webContents) : null;
+    check(
+      "background tabs: shown, a tab that waited loads, with the opener page as referrer",
+      stillWaiting && shownState?.ready === "complete" && shownState.title === "Front shown" && shownState.referrer.startsWith(base),
+      { stillWaiting, shownState },
+    );
+    win.activate(front.id);
+    await sleep(300);
     const offTab = await c.openTab(`${base}bg?title=Agent%20off&idelay=0`, { background: true, agent: true });
     keep(offTab);
     const offPainting = ctx.backgroundRender.rendering().includes(offTab.id);
@@ -389,6 +415,25 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
       !offPainting && offShot.page && offShot.image && !win.isPainting(win.getTab(offTab.id)!),
       { offPainting, offShot },
     );
+    check(
+      "background tabs: with the setting off, a tab an agent opens in the background still loads at once",
+      win.getTab(offTab.id)?.pendingUrl === undefined && offTab.title === "Agent off" && win.activeTab()?.id === front.id,
+      { title: offTab.title, pending: win.getTab(offTab.id)?.pendingUrl },
+    );
+
+    // "Open all" with the setting off: every tab waits until shown.
+    const lateFolder = win.profile.bookmarks.create({ parentId: OTHER_FOLDER_ID, kind: "folder", title: "Background smoke off" });
+    for (let i = 0; i < 3; i++) win.profile.bookmarks.create({ parentId: lateFolder.id, kind: "bookmark", title: `Later ${i}`, url: `${base}bg?title=Later%20${i}&idelay=0` });
+    ids = win.tabIds();
+    const lateCount = await openBookmarkFolder(ctx, win, lateFolder.id);
+    const late = win.tabIds().filter((id) => !ids.includes(id));
+    late.forEach((id) => opened.push(id));
+    check(
+      "background tabs: with the setting off, Open all opens every tab unloaded, named after its bookmark",
+      lateCount === 3 && late.length === 3 && late.every((id, i) => win.getTab(id)?.pendingUrl !== undefined && win.getTab(id)?.title === `Later ${i}`),
+      late.map((id) => ({ pending: win.getTab(id)?.pendingUrl, title: win.getTab(id)?.title })),
+    );
+    win.profile.bookmarks.remove(lateFolder.id);
 
     // A sleeping agent tab is loaded again for its screenshot.
     const sleeper = win.getTab(agentTabs[3]!.id)!;
@@ -402,7 +447,7 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     check("background tabs smoke", false, err instanceof Error ? (err.stack ?? err.message) : String(err));
   } finally {
     ctx.tabSleeper.freeShare = freeShare;
-    ctx.settings.update({ memory: { preloadBackgroundTabs: before.memory.preloadBackgroundTabs }, agent: { renderInBackground: before.agent.renderInBackground } });
+    ctx.settings.update({ memory: { loadBackgroundTabs: before.memory.loadBackgroundTabs }, agent: { renderInBackground: before.agent.renderInBackground } });
     for (const id of opened) if (win.hasTab(id)) win.closeTab(id);
     close();
     await sleep(300);
@@ -436,7 +481,7 @@ function framesPerSecond(wc: WebContents): Promise<number> {
 async function measure(ctx: AppContext, win: BrowserWindowCtl, base: string, log: (step: string, data: unknown) => void): Promise<void> {
   const front = win.activeTab()!;
   for (const preload of [false, true]) {
-    ctx.settings.update({ memory: { preloadBackgroundTabs: preload } });
+    ctx.settings.update({ memory: { loadBackgroundTabs: preload } });
     const runs: Array<{ firstPaint: number; complete: number }> = [];
     for (let i = 0; i < 3; i++) {
       const tab = win.createTab(`${base}bg?title=Measure%20${i}`, { activate: false, preload: true });

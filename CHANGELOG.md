@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.48.0
+
+### Added
+- **Select several tabs.** Ctrl+click (Cmd+click on macOS) adds a tab to the selection or takes it out, and Shift+click selects the range from the tab you clicked last, as in Chrome. The selected tabs are highlighted, and their menu acts on all of them: add to a new or existing group, remove from group, reload, duplicate, pin or unpin, mute, move to a new or another window, close. Dragging one of them moves them all, and Ctrl+W closes them all.
+- **Tabs move between windows.** Drag a tab, the selected tabs or a group out of the tab strip and let go away from it: they open in a new window of their own, where you let go. Drop them on another Corvus window's tab strip and they move there; a window left without tabs closes. The page keeps running as it was, without reloading: a video keeps playing and a form keeps what you typed. A group that moves whole keeps its name and colour. The tab menu also has "Move tab to new window" and "Move tab to another window". AI agents find and use tabs in any window, and every window comes back with its tabs after a restart.
+
+### Changed
+- **Tabs you open in the background wait until you go to them.** A link opened with a middle click, Ctrl+click or "Open link in new tab", a bookmark opened in the background and "Open all" no longer load at once: the tab shows the link's address (or its text) and the site's icon, and loads the first time you switch to it, so opening ten videos no longer plays ten videos at once. A link to a file still downloads at once. Settings > Memory > "Load tabs opened in the background right away" loads them at once again. Tabs that AI agents and extensions open still load at once, so agents keep working in tabs you never look at, and an agent asked to read a tab that has not loaded yet loads it first.
+
+### Fixed
+- **Tabs no longer show only their close button.** With about ten tabs open, the active tab, and the tab that slid under the pointer after a middle-click close, showed just an X, on its left, with no icon or title. Narrow tabs now keep their icon and title, with the close button on the right; only the narrowest active tab shows its close button alone, as in Chrome.
+
 ## v0.47.3
 
 ### Fixed

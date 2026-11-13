@@ -109,6 +109,19 @@ body,
     radial-gradient(circle at 0 0, transparent 9px, var(--toolbar) 9.5px) left bottom / 9px 9px no-repeat,
     radial-gradient(circle at 100% 0, transparent 9px, var(--toolbar) 9.5px) right bottom / 9px 9px no-repeat;
 }
+/* Tabs selected with the active one (Ctrl+click, Shift+click): lit like it, a little less. */
+.tab.selected:not(.active),
+.tab.selected:not(.active):hover {
+  background: color-mix(in srgb, var(--toolbar) 55%, var(--strip));
+  color: var(--text);
+  height: 34px;
+  margin-bottom: 0;
+  border-radius: 9px 9px 0 0;
+}
+.tab.selected::before,
+.tab.selected + .tab::before {
+  opacity: 0;
+}
 .tab.pinned {
   flex: none;
   width: 44px;
@@ -233,25 +246,43 @@ body,
 .tab.active .tab-close {
   opacity: 1;
 }
-/* A narrow tab would be mostly its (hidden but clickable) close button: clicking it to switch to it
-   closed it. As in Chrome, only the active one keeps the button then, and shows nothing else, so
-   the button fits in it (12px + 24px + 8px of padding) instead of spilling onto the next tab. */
+/* Narrow tabs. A container query measures the tab's content box: its width less its 20px of
+   padding (a 108px tab is 88px here). The close button stays on the right.
+   - Up to 88px: a smaller close button, so the title keeps its room.
+   - Up to 60px: an inactive tab would be mostly its (hidden but clickable) close button, and
+     clicking it to switch to the tab closed it: as in Chrome, only the active tab keeps the button,
+     with its icon (no room is left for its title).
+   - Under 48px (the icon and the button no longer fit side by side): inactive tabs show their icon
+     alone, centred; the active one, as in Chrome, only its close button. */
 .tab:not(.pinned) {
   container-type: inline-size;
 }
-@container (max-width: 88px) {
-  .tab:not(.active) .tab-close {
-    display: none;
+@container (width <= 88px) {
+  .tab-close {
+    width: 24px;
+    height: 24px;
   }
-  .tab.active .tab-icon,
+}
+@container (width <= 60px) {
+  .tab:not(.active) .tab-close,
   .tab.active .tab-title,
   .tab.active .tab-audio,
   .tab.active .ai-badge {
     display: none;
   }
   .tab.active .tab-close {
-    width: 24px;
-    height: 24px;
+    margin-left: auto;
+  }
+}
+@container (width < 48px) {
+  .tab .tab-title,
+  .tab .tab-audio,
+  .tab .ai-badge,
+  .tab.active .tab-icon {
+    display: none;
+  }
+  .tab .tab-icon {
+    margin: 0 auto;
   }
 }
 .tab-close:hover {
@@ -1145,6 +1176,10 @@ body,
   background: var(--active);
   color: var(--text);
 }
+.v-tab.selected:not(.active) {
+  background: color-mix(in srgb, var(--active) 60%, transparent);
+  color: var(--text);
+}
 .v-tab.grouped {
   margin-left: 12px;
   border-radius: 0 7px 7px 0;
@@ -1322,6 +1357,10 @@ body,
 .chrome-root.maximized .tab:hover:not(.active) {
   height: 36px;
   border-radius: 9px / 15px 15px 9px 9px;
+}
+.chrome-root.maximized .tab.selected:not(.active):hover {
+  height: 40px;
+  border-radius: 9px 9px 0 0 / 15px 15px 0 0;
 }
 
 /* ---------------------------------------------------------------- connection chip */

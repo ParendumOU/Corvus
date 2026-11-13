@@ -28,10 +28,38 @@ function ContainerMark({ tab }: { tab: TabView }) {
   return <span className="tab-container-mark" style={{ "--c-light": hex.light, "--c-dark": hex.dark } as CSSProperties} />;
 }
 
+/**
+ * A press on a tab: Ctrl (Cmd) adds or takes it out of the selection, Shift picks a range. A plain
+ * press on a tab selected with others keeps them all, so dragging it moves them together.
+ */
+function selectOnPress(tab: TabView, e: MouseEvent): void {
+  void chromeApi().call("tabs.select", tab.id, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey, keep: tab.selected === true });
+}
+
+/** A plain click (no drag) on a tab selected with others picks it alone. */
+function selectOnClick(tab: TabView, e: MouseEvent): void {
+  if (e.button === 0 && tab.selected && !e.ctrlKey && !e.metaKey && !e.shiftKey) void chromeApi().call("tabs.select", tab.id, {});
+}
+
 const TAB_MIME = "application/x-corvus-tab";
 const GROUP_MIME = "application/x-corvus-group";
 
 type DropHint = { id: string; side: "before" | "after" } | null;
+
+/**
+ * Where a tab dropped before or after tab `overId` goes. A tab of another window (dragged here) is
+ * not in this strip: it lands right there, joining the group it is dropped in.
+ */
+function dropTarget(state: WindowState, draggedId: string, overId: string, side: "before" | "after"): { toIndex: number; groupId: string | null } | null {
+  if (state.tabs.some((t) => t.id === draggedId)) return computeDropTarget(toStrip(state), draggedId, overId, side);
+  const over = state.tabs.findIndex((t) => t.id === overId);
+  return over === -1 ? null : { toIndex: over + (side === "after" ? 1 : 0), groupId: state.tabs[over]?.groupId ?? null };
+}
+
+/** A tab drag that ended on no tab strip (dropped outside the window, or on a page): main may move the tab to a new window. */
+function endTabDrag(e: DragEvent<HTMLElement>, tabId: string): void {
+  if (e.dataTransfer.dropEffect === "none") void chromeApi().call("tabs.dragEnd", tabId);
+}
 
 function toStrip(state: WindowState): TabStripState {
   return {
@@ -104,7 +132,7 @@ function HorizontalTabStrip({
     const draggedTab = e.dataTransfer.getData(TAB_MIME);
     const draggedGroup = e.dataTransfer.getData(GROUP_MIME);
     if (draggedTab && draggedTab !== tab.id) {
-      const target = computeDropTarget(toStrip(state), draggedTab, tab.id, side);
+      const target = dropTarget(state, draggedTab, tab.id, side);
       if (target) void api.call("tabs.move", draggedTab, target.toIndex, target.groupId);
     } else if (draggedGroup && tab.groupId !== draggedGroup) {
       const over = state.tabs.findIndex((t) => t.id === tab.id);
@@ -155,6 +183,9 @@ function HorizontalTabStrip({
           onDragStart={(e) => {
             e.dataTransfer.setData(GROUP_MIME, group.id);
             e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={(e) => {
+            if (e.dataTransfer.dropEffect === "none") void api.call("groups.dragEnd", group.id);
           }}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes(TAB_MIME)) e.preventDefault();
@@ -250,6 +281,7 @@ function Tab({
     tab.needsYou ? "needs-you" : "",
     tab.sleeping ? "sleeping" : "",
     tab.inSplit ? "in-split" : "",
+    tab.selected ? "selected" : "",
     hint ? `drop-${hint}` : "",
   ].join(" ");
 
@@ -266,11 +298,13 @@ function Tab({
         e.dataTransfer.setData(TAB_MIME, tab.id);
         e.dataTransfer.effectAllowed = "move";
       }}
+      onDragEnd={(e) => endTabDrag(e, tab.id)}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onMouseDown={(e) => {
-        if (e.button === 0) void api.call("tabs.activate", tab.id);
+        if (e.button === 0) selectOnPress(tab, e);
       }}
+      onClick={(e) => selectOnClick(tab, e)}
       onAuxClick={(e) => {
         if (e.button === 1) close(e);
       }}
@@ -332,7 +366,7 @@ function VerticalTabStrip({
     setHint(null);
     const dragged = e.dataTransfer.getData(TAB_MIME);
     if (!dragged || dragged === overId) return;
-    const target = computeDropTarget(toStrip(state), dragged, overId, sideOf(e));
+    const target = dropTarget(state, dragged, overId, sideOf(e));
     if (target) void api.call("tabs.move", dragged, target.toIndex, target.groupId);
   };
 
@@ -438,6 +472,7 @@ function VTab({
     tab.needsYou ? "needs-you" : "",
     tab.sleeping ? "sleeping" : "",
     tab.inSplit ? "in-split" : "",
+    tab.selected ? "selected" : "",
     hint ? `drop-${hint}` : "",
   ].join(" ");
   return (
@@ -453,11 +488,13 @@ function VTab({
         e.dataTransfer.setData(TAB_MIME, tab.id);
         e.dataTransfer.effectAllowed = "move";
       }}
+      onDragEnd={(e) => endTabDrag(e, tab.id)}
       onDragOver={(e) => onDragOver(e, tab.id)}
       onDrop={(e) => onDrop(e, tab.id)}
       onMouseDown={(e) => {
-        if (e.button === 0) void api.call("tabs.activate", tab.id);
+        if (e.button === 0) selectOnPress(tab, e);
       }}
+      onClick={(e) => selectOnClick(tab, e)}
       onAuxClick={(e) => {
         if (e.button === 1) close(e);
       }}

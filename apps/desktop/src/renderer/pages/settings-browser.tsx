@@ -251,12 +251,12 @@ export function MemorySection({ view, update }: Props) {
       </Row>
       <Row
         label={t("Load tabs opened in the background right away")}
-        hint={t("A tab you open in the background (middle click, Ctrl+click, Open link in new tab) loads at the window's size and is drawn before you get to it, so it shows complete at once. “Open all” on a bookmarks folder loads the first {count} now and the rest when you get to them.", { count: OPEN_ALL_LOAD_NOW })}
+        hint={t("Off, a tab you open in the background (middle click, Ctrl+click, Open link in new tab) waits without loading until you go to it, so opening many costs nothing. On, it loads at the window's size and is drawn before you get to it, so it shows complete at once, and “Open all” on a bookmarks folder loads the first {count} now. Tabs AI agents open always load.", { count: OPEN_ALL_LOAD_NOW })}
       >
         <Toggle
           label={t("Load tabs opened in the background right away")}
-          checked={m.preloadBackgroundTabs}
-          onChange={(v) => update({ memory: { preloadBackgroundTabs: v } })}
+          checked={m.loadBackgroundTabs}
+          onChange={(v) => update({ memory: { loadBackgroundTabs: v } })}
         />
       </Row>
     </Section>

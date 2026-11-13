@@ -219,9 +219,105 @@ export function showProfileMenu(ctx: AppContext, win: BrowserWindowCtl, x: numbe
   );
 }
 
+/** A window in "Move to another window": its active tab, and how many more it has. */
+function windowLabel(win: BrowserWindowCtl): string {
+  const tab = win.activeTab();
+  const title = (tab?.title || tab?.url || tr("Untitled tab")).slice(0, 60);
+  const more = win.tabCount - 1;
+  return more > 0 ? tr("{title} and {n} more", { title, n: more }) : title;
+}
+
+/** "Move to new window" and "Move to another window" (same profile and kind) for tabs of `win`. */
+function moveToWindowItems(ctx: AppContext, win: BrowserWindowCtl, ids: TabId[]): MenuItemConstructorOptions[] {
+  const n = ids.length;
+  const others = ctx.windows.all().filter((w) => win.canTradeTabsWith(w));
+  return [
+    {
+      label: n > 1 ? tr("Move {n} tabs to new window", { n }) : tr("Move tab to new window"),
+      enabled: win.tabCount > n,
+      click: () => void ctx.windows.tearOff(win, ids),
+    },
+    ...(others.length > 0
+      ? [
+          {
+            label: n > 1 ? tr("Move {n} tabs to another window", { n }) : tr("Move tab to another window"),
+            submenu: others.map((w) => ({
+              label: windowLabel(w),
+              click: () => {
+                if (ctx.windows.moveTabs(win, ids, w)) w.present();
+              },
+            })),
+          } as MenuItemConstructorOptions,
+        ]
+      : []),
+  ];
+}
+
+/** The menu of tabs selected together (Ctrl+click, Shift+click): each action applies to all of them. */
+function showSelectedTabsMenu(ctx: AppContext, win: BrowserWindowCtl, selected: TabId[], x: number, y: number): void {
+  const ids = win.tabIds();
+  const n = selected.length;
+  const unpinned = selected.filter((id) => !win.isPinned(id));
+  const allPinned = unpinned.length === 0;
+  const last = Math.max(...selected.map((id) => ids.indexOf(id)));
+  const lastGroup = win.groupOf(ids[last] ?? "");
+  const groups = win.listGroups();
+  const pages = selected.map((id) => pageOf(win.getTab(id)?.view)).filter((p): p is Electron.WebContents => p !== null);
+  const allMuted = pages.length > 0 && pages.every((p) => p.isAudioMuted());
+  popup(
+    win,
+    [
+      { label: tr("New tab to the right"), click: () => win.createTab(NEW_TAB_URL, { index: last + 1, ...(lastGroup ? { groupId: lastGroup } : {}) }) },
+      { type: "separator" },
+      {
+        label: tr("Add {n} tabs to new group", { n }),
+        enabled: unpinned.length > 0,
+        click: () => {
+          const group = win.createGroup(unpinned);
+          if (group) win.editGroup(group.id);
+        },
+      },
+      ...(groups.length > 0 && unpinned.length > 0
+        ? [
+            {
+              label: tr("Add {n} tabs to group", { n }),
+              submenu: groups.map((g) => ({ label: g.title || tr("Unnamed {color} group", { color: g.color }), click: () => win.addToGroup(unpinned, g.id) })),
+            } as MenuItemConstructorOptions,
+          ]
+        : []),
+      ...(selected.some((id) => win.groupOf(id)) ? [{ label: tr("Remove from group"), click: () => win.ungroupTabs(selected) }] : []),
+      ...moveToWindowItems(ctx, win, selected),
+      { type: "separator" },
+      { label: tr("Reload {n} tabs", { n }), click: () => selected.forEach((id) => win.reload(id)) },
+      { label: tr("Duplicate {n} tabs", { n }), click: () => selected.forEach((id) => win.duplicate(id)) },
+      { label: allPinned ? tr("Unpin {n} tabs", { n }) : tr("Pin {n} tabs", { n }), click: () => win.pinTabs(selected, !allPinned) },
+      {
+        label: allMuted ? tr("Unmute {n} tabs", { n }) : tr("Mute {n} tabs", { n }),
+        enabled: pages.length > 0,
+        click: () => {
+          for (const p of pages) if (!p.isDestroyed()) p.setAudioMuted(!allMuted);
+        },
+      },
+      { type: "separator" },
+      { label: tr("Close {n} tabs", { n }), accelerator: `${mod}+W`, click: () => win.closeTabs(selected) },
+      { label: tr("Close other tabs"), enabled: ids.length > n, click: () => win.closeTabs(ids.filter((id) => !selected.includes(id))) },
+      { label: tr("Close tabs to the right"), enabled: last < ids.length - 1, click: () => win.closeTabs(ids.slice(last + 1)) },
+      { type: "separator" },
+      { label: tr("Reopen closed tab"), accelerator: `${mod}+Shift+T`, click: () => win.reopenClosed() },
+    ],
+    x,
+    y,
+  );
+}
+
 export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId, x: number, y: number): void {
   const tab = win.getTab(tabId);
   if (!tab) return;
+  const selected = win.actionTabIds(tabId);
+  if (selected.length > 1) {
+    showSelectedTabsMenu(ctx, win, selected, x, y);
+    return;
+  }
   const ids = win.tabIds();
   const index = ids.indexOf(tabId);
   const groupId = win.groupOf(tabId);
@@ -246,6 +342,7 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
           ]
         : []),
       ...(groupId ? [{ label: tr("Remove from group"), click: () => win.ungroupTabs([tabId]) }] : []),
+      ...moveToWindowItems(ctx, win, [tabId]),
       { type: "separator" },
       ...splitItems(win, tabId, splitTargets),
       {
@@ -400,11 +497,14 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
     if (items.length > 0 && items[items.length - 1]?.type !== "separator") items.push({ type: "separator" });
   };
   // Tabs opened from an agent-driven tab stay agent-driven, and from a container tab in its container.
-  const openInTab = (url: string): void => {
+  // Until it loads (it waits until shown), the tab is named after the link's text.
+  const openInTab = (url: string, title?: string): void => {
     win.createTab(url, {
       activate: false,
       preload: true,
       openerId: tab.id,
+      ...(title ? { title } : {}),
+      ...(/^https?:/i.test(params.pageURL) ? { referrer: { url: params.pageURL, policy: "strict-origin-when-cross-origin" } } : {}),
       ...(tab.agentControlled ? { agent: true } : {}),
       ...(tab.containerId ? { containerId: tab.containerId } : {}),
     });
@@ -421,7 +521,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   if (params.linkURL) {
     const link = params.linkURL;
     items.push(
-      { label: tr("Open link in new tab"), click: () => openInTab(link) },
+      { label: tr("Open link in new tab"), click: () => openInTab(link, params.linkText.trim().slice(0, 200)) },
       { label: tr("Open link in new window"), enabled: !tab.agentControlled, click: () => win.openInNewWindow(link) },
       {
         label: tr("Open link in private window"),

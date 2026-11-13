@@ -31,6 +31,101 @@ async function waitFor<T>(fn: () => T | undefined, timeoutMs = 6000): Promise<T 
   return undefined;
 }
 
+interface TabParts {
+  tab: { left: number; right: number };
+  icon: { left: number; right: number; width: number } | null;
+  title: { left: number; right: number; width: number } | null;
+  close: { left: number; right: number; width: number } | null;
+}
+
+/** The parts of the tab strip's tab `id` that are drawn (laid out, not transparent), as screen rectangles. */
+const tabPartsJs = (id: string): string => `(() => {
+  const tab = document.querySelector('.tab-strip .tab[data-tab-id="${id}"]');
+  if (!tab) return null;
+  const part = (sel) => {
+    const el = tab.querySelector(sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || getComputedStyle(el).opacity === '0') return null;
+    return { left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) };
+  };
+  const r = tab.getBoundingClientRect();
+  return { tab: { left: Math.round(r.left), right: Math.round(r.right) }, icon: part('.tab-icon'), title: part('.tab-title'), close: part('.tab-close') };
+})()`;
+
+/**
+ * What a tab of `width` px shows (see the narrow tab rules in chrome.css): its icon, except the
+ * active tab when only its close button fits; its title unless there is no room; the close button
+ * on the right, always on the active tab, on a hovered one while it is not most of the tab. Returns
+ * the problems found.
+ */
+function narrowTabProblems(parts: TabParts | null, width: number, active: boolean): string[] {
+  if (!parts) return ["tab not found"];
+  const room = width - 20;
+  const problems: string[] = [];
+  const iconShown = !active || room >= 48;
+  const titleShown = active ? room > 60 : room >= 48;
+  const closeShown = active || room > 60;
+  if (iconShown !== (parts.icon?.width === 16)) problems.push(iconShown ? "no icon" : "icon shown");
+  if (titleShown !== Boolean(parts.title)) problems.push(titleShown ? "no title" : "title shown");
+  if (closeShown !== Boolean(parts.close)) problems.push(closeShown ? "no close button" : "close button shown");
+  const close = parts.close;
+  if (close) {
+    if (close.right > parts.tab.right || close.right < parts.tab.right - 12) problems.push("close button not at the right edge");
+    if (parts.icon && close.left < parts.icon.right) problems.push("close button over the icon");
+    if (parts.title && close.left < parts.title.right) problems.push("close button over the title");
+  }
+  for (const [name, rect] of Object.entries({ icon: parts.icon, title: parts.title })) {
+    if (rect && (rect.left < parts.tab.left || rect.right > parts.tab.right)) problems.push(`${name} outside the tab`);
+  }
+  return problems;
+}
+
+/**
+ * Tabs at every width, active and hovered: an icon and title, and the close button on the right.
+ * The active tab of a ~100px strip (about ten tabs) used to show only its close button, on its left.
+ */
+async function checkNarrowTabs(win: BrowserWindowCtl, activeId: string, h: ChromeUiSmokeHelpers): Promise<void> {
+  const chrome = win.chrome.webContents;
+  const other = win.createTab(`${h.url}ux-plain`, { activate: false });
+  const ids = JSON.stringify([activeId, other.id]);
+  try {
+    await waitFor(() => (other.title === "No background" ? true : undefined), 8000);
+    win.activate(activeId);
+    await waitForJs(chrome, `document.querySelector('.tab-strip .tab.active[data-tab-id="${activeId}"]')`);
+    // Only the two tabs under test show, so neither is pushed off the strip by the others.
+    const setWidth = (width: number): Promise<unknown> =>
+      chrome.executeJavaScript(`(async () => {
+        const keep = ${ids};
+        for (const t of document.querySelectorAll('.tab-strip .tab')) {
+          if (!keep.includes(t.dataset.tabId)) t.style.setProperty('display', 'none', 'important');
+          else { t.style.setProperty('flex', '0 0 ${width}px', 'important'); t.style.setProperty('width', '${width}px', 'important'); }
+        }
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      })()`);
+    const failures: Record<string, string[]> = {};
+    for (const width of [232, 120, 108, 100, 90, 80, 72, 67, 56, 44]) {
+      await setWidth(width);
+      const active = (await chrome.executeJavaScript(tabPartsJs(activeId))) as TabParts | null;
+      const otherRect = (await chrome.executeJavaScript(tabPartsJs(other.id))) as TabParts | null;
+      if (otherRect) {
+        const x = Math.round((otherRect.tab.left + otherRect.tab.right) / 2);
+        chrome.sendInputEvent({ type: "mouseMove", x, y: 20 });
+        await waitForJs(chrome, `document.querySelector('.tab-strip .tab[data-tab-id="${other.id}"]')?.matches(':hover')`, 2000);
+      }
+      const hovered = (await chrome.executeJavaScript(tabPartsJs(other.id))) as TabParts | null;
+      const problems = [...narrowTabProblems(active, width, true).map((p) => `active: ${p}`), ...narrowTabProblems(hovered, width, false).map((p) => `hovered: ${p}`)];
+      if (problems.length > 0) failures[`${width}px`] = problems;
+      if (width === 100) await h.capture("tab-strip-100px", chrome);
+    }
+    h.check("tabs of every width show their icon, their title while it fits and the close button on the right (active and hovered)", Object.keys(failures).length === 0, failures);
+  } finally {
+    await chrome.executeJavaScript(`(() => { for (const t of document.querySelectorAll('.tab-strip .tab')) for (const p of ['display', 'flex', 'width']) t.style.removeProperty(p); })()`);
+    chrome.sendInputEvent({ type: "mouseMove", x: 5, y: 300 });
+    if (win.hasTab(other.id)) win.closeTab(other.id);
+  }
+}
+
 /**
  * Chrome UI details: a new group asks for its name, a click anywhere outside a popover closes it,
  * and the address bar's site chip dropped on the bookmarks bar bookmarks the page with its title.
@@ -76,7 +171,8 @@ export async function runChromeUiSmoke(ctx: AppContext, h: ChromeUiSmokeHelpers)
     const count = (await chrome.executeJavaScript(countJs)) as number;
     const widthsJs = "[...document.querySelectorAll('.tab-strip .tab:not(.pinned)')].map((t) => Math.round(t.getBoundingClientRect().width))";
     const before = Math.max(...((await chrome.executeJavaScript(widthsJs)) as number[]));
-    await chrome.executeJavaScript("document.querySelectorAll('.tab-strip .tab:not(.pinned)')[2].dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }))");
+    // One of the extra tabs: the window's third tab may be this check's own.
+    await chrome.executeJavaScript(`document.querySelector('.tab-strip .tab[data-tab-id="${extra[2]!.id}"]').dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }))`);
     const closedOne = await waitForJs(chrome, `${countJs} === ${count - 1}`);
     const frozen = (await chrome.executeJavaScript(`({
       frozen: document.querySelector('.tab-strip').classList.contains('frozen'),
@@ -92,6 +188,8 @@ export async function runChromeUiSmoke(ctx: AppContext, h: ChromeUiSmokeHelpers)
       { before, frozen, after, closedOne, unfrozen },
     );
     for (const t of extra) if (win.hasTab(t.id)) win.closeTab(t.id);
+
+    await checkNarrowTabs(win, tab.id, h);
 
     // Drag the site chip onto the bookmarks bar: the page is bookmarked there with the tab's title.
     // The chip shows while the address bar is not being edited.

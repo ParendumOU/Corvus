@@ -159,6 +159,27 @@ export function moveTab(state: TabStripState, id: TabId, toIndex: number, groupI
   return normalize({ ...state, tabs });
 }
 
+/**
+ * Move tabs `ids` together, in their order, to where moveTab(`draggedId`, `toIndex`, `groupId`)
+ * would put the dragged one of them (several selected tabs dragged by one). groupId as in moveTab.
+ */
+export function moveTabsTogether(state: TabStripState, ids: readonly TabId[], draggedId: TabId, toIndex: number, groupId?: GroupId | null): TabStripState {
+  const moving = new Set(ids);
+  moving.add(draggedId);
+  const block = state.tabs.filter((t) => moving.has(t.id));
+  if (block.length <= 1) return moveTab(state, draggedId, toIndex, groupId);
+  // Where the dragged tab alone would land: the block goes before the next tab that stays.
+  const single = moveTab(state, draggedId, toIndex, groupId).tabs;
+  const at = single.findIndex((t) => t.id === draggedId);
+  const before = single.slice(at + 1).find((t) => !moving.has(t.id))?.id;
+  const join = groupId !== undefined && groupId !== null && getGroup(state, groupId) ? groupId : undefined;
+  const moved = block.map((t) => (groupId === null ? withoutGroup(t) : join ? { ...t, groupId: join, pinned: false } : t));
+  const rest = state.tabs.filter((t) => !moving.has(t.id));
+  const index = before === undefined ? rest.length : rest.findIndex((t) => t.id === before);
+  rest.splice(index, 0, ...moved);
+  return normalize({ ...state, tabs: rest });
+}
+
 export function moveGroup(state: TabStripState, groupId: GroupId, toIndex: number): TabStripState {
   const block = tabsInGroup(state, groupId);
   if (block.length === 0) return state;
@@ -204,6 +225,33 @@ export function createGroup(state: TabStripState, tabIds: TabId[], group: TabGro
   const at = Math.max(anchor, pinnedCount);
   const tabs = [...rest.slice(0, at), ...members, ...rest.slice(at)];
   return normalize({ ...state, tabs, groups: [...state.groups, group] });
+}
+
+/**
+ * Tabs from another window, inserted together at `index`. `groups`: the groups that came along
+ * whole, kept with their ids (their tabs stay in them). `joinGroup`: the group of this strip they
+ * were dropped in, which the others join; else they come ungrouped.
+ */
+export function insertTabs(
+  state: TabStripState,
+  entries: readonly StripTab[],
+  index: number,
+  opts: { groups?: readonly TabGroup[]; joinGroup?: GroupId | null } = {},
+): TabStripState {
+  const known = new Set(state.tabs.map((t) => t.id));
+  const carried = new Map((opts.groups ?? []).filter((g) => !getGroup(state, g.id)).map((g) => [g.id, g]));
+  const join = opts.joinGroup && getGroup(state, opts.joinGroup) ? opts.joinGroup : undefined;
+  const block = entries
+    .filter((t) => !known.has(t.id))
+    .map((t): StripTab => {
+      const { openerId: _opener, ...tab } = t;
+      if (tab.groupId !== undefined && carried.has(tab.groupId)) return tab;
+      const plain = withoutGroup(tab);
+      return join && !plain.pinned ? { ...plain, groupId: join } : plain;
+    });
+  const tabs = [...state.tabs];
+  tabs.splice(Math.max(0, Math.min(index, tabs.length)), 0, ...block);
+  return normalize({ ...state, tabs, groups: [...state.groups, ...carried.values()] });
 }
 
 export function addTabsToGroup(state: TabStripState, tabIds: TabId[], groupId: GroupId): TabStripState {

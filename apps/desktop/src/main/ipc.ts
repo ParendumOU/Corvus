@@ -163,7 +163,21 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     },
     "tabs.close": (w, id) => w.closeTab(str(id, "tab")),
     "tabs.activate": (w, id) => w.activate(str(id, "tab")),
-    "tabs.move": (w, id, toIndex, groupId) => w.moveTab(str(id, "tab"), num(toIndex, "index"), groupId === null ? null : str(groupId, "group")),
+    "tabs.select": (w, id, mods) => {
+      const m = (mods ?? {}) as { toggle?: unknown; range?: unknown; keep?: unknown };
+      w.selectTab(str(id, "tab"), { toggle: m.toggle === true, range: m.range === true, keep: m.keep === true });
+    },
+    "tabs.move": (w, id, toIndex, groupId) => {
+      const tabId = str(id, "tab");
+      const group = groupId === null ? null : str(groupId, "group");
+      // A tab of another window dropped on this one's strip moves here.
+      if (w.hasTab(tabId)) w.moveTab(tabId, num(toIndex, "index"), group);
+      else ctx.windows.dropTab(w, tabId, num(toIndex, "index"), group);
+    },
+    "tabs.dragEnd": (w, id) => {
+      const tabId = str(id, "tab");
+      if (w.hasTab(tabId)) ctx.windows.dragEnded(w, w.actionTabIds(tabId));
+    },
     "tabs.pin": (w, id, pinned) => w.pin(str(id, "tab"), pinned === true),
     "tabs.navigate": (w, id, input) => w.navigateInput(str(id, "tab"), str(input, "input")),
     "tabs.openUrl": (w, url, disposition) =>
@@ -178,7 +192,15 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
     "groups.update": (w, id, patch) => w.updateGroup(str(id, "group"), groupPatch(patch)),
     "groups.ungroup": (w, id) => w.ungroup(str(id, "group")),
     "groups.close": (w, id) => w.closeGroup(str(id, "group")),
-    "groups.move": (w, id, toIndex) => w.moveGroup(str(id, "group"), num(toIndex, "index")),
+    "groups.move": (w, id, toIndex) => {
+      const groupId = str(id, "group");
+      if (w.hasGroup(groupId)) w.moveGroup(groupId, num(toIndex, "index"));
+      else ctx.windows.dropGroup(w, groupId, num(toIndex, "index"));
+    },
+    "groups.dragEnd": (w, id) => {
+      const groupId = str(id, "group");
+      if (w.hasGroup(groupId)) ctx.windows.dragEnded(w, w.groupTabIds(groupId));
+    },
     "groups.newTab": (w, id) => w.newTabInGroup(str(id, "group")),
     "omnibox.suggest": async (w, input, inline) => {
       const text = str(input, "input", 2048);

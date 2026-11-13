@@ -265,6 +265,16 @@ export class Controller implements BrowserController {
     return { ...found, wc };
   }
 
+  /**
+   * The tab's page as readable() gives it, loaded first when it waits unloaded (opened in the
+   * background, restored, asleep): an agent reads and acts on what the person would see there.
+   */
+  private async page(id: TabId, dialogs: "block" | "allow" = "block"): Promise<{ window: BrowserWindowCtl; tab: TabRuntime; wc: WebContents }> {
+    const { window, tab } = this.locate(id);
+    if (tab.pendingUrl) await window.ensureLoaded(id);
+    return this.readable(id, dialogs);
+  }
+
   /** A question only the person answers is open over the tab (a site's sign-in, opening an app): the agent is told so. */
   private personGate(wc: WebContents): void {
     const step = this.ctx.httpAuth.personStep(wc) ?? this.ctx.externalApps.personStep(wc);
@@ -397,7 +407,7 @@ export class Controller implements BrowserController {
   }
 
   async snapshot(id: TabId, opts: SnapshotOptions = {}): Promise<PageSnapshot> {
-    const { window, wc } = this.readable(id, "allow");
+    const { window, wc } = await this.page(id, "allow");
     this.touch(window, id);
     // The page is frozen behind its dialog: report the dialog alone.
     const dialog = this.dialogs.pending(wc);
@@ -421,7 +431,7 @@ export class Controller implements BrowserController {
   }
 
   async click(id: TabId, ref: string): Promise<void> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.validRef(ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "click", ref });
@@ -448,7 +458,7 @@ export class Controller implements BrowserController {
   }
 
   async type(id: TabId, ref: string, text: string, opts: { submit?: boolean } = {}): Promise<void> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.validRef(ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "type", ref, text });
@@ -470,14 +480,14 @@ export class Controller implements BrowserController {
   }
 
   async scroll(id: TabId, direction: "up" | "down", amount?: number): Promise<void> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "scroll", direction: direction === "up" ? "up" : "down" });
     await this.exec(wc, scrollScript(direction === "up" ? "up" : "down", amount));
   }
 
   async screenshot(id: TabId): Promise<{ mimeType: "image/png"; base64: string }> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "screenshot" });
     // A tab out of sight is painted for the capture, without showing it.
@@ -493,19 +503,19 @@ export class Controller implements BrowserController {
 
   /** Screenshot of the viewport, one element or the whole page, sized for the *_at tools. */
   async capture(id: TabId, opts: CaptureOptions = {}): Promise<Capture> {
-    this.readable(id);
+    await this.page(id);
     return captureTab(this.ctx, id, opts);
   }
 
   /** What is at a viewport point (CSS px), for the spend gate and the overlay label. Read-only. */
   async describePoint(id: TabId, point: Point): Promise<PointTarget | null> {
-    const { wc } = this.readable(id);
+    const { wc } = await this.page(id);
     return this.exec<PointTarget | null>(wc, describePointScript(point.x, point.y)).catch(() => null);
   }
 
   /** The focused element (none when nothing has focus), for the spend gate. Read-only. */
   async describeFocused(id: TabId): Promise<PointTarget | null> {
-    const { wc } = this.readable(id);
+    const { wc } = await this.page(id);
     return this.exec<PointTarget | null>(wc, describeFocusedScript()).catch(() => null);
   }
 
@@ -514,7 +524,7 @@ export class Controller implements BrowserController {
    * MCP server checks clicks, Enter and Space with the spend gate before it calls this.
    */
   async input(id: TabId, action: AgentInput): Promise<void> {
-    const { window } = this.readable(id);
+    const { window } = await this.page(id);
     this.touch(window, id);
     const label = async (p: Point): Promise<string> => {
       const hit = await this.describePoint(id, p);
@@ -539,7 +549,7 @@ export class Controller implements BrowserController {
 
   /** Hover (a real mouse move to its centre), focus, check / uncheck, or select options of an element. */
   async elementAction(id: TabId, ref: string, action: ElementAction): Promise<void> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.validRef(ref);
     this.touch(window, id);
     if (action.type === "hover") {
@@ -556,7 +566,7 @@ export class Controller implements BrowserController {
 
   /** fill_form / fill_fields: a text field's text, a checkbox's state, or a select's option(s). */
   async fill(id: TabId, ref: string, value: FieldValue): Promise<void> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.validRef(ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "type", ref, text: typeof value === "string" ? value : JSON.stringify(value) });
@@ -583,7 +593,7 @@ export class Controller implements BrowserController {
 
   /** Page zoom for the tab only (the site's remembered zoom is left as the person set it). */
   async setZoom(id: TabId, factor: number): Promise<number> {
-    const { window, wc } = this.readable(id, "allow");
+    const { window, wc } = await this.page(id, "allow");
     this.touch(window, id);
     wc.setZoomFactor(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, factor)));
     return Math.round(wc.getZoomFactor() * 100) / 100;
@@ -591,7 +601,7 @@ export class Controller implements BrowserController {
 
   /** Emulates a viewport size (and a phone, with mobile), or removes the emulation (null). */
   async setViewport(id: TabId, viewport: ViewportOverride | null): Promise<void> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.touch(window, id);
     if (!viewport) {
       wc.disableDeviceEmulation();
@@ -610,7 +620,7 @@ export class Controller implements BrowserController {
 
   /** Prints the page to a PDF in the downloads folder (full access only, by the MCP server). */
   async pdf(id: TabId, opts: { landscape?: boolean; printBackground?: boolean } = {}): Promise<{ path: string; bytes: number }> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
     const data = await wc.printToPDF({ landscape: opts.landscape === true, printBackground: opts.printBackground === true });
@@ -639,7 +649,7 @@ export class Controller implements BrowserController {
    * by the MCP server). The files must exist; programs are refused, like downloads for agents.
    */
   async uploadFiles(id: TabId, ref: string | undefined, paths: string[]): Promise<{ files: number }> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     if (ref !== undefined) this.validRef(ref);
     if (paths.length === 0 || paths.length > UPLOAD_MAX_FILES) throw new AgentError(`Pass 1 to ${UPLOAD_MAX_FILES} files`);
     let total = 0;
@@ -718,7 +728,7 @@ export class Controller implements BrowserController {
 
   /** Elements by visible text, CSS selector and/or role, with refs and boxes. */
   async find(id: TabId, query: FindQuery): Promise<SnapshotElement[]> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
     return scriptResult(await this.exec<SnapshotElement[] | { error: string }>(wc, findScript(query)));
@@ -726,7 +736,7 @@ export class Controller implements BrowserController {
 
   /** Plain text of an element or of the page's main content. */
   async getText(id: TabId, opts: { ref?: string; maxChars?: number } = {}): Promise<{ text: string; truncated: boolean }> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     if (opts.ref) this.validRef(opts.ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
@@ -737,7 +747,7 @@ export class Controller implements BrowserController {
 
   /** Markdown, tables, links or metadata of the page or an element. */
   async extract(id: TabId, opts: ExtractOptions): Promise<ExtractResult> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     if (opts.ref) this.validRef(opts.ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
@@ -748,7 +758,7 @@ export class Controller implements BrowserController {
 
   /** Trimmed outerHTML of an element (ref or selector) or of the body. */
   async getHtml(id: TabId, opts: { ref?: string; selector?: string; maxChars?: number } = {}): Promise<{ html: string; truncated: boolean }> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     if (opts.ref) this.validRef(opts.ref);
     this.touch(window, id);
     await this.ctx.agents.beforeAction(window, id, wc, { kind: "read" });
@@ -762,7 +772,7 @@ export class Controller implements BrowserController {
    * no network request in flight for 500 ms) or the timeout passes.
    */
   async waitFor(id: TabId, condition: WaitCondition, signal?: AbortSignal): Promise<WaitResult> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     if (condition.ref) this.validRef(condition.ref);
     this.touch(window, id);
     const started = Date.now();
@@ -831,7 +841,7 @@ export class Controller implements BrowserController {
     const locked = this.ctx.secretFills.check(id);
     if (locked) throw new AgentError(locked);
     if (!this.ctx.settings.get().mcp.allowEvaluate) throw new AgentError("JavaScript evaluation is disabled in Corvus settings");
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     this.touch(window, id);
     return this.dialogs.race(wc, timeout(wc.executeJavaScript(expression, true), EVALUATE_TIMEOUT_MS, "Evaluation timed out"), dialogBlocked);
   }
@@ -926,7 +936,7 @@ export class Controller implements BrowserController {
   /** Role, name, page and form of one element, read live for the spend gate. Never acts on the page. */
   async describeTarget(id: TabId, ref: string): Promise<ActionTarget | null> {
     if (!REF_RE.test(ref)) return null;
-    const { wc } = this.readable(id);
+    const { wc } = await this.page(id);
     return this.exec<ActionTarget | null>(wc, describeTargetScript(ref));
   }
 
@@ -946,7 +956,7 @@ export class Controller implements BrowserController {
   }
 
   async download(id: TabId, url: string, opts: { maxBytes?: number } = {}): Promise<DownloadEntry> {
-    const { window, wc } = this.readable(id);
+    const { window, wc } = await this.page(id);
     if (!/^https?:\/\//i.test(url)) throw new AgentError("Downloads need an http(s) URL");
     this.touch(window, id);
     const maxBytes = Math.max(1, Math.min(opts.maxBytes ?? DOWNLOAD_MAX_BYTES, DOWNLOAD_HARD_MAX));

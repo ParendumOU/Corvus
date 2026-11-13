@@ -32,6 +32,8 @@ import { runProfileLockSmoke } from "./smoke-profile-lock";
 import { runSignInSmoke, serveSignInSmokeRoute } from "./smoke-signin";
 import { runNewTabSmoke } from "./smoke-newtab";
 import { runChromeUiSmoke } from "./smoke-chrome-ui";
+import { runTabSelectSmoke } from "./smoke-tab-select";
+import { runTabWindowsSmoke } from "./smoke-tab-windows";
 import { runBookmarksBarSmoke } from "./smoke-bookmarks-bar";
 import { runSleepSmoke } from "./smoke-sleep";
 import { runMediaSmoke, serveMediaSmokeRoute } from "./smoke-media";
@@ -341,6 +343,21 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runBgTabsSmoke(ctx, { win, check, capture, log });
       return;
     }
+    // CORVUS_SMOKE_ONLY=tabselect: only the checks of selecting several tabs (Ctrl+click, Shift+click, drag, Ctrl+W).
+    if (process.env.CORVUS_SMOKE_ONLY === "tabselect") {
+      await runTabSelectSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=tabwindows: only the checks of tabs moving between windows (tear-off, merge, groups, session, MCP).
+    if (process.env.CORVUS_SMOKE_ONLY === "tabwindows") {
+      await runTabWindowsSmoke(ctx, { url, win, check, capture });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=chromeui: only the chrome UI checks (group editor, popovers, tab strip widths, bookmarks bar drop).
+    if (process.env.CORVUS_SMOKE_ONLY === "chromeui") {
+      await runChromeUiSmoke(ctx, { url, win, check, capture });
+      return;
+    }
     // CORVUS_SMOKE_ONLY=ux: only the keyboard focus, theme and page base checks.
     if (process.env.CORVUS_SMOKE_ONLY === "ux") {
       await runUxSmoke(ctx, { url, win, check, capture });
@@ -432,6 +449,8 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     await runSignInSmoke(ctx, { url, win, check });
     await runNewTabSmoke(ctx, { url, win, check, capture });
     await runChromeUiSmoke(ctx, { url, win, check, capture });
+    await runTabSelectSmoke(ctx, { url, win, check, capture });
+    await runTabWindowsSmoke(ctx, { url, win, check, capture });
     await runBookmarksBarSmoke(ctx, { url, win, check, capture });
     await runSleepSmoke(ctx, { url, win, check });
     await runMediaSmoke(ctx, { url, win, check, capture });

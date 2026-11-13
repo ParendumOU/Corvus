@@ -8,17 +8,54 @@ import {
   newTabPaint,
   openAllPlan,
   paintedScript,
+  isDownloadResponse,
   tabsToStopRendering,
+  waitsUntilShown,
   type NewTabPaint,
 } from "../src/shared/background-tabs";
 import { defaultSettings, mergeSettings } from "../src/shared/settings";
 
-const on = { preloadBackgroundTabs: true, agentsRenderInBackground: true };
-const off = { preloadBackgroundTabs: false, agentsRenderInBackground: false };
+const on = { loadBackgroundTabs: true, agentsRenderInBackground: true };
+const off = { loadBackgroundTabs: false, agentsRenderInBackground: false };
 const tab = (patch: Partial<NewTabPaint>): NewTabPaint => ({ activate: false, lazy: false, agent: false, preload: false, ...patch });
 
+describe("which new tabs wait, unloaded, until first shown", () => {
+  it("a tab the person opens in the background waits, unless the setting loads it right away", () => {
+    expect(waitsUntilShown(tab({ preload: true }), off)).toBe(true);
+    expect(waitsUntilShown(tab({ preload: true }), { ...on, agentsRenderInBackground: false })).toBe(false);
+  });
+
+  it("an agent's tab always loads, even opened in the background from a page the person uses", () => {
+    expect(waitsUntilShown(tab({ agent: true }), off)).toBe(false);
+    expect(waitsUntilShown(tab({ agent: true, preload: true }), off)).toBe(false);
+  });
+
+  it("a tab opened in front loads; restored tabs and the later tabs of Open all wait", () => {
+    expect(waitsUntilShown(tab({ activate: true, preload: true }), off)).toBe(false);
+    expect(waitsUntilShown(tab({ lazy: true }), on)).toBe(true);
+    expect(waitsUntilShown(tab({}), off)).toBe(false);
+  });
+});
+
+describe("background links that are files to download", () => {
+  it("an attachment or a type a tab does not show downloads", () => {
+    expect(isDownloadResponse("application/octet-stream", 'attachment; filename="a.zip"')).toBe(true);
+    expect(isDownloadResponse("text/html", "attachment")).toBe(true);
+    expect(isDownloadResponse("application/zip", null)).toBe(true);
+    expect(isDownloadResponse("application/java-archive", "")).toBe(true);
+  });
+
+  it("pages, media, PDFs and unknown types wait to be shown", () => {
+    expect(isDownloadResponse("text/html; charset=utf-8", null)).toBe(false);
+    expect(isDownloadResponse("video/mp4", "inline")).toBe(false);
+    expect(isDownloadResponse("application/pdf", null)).toBe(false);
+    expect(isDownloadResponse("application/rss+xml", null)).toBe(false);
+    expect(isDownloadResponse(null, null)).toBe(false);
+  });
+});
+
 describe("which new tabs paint while not on screen", () => {
-  it("a tab the person opens in the background paints until it has loaded", () => {
+  it("a tab the person opens in the background, loaded right away, paints until it has loaded", () => {
     expect(newTabPaint(tab({ preload: true }), on)).toBe("preload");
   });
 
@@ -38,16 +75,22 @@ describe("which new tabs paint while not on screen", () => {
     expect(newTabPaint(tab({ preload: true }), off)).toBeNull();
     expect(newTabPaint(tab({ agent: true }), off)).toBeNull();
     expect(newTabPaint(tab({ preload: true }), { ...on, agentsRenderInBackground: false })).toBe("preload");
-    expect(newTabPaint(tab({ agent: true }), { ...on, preloadBackgroundTabs: false })).toBe("agent");
+    expect(newTabPaint(tab({ agent: true }), { ...on, loadBackgroundTabs: false })).toBe("agent");
   });
 
-  it("both settings are on by default", () => {
+  it("background tabs wait and agents render by default", () => {
     const s = defaultSettings();
-    expect(s.memory.preloadBackgroundTabs).toBe(true);
+    expect(s.memory.loadBackgroundTabs).toBe(false);
     expect(s.agent.renderInBackground).toBe(true);
-    const merged = mergeSettings(s, { memory: { preloadBackgroundTabs: false }, agent: { renderInBackground: false } });
-    expect(merged.memory.preloadBackgroundTabs).toBe(false);
+    const merged = mergeSettings(s, { memory: { loadBackgroundTabs: true }, agent: { renderInBackground: false } });
+    expect(merged.memory.loadBackgroundTabs).toBe(true);
     expect(merged.agent.renderInBackground).toBe(false);
+  });
+
+  it("the old key, on by default before, no longer applies to saved settings", () => {
+    const merged = mergeSettings(defaultSettings(), { memory: { preloadBackgroundTabs: true } });
+    expect(merged.memory.loadBackgroundTabs).toBe(false);
+    expect("preloadBackgroundTabs" in merged.memory).toBe(false);
   });
 });
 
@@ -61,8 +104,8 @@ describe("Open all in tabs", () => {
     expect(openAllPlan(0, true)).toEqual([]);
   });
 
-  it("loads every tab at once, as before, with the setting off", () => {
-    expect(openAllPlan(8, false).every(Boolean)).toBe(true);
+  it("loads none at once with the setting off: like any background tab, each waits until shown", () => {
+    expect(openAllPlan(8, false).some(Boolean)).toBe(false);
   });
 });
 

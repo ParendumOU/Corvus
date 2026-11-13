@@ -35,6 +35,12 @@ export class BackgroundRender {
     entry.win.setPaintHold(id, "agent", false);
   }
 
+  /** The tab moved to another window (dragged there), where it keeps painting. */
+  moved(id: TabId, win: BrowserWindowCtl): void {
+    const entry = this.entries.get(id);
+    if (entry) entry.win = win;
+  }
+
   /** Whether the tab is one of the agent tabs painting while hidden. */
   isRendering(id: TabId): boolean {
     return this.entries.has(id);

@@ -7,7 +7,7 @@ import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError
 import { downloadTabStep, downloadedByAgent, hasOwnPage } from "../shared/download-trust";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
-import { newTabPaint, openAllPlan, paintedScript, type PaintReason } from "../shared/background-tabs";
+import { isDownloadResponse, newTabPaint, openAllPlan, paintedScript, waitsUntilShown, type PaintReason } from "../shared/background-tabs";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
@@ -54,10 +54,12 @@ import {
   groupForWorkspace,
   indexOfTab,
   insertTab,
+  insertTabs,
   insertionIndexForChild,
   linkGroupWorkspace,
   moveGroup,
   moveTab,
+  moveTabsTogether,
   nextGroupColor,
   pushClosed,
   removeGroup,
@@ -72,6 +74,8 @@ import {
   type TabStripState,
 } from "../shared/tab-strip";
 import type { SplitState } from "../shared/split";
+import { stripRect, type Rect } from "../shared/tab-tearoff";
+import { actionTabs, clickSelection, emptySelection, selectedTabs, type SelectModifiers, type TabSelection } from "../shared/tab-selection";
 import type { CertProblem } from "./cert-errors";
 import type { AppContext } from "./context";
 import { showPageContextMenu } from "./menus";
@@ -127,6 +131,8 @@ const PAINT_WORLD_ID = 2003;
 const PRELOAD_SETTLE_MS = 1500;
 /** A tab opened in the background stops painting after this long even if its page never finishes loading. */
 const PRELOAD_MAX_MS = 30_000;
+/** How long the headers of a link opened in the background may take to say whether it is a download. */
+const DOWNLOAD_PROBE_MS = 5000;
 /** A capture of a tab that was not painting waits this long at most for the images in view. */
 const CAPTURE_IMAGES_WAIT_MS = 1500;
 /** A capture never waits longer than this for a hidden page to paint. */
@@ -144,8 +150,10 @@ export interface TabRuntime {
   agentControlled: boolean;
   crashed: boolean;
   audible: boolean;
-  /** Restored tab that loads when first shown. */
+  /** Not loaded yet (restored, asleep, opened in the background): loads when first shown. */
   pendingUrl?: string;
+  /** The page that opened it, sent as the referrer when its pendingUrl loads. */
+  pendingReferrer?: Electron.Referrer;
   /** Real page URL to reload after a crash while the recovery page is shown. */
   crashedUrl?: string;
   /** Its page failed on the site's certificate: the certificate error page stands in for it. */
@@ -184,6 +192,19 @@ export interface TabRuntime {
   paintHolds?: Partial<Record<PaintReason, number>>;
   /** Since when it has been painting while not on screen (epoch ms). */
   paintingSince?: number;
+  /** Takes off the listeners its window put on its page (see wire), before another window adopts it. */
+  unwire?: () => void;
+}
+
+/** Tabs on their way from one window to another (see BrowserWindowCtl.releaseTabs and adoptTabs). */
+export interface TabParcel {
+  tabs: TabRuntime[];
+  /** Their strip entries, in order. */
+  entries: Array<{ id: TabId; pinned: boolean; groupId?: GroupId }>;
+  /** The groups that go along whole (every tab of theirs moves), with their ids. */
+  groups: TabGroup[];
+  /** The one of them that was active in the window they leave. */
+  activeId: TabId | null;
 }
 
 export interface OpenTabOptions {
@@ -196,14 +217,17 @@ export interface OpenTabOptions {
   /** Do not load until the tab is shown (session restore). */
   lazy?: boolean;
   /**
-   * The person opened it in the background to look at it soon (a middle click, "Open link in new
-   * tab"): with Settings > Memory's "Load tabs opened in the background right away", it loads at the
-   * window's size and paints until loaded, so it is complete when shown.
+   * The person opened it (a middle click, Ctrl+click, "Open link in new tab"; in the background, to
+   * look at it later): it waits unloaded until they go to it, or, with Settings > Memory's "Load tabs
+   * opened in the background right away", loads at the window's size and paints until loaded, so it
+   * is complete when shown. Agents' tabs always load (see waitsUntilShown).
    */
   preload?: boolean;
   title?: string;
-  /** Icon a lazy tab shows until it loads and its page reports its own (last known site icon). */
+  /** Icon a tab that waits unloaded shows until it loads and its page reports its own (default: the last one history knows for the page or site). */
   faviconUrl?: string;
+  /** The page that opened it (a link's), sent as the referrer when it loads. */
+  referrer?: Electron.Referrer;
   /** Open it in this container of the profile (ignored for corvus:// pages and unknown containers). */
   containerId?: string;
   /** Chromium's options for a window.open page (see setWindowOpenHandler): the tab hosts that page. */
@@ -243,6 +267,8 @@ export class BrowserWindowCtl {
   readonly win: BaseWindow;
   readonly chrome: WebContentsView;
   private strip: TabStripState = emptyStrip();
+  /** Tabs picked together in the strip (Ctrl+click, Shift+click); see shared/tab-selection.ts. */
+  private selection: TabSelection = emptySelection();
   private readonly tabs = new Map<TabId, TabRuntime>();
   /** Groups an agent run is working in (see setAgentGroup). */
   private readonly agentGroups = new Set<GroupId>();
@@ -742,7 +768,7 @@ export class BrowserWindowCtl {
       privateWindow: this.isPrivate,
       maximized: this.win.isMaximized() || this.win.isFullScreen(),
       connection: this.connectionBadge(active),
-      tabs: this.strip.tabs.map((t) => this.tabView(t.id)).filter((t): t is TabView => t !== null),
+      tabs: this.tabViews(),
       groups: this.strip.groups,
       agentGroups: [...this.agentGroups].filter((id) => this.hasGroup(id)),
       activeTabId: this.strip.activeId,
@@ -863,6 +889,17 @@ export class BrowserWindowCtl {
       webContentsId: wc.id,
       ...(memoryKB ? { memoryKB } : {}),
     };
+  }
+
+  /** The strip's tabs as it shows them; tabs selected with others are marked. */
+  private tabViews(): TabView[] {
+    const selected = this.selectedTabIds();
+    const several = selected.length > 1 ? new Set(selected) : null;
+    return this.strip.tabs.flatMap((t) => {
+      const view = this.tabView(t.id);
+      if (!view) return [];
+      return [several?.has(t.id) ? { ...view, selected: true } : view];
+    });
   }
 
   /** A tab as the strip shows it, from what the window keeps of it (nothing is asked of its page). */
@@ -1189,8 +1226,13 @@ export class BrowserWindowCtl {
     const containerId = !this.isPrivate && opts.containerId && (!isInternalUrl(url) || isNewTabUrl(url)) && this.profile.containers.get(opts.containerId) ? opts.containerId : undefined;
     const view = this.newTabView(url, containerId, opened);
 
-    // Locked, a new tab waits (unloaded) for the profile to be unlocked.
-    const lazy = (opts.lazy === true && opts.activate === false) || (this.lockScreen && !opened);
+    const activate = opts.activate ?? true;
+    const settings = this.ctx.settings.get();
+    const kind = { activate, lazy: opts.lazy === true, agent: opts.agent === true, preload: opts.preload === true };
+    const background = { loadBackgroundTabs: settings.memory.loadBackgroundTabs, agentsRenderInBackground: settings.agent.renderInBackground };
+    // A page Chromium created (window.open) is loading already. Locked, a new tab waits (unloaded) for the profile to be unlocked.
+    const lazy = !opened && (waitsUntilShown(kind, background) || this.lockScreen);
+    const faviconUrl = lazy ? (opts.faviconUrl ?? this.profile.history.faviconsFor([url]).get(url)) : undefined;
     const tab: TabRuntime = {
       ...(containerId ? { containerId } : {}),
       id,
@@ -1205,7 +1247,8 @@ export class BrowserWindowCtl {
       find: null,
       committed: false,
       ...(lazy ? { pendingUrl: url } : {}),
-      ...(lazy && opts.faviconUrl ? { faviconUrl: opts.faviconUrl } : {}),
+      ...(lazy && opts.referrer ? { pendingReferrer: opts.referrer } : {}),
+      ...(faviconUrl ? { faviconUrl } : {}),
     };
     this.tabs.set(id, tab);
     this.wire(tab);
@@ -1214,7 +1257,6 @@ export class BrowserWindowCtl {
     const opener = opts.openerId ? this.strip.tabs.find((t) => t.id === opts.openerId) : undefined;
     const groupId = opts.groupId ?? opener?.groupId;
     const index = opts.index ?? (opener ? insertionIndexForChild(this.strip, opener.id) : undefined);
-    const activate = opts.activate ?? true;
     this.strip = insertTab(
       this.strip,
       { id, pinned: opts.pinned === true, ...(groupId ? { groupId } : {}), ...(opener ? { openerId: opener.id } : {}) },
@@ -1225,7 +1267,7 @@ export class BrowserWindowCtl {
       // Not once the tab closed while its session was getting on its proxy.
       const start = (): void =>
         void pageOf(view)
-          ?.loadURL(url)
+          ?.loadURL(url, opts.referrer ? { httpReferrer: opts.referrer } : undefined)
           .catch(() => {
             // Load failures surface through did-fail-load.
           });
@@ -1235,11 +1277,8 @@ export class BrowserWindowCtl {
       else void this.profile.whenConnected(ses).then(start);
     }
     this.syncActive(true);
-    const settings = this.ctx.settings.get();
-    const paint = newTabPaint(
-      { activate, lazy, agent: opts.agent === true, preload: opts.preload === true },
-      { preloadBackgroundTabs: settings.memory.preloadBackgroundTabs, agentsRenderInBackground: settings.agent.renderInBackground },
-    );
+    const paint = newTabPaint({ ...kind, lazy }, background);
+    if (lazy && kind.preload && !kind.lazy && /^https?:/i.test(url)) void this.loadIfDownload(tab);
     if (paint === "agent") this.ctx.backgroundRender.use(this, id);
     else if (paint === "preload") this.preload(tab);
     this.pushState();
@@ -1255,12 +1294,30 @@ export class BrowserWindowCtl {
     return this.ctx.settings.get().passwords.passkeys ? {} : { disableBlinkFeatures: "WebAuth" };
   }
 
-  private wire(tab: TabRuntime): void {
+  /**
+   * Hooks a tab's page up to this window. The listeners come off again with tab.unwire, when the
+   * tab moves to another window, which wires it to itself (`moved`: what stays with the page is
+   * not set up twice).
+   */
+  private wire(tab: TabRuntime, moved = false): void {
     const wc = tab.view.webContents;
+    const page = wc as unknown as NodeJS.EventEmitter;
+    const offs: Array<() => void> = [];
+    const listen = (method: "on" | "once"): unknown =>
+      (event: string, listener: (...args: unknown[]) => void) => {
+        page[method](event, listener);
+        offs.push(() => page.removeListener(event, listener));
+        return wc;
+      };
+    const on = listen("on") as WebContents["on"];
+    const once = listen("once") as WebContents["once"];
+    tab.unwire = () => {
+      for (const off of offs.splice(0)) off();
+    };
     const push = (): void => this.pushState();
     const redirects = (tab.redirects ??= new RedirectChain());
     // A click or key press in a tab an agent works in: the person takes over (see AgentRunner).
-    wc.on("input-event", (_event, input) => {
+    on("input-event", (_event, input) => {
       this.ctx.agentRunner.personInput(this, tab.id, input.type);
       if (isPersonInput(input.type)) {
         // Where the page goes next is the person's doing, not a redirect.
@@ -1271,12 +1328,12 @@ export class BrowserWindowCtl {
         if (!this.ctx.agents.acting() && now - (tab.agentActedAt ?? 0) > AGENT_INPUT_GRACE_MS) tab.personInputAt = now;
       }
     });
-    followSignInUserAgent(wc, this.profile.userAgents);
-    wc.on("did-start-loading", () => {
+    if (!moved) followSignInUserAgent(wc, this.profile.userAgents);
+    on("did-start-loading", () => {
       tab.loading = true;
       push();
     });
-    wc.on("did-stop-loading", () => {
+    on("did-stop-loading", () => {
       tab.loading = false;
       tab.committed = true;
       redirects.loaded(Date.now());
@@ -1284,15 +1341,15 @@ export class BrowserWindowCtl {
     });
     // A web page gets its white base before it can first paint; a Corvus page paints its own
     // background, so its themed base waits for the commit and a page being left never flashes dark.
-    wc.on("did-start-navigation", (details) => {
+    on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return;
       redirects.start(details.url, Boolean(details.initiator), Date.now());
       if (!isInternalUrl(details.url)) this.applyPageBase(tab, details.url);
     });
-    wc.on("did-redirect-navigation", (details) => {
+    on("did-redirect-navigation", (details) => {
       if (details.isMainFrame && !details.isSameDocument) redirects.redirect(details.url);
     });
-    wc.on("did-navigate", (_e, loaded) => {
+    on("did-navigate", (_e, loaded) => {
       // A source view loads the page's own address; the tab is on its view-source: address (and its
       // page runs no script: Corvus's page probes and the agent tools must leave it alone).
       const viewSource = isViewSourceUrl(wc.getURL());
@@ -1341,14 +1398,14 @@ export class BrowserWindowCtl {
       if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, "", typed);
       push();
     });
-    wc.on("did-finish-load", () => {
+    on("did-finish-load", () => {
       void this.ctx.translate.onPageLoad(this, tab);
       void this.ctx.reader.probe(this, tab);
       void this.ctx.autofill.onPageLoad(this, tab);
       if (!this.isPrivate) void this.ctx.semanticSearch.capturePage(this, tab);
       this.ctx.annotations.onPageLoad(this, tab);
     });
-    wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
+    on("did-navigate-in-page", (_e, url, isMainFrame) => {
       if (!isMainFrame) return;
       tab.url = url;
       tab.committedUrl = url;
@@ -1356,13 +1413,13 @@ export class BrowserWindowCtl {
       if (isHistoryWorthy(url) && !this.isPrivate) this.profile.history.recordVisit(url, tab.title);
       push();
     });
-    wc.on("page-title-updated", (_e, title) => {
+    on("page-title-updated", (_e, title) => {
       tab.title = title;
       if (isHistoryWorthy(tab.url) && !tab.certError) this.profile.history.update(tab.url, { title });
       push();
     });
     this.ctx.pageDialogs.watch(wc);
-    wc.on("page-favicon-updated", (_e, favicons) => {
+    on("page-favicon-updated", (_e, favicons) => {
       const favicon = pickFavicon(favicons);
       if (!favicon) return;
       tab.faviconUrl = favicon;
@@ -1371,7 +1428,7 @@ export class BrowserWindowCtl {
       if (!this.isPrivate) this.profile.favicons.remember(tab.url, favicon, (url, init) => wc.session.fetch(url, init));
       push();
     });
-    wc.on("did-fail-load", (_e, code, description, validatedURL, isMainFrame) => {
+    on("did-fail-load", (_e, code, description, validatedURL, isMainFrame) => {
       if (!isMainFrame || code === -3) return;
       tab.url = validatedURL || tab.url;
       tab.loading = false;
@@ -1384,7 +1441,7 @@ export class BrowserWindowCtl {
       }
       push();
     });
-    wc.on("render-process-gone", (_e, details) => {
+    on("render-process-gone", (_e, details) => {
       // "clean-exit" is our own teardown (closeTab/dispose/sleepTab), not a crash; a page a
       // sleeping tab let go of is no longer the tab's.
       if (details.reason === "clean-exit" || this.disposed || !this.tabs.has(tab.id) || tab.view.webContents !== wc) return;
@@ -1395,7 +1452,7 @@ export class BrowserWindowCtl {
       if (!tab.crashed) this.enterCrashed(tab, details.reason);
       push();
     });
-    wc.on("unresponsive", () => {
+    on("unresponsive", () => {
       this.ctx.crashReporter.record("tab-unresponsive", { url: tab.url });
       if (tab.unresponsiveTimer || tab.crashed || this.disposed || tab.view.webContents !== wc) return;
       tab.unresponsiveTimer = setTimeout(() => {
@@ -1406,30 +1463,30 @@ export class BrowserWindowCtl {
         push();
       }, UNRESPONSIVE_GRACE_MS);
     });
-    wc.on("responsive", () => this.clearUnresponsive(tab));
+    on("responsive", () => this.clearUnresponsive(tab));
     // A page that closes itself (window.close()) takes its webContents along and Electron drops it
     // from the view: the tab closes too, as in Chrome, rather than staying on without a page.
     const view = tab.view;
-    wc.once("destroyed", () => {
+    once("destroyed", () => {
       if (!this.disposed && this.tabs.get(tab.id) === tab && tab.view === view) this.closeTab(tab.id);
     });
-    wc.on("focus", () => this.onTabFocus(tab));
-    wc.on("audio-state-changed", (event) => {
+    on("focus", () => this.onTabFocus(tab));
+    on("audio-state-changed", (event) => {
       tab.audible = event.audible;
       push();
     });
-    wc.on("enter-html-full-screen", () => {
+    on("enter-html-full-screen", () => {
       this.htmlFullscreen = true;
       this.win.setFullScreen(true);
       this.layout();
     });
-    wc.on("leave-html-full-screen", () => {
+    on("leave-html-full-screen", () => {
       this.htmlFullscreen = false;
       this.win.setFullScreen(false);
       this.layout();
     });
-    wc.on("zoom-changed", (_e, direction) => this.zoomTab(tab, direction === "in" ? 1 : -1));
-    wc.on("found-in-page", (_e, result) => {
+    on("zoom-changed", (_e, direction) => this.zoomTab(tab, direction === "in" ? 1 : -1));
+    on("found-in-page", (_e, result) => {
       if (!tab.find) return;
       tab.find = {
         ...tab.find,
@@ -1438,8 +1495,8 @@ export class BrowserWindowCtl {
       };
       push();
     });
-    wc.on("before-input-event", (event, input) => this.onInput(event, input, true));
-    wc.on("context-menu", (_e, params) => showPageContextMenu(this.ctx, this, tab, params, this.chromeHeight));
+    on("before-input-event", (event, input) => this.onInput(event, input, true));
+    on("context-menu", (_e, params) => showPageContextMenu(this.ctx, this, tab, params, this.chromeHeight));
 
     // A PDF a page leads to (a link, a redirect after one) opens in the viewer. In a new tab next to
     // the page, which stays, when the person's own click or key press led to it (claimPdfBeside);
@@ -1464,8 +1521,8 @@ export class BrowserWindowCtl {
         openViewer(toViewer, true);
       }
     };
-    wc.on("will-navigate", guard);
-    wc.on("will-redirect", (event) => {
+    on("will-navigate", guard);
+    on("will-redirect", (event) => {
       if (isInternalUrl(event.url)) {
         event.preventDefault();
         return;
@@ -1480,7 +1537,7 @@ export class BrowserWindowCtl {
         openViewer(toViewer, Boolean(event.initiator));
       }
     });
-    wc.setWindowOpenHandler(({ url, disposition }) => {
+    wc.setWindowOpenHandler(({ url, disposition, postBody, referrer }) => {
       // A locked profile's hidden pages open nothing.
       if (this.lockScreen) return { action: "deny" };
       if (isInternalUrl(url) && !isInternalUrl(wc.getURL())) return { action: "deny" };
@@ -1508,6 +1565,13 @@ export class BrowserWindowCtl {
             }).view.webContents,
         );
       if (tab.agentControlled) return inTab();
+      // A link the person opens in the background waits unloaded until they go to it, unless the
+      // setting loads it right away: Chromium's page would start loading, and playing, at once. A
+      // form posted into a new tab keeps its body in Chromium's page.
+      if (disposition === "background-tab" && !postBody && !this.ctx.settings.get().memory.loadBackgroundTabs) {
+        this.createTab(url, { activate: false, preload: true, openerId: tab.id, ...container, ...(referrer.url ? { referrer } : {}) });
+        return { action: "deny" };
+      }
       if (disposition === "new-window") {
         return {
           action: "allow",
@@ -1522,7 +1586,7 @@ export class BrowserWindowCtl {
     });
     // Sign-in popups ("Continue with Google") are windows of their own: same UA rule as tabs. The
     // first load started before this event, so a popup that opens on a sign-in host loads again.
-    wc.on("did-create-window", (popup, details) => {
+    on("did-create-window", (popup, details) => {
       this.popups.add(popup);
       popup.once("closed", () => this.popups.delete(popup));
       const pw = popup.webContents;
@@ -1536,7 +1600,106 @@ export class BrowserWindowCtl {
 
   activate(id: TabId): void {
     if (!this.tabs.has(id)) return;
+    // Another tab picked by other means than a click in the strip leaves it alone selected. The
+    // active one again (the extensions layer echoes each switch back here) keeps the selection.
+    if (this.strip.activeId !== id) this.selection = emptySelection();
     this.strip = activateTab(this.strip, id);
+    this.syncActive(true);
+    this.pushState();
+  }
+
+  /** A click on a tab in the strip, with Ctrl (toggle) or Shift (range) for several (see shared/tab-selection.ts). */
+  selectTab(id: TabId, mods: SelectModifiers): void {
+    if (!this.tabs.has(id)) return;
+    const { selection, activate } = clickSelection(this.strip, this.selection, id, mods);
+    this.selection = selection;
+    if (activate) {
+      this.strip = activateTab(this.strip, activate);
+      this.syncActive(true);
+    }
+    this.pushState();
+  }
+
+  /** The selected tabs in strip order: the active one, and those picked with it. */
+  selectedTabIds(): TabId[] {
+    return selectedTabs(this.strip, this.selection);
+  }
+
+  /** The tabs an action on tab `id` (its menu, a drag) applies to: the selection when `id` is one of several selected, else `id`. */
+  actionTabIds(id: TabId): TabId[] {
+    return actionTabs(this.strip, this.selection, id);
+  }
+
+  // ---------------------------------------------------------------- moving tabs between windows
+
+  /** Whether tabs may move between this window and `other`: same profile, both private or neither, neither closed or locked. */
+  canTradeTabsWith(other: BrowserWindowCtl): boolean {
+    return other !== this && !this.disposed && !other.disposed && other.profile === this.profile && other.isPrivate === this.isPrivate && !this.lockScreen && !other.lockScreen;
+  }
+
+  /** The window's tab strip on screen (the band along its top, or its sidebar): where a dragged tab is let go of to stay. */
+  stripOnScreen(): Rect {
+    const content = this.win.getContentBounds();
+    const appearance = this.ctx.settings.get().appearance;
+    return stripRect(content, { vertical: appearance.tabLayout === "vertical", sidebarWidth: this.sidebarWidth(), stripHeight: TAB_STRIP_HEIGHT });
+  }
+
+  /**
+   * Takes tabs out of this window, their pages still running, for another window to adopt (see
+   * adoptTabs): in strip order, with the groups whose every tab goes. The window stays open, even
+   * empty: the caller closes it once the tabs have their new window.
+   */
+  releaseTabs(ids: readonly TabId[]): TabParcel {
+    const going = new Set(ids.filter((id) => this.tabs.has(id)));
+    const entries = this.strip.tabs.filter((t) => going.has(t.id));
+    const groups = this.strip.groups.filter((g) => tabsInGroup(this.strip, g.id).every((t) => going.has(t.id))).map((g) => ({ ...g }));
+    const activeId = this.strip.activeId !== null && going.has(this.strip.activeId) ? this.strip.activeId : null;
+    const tabs: TabRuntime[] = [];
+    for (const entry of entries) {
+      const tab = this.tabs.get(entry.id)!;
+      if (this.splitSession?.has(entry.id)) this.removeFromSplit(entry.id);
+      tab.unwire?.();
+      const page = pageOf(tab.view);
+      if (page && page === this.lastFocused) this.lastFocused = null;
+      if (page && page === this.quietExtensionTab) this.quietExtensionTab = null;
+      this.lockMuted.delete(entry.id);
+      this.win.contentView.removeChildView(tab.view);
+      this.tabs.delete(entry.id);
+      this.shownTabIds = this.shownTabIds.filter((t) => t !== entry.id);
+      if (this.activeShown === entry.id) this.activeShown = null;
+      this.strip = removeTab(this.strip, entry.id);
+      tabs.push(tab);
+    }
+    this.selection = emptySelection();
+    if (tabs.length > 0 && this.tabs.size > 0) {
+      this.syncActive(true);
+      this.pushState();
+    }
+    return { tabs, entries: entries.map(({ openerId: _opener, ...entry }) => entry), groups, activeId };
+  }
+
+  /**
+   * Takes in tabs another window released (see releaseTabs), pages and all: nothing reloads. They
+   * go together at `index` (default: the end), joining `groupId` when dropped in a group of this
+   * window; `activeId` (default: the one that was active, else the first) is shown, and the moved
+   * tabs stay selected together.
+   */
+  adoptTabs(parcel: TabParcel, opts: { index?: number; groupId?: GroupId | null; activeId?: TabId } = {}): void {
+    if (parcel.tabs.length === 0 || this.disposed) return;
+    for (const tab of parcel.tabs) {
+      this.win.contentView.addChildView(tab.view, 0);
+      tab.view.setVisible(false);
+      this.tabs.set(tab.id, tab);
+      this.wire(tab, true);
+      this.profile.extensions.moveTab(tab.view.webContents, this.win);
+      if (this.ctx.backgroundRender.isRendering(tab.id)) this.ctx.backgroundRender.moved(tab.id, this);
+      if (this.isPainting(tab)) this.sizeHidden(tab);
+    }
+    this.strip = insertTabs(this.strip, parcel.entries, opts.index ?? this.strip.tabs.length, { groups: parcel.groups, joinGroup: opts.groupId ?? null });
+    const ids = parcel.tabs.map((t) => t.id);
+    const activeId = opts.activeId !== undefined && ids.includes(opts.activeId) ? opts.activeId : (parcel.activeId ?? ids[0]!);
+    this.strip = activateTab(this.strip, activeId);
+    this.selection = { ids, anchor: activeId };
     this.syncActive(true);
     this.pushState();
   }
@@ -1699,7 +1862,10 @@ export class BrowserWindowCtl {
   }
 
   closeTabs(ids: TabId[]): void {
-    for (const id of ids) {
+    // The active tab goes last: closing it first would show (and load) each next one on the way.
+    const active = this.strip.activeId;
+    const ordered = active !== null && ids.includes(active) ? [...ids.filter((id) => id !== active), active] : ids;
+    for (const id of ordered) {
       if (this.disposed) return;
       this.closeTab(id);
     }
@@ -1737,15 +1903,40 @@ export class BrowserWindowCtl {
     const url = tab.pendingUrl;
     const wc = pageOf(tab.view);
     if (!url || !wc) return;
+    const referrer = tab.pendingReferrer;
     delete tab.pendingUrl;
+    delete tab.pendingReferrer;
     tab.loading = true;
     const asleep = tab.asleep;
     delete tab.asleep;
     // A sleeping tab wakes with its whole history, scroll position and form values.
-    const load = asleep ? wc.navigationHistory.restore(asleep) : wc.loadURL(url);
+    const load = asleep ? wc.navigationHistory.restore(asleep) : wc.loadURL(url, referrer ? { httpReferrer: referrer } : undefined);
     load.catch(() => {
       // Reported via did-fail-load.
     });
+  }
+
+  /**
+   * A link the person opened in the background waits unloaded, unless it is a file: asked for its
+   * headers alone (HEAD, with the tab's cookies), a download loads at once, so it downloads and its
+   * tab closes as before, instead of waiting to be shown as an empty tab.
+   */
+  private async loadIfDownload(tab: TabRuntime): Promise<void> {
+    const url = tab.pendingUrl;
+    const ses = pageOf(tab.view)?.session;
+    if (!url || !ses) return;
+    if (!this.profile.isConnected(ses)) await this.profile.whenConnected(ses);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), DOWNLOAD_PROBE_MS);
+    try {
+      const res = await ses.fetch(url, { method: "HEAD", credentials: "include", redirect: "follow", signal: abort.signal });
+      const download = isDownloadResponse(res.headers.get("content-type"), res.headers.get("content-disposition"));
+      if (download && !this.disposed && this.tabs.get(tab.id) === tab && tab.pendingUrl === url) this.loadPending(tab);
+    } catch {
+      // No answer: it waits to be shown, as any background tab.
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -2151,13 +2342,12 @@ export class BrowserWindowCtl {
   }
 
   /**
-   * Pages in background tabs ("Open all" on a bookmarks folder): the first few load at once, the
-   * rest when first shown (all at once with Settings > Memory's "Load tabs opened in the background
-   * right away" off, as before).
+   * Pages in background tabs ("Open all" on a bookmarks folder): each loads when first shown, or,
+   * with Settings > Memory's "Load tabs opened in the background right away", the first few at once.
    */
   openAllInBackground(pages: ReadonlyArray<{ url: string; title: string }>): void {
     const active = this.activeTab();
-    const plan = openAllPlan(pages.length, this.ctx.settings.get().memory.preloadBackgroundTabs);
+    const plan = openAllPlan(pages.length, this.ctx.settings.get().memory.loadBackgroundTabs);
     const known = this.profile.history.faviconsFor(pages.filter((_, i) => !plan[i]).map((p) => p.url));
     pages.forEach((page, i) => {
       const now = plan[i] === true;
@@ -2318,6 +2508,11 @@ export class BrowserWindowCtl {
     return this.strip.tabs.map((t) => t.id);
   }
 
+  /** The tabs of a group, in strip order. */
+  groupTabIds(groupId: GroupId): TabId[] {
+    return tabsInGroup(this.strip, groupId).map((t) => t.id);
+  }
+
   /** An agent acts on the tab: it is agent-driven from now on, and what it starts next is the agent's. */
   markAgent(id: TabId): void {
     const tab = this.tabs.get(id);
@@ -2382,13 +2577,20 @@ export class BrowserWindowCtl {
     }
   }
 
+  /** A tab dragged in the strip; dragged as one of several selected tabs, they all move. */
   moveTab(id: TabId, toIndex: number, groupId: GroupId | null): void {
-    this.strip = moveTab(this.strip, id, toIndex, groupId);
+    this.strip = moveTabsTogether(this.strip, this.actionTabIds(id), id, toIndex, groupId);
     this.pushState();
   }
 
   pin(id: TabId, pinned: boolean): void {
-    this.strip = setPinned(this.strip, id, pinned);
+    this.pinTabs([id], pinned);
+  }
+
+  /** Pins or unpins tabs, keeping their order. */
+  pinTabs(ids: TabId[], pinned: boolean): void {
+    // Unpinned ones go from the last, so each lands right after the pinned tabs in the order they had.
+    for (const id of pinned ? ids : [...ids].reverse()) this.strip = setPinned(this.strip, id, pinned);
     this.pushState();
   }
 
@@ -2532,7 +2734,8 @@ export class BrowserWindowCtl {
         this.ctx.windows.openPrivate(this.profile.profile.id);
         break;
       case "close-tab":
-        if (active) this.closeTab(active.id);
+        // With several tabs selected, all of them (as in Chrome).
+        if (active) this.closeTabs(this.actionTabIds(active.id));
         break;
       case "reopen-closed-tab":
         this.reopenClosed();

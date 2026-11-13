@@ -66,6 +66,8 @@ export interface TabView extends Tab {
   certError?: string;
   /** An AI agent asked the person to do something in it (request_user_action) and waits for the answer. */
   needsYou?: boolean;
+  /** Selected together with other tabs (Ctrl+click, Shift+click): the tab menu, Ctrl+W and dragging apply to all of them. */
+  selected?: boolean;
 }
 
 export interface WindowState extends BrowserWindowExtras, AssistWindowExtras, CommandBarWindowExtras {
@@ -159,7 +161,16 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "tabs.create"(opts?: { url?: string; groupId?: GroupId; background?: boolean }): TabId;
   "tabs.close"(tabId: TabId): void;
   "tabs.activate"(tabId: TabId): void;
+  /**
+   * A press or click on a tab in the strip: `toggle` (Ctrl, Cmd on macOS) adds or takes it out of the
+   * selection, `range` (Shift) picks from the last clicked tab to it, `keep` keeps the selection when
+   * it is already one of several selected (a drag may follow).
+   */
+  "tabs.select"(tabId: TabId, mods: { toggle?: boolean; range?: boolean; keep?: boolean }): void;
+  /** A tab dropped in the strip at `toIndex`; a tab of another window dropped here moves to this one (with the tabs selected with it). */
   "tabs.move"(tabId: TabId, toIndex: number, groupId: GroupId | null): void;
+  /** A tab drag ended on no tab strip: let go away from this window's strip, the tab (and those selected with it) goes to a new window. */
+  "tabs.dragEnd"(tabId: TabId): void;
   "tabs.pin"(tabId: TabId, pinned: boolean): void;
   "tabs.navigate"(tabId: TabId, input: string): void;
   "tabs.openUrl"(url: string, disposition: "current" | "new-tab" | "background-tab"): void;
@@ -174,7 +185,10 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "groups.update"(groupId: GroupId, patch: GroupPatch): void;
   "groups.ungroup"(groupId: GroupId): void;
   "groups.close"(groupId: GroupId): void;
+  /** A group dropped in the strip; a group of another window dropped here moves to this one whole. */
   "groups.move"(groupId: GroupId, toIndex: number): void;
+  /** A group drag ended on no tab strip: let go away from this window's strip, the group goes to a new window. */
+  "groups.dragEnd"(groupId: GroupId): void;
   "groups.newTab"(groupId: GroupId): void;
   /** `inline`: the address bar may fill in the best page (inline autocomplete), which then comes first. */
   "omnibox.suggest"(input: string, inline?: boolean): Suggestion[];

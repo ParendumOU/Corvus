@@ -260,6 +260,8 @@ export class ExtensionHost {
   private readonly ready: Promise<void>;
   private updateTimer: NodeJS.Timeout | null = null;
   private changeQueued = false;
+  /** A tab moving to another window: the extensions layer drops it from its old one, which must not close it. */
+  private movingTab: WebContents | null = null;
 
   constructor(
     private readonly profileId: string,
@@ -297,7 +299,9 @@ export class ExtensionHost {
       session,
       createTab: (details) => delegate.createTab(profileId, details as TabCreateDetails),
       selectTab: (webContents) => delegate.selectTab(webContents),
-      removeTab: (webContents) => delegate.removeTab(webContents),
+      removeTab: (webContents) => {
+        if (webContents !== this.movingTab) delegate.removeTab(webContents);
+      },
       createWindow: (details) => delegate.createWindow(profileId, Array.isArray(details.url) ? details.url : details.url ? [details.url] : []),
       removeWindow: (window) => delegate.removeWindow(window),
       assignTabDetails: (details, webContents) => {
@@ -366,6 +370,18 @@ export class ExtensionHost {
 
   selectTab(webContents: WebContents): void {
     if (webContents.session === this.session) this.api.selectTab(webContents);
+  }
+
+  /** A tab moved to another window: extensions see it there (chrome.tabs windowId). */
+  moveTab(webContents: WebContents, window: BaseWindow): void {
+    if (webContents.session !== this.session) return;
+    this.movingTab = webContents;
+    try {
+      this.api.removeTab(webContents);
+    } finally {
+      this.movingTab = null;
+    }
+    this.api.addTab(webContents, window);
   }
 
   getContextMenuItems(webContents: WebContents, params: Electron.ContextMenuParams): Electron.MenuItem[] {
