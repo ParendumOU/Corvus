@@ -7,7 +7,8 @@ import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError
 import { downloadTabStep, downloadedByAgent, hasOwnPage } from "../shared/download-trust";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
-import { isDownloadResponse, newTabPaint, openAllPlan, paintedScript, waitsUntilShown, type PaintReason } from "../shared/background-tabs";
+import { holdsMedia, newTabPaint, openAllPlan, paintedScript, type PaintReason } from "../shared/background-tabs";
+import { MEDIA_RELEASE_CHANNEL } from "../shared/media-hold";
 import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
@@ -127,12 +128,6 @@ const AGENT_INPUT_GRACE_MS = 2000;
 const STRAY_FOCUS_CHECK_MS = 60;
 /** Isolated world that waits for a hidden page to paint before it is captured. */
 const PAINT_WORLD_ID = 2003;
-/** A tab opened in the background keeps painting this long after its page loads (what it draws once loaded, images in view). */
-const PRELOAD_SETTLE_MS = 1500;
-/** A tab opened in the background stops painting after this long even if its page never finishes loading. */
-const PRELOAD_MAX_MS = 30_000;
-/** How long the headers of a link opened in the background may take to say whether it is a download. */
-const DOWNLOAD_PROBE_MS = 5000;
 /** A capture of a tab that was not painting waits this long at most for the images in view. */
 const CAPTURE_IMAGES_WAIT_MS = 1500;
 /** A capture never waits longer than this for a hidden page to paint. */
@@ -150,10 +145,13 @@ export interface TabRuntime {
   agentControlled: boolean;
   crashed: boolean;
   audible: boolean;
-  /** Not loaded yet (restored, asleep, opened in the background): loads when first shown. */
+  /** Not loaded yet (restored, asleep, the later tabs of "Open all"): loads when first shown. */
   pendingUrl?: string;
-  /** The page that opened it, sent as the referrer when its pendingUrl loads. */
-  pendingReferrer?: Electron.Referrer;
+  /**
+   * The person opened it in the background and has not been to it yet: its page loads but plays
+   * nothing (see shared/media-hold.ts) and is muted meanwhile; `muted` is the mute the person chose.
+   */
+  mediaHold?: { muted: boolean };
   /** Real page URL to reload after a crash while the recovery page is shown. */
   crashedUrl?: string;
   /** Its page failed on the site's certificate: the certificate error page stands in for it. */
@@ -217,16 +215,15 @@ export interface OpenTabOptions {
   /** Do not load until the tab is shown (session restore). */
   lazy?: boolean;
   /**
-   * The person opened it (a middle click, Ctrl+click, "Open link in new tab"; in the background, to
-   * look at it later): it waits unloaded until they go to it, or, with Settings > Memory's "Load tabs
-   * opened in the background right away", loads at the window's size and paints until loaded, so it
-   * is complete when shown. Agents' tabs always load (see waitsUntilShown).
+   * The person opened it (a middle click, Ctrl+click, "Open link in new tab", a bookmark). In the
+   * background it loads at once, at the window's size, but plays nothing until they first go to it
+   * (see shared/background-tabs.ts holdsMedia).
    */
-  preload?: boolean;
+  byPerson?: boolean;
   title?: string;
   /** Icon a tab that waits unloaded shows until it loads and its page reports its own (default: the last one history knows for the page or site). */
   faviconUrl?: string;
-  /** The page that opened it (a link's), sent as the referrer when it loads. */
+  /** The page that opened it (a link's), sent as the referrer. */
   referrer?: Electron.Referrer;
   /** Open it in this container of the profile (ignored for corvus:// pages and unknown containers). */
   containerId?: string;
@@ -420,6 +417,8 @@ export class BrowserWindowCtl {
       // Private windows are never part of the saved session.
       if (!this.isPrivate) ctx.sessionRestore.windowClosing(this);
     });
+    // Windows ending the session (shut down, restart, sign out): the open windows are what comes back.
+    this.win.on("session-end", () => ctx.sessionRestore.quitting());
     this.win.on("closed", () => this.dispose());
     const moved = (): void => ctx.sessionRestore.markDirty();
     this.win.on("moved", moved);
@@ -697,20 +696,17 @@ export class BrowserWindowCtl {
       if (this.isPainting(tab)) this.sizeHidden(tab);
       if (shouldAutoPip({ audible: tab.audible, url: tab.url, enabled: autoPip })) void this.enterAutoPip(tab);
     }
-    const arrived: TabRuntime[] = [];
     for (const id of visible) {
       const tab = this.tabs.get(id);
       if (!tab) continue;
       tab.lastShownAt = now;
       if (this.shownTabIds.includes(id)) continue;
       tab.view.setVisible(true);
-      arrived.push(tab);
       if (tab.pendingUrl) this.loadPending(tab);
+      if (tab.mediaHold) this.releaseMedia(tab);
       if (tab.autoPip) void this.exitAutoPip(tab);
     }
     this.shownTabIds = visible;
-    // A tab opened in the background is on screen now: it paints as any shown tab, and not once it is left.
-    for (const tab of arrived) this.setPaintHold(tab.id, "preload", false);
     if (this.activeShown !== activeId) {
       const next = activeId ? this.tabs.get(activeId) : undefined;
       if (next) {
@@ -1227,11 +1223,9 @@ export class BrowserWindowCtl {
     const view = this.newTabView(url, containerId, opened);
 
     const activate = opts.activate ?? true;
-    const settings = this.ctx.settings.get();
-    const kind = { activate, lazy: opts.lazy === true, agent: opts.agent === true, preload: opts.preload === true };
-    const background = { loadBackgroundTabs: settings.memory.loadBackgroundTabs, agentsRenderInBackground: settings.agent.renderInBackground };
     // A page Chromium created (window.open) is loading already. Locked, a new tab waits (unloaded) for the profile to be unlocked.
-    const lazy = !opened && (waitsUntilShown(kind, background) || this.lockScreen);
+    const lazy = !opened && ((opts.lazy === true && !activate) || this.lockScreen);
+    const kind = { activate, lazy, agent: opts.agent === true, byPerson: opts.byPerson === true };
     const faviconUrl = lazy ? (opts.faviconUrl ?? this.profile.history.faviconsFor([url]).get(url)) : undefined;
     const tab: TabRuntime = {
       ...(containerId ? { containerId } : {}),
@@ -1247,10 +1241,15 @@ export class BrowserWindowCtl {
       find: null,
       committed: false,
       ...(lazy ? { pendingUrl: url } : {}),
-      ...(lazy && opts.referrer ? { pendingReferrer: opts.referrer } : {}),
+      ...(holdsMedia(kind) ? { mediaHold: { muted: false } } : {}),
       ...(faviconUrl ? { faviconUrl } : {}),
     };
     this.tabs.set(id, tab);
+    if (tab.mediaHold) {
+      // Muted before it can make a sound; it lays out at the window's size, as when shown, without painting.
+      view.webContents.setAudioMuted(true);
+      this.sizeHidden(tab);
+    }
     this.wire(tab);
     this.profile.extensions.addTab(view.webContents, this.win);
 
@@ -1277,10 +1276,7 @@ export class BrowserWindowCtl {
       else void this.profile.whenConnected(ses).then(start);
     }
     this.syncActive(true);
-    const paint = newTabPaint({ ...kind, lazy }, background);
-    if (lazy && kind.preload && !kind.lazy && /^https?:/i.test(url)) void this.loadIfDownload(tab);
-    if (paint === "agent") this.ctx.backgroundRender.use(this, id);
-    else if (paint === "preload") this.preload(tab);
+    if (newTabPaint(kind, this.ctx.settings.get().agent.renderInBackground) === "agent") this.ctx.backgroundRender.use(this, id);
     this.pushState();
     return tab;
   }
@@ -1557,7 +1553,7 @@ export class BrowserWindowCtl {
           (options) =>
             this.createTab(url, {
               activate: disposition !== "background-tab",
-              preload: true,
+              byPerson: true,
               openerId: tab.id,
               ...(tab.agentControlled ? { agent: true } : {}),
               ...container,
@@ -1565,11 +1561,11 @@ export class BrowserWindowCtl {
             }).view.webContents,
         );
       if (tab.agentControlled) return inTab();
-      // A link the person opens in the background waits unloaded until they go to it, unless the
-      // setting loads it right away: Chromium's page would start loading, and playing, at once. A
-      // form posted into a new tab keeps its body in Chromium's page.
-      if (disposition === "background-tab" && !postBody && !this.ctx.settings.get().memory.loadBackgroundTabs) {
-        this.createTab(url, { activate: false, preload: true, openerId: tab.id, ...container, ...(referrer.url ? { referrer } : {}) });
+      // A link the person opens in the background gets a page of Corvus's own: the page Chromium
+      // creates for it counts as on screen in a hidden view, so it would run unthrottled and play
+      // (see TabRuntime.mediaHold). A form posted into a new tab keeps its body in Chromium's page.
+      if (disposition === "background-tab" && !postBody) {
+        this.createTab(url, { activate: false, byPerson: true, openerId: tab.id, ...container, ...(referrer.url ? { referrer } : {}) });
         return { action: "deny" };
       }
       if (disposition === "new-window") {
@@ -1903,40 +1899,49 @@ export class BrowserWindowCtl {
     const url = tab.pendingUrl;
     const wc = pageOf(tab.view);
     if (!url || !wc) return;
-    const referrer = tab.pendingReferrer;
     delete tab.pendingUrl;
-    delete tab.pendingReferrer;
     tab.loading = true;
     const asleep = tab.asleep;
     delete tab.asleep;
     // A sleeping tab wakes with its whole history, scroll position and form values.
-    const load = asleep ? wc.navigationHistory.restore(asleep) : wc.loadURL(url, referrer ? { httpReferrer: referrer } : undefined);
+    const load = asleep ? wc.navigationHistory.restore(asleep) : wc.loadURL(url);
     load.catch(() => {
       // Reported via did-fail-load.
     });
   }
 
   /**
-   * A link the person opened in the background waits unloaded, unless it is a file: asked for its
-   * headers alone (HEAD, with the tab's cookies), a download loads at once, so it downloads and its
-   * tab closes as before, instead of waiting to be shown as an empty tab.
+   * A tab the person opened in the background is on screen for the first time: its page may play
+   * now (what it started meanwhile starts), with the mute the person chose (see TabRuntime.mediaHold).
    */
-  private async loadIfDownload(tab: TabRuntime): Promise<void> {
-    const url = tab.pendingUrl;
-    const ses = pageOf(tab.view)?.session;
-    if (!url || !ses) return;
-    if (!this.profile.isConnected(ses)) await this.profile.whenConnected(ses);
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), DOWNLOAD_PROBE_MS);
-    try {
-      const res = await ses.fetch(url, { method: "HEAD", credentials: "include", redirect: "follow", signal: abort.signal });
-      const download = isDownloadResponse(res.headers.get("content-type"), res.headers.get("content-disposition"));
-      if (download && !this.disposed && this.tabs.get(tab.id) === tab && tab.pendingUrl === url) this.loadPending(tab);
-    } catch {
-      // No answer: it waits to be shown, as any background tab.
-    } finally {
-      clearTimeout(timer);
+  private releaseMedia(tab: TabRuntime): void {
+    const hold = tab.mediaHold;
+    delete tab.mediaHold;
+    const wc = pageOf(tab.view);
+    if (!hold || !wc) return;
+    wc.setAudioMuted(hold.muted);
+    for (const frame of wc.mainFrame.framesInSubtree) {
+      try {
+        frame.send(MEDIA_RELEASE_CHANNEL);
+      } catch {
+        // A frame going away has nothing to play.
+      }
     }
+  }
+
+  /** Whether the person muted the tab's page (a background tab's hold on its media does not count). */
+  isMuted(id: TabId): boolean {
+    const tab = this.tabs.get(id);
+    if (!tab) return false;
+    return tab.mediaHold ? tab.mediaHold.muted : (pageOf(tab.view)?.isAudioMuted() ?? false);
+  }
+
+  /** Mutes or unmutes the tab's page for the person; a tab still holding its media takes it when first shown. */
+  setMuted(id: TabId, muted: boolean): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    if (tab.mediaHold) tab.mediaHold.muted = muted;
+    else pageOf(tab.view)?.setAudioMuted(muted);
   }
 
   /**
@@ -1999,6 +2004,8 @@ export class BrowserWindowCtl {
     this.win.contentView.removeChildView(old);
     wc.close();
     tab.view = this.newTabView(tab.url, tab.containerId);
+    // Its page is gone: shown, it loads in front, with nothing left to hold.
+    delete tab.mediaHold;
     tab.asleep = { entries, index };
     tab.pendingUrl = tab.url;
     tab.loading = false;
@@ -2113,29 +2120,6 @@ export class BrowserWindowCtl {
       if (!this.isPainting(tab) || (bounds.width === this.content.width && bounds.height === this.content.height)) continue;
       this.sizeHidden(tab);
     }
-  }
-
-  /**
-   * A tab the person opened in the background paints until its page has loaded, and a moment more
-   * for what the page draws once loaded and the images in view, so it is complete when they get to
-   * it. Showing it ends this early; it may sleep later by the usual rules.
-   */
-  private preload(tab: TabRuntime): void {
-    const wc = tab.view.webContents;
-    let settle: NodeJS.Timeout | null = null;
-    const release = (): void => {
-      clearTimeout(limit);
-      if (settle) clearTimeout(settle);
-      if (!wc.isDestroyed()) wc.removeListener("did-stop-loading", onStop);
-      if (this.tabs.get(tab.id) === tab) this.setPaintHold(tab.id, "preload", false);
-    };
-    const onStop = (): void => {
-      if (settle) clearTimeout(settle);
-      settle = setTimeout(release, PRELOAD_SETTLE_MS);
-    };
-    const limit = setTimeout(release, PRELOAD_MAX_MS);
-    wc.on("did-stop-loading", onStop);
-    this.setPaintHold(tab.id, "preload", true);
   }
 
   /**
@@ -2338,16 +2322,13 @@ export class BrowserWindowCtl {
   openUrl(url: string, disposition: "current" | "new-tab" | "background-tab"): void {
     const active = this.activeTab();
     if (disposition === "current" && active) this.loadUrl(active.id, url);
-    else this.createTab(url, { activate: disposition !== "background-tab", preload: true, ...(active ? { openerId: active.id } : {}) });
+    else this.createTab(url, { activate: disposition !== "background-tab", byPerson: true, ...(active ? { openerId: active.id } : {}) });
   }
 
-  /**
-   * Pages in background tabs ("Open all" on a bookmarks folder): each loads when first shown, or,
-   * with Settings > Memory's "Load tabs opened in the background right away", the first few at once.
-   */
+  /** Pages in background tabs ("Open all" on a bookmarks folder): the first few load at once, the rest when first shown. */
   openAllInBackground(pages: ReadonlyArray<{ url: string; title: string }>): void {
     const active = this.activeTab();
-    const plan = openAllPlan(pages.length, this.ctx.settings.get().memory.loadBackgroundTabs);
+    const plan = openAllPlan(pages.length);
     const known = this.profile.history.faviconsFor(pages.filter((_, i) => !plan[i]).map((p) => p.url));
     pages.forEach((page, i) => {
       const now = plan[i] === true;
@@ -2355,7 +2336,7 @@ export class BrowserWindowCtl {
       this.createTab(page.url, {
         activate: false,
         ...(active ? { openerId: active.id } : {}),
-        ...(now ? { preload: true } : { lazy: true, title: page.title || page.url, ...(faviconUrl ? { faviconUrl } : {}) }),
+        ...(now ? { byPerson: true } : { lazy: true, title: page.title || page.url, ...(faviconUrl ? { faviconUrl } : {}) }),
       });
     });
   }

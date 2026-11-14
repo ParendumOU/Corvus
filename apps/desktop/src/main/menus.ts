@@ -262,8 +262,8 @@ function showSelectedTabsMenu(ctx: AppContext, win: BrowserWindowCtl, selected: 
   const last = Math.max(...selected.map((id) => ids.indexOf(id)));
   const lastGroup = win.groupOf(ids[last] ?? "");
   const groups = win.listGroups();
-  const pages = selected.map((id) => pageOf(win.getTab(id)?.view)).filter((p): p is Electron.WebContents => p !== null);
-  const allMuted = pages.length > 0 && pages.every((p) => p.isAudioMuted());
+  const pages = selected.filter((id) => pageOf(win.getTab(id)?.view) !== null);
+  const allMuted = pages.length > 0 && pages.every((id) => win.isMuted(id));
   popup(
     win,
     [
@@ -295,7 +295,7 @@ function showSelectedTabsMenu(ctx: AppContext, win: BrowserWindowCtl, selected: 
         label: allMuted ? tr("Unmute {n} tabs", { n }) : tr("Mute {n} tabs", { n }),
         enabled: pages.length > 0,
         click: () => {
-          for (const p of pages) if (!p.isDestroyed()) p.setAudioMuted(!allMuted);
+          for (const id of pages) win.setMuted(id, !allMuted);
         },
       },
       { type: "separator" },
@@ -368,11 +368,8 @@ export function showTabMenu(ctx: AppContext, win: BrowserWindowCtl, tabId: TabId
       },
       { label: pinned ? tr("Unpin") : tr("Pin"), click: () => win.pin(tabId, !pinned) },
       {
-        label: pageOf(tab.view)?.isAudioMuted() ? tr("Unmute site") : tr("Mute site"),
-        click: () => {
-          const page = pageOf(tab.view);
-          page?.setAudioMuted(!page.isAudioMuted());
-        },
+        label: win.isMuted(tabId) ? tr("Unmute site") : tr("Mute site"),
+        click: () => win.setMuted(tabId, !win.isMuted(tabId)),
       },
       {
         label: tr("Watch this page for changes"),
@@ -497,11 +494,11 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
     if (items.length > 0 && items[items.length - 1]?.type !== "separator") items.push({ type: "separator" });
   };
   // Tabs opened from an agent-driven tab stay agent-driven, and from a container tab in its container.
-  // Until it loads (it waits until shown), the tab is named after the link's text.
+  // Until its page has a title, the tab is named after the link's text.
   const openInTab = (url: string, title?: string): void => {
     win.createTab(url, {
       activate: false,
-      preload: true,
+      byPerson: true,
       openerId: tab.id,
       ...(title ? { title } : {}),
       ...(/^https?:/i.test(params.pageURL) ? { referrer: { url: params.pageURL, policy: "strict-origin-when-cross-origin" } } : {}),

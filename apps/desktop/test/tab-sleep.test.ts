@@ -72,7 +72,7 @@ describe("sleeping tabs", () => {
   });
 
   it("has sane settings", () => {
-    expect(defaultSettings().memory).toEqual({ sleepTabs: true, sleepAfterMinutes: 60, loadBackgroundTabs: false });
+    expect(defaultSettings().memory).toEqual({ sleepTabs: true, sleepAfterMinutes: 60 });
     expect(mergeSettings(defaultSettings(), { memory: { sleepAfterMinutes: 1 } }).memory.sleepAfterMinutes).toBe(5);
     expect(mergeSettings(defaultSettings(), { memory: { sleepAfterMinutes: 99999 } }).memory.sleepAfterMinutes).toBe(1440);
   });

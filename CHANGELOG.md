@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.48.1
+
+### Changed
+- **Tabs you open in the background load again, but play nothing until you go to them.** A link opened with a middle click, Ctrl+click or "Open link in new tab", and a bookmark opened in the background, load at once again, so the tab shows the page's real title and icon right away. Their videos and sounds wait: nothing plays, neither on its own when the page loads nor when the page's script starts it later, until you first switch to the tab, and then it plays as usual. Opening ten videos shows ten titles and plays none. If you mute such a tab before you go to it, it stays muted. "Open all" on a bookmarks folder loads the first 5 tabs at once and the rest when you get to them. Tabs that AI agents and extensions open load and play as before. The setting "Load tabs opened in the background right away" is gone, since these tabs always load now.
+
+### Fixed
+- **Your windows and tabs come back after Corvus is closed from outside.** When something other than you closed Corvus, such as an installer, the task manager or Windows signing out, every window got closed one after another, and Corvus took each one as you closing that window: only the last window came back at the next start, sometimes just a new tab. Windows closed together now all come back, and Windows shutting down or signing out saves them first. Each start also keeps the last three saved sessions and a copy of the last one with real pages, so a session can always be recovered.
+- **Signing in to Twitch with a saved password works.** Picking your account from Corvus's password list in Twitch's sign-in window made Twitch answer "Your browser is not currently supported" after Continue: Corvus wrote the saved username and password into the page in a way that Twitch's protection against bots took for a bot. Corvus now types saved logins, 2FA codes, cards and addresses into the page as the browser's own typing, in every frame, which such checks accept.
 
 ## v0.48.0
 

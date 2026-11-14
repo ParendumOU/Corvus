@@ -4,6 +4,7 @@
  */
 import type { GroupColor, TabGroup } from "@corvus/shared";
 import { isFaviconUrl, MAX_SAVED_FAVICON_URL } from "./favicon";
+import { NEW_TAB_URL } from "./internal-urls";
 import { GROUP_COLORS } from "./tab-strip";
 
 export interface SessionTab {
@@ -171,6 +172,11 @@ export function reviveSession(raw: unknown): SessionSnapshot | null {
     .map(reviveWindow)
     .filter((w): w is SessionWindow => w !== null);
   return { version: 1, savedAt: isFiniteNumber(raw.savedAt) ? raw.savedAt : 0, windows };
+}
+
+/** Whether a session holds anything beyond new tab pages: only such a session is a last-good copy. */
+export function hasRealPages(snapshot: SessionSnapshot | null): boolean {
+  return snapshot !== null && snapshot.windows.some((w) => w.tabs.some((t) => !t.url.startsWith(NEW_TAB_URL)));
 }
 
 /** Windows to reopen: those whose profile still exists. */

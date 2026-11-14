@@ -43,10 +43,67 @@ addEventListener("keydown", () => window.__input.keys++, true);
 }
 
 const IMAGE = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90"><rect width="120" height="90" fill="rgb(${IMAGE_RGB.join(",")})"/></svg>`;
+const ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#e33"/></svg>`;
+
+/** A 440 Hz tone, 8 kHz mono 8-bit PCM: a media file made on the spot. */
+function toneWav(seconds: number): Buffer {
+  const rate = 8000;
+  const samples = rate * seconds;
+  const wav = Buffer.alloc(44 + samples);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + samples, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate, 28);
+  wav.writeUInt16LE(1, 32);
+  wav.writeUInt16LE(8, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(samples, 40);
+  for (let i = 0; i < samples; i++) wav[44 + i] = 128 + Math.round(60 * Math.sin((2 * Math.PI * 440 * i) / rate));
+  return wav;
+}
+const TONE = toneWav(20);
+
+/**
+ * A page that plays by itself in every way the tab's hold covers: a video and an audio element with
+ * autoplay, and an audio element its script starts 300 ms after load (window.__late: what its play()
+ * promise did).
+ */
+function mediaPage(title: string): string {
+  return `<!doctype html><html><head><title>${title}</title><link rel="icon" href="/bg-icon.svg"></head><body>
+<video id="video" autoplay muted loop src="/bg-tone.wav"></video>
+<audio id="audio" autoplay loop src="/bg-tone.wav"></audio>
+<audio id="late" loop src="/bg-tone.wav"></audio>
+<script>
+window.__late = "not yet";
+addEventListener("load", () => setTimeout(() => {
+  window.__late = "pending";
+  document.getElementById("late").play().then(() => (window.__late = "played"), (e) => (window.__late = "failed " + e.name));
+}, 300));
+</script></body></html>`;
+}
 
 function serve(): Promise<{ base: string; close: () => void }> {
   const server = http.createServer((req, res) => {
     const u = new URL(req.url ?? "/", "http://localhost");
+    if (u.pathname === "/bg-media") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(mediaPage(u.searchParams.get("title") ?? "Background media"));
+      return;
+    }
+    if (u.pathname === "/bg-tone.wav") {
+      res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": TONE.length });
+      res.end(TONE);
+      return;
+    }
+    if (u.pathname === "/bg-icon.svg") {
+      res.writeHead(200, { "Content-Type": "image/svg+xml" });
+      res.end(ICON);
+      return;
+    }
     if (u.pathname === "/bg-img") {
       setTimeout(() => {
         res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "no-store" });
@@ -211,14 +268,34 @@ async function timeToComplete(win: BrowserWindowCtl, tab: TabRuntime): Promise<{
   return { firstPaint, complete };
 }
 
+interface MediaState {
+  elements: Array<{ id: string; paused: boolean; time: number }>;
+  late: string;
+  visibility: string;
+}
+
+/** The media page's elements (paused, seconds played), what its script's play() did, and whether it is hidden. */
+function mediaState(wc: WebContents): Promise<MediaState | null> {
+  return wc
+    .executeJavaScript(
+      '({ elements: [...document.querySelectorAll("video, audio")].map((m) => ({ id: m.id, paused: m.paused, time: Math.round(m.currentTime * 100) / 100 })), late: window.__late, visibility: document.visibilityState })',
+    )
+    .catch(() => null) as Promise<MediaState | null>;
+}
+
+/** Every media element plays: not paused, and past `seconds`. */
+const allPlaying = (s: MediaState | null, seconds = 0.3): boolean => Boolean(s && s.elements.length === 3 && s.elements.every((m) => !m.paused && m.time > seconds));
+/** No media element has played: paused, still at the start. */
+const nonePlayed = (s: MediaState | null): boolean => Boolean(s && s.elements.length === 3 && s.elements.every((m) => m.paused && m.time < 0.25));
+
 /**
- * Background tabs (CORVUS_SMOKE_ONLY=bgtabs; also in the full run): with the setting on, a tab the
- * person opens in the background is loaded and drawn before it is shown; tabs an MCP client opens in
- * the background render, so screenshots show the page without taking the person's tab or focus; only
- * the most recently used agent tabs keep painting, and a capture paints any other; the person's
- * clicks and keys reach only the tab on screen. With both settings off (the default for the
- * person's tabs), a tab the person opens in the background waits unloaded until shown, while agents'
- * tabs still load; an agent reading such a tab loads it first.
+ * Background tabs (CORVUS_SMOKE_ONLY=bgtabs; also in the full run): a tab the person opens in the
+ * background loads at once (its title and icon show) but plays nothing until they first go to it,
+ * neither autoplay nor what its script starts later, and it is muted meanwhile; shown, it plays,
+ * with the mute the person chose. Tabs an MCP client opens in the background play as before and
+ * render, so screenshots show the page without taking the person's tab or focus; only the most
+ * recently used agent tabs keep painting, and a capture paints any other; the person's clicks and
+ * keys reach only the tab on screen.
  */
 export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Promise<void> {
   const { win, check, capture, log } = h;
@@ -229,47 +306,113 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
   const keep = (tab: { id: string } | undefined): void => void (tab && opened.push(tab.id));
   const c = ctx.controller;
   try {
-    ctx.settings.update({ memory: { loadBackgroundTabs: true }, agent: { renderInBackground: true } });
+    ctx.settings.update({ agent: { renderInBackground: true } });
     const front = win.createTab(`${base}bg?title=Front`, { activate: true });
     keep(front);
     await loaded(front.view.webContents);
     await sleep(800);
     const content = front.view.getBounds();
 
-    // A middle click opens the link in a background tab that is loaded and drawn before it is shown.
+    // A middle click opens the link in a background tab that loads at once, at the window's size, without painting.
     let ids = win.tabIds();
     await middleClickLink(front.view.webContents);
     const linked = await openedFrom(win, front, ids);
     keep(linked);
-    if (linked) {
-      await loaded(linked.view.webContents);
-      await imagesLoaded(linked.view.webContents);
-    }
-    const state = linked ? await pageState(linked.view.webContents) : null;
-    const shot = linked ? await linked.view.webContents.capturePage(undefined, { stayHidden: true }).catch(() => null) : null;
-    const drawn = shot && !shot.isEmpty() ? showsPage(shot) : null;
+    if (linked) await loaded(linked.view.webContents);
+    const state = linked ? await until(async () => (await pageState(linked.view.webContents))?.ready === "complete", 15_000).then(() => pageState(linked.view.webContents)) : null;
     check(
-      "background tabs: a middle-clicked link loads in the background at the window's size, images in view included, before it is shown",
+      "background tabs: a middle-clicked link loads in the background at the window's size, named after its page, without painting",
       Boolean(linked) &&
         win.activeTab()?.id === front.id &&
         state?.ready === "complete" &&
         state.title === "Front linked" &&
+        linked?.title === "Front linked" &&
         state.width === content.width &&
         state.height === content.height &&
-        state.images === IMAGES &&
-        drawn?.page === true &&
-        drawn.image === true,
-      { linked: Boolean(linked), active: win.activeTab()?.id === front.id, state, drawn, content },
+        state.referrer.startsWith(base) &&
+        linked !== undefined &&
+        !win.isPainting(linked) &&
+        !linked.view.getVisible(),
+      { linked: Boolean(linked), active: win.activeTab()?.id === front.id, state, title: linked?.title, painting: linked && win.isPainting(linked), content },
     );
-    const stopped = linked ? await until(() => !win.isPainting(linked), 15_000) : false;
-    check("background tabs: it stops painting once loaded (it may sleep later by the usual rules)", stopped, linked?.paintHolds);
-    if (linked) {
-      const shown = await timeToComplete(win, linked);
-      log("background tabs: shown complete after (ms)", shown);
-      check("background tabs: shown, it is complete at its first frame", shown.complete >= 0 && shown.complete <= shown.firstPaint + 50, shown);
-      win.activate(front.id);
-      await sleep(300);
+
+    // A page that plays by itself, opened in the background: its title and icon show, nothing plays.
+    win.activate(front.id);
+    ids = win.tabIds();
+    await front.view.webContents.executeJavaScript("document.getElementById('go').href = '/bg-media?title=Background%20media'; true");
+    await middleClickLink(front.view.webContents);
+    const media = await openedFrom(win, front, ids);
+    keep(media);
+    const mwc = media?.view.webContents;
+    if (mwc) await loaded(mwc);
+    const named = media ? await until(() => media.title === "Background media" && media.faviconUrl === `${base}bg-icon.svg`, 10_000) : false;
+    check(
+      "background tabs: a background tab gets its page's title and icon without being shown",
+      named && win.activeTab()?.id === front.id && media?.view.getVisible() === false,
+      { title: media?.title, favicon: media?.faviconUrl, active: win.activeTab()?.id === front.id },
+    );
+    // Long enough for autoplay and for the script's own play() 300 ms after load.
+    await until(async () => (mwc ? (await mediaState(mwc))?.late : "") === "pending", 8000);
+    await sleep(1500);
+    const held = mwc ? await mediaState(mwc) : null;
+    check(
+      "background tabs: in a background tab nothing plays, neither autoplay nor a play() its script calls, and it is muted meanwhile",
+      nonePlayed(held) && held?.late === "pending" && held.visibility === "hidden" && mwc?.isAudioMuted() === true && mwc.isCurrentlyAudible() === false && media?.mediaHold !== undefined,
+      { held, muted: mwc?.isAudioMuted(), audible: mwc?.isCurrentlyAudible(), hold: media?.mediaHold },
+    );
+    // Its menu says what the person chose, not the hold: unmuted; a mute chosen now is kept for when it is shown.
+    check("background tabs: the hold does not show as the person's mute", media !== undefined && !win.isMuted(media.id));
+
+    // The same page in a tab an agent opens in the background plays as before.
+    const agentMedia = await c.openTab(`${base}bg-media?title=Agent%20media`, { background: true, agent: true });
+    keep(agentMedia);
+    const awc = win.getTab(agentMedia.id)?.view.webContents;
+    const agentPlays = awc ? await until(async () => allPlaying(await mediaState(awc)), 10_000) : false;
+    check("background tabs: an agent's background tab plays as before", agentPlays && win.getTab(agentMedia.id)?.mediaHold === undefined && awc?.isAudioMuted() === false, awc && (await mediaState(awc)));
+    win.closeTab(agentMedia.id);
+
+    // Without the hold (an extension's background tab), whether Chromium in Electron holds a never-shown tab's media by itself.
+    const plain = win.createTab(`${base}bg-media?title=Plain%20media`, { activate: false });
+    keep(plain);
+    await loaded(plain.view.webContents);
+    await sleep(2500);
+    const unheld = await mediaState(plain.view.webContents);
+    log("background tabs: a never-shown tab without the hold (Electron's own behaviour)", { plays: allPlaying(unheld, 0.1), unheld });
+    win.closeTab(plain.id);
+
+    // A bookmark opened in the background holds too; the mute the person chooses meanwhile stays once shown.
+    ids = win.tabIds();
+    win.openUrl(`${base}bg-media?title=Muted%20media`, "background-tab");
+    const marked = win.getTab(win.tabIds().find((id) => !ids.includes(id)) ?? "")!;
+    keep(marked);
+    await loaded(marked.view.webContents);
+    win.setMuted(marked.id, true);
+    await until(async () => (await mediaState(marked.view.webContents))?.late === "pending", 8000);
+    await sleep(1500);
+    const markedState = await mediaState(marked.view.webContents);
+    const markedHeld = marked.mediaHold !== undefined && win.isMuted(marked.id) && nonePlayed(markedState) && markedState?.late === "pending";
+
+    // Shown, the held tab plays: autoplay and the script's play() start, and its sound is on.
+    if (media) {
+      win.activate(media.id);
+      const plays = mwc ? await until(async () => allPlaying(await mediaState(mwc)), 10_000) : false;
+      const shown = mwc ? await mediaState(mwc) : null;
+      check(
+        "background tabs: shown, the held tab plays (autoplay and the script's play()), with its sound on",
+        plays && shown?.late === "played" && mwc?.isAudioMuted() === false && media.mediaHold === undefined,
+        { shown, muted: mwc?.isAudioMuted() },
+      );
+      await capture("bgtabs-media-shown", media.view.webContents);
     }
+    win.activate(marked.id);
+    const markedPlays = await until(async () => allPlaying(await mediaState(marked.view.webContents)), 10_000);
+    check(
+      "background tabs: a bookmark opened in the background holds its media too; muted by the person meanwhile, it plays muted once shown",
+      markedHeld && markedPlays && marked.view.webContents.isAudioMuted() && win.isMuted(marked.id),
+      { markedHeld, markedState, markedPlays, muted: marked.view.webContents.isAudioMuted() },
+    );
+    win.activate(front.id);
+    await sleep(300);
 
     // An MCP client's background tab renders: its screenshot shows the page, and the person's tab and focus stay.
     front.view.webContents.focus();
@@ -351,7 +494,7 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
         { front: frontInput && { clicks: frontInput.clicks - clicksBefore, keys: frontInput.keys }, agents: agentInput.map((s) => s && s.clicks + s.keys) },
       );
 
-    // "Open all" on a folder: the first few load at once, the rest when first shown.
+    // "Open all" on a folder: the first few load at once, the rest when first shown, named after their bookmarks.
     const folder = win.profile.bookmarks.create({ parentId: OTHER_FOLDER_ID, kind: "folder", title: "Background smoke" });
     for (let i = 0; i < OPEN_ALL_LOAD_NOW + 2; i++) win.profile.bookmarks.create({ parentId: folder.id, kind: "bookmark", title: `Saved ${i}`, url: `${base}bg?title=Saved%20${i}&idelay=0` });
     ids = win.tabIds();
@@ -361,51 +504,23 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     const lazy = all.map((id) => win.getTab(id)?.pendingUrl !== undefined);
     check(
       `background tabs: Open all loads the first ${OPEN_ALL_LOAD_NOW} at once and the rest when shown`,
-      count === OPEN_ALL_LOAD_NOW + 2 && lazy.filter((l) => !l).length === OPEN_ALL_LOAD_NOW && lazy.slice(OPEN_ALL_LOAD_NOW).every(Boolean) && win.activeTab()?.id === front.id,
+      count === OPEN_ALL_LOAD_NOW + 2 &&
+        lazy.filter((l) => !l).length === OPEN_ALL_LOAD_NOW &&
+        lazy.slice(OPEN_ALL_LOAD_NOW).every(Boolean) &&
+        all.slice(OPEN_ALL_LOAD_NOW).every((id, i) => win.getTab(id)?.title === `Saved ${OPEN_ALL_LOAD_NOW + i}`) &&
+        win.activeTab()?.id === front.id,
       { count, lazy },
     );
+    // An agent asked to read a tab that waits unloaded loads it first (it would otherwise read an empty page).
+    const waiting = all[all.length - 1];
+    const read = waiting ? await c.getText(waiting, { maxChars: 200 }).catch((err: unknown) => ({ text: String(err) })) : null;
+    check("background tabs: an agent reading a tab that waits unloaded loads it first", Boolean(read?.text.includes("Linked page")) && win.getTab(waiting ?? "")?.pendingUrl === undefined, read);
+    if (waiting) win.clearAgentMark(waiting);
     win.profile.bookmarks.remove(folder.id);
 
-    // Both settings off: a background tab the person opens waits unloaded until shown (ten videos do
-    // not all start); agent tabs do not paint, but still load, and their screenshots still work.
-    ctx.settings.update({ memory: { loadBackgroundTabs: false }, agent: { renderInBackground: false } });
+    // Agent rendering off: agent tabs do not paint, but still load, and their screenshots still work.
+    ctx.settings.update({ agent: { renderInBackground: false } });
     check("background tabs: turning agent rendering off stops every agent tab painting", ctx.backgroundRender.rendering().length === 0 && agentTabs.every((t) => !win.isPainting(win.getTab(t.id)!)));
-    ids = win.tabIds();
-    const plainUrl = `${base}bg?title=Front%20plain`;
-    await front.view.webContents.executeJavaScript("document.getElementById('go').href = '/bg?title=Front%20plain'; true");
-    await middleClickLink(front.view.webContents);
-    const plain = await openedFrom(win, front, ids);
-    keep(plain);
-    await sleep(1200);
-    const waiting = plain && { pending: plain.pendingUrl, page: plain.view.webContents.getURL(), loading: plain.loading, title: plain.title, painting: win.isPainting(plain), active: win.activeTab()?.id === front.id };
-    check(
-      "background tabs: with the setting off, a middle-clicked link waits unloaded until shown, named after its address",
-      waiting?.pending === plainUrl && waiting.page === "" && !waiting.loading && waiting.title === plainUrl && !waiting.painting && waiting.active,
-      waiting,
-    );
-    // An agent asked to read it loads it first (it would otherwise read an empty page).
-    const read = plain ? await c.getText(plain.id, { maxChars: 200 }).catch((err: unknown) => ({ text: String(err) })) : null;
-    check("background tabs: an agent reading a tab that waits unloaded loads it first", Boolean(read?.text.includes("Linked page")) && plain?.pendingUrl === undefined, read);
-    if (plain) win.clearAgentMark(plain.id);
-    // Shown, a waiting tab loads, with the page that opened it as its referrer.
-    ids = win.tabIds();
-    await front.view.webContents.executeJavaScript("document.getElementById('go').href = '/bg?title=Front%20shown'; true");
-    await middleClickLink(front.view.webContents);
-    const shownLater = await openedFrom(win, front, ids);
-    keep(shownLater);
-    const stillWaiting = shownLater?.pendingUrl !== undefined;
-    if (shownLater) {
-      win.activate(shownLater.id);
-      await loaded(shownLater.view.webContents);
-    }
-    const shownState = shownLater ? await pageState(shownLater.view.webContents) : null;
-    check(
-      "background tabs: shown, a tab that waited loads, with the opener page as referrer",
-      stillWaiting && shownState?.ready === "complete" && shownState.title === "Front shown" && shownState.referrer.startsWith(base),
-      { stillWaiting, shownState },
-    );
-    win.activate(front.id);
-    await sleep(300);
     const offTab = await c.openTab(`${base}bg?title=Agent%20off&idelay=0`, { background: true, agent: true });
     keep(offTab);
     const offPainting = ctx.backgroundRender.rendering().includes(offTab.id);
@@ -415,25 +530,6 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
       !offPainting && offShot.page && offShot.image && !win.isPainting(win.getTab(offTab.id)!),
       { offPainting, offShot },
     );
-    check(
-      "background tabs: with the setting off, a tab an agent opens in the background still loads at once",
-      win.getTab(offTab.id)?.pendingUrl === undefined && offTab.title === "Agent off" && win.activeTab()?.id === front.id,
-      { title: offTab.title, pending: win.getTab(offTab.id)?.pendingUrl },
-    );
-
-    // "Open all" with the setting off: every tab waits until shown.
-    const lateFolder = win.profile.bookmarks.create({ parentId: OTHER_FOLDER_ID, kind: "folder", title: "Background smoke off" });
-    for (let i = 0; i < 3; i++) win.profile.bookmarks.create({ parentId: lateFolder.id, kind: "bookmark", title: `Later ${i}`, url: `${base}bg?title=Later%20${i}&idelay=0` });
-    ids = win.tabIds();
-    const lateCount = await openBookmarkFolder(ctx, win, lateFolder.id);
-    const late = win.tabIds().filter((id) => !ids.includes(id));
-    late.forEach((id) => opened.push(id));
-    check(
-      "background tabs: with the setting off, Open all opens every tab unloaded, named after its bookmark",
-      lateCount === 3 && late.length === 3 && late.every((id, i) => win.getTab(id)?.pendingUrl !== undefined && win.getTab(id)?.title === `Later ${i}`),
-      late.map((id) => ({ pending: win.getTab(id)?.pendingUrl, title: win.getTab(id)?.title })),
-    );
-    win.profile.bookmarks.remove(lateFolder.id);
 
     // A sleeping agent tab is loaded again for its screenshot.
     const sleeper = win.getTab(agentTabs[3]!.id)!;
@@ -447,7 +543,7 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     check("background tabs smoke", false, err instanceof Error ? (err.stack ?? err.message) : String(err));
   } finally {
     ctx.tabSleeper.freeShare = freeShare;
-    ctx.settings.update({ memory: { loadBackgroundTabs: before.memory.loadBackgroundTabs }, agent: { renderInBackground: before.agent.renderInBackground } });
+    ctx.settings.update({ agent: { renderInBackground: before.agent.renderInBackground } });
     for (const id of opened) if (win.hasTab(id)) win.closeTab(id);
     close();
     await sleep(300);
@@ -476,24 +572,21 @@ function framesPerSecond(wc: WebContents): Promise<number> {
 /**
  * CORVUS_BGTABS_MEASURE=1: memory and processor of 1, 4 and 8 agent tabs painting in the background
  * (an animated page) against the same tabs hidden and not painting, and asleep; and how long a
- * person's background tab takes to show complete, with and without preloading.
+ * person's background tab (loaded, never painted) takes to show complete.
  */
 async function measure(ctx: AppContext, win: BrowserWindowCtl, base: string, log: (step: string, data: unknown) => void): Promise<void> {
   const front = win.activeTab()!;
-  for (const preload of [false, true]) {
-    ctx.settings.update({ memory: { loadBackgroundTabs: preload } });
-    const runs: Array<{ firstPaint: number; complete: number }> = [];
-    for (let i = 0; i < 3; i++) {
-      const tab = win.createTab(`${base}bg?title=Measure%20${i}`, { activate: false, preload: true });
-      await loaded(tab.view.webContents);
-      await sleep(2500);
-      runs.push(await timeToComplete(win, tab));
-      win.activate(front.id);
-      win.closeTab(tab.id);
-      await sleep(300);
-    }
-    log(`measure: showing a background tab, preload ${preload ? "on" : "off"} (ms)`, runs);
+  const runs: Array<{ firstPaint: number; complete: number }> = [];
+  for (let i = 0; i < 3; i++) {
+    const tab = win.createTab(`${base}bg?title=Measure%20${i}`, { activate: false, byPerson: true });
+    await loaded(tab.view.webContents);
+    await sleep(2500);
+    runs.push(await timeToComplete(win, tab));
+    win.activate(front.id);
+    win.closeTab(tab.id);
+    await sleep(300);
   }
+  log("measure: showing a background tab (ms)", runs);
   ctx.settings.update({ agent: { renderInBackground: true } });
   log("measure: baseline", await settled(3000));
   for (const n of [1, 4, 8]) {

@@ -9,6 +9,7 @@ import { addressFieldFacts, classifyAddressField, isAddressForm, matchOption, pl
 import { cardFieldFacts, classifyCardField, isCardForm, matchCardOption, planCardFill } from "../shared/card-fields";
 import { isCardDataField, isCardDataForm } from "../shared/card-data-fields";
 import { AUTOFILL_WORLD_ID, detectLoginScript, fillIdentifierScript, fillLoginScript, fillOtpScript, type LoginDetection } from "../shared/credential-scripts";
+import { typeIntoField } from "../shared/typed-fill";
 import {
   AUTOFILL_FRAME_FILL_CHANNEL,
   AUTOFILL_FRAME_FILLED_CHANNEL,
@@ -30,6 +31,7 @@ import { probePattern, type PasswordFieldClick } from "../shared/password-rules"
 import { FLOW_CAPTURE_CHANNEL, FLOW_RECORD_SET_CHANNEL } from "../shared/flow-ipc";
 import { INTERNAL_EVENT, INTERNAL_RPC, type InternalBridge, type InternalEvent } from "../shared/ipc";
 import { PAGE_PROMPT_CHANNEL } from "../shared/dialog";
+import { MEDIA_HOLD_CHANNEL, MEDIA_RELEASE_CHANNEL, holdMediaInPage } from "../shared/media-hold";
 import { PAGE_COMMAND_CHANNEL, commandForInput, isPageFirst } from "../shared/shortcuts";
 
 // The preload is type-checked with the Node project (no DOM lib); declare the globals it reads.
@@ -132,6 +134,38 @@ const isWeb = location.protocol === "https:" || location.protocol === "http:";
 // A web page with an origin of its own: never a sandboxed one (its origin is opaque, "null"), where
 // nothing is offered or filled. (Electron runs no tab preload in about:blank or srcdoc frames.)
 const webOrigin = /^https?:\/\//.test(location.origin);
+
+// A tab the person opened in the background plays nothing until they first go to it (shared/media-hold.ts).
+// Only a document that starts hidden asks: such a tab has never been on screen.
+if (isWeb && document.visibilityState === "hidden" && ipcRenderer.sendSync(MEDIA_HOLD_CHANNEL) === true) {
+  let held = true;
+  let release: (() => void) | null = null;
+  // Elements that started by themselves (autoplay) while held: paused, and started once the tab is shown.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const autoplayed = new Set<any>();
+  try {
+    contextBridge.executeInMainWorld({ func: holdMediaInPage, args: [(r: () => void) => (release = r)] });
+  } catch {
+    // The page's own play() calls go through; the tab stays muted until shown.
+  }
+  window.addEventListener(
+    "play",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      if (!held || !e.isTrusted || typeof e.target?.pause !== "function") return;
+      autoplayed.add(e.target);
+      e.target.pause();
+    },
+    true,
+  );
+  ipcRenderer.once(MEDIA_RELEASE_CHANNEL, () => {
+    held = false;
+    release?.();
+    for (const el of autoplayed) el.play().catch(() => undefined);
+    autoplayed.clear();
+  });
+}
+
 // This document, as the main process knows it from a field click: a fill names the document it is for,
 // so a frame that moved on to another page since the click gets nothing. Never shown to the page.
 const DOC = newDocToken((bytes) => (globalThis as unknown as { crypto: { getRandomValues(b: Uint8Array): Uint8Array } }).crypto.getRandomValues(bytes));
@@ -233,10 +267,13 @@ const setFieldValue = (el: any, value: string): void => {
   const proto = Object.getPrototypeOf(el);
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
   el.focus();
-  if (setter) setter.call(el, value);
-  else el.value = value;
-  el.dispatchEvent(new (document.defaultView.Event)("input", { bubbles: true }));
-  el.dispatchEvent(new (document.defaultView.Event)("change", { bubbles: true }));
+  // Typed (trusted events, see shared/typed-fill.ts); a select, or a field that refuses it, gets the value written.
+  if (!typeIntoField(el, value)) {
+    if (setter) setter.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new (document.defaultView.Event)("input", { bubbles: true }));
+    el.dispatchEvent(new (document.defaultView.Event)("change", { bubbles: true }));
+  }
   el.blur();
 };
 const fillFrame = (req: Extract<FrameFillRequest, { kind: "card" | "address" }>): number => {

@@ -14,8 +14,8 @@ interface Helpers {
   check: (name: string, ok: boolean, detail?: unknown) => void;
 }
 
-/** Every value set in a field, as the page itself hears it (input and change events, in shadow roots too): a fill Corvus refused must leave nothing here. */
-const RECORD = `const record = (root) => { for (const type of ["input", "change"]) root.addEventListener(type, (e) => { const el = e.composedPath()[0]; (window.__seen = window.__seen || []).push(String((el && el.value) || "")); }, true); };`;
+/** Every value set in a field, as the page itself hears it (input and change events, in shadow roots too): a fill Corvus refused must leave nothing here. Also counts the events a script made (isTrusted false), which bot checks reject. */
+const RECORD = `const record = (root) => { for (const type of ["input", "change"]) root.addEventListener(type, (e) => { const el = e.composedPath()[0]; (window.__seen = window.__seen || []).push(String((el && el.value) || "")); if (!e.isTrusted) window.__untrusted = (window.__untrusted || 0) + 1; }, true); };`;
 const LOGIN_FORM = `<form onsubmit="return false"><label>Username <input id="u" name="username" autocomplete="username"></label> <label>Password <input id="p" name="password" type="password" autocomplete="current-password"></label> <button>Sign in</button></form>`;
 const STYLE = "<style>body{font:14px sans-serif;margin:12px} label{display:block;margin:6px 0} iframe{width:460px;height:200px;border:1px solid #bbb}</style>";
 const page = (title: string, body: string): string => `<!doctype html><html><head><title>${title}</title>${STYLE}</head><body>${body}<script>${RECORD} record(document);</script></body></html>`;
@@ -84,8 +84,9 @@ const nearbyCodes = async (config: TotpConfig): Promise<string[]> => Promise.all
 interface FrameHeld {
   values: string[];
   seen: string[];
+  untrusted: number;
 }
-const HELD = `(() => { const values = []; const walk = (root) => { for (const el of root.querySelectorAll("input")) values.push(el.value); for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot); }; walk(document); return { values, seen: window.__seen || [] }; })()`;
+const HELD = `(() => { const values = []; const walk = (root) => { for (const el of root.querySelectorAll("input")) values.push(el.value); for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot); }; walk(document); return { values, seen: window.__seen || [], untrusted: window.__untrusted || 0 }; })()`;
 
 /**
  * Logins and 2FA codes in iframes. A click in a login field of a frame offers the logins saved for the
@@ -202,6 +203,8 @@ export async function runFrameFillSmoke(ctx: AppContext, { url, win, check }: He
       check("frames: a click in a login field of a same-origin frame offers the page's login", opened && usernames().join() === "shop-smoke" && dropdown.state()?.formHost === "", { opened, users: usernames(), formHost: dropdown.state()?.formHost });
       pickUser("shop-smoke");
       check("frames: picking it fills username and password into that frame", await filledWith(frame, "shop-smoke", "pw-shop-frame-smoke"), await held(frame));
+      const typed = await held(frame);
+      check("frames: the frame hears the fill as typing (trusted input and change events only, as with Chrome autofill)", Boolean(typed && typed.seen.length >= 4 && typed.untrusted === 0), typed && { events: typed.seen.length, untrusted: typed.untrusted });
       const top = await frameJs<{ u: string; p: string }>(wc.mainFrame, `({ u: document.getElementById("tu").value, p: document.getElementById("tp").value })`);
       check("frames: the page's own login form stays empty", top?.u === "" && top?.p === "", top);
     }
@@ -278,6 +281,8 @@ export async function runFrameFillSmoke(ctx: AppContext, { url, win, check }: He
       check("frames: a click in a web component's password field inside a frame offers the frame site's login", opened && usernames().join() === "embed-smoke", { opened, users: usernames() });
       pickUser("embed-smoke");
       check("frames: picking it fills the component's fields in that frame", await filledWith(frame, "embed-smoke", "pw-embed-frame-smoke", shadow), await held(frame));
+      const typed = await held(frame);
+      check("frames: the component's fields hear the fill as typing too (trusted events only)", Boolean(typed && typed.seen.length >= 4 && typed.untrusted === 0), typed && { events: typed.seen.length, untrusted: typed.untrusted });
     }
 
     // 7: the frame goes to another page of its site, or to another site, between the click and the pick: nothing reaches it.

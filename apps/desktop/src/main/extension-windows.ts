@@ -80,8 +80,8 @@ export class ExtensionWindowBridge implements ProfileDelegate {
     }
     const opener = details.openerTabId !== undefined ? allWebContents.fromId(details.openerTabId) : undefined;
     const openerTab = opener ? win.tabByWebContents(opener) : undefined;
-    // An extension's tab loads at once, in the background too (it may wait for the page or script it):
-    // only the tabs the person opens in the background wait until shown.
+    // An extension's tab loads and plays at once, in the background too (it may wait for the page or
+    // script it): only the tabs the person opens in the background hold their media until shown.
     const tab = win.createTab(url, {
       activate: details.active !== false,
       ...(typeof details.index === "number" && details.index >= 0 ? { index: details.index } : {}),

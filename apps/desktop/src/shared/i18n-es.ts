@@ -162,9 +162,6 @@ export const ES: Record<string, string> = {
   "Pinned tabs, tabs playing sound, tabs an AI agent is using and pages where you typed something stay awake.":
     "Las pestañas fijadas, las que reproducen sonido, las que usa un agente de IA y las páginas donde escribiste algo se quedan despiertas.",
   "Sleep after": "Dormir tras",
-  "Load tabs opened in the background right away": "Cargar al momento las pestañas abiertas en segundo plano",
-  "Off, a tab you open in the background (middle click, Ctrl+click, Open link in new tab) waits without loading until you go to it, so opening many costs nothing. On, it loads at the window's size and is drawn before you get to it, so it shows complete at once, and “Open all” on a bookmarks folder loads the first {count} now. Tabs AI agents open always load.":
-    "Desactivado, una pestaña que abres en segundo plano (clic central, Ctrl+clic, Abrir enlace en una pestaña nueva) espera sin cargarse hasta que vas a ella, así que abrir muchas no cuesta nada. Activado, se carga al tamaño de la ventana y se dibuja antes de que llegues a ella, así que se ve completa al instante, y «Abrir todos» en una carpeta de marcadores carga ahora las {count} primeras. Las pestañas que abren los agentes de IA siempre se cargan.",
   "{n} minutes": "{n} minutos",
   "{n} hours": "{n} horas",
   "1 hour": "1 hora",

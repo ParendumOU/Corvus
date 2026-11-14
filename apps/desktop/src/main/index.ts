@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { Menu, app, nativeImage, nativeTheme, safeStorage, session, utilityProcess } from "electron";
+import { Menu, app, nativeImage, nativeTheme, powerMonitor, safeStorage, session, utilityProcess } from "electron";
 import { ElectronChromeExtensions } from "electron-chrome-extensions";
 import { AdblockService } from "./adblock";
 import { CleanExitTracker } from "./clean-exit";
@@ -390,6 +390,8 @@ async function main(): Promise<void> {
   app.on("activate", () => {
     if (ctx.windows.all().length === 0) ctx.windows.open(profiles.manager.lastUsed);
   });
+  // The computer shutting down (Linux, macOS): the open windows are what comes back.
+  powerMonitor.on("shutdown", () => ctx.sessionRestore.quitting());
   app.on("before-quit", () => {
     ctx.tray.markQuitting();
     tidyNotificationShortcut("quit");

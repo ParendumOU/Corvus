@@ -13,6 +13,7 @@ import { identifierFieldFacts, isIdentifierFacts } from "./identifier-field";
 import { isOtpFacts, otpFieldFacts } from "./otp-field";
 import { passwordFieldFacts, passwordRoles } from "./password-fields";
 import { deepActiveElement, deepElementFromPoint, deepQueryAll } from "./shadow-dom";
+import { typeIntoField } from "./typed-fill";
 
 /** Separate from the agent (1717), reader (1721) and assist worlds. */
 export const AUTOFILL_WORLD_ID = 1723;
@@ -134,14 +135,19 @@ const FIND_OTP = `
   };
 `;
 
+// Values are typed (shared/typed-fill.ts: trusted events, which sign-in bot checks such as Twitch's
+// require); a script write is the fallback when the field refuses that.
 const SET_VALUE = `
+  const typeIntoField = ${String(typeIntoField)};
   const setValue = (el, value) => {
     const proto = el.tagName === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
     el.focus();
-    setter.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
+    if (!typeIntoField(el, value)) {
+      setter.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
     el.blur();
   };
   const markSecret = (el, mask) => {

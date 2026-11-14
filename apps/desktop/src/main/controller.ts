@@ -266,8 +266,8 @@ export class Controller implements BrowserController {
   }
 
   /**
-   * The tab's page as readable() gives it, loaded first when it waits unloaded (opened in the
-   * background, restored, asleep): an agent reads and acts on what the person would see there.
+   * The tab's page as readable() gives it, loaded first when it waits unloaded (restored, asleep,
+   * the later tabs of "Open all"): an agent reads and acts on what the person would see there.
    */
   private async page(id: TabId, dialogs: "block" | "allow" = "block"): Promise<{ window: BrowserWindowCtl; tab: TabRuntime; wc: WebContents }> {
     const { window, tab } = this.locate(id);

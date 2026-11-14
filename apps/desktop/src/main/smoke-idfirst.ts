@@ -18,7 +18,7 @@ interface Helpers {
 const page = (title: string, body: string): string => `<!doctype html><html><head><title>${title}</title>
 <style>body{font:14px sans-serif;margin:32px} .field{display:flex;flex-direction:column;gap:4px;margin:0 0 14px;max-width:320px} .hidden{display:none}</style></head><body>
 <main><h1>${title}</h1>${body}</main>
-<script>window.__events = []; document.addEventListener("input", (e) => __events.push("input:" + e.target.id), true); document.addEventListener("change", (e) => __events.push("change:" + e.target.id), true);</script>
+<script>window.__events = []; for (const type of ["input", "change"]) document.addEventListener(type, (e) => __events.push(type + ":" + e.target.id + (e.isTrusted ? "" : ":script")), true);</script>
 </body></html>`;
 
 /**
@@ -144,8 +144,8 @@ export async function runIdentifierFirstSmoke(ctx: AppContext, { url, win, check
     await sleep(800);
     const events = (await js<string[]>(one.wc, "window.__events")) ?? [];
     check(
-      "two-step sign-in: a pick fills the e-mail only (input and change fired), the hidden decoy password stays empty, and Next is not pressed",
-      filled && (await decoy(one.wc)) === "" && one.wc.getURL().endsWith("/idf-step1") && events.includes("input:username") && events.includes("change:username"),
+      "two-step sign-in: a pick fills the e-mail only (trusted input and change fired, as typing), the hidden decoy password stays empty, and Next is not pressed",
+      filled && (await decoy(one.wc)) === "" && one.wc.getURL().endsWith("/idf-step1") && events.includes("input:username") && events.includes("change:username") && !events.some((e) => e.endsWith(":script")),
       { filled, decoy: await decoy(one.wc), url: one.wc.getURL(), events },
     );
 
@@ -158,7 +158,14 @@ export async function runIdentifierFirstSmoke(ctx: AppContext, { url, win, check
     await shot("step2-en");
     pick(onStep2[0] ?? "");
     const passwordFilled = await until(async () => (await value(one.wc, "#password")) === "idf-pass-2", 4000);
-    check("two-step sign-in: the password step offers the account picked on the first step first, and fills its password", two && onStep2[0] === second.username && passwordFilled, { two, onStep2, passwordFilled });
+    await sleep(300);
+    const typedEvents = (await js<string[]>(one.wc, "window.__events")) ?? [];
+    const typedPassword = typedEvents.includes("input:password") && typedEvents.includes("change:password") && !typedEvents.some((e) => e.endsWith(":script"));
+    check(
+      "two-step sign-in: the password step offers the account picked on the first step first, and fills its password as typing (trusted input and change only, which sign-in bot checks such as Twitch's require)",
+      two && onStep2[0] === second.username && passwordFilled && typedPassword,
+      { two, onStep2, passwordFilled, events: typedEvents },
+    );
 
     // ---- A typed e-mail: the password step offers its account first, and the save prompt names it.
     const typed = await open(at("login", "/idf-step1"));

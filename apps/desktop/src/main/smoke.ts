@@ -338,7 +338,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runExternalAppsSmoke(ctx, { win, check, capture }, true);
       return;
     }
-    // CORVUS_SMOKE_ONLY=bgtabs: only the background tab checks (preloading, agent tabs painting out of sight, captures), with CORVUS_BGTABS_MEASURE=1 also memory and timings.
+    // CORVUS_SMOKE_ONLY=bgtabs: only the background tab checks (media held until shown, agent tabs painting out of sight, captures), with CORVUS_BGTABS_MEASURE=1 also memory and timings.
     if (process.env.CORVUS_SMOKE_ONLY === "bgtabs") {
       await runBgTabsSmoke(ctx, { win, check, capture, log });
       return;

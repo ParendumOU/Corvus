@@ -20,6 +20,7 @@ import type { ScheduleInput } from "../shared/schedule-ipc";
 import type { SiteProfileInput, SiteProfileMatch } from "../shared/site-profile-ipc";
 import { capAccessLevel } from "../shared/site-profiles";
 import { PAGE_PROMPT_CHANNEL } from "../shared/dialog";
+import { MEDIA_HOLD_CHANNEL } from "../shared/media-hold";
 import { PAGE_COMMAND_CHANNEL } from "../shared/shortcuts";
 import { buildSuggestions } from "../shared/suggest";
 import { GROUP_COLORS, type GroupPatch } from "../shared/tab-strip";
@@ -159,7 +160,7 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       const o = (opts ?? {}) as { url?: unknown; groupId?: unknown; background?: unknown };
       const url = optStr(o.url, "url") ?? "corvus://newtab/";
       const groupId = optStr(o.groupId, "group");
-      return w.createTab(url, { activate: o.background !== true, preload: true, ...(groupId ? { groupId } : {}) }).id;
+      return w.createTab(url, { activate: o.background !== true, byPerson: true, ...(groupId ? { groupId } : {}) }).id;
     },
     "tabs.close": (w, id) => w.closeTab(str(id, "tab")),
     "tabs.activate": (w, id) => w.activate(str(id, "tab")),
@@ -1115,6 +1116,11 @@ export function registerIpc(ctx: AppContext): void {
   ipcMain.on(PAGE_COMMAND_CHANNEL, (event: IpcMainEvent, raw: unknown) => {
     const found = ctx.windows.byUnlockedTab(event.sender);
     if (found) found.window.runPageCommand(found.tab, raw);
+  });
+
+  // A frame's document that starts hidden asks whether its tab holds media (shared/media-hold.ts); it waits for the answer.
+  ipcMain.on(MEDIA_HOLD_CHANNEL, (event: IpcMainEvent) => {
+    event.returnValue = ctx.windows.byTabWebContents(event.sender)?.tab.mediaHold !== undefined;
   });
 
   // A page's prompt() (the tab preload's own; Electron's throws). The page waits until returnValue is set.

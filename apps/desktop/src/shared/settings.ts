@@ -164,12 +164,6 @@ export interface Settings {
     sleepTabs: boolean;
     /** Minutes a tab stays in the background before it sleeps. */
     sleepAfterMinutes: number;
-    /**
-     * A tab the person opens in the background loads at once, at the window's size, and paints until
-     * loaded. Off by default: it waits unloaded until first shown. (Replaces preloadBackgroundTabs,
-     * which was on by default: a new key, so saved settings start from the new default.)
-     */
-    loadBackgroundTabs: boolean;
   };
   media: {
     /** Float a video that is playing with sound when you switch to another tab. On by default. */
@@ -329,7 +323,7 @@ export function defaultSettings(env: Record<string, string | undefined> = {}): S
     mcp: { enabled: false, host: "127.0.0.1", port: 0, accessLevel: "standard", allowEvaluate: false, approvedClients: [], rateLimit: "standard", activityLog: true },
     downloads: { directory: "", askWhereToSave: false, promptDestination: false, watchClipboard: true, maxParallel: 3, segments: 4, extractArchives: true, deleteArchives: false, archivePasswords: [] },
     webscope: { enabled: false, maxBodyBytes: 5 * 1024 * 1024 },
-    memory: { sleepTabs: true, sleepAfterMinutes: 60, loadBackgroundTabs: false },
+    memory: { sleepTabs: true, sleepAfterMinutes: 60 },
     media: { autoPictureInPicture: true },
     phone: { telegramBot: "", telegramChatId: "", telegramChatName: "", receiveLinks: true, answerQuestions: true },
     translate: { offer: true, targetLanguage: "" },

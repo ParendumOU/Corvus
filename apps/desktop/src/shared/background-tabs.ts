@@ -1,17 +1,15 @@
 /**
  * Tabs that are not on screen. A tab the person opens in the background (a middle click, Ctrl+click,
- * "Open link in new tab") waits unloaded until they first go to it, so opening ten videos does not
- * start ten players; with Settings > Memory's "Load tabs opened in the background right away" it
- * loads at once and paints until its page has loaded, so it is complete the moment it is shown. A
- * tab an AI agent works in always loads, and keeps painting while hidden, so screenshots and
- * coordinate tools work without bringing it to the front; only the agent tabs used most recently
- * do, so memory and processor use stay bounded. Pure rules here; main/background-render.ts and
- * BrowserWindowCtl do the work.
+ * "Open link in new tab", a bookmark) loads at once, so its title and icon show, but its media waits
+ * until they first go to it (see shared/media-hold.ts), so opening ten videos does not start ten
+ * players. A tab an AI agent works in loads and plays as any page, and keeps painting while hidden,
+ * so screenshots and coordinate tools work without bringing it to the front; only the agent tabs
+ * used most recently do, so memory and processor use stay bounded. Pure rules here;
+ * main/background-render.ts and BrowserWindowCtl do the work.
  */
-import { isAttachmentDisposition } from "./pdf-ipc";
 
-/** Why a hidden tab paints: an agent works in it, it was opened in the background, or a capture waits for it. */
-export type PaintReason = "agent" | "preload" | "capture";
+/** Why a hidden tab paints: an agent works in it, or a capture waits for it. */
+export type PaintReason = "agent" | "capture";
 
 /** Agent tabs that keep painting while hidden at most. */
 export const AGENT_RENDER_CAP = 8;
@@ -40,68 +38,42 @@ export function tabsToStopRendering(entries: readonly RenderEntry[], cap: number
     .map((e) => e.id);
 }
 
-export interface NewTabPaint {
-  /** The tab opens in front (it paints like any shown tab). */
+export interface NewTab {
+  /** The tab opens in front. */
   activate: boolean;
   /** It loads only when first shown (session restore, the later tabs of "Open all"). */
   lazy: boolean;
   /** An AI agent opened it. */
   agent: boolean;
-  /** The person opened it in the background to look at it soon (a middle click, "Open link in new tab"). */
-  preload: boolean;
-}
-
-export interface BackgroundTabSettings {
-  /** Settings > Memory: "Load tabs opened in the background right away". */
-  loadBackgroundTabs: boolean;
-  /** Settings > AI agents: "Let AI agents render pages in the background". */
-  agentsRenderInBackground: boolean;
+  /** The person opened it (a link, a bookmark), in front or in the background. */
+  byPerson: boolean;
 }
 
 /**
- * Whether a new tab waits, unloaded, until it is first shown: restored tabs and the later tabs of
- * "Open all", and the tabs the person opens in the background unless the setting loads them right
- * away. A tab in front loads, and so does an agent's, wherever it opens: agents work in tabs the
- * person never looks at.
+ * Whether a new tab's media waits until the tab is first shown: a tab the person opens in the
+ * background loads at once but plays nothing until they go to it, as in Chrome. An agent's tab
+ * plays as any page (agents work in tabs the person never looks at), and a tab that loads only when
+ * shown has nothing to hold.
  */
-export function waitsUntilShown(tab: NewTabPaint, settings: BackgroundTabSettings): boolean {
-  if (tab.activate) return false;
-  if (tab.lazy) return true;
-  return tab.preload && !tab.agent && !settings.loadBackgroundTabs;
+export function holdsMedia(tab: NewTab): boolean {
+  return tab.byPerson && !tab.activate && !tab.lazy && !tab.agent;
 }
 
 /**
- * Whether a new tab paints while it is not on screen, and why: an agent's tab keeps painting, a tab
- * the person opened in the background (loaded right away) paints until it has loaded; other tabs
- * (shown, restored, received from another device) paint only when shown.
+ * Whether a new tab paints while it is not on screen: an agent's tab opened in the background does,
+ * with Settings > AI agents' "Let AI agents render pages in the background"; other tabs paint only
+ * when shown, so the person's background tabs stay throttled and cheap.
  */
-export function newTabPaint(tab: NewTabPaint, settings: BackgroundTabSettings): PaintReason | null {
-  if (tab.activate || tab.lazy) return null;
-  if (tab.agent) return settings.agentsRenderInBackground ? "agent" : null;
-  return tab.preload && settings.loadBackgroundTabs ? "preload" : null;
+export function newTabPaint(tab: NewTab, agentsRenderInBackground: boolean): PaintReason | null {
+  return tab.agent && !tab.activate && !tab.lazy && agentsRenderInBackground ? "agent" : null;
 }
 
-/** Types Chromium shows in a tab (a page, text, media, a PDF in the viewer); anything else downloads. */
-const SHOWN_TYPES = [/^text\//, /^image\//, /^audio\//, /^video\//, /^multipart\/x-mixed-replace$/, /^application\/(pdf|json|xml|xhtml\+xml|javascript|ecmascript|wasm)$/, /\+(xml|json)$/];
-
-/**
- * Whether a response is a file to download rather than something to show: sent as an attachment,
- * or of a type a tab does not show. A link the person opens in the background that leads to one
- * loads at once, so it downloads and its tab closes as before, instead of waiting to be shown as an
- * empty tab. No type known: it waits.
- */
-export function isDownloadResponse(contentType: string | null, disposition: string | null): boolean {
-  if (disposition && isAttachmentDisposition(disposition)) return true;
-  const type = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
-  return type !== "" && !SHOWN_TYPES.some((shown) => shown.test(type));
-}
-
-/** With background tabs loading right away, "Open all" loads this many of a folder's tabs at once; the rest load when first shown. */
+/** "Open all" loads this many of a folder's tabs at once; the rest load when first shown. */
 export const OPEN_ALL_LOAD_NOW = 5;
 
 /** For each tab "Open all" opens, in order: true when it loads at once, false when it waits until shown. */
-export function openAllPlan(count: number, loadBackgroundTabs: boolean): boolean[] {
-  return Array.from({ length: Math.max(0, count) }, (_, i) => loadBackgroundTabs && i < OPEN_ALL_LOAD_NOW);
+export function openAllPlan(count: number): boolean[] {
+  return Array.from({ length: Math.max(0, count) }, (_, i) => i < OPEN_ALL_LOAD_NOW);
 }
 
 /**
