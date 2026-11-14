@@ -169,8 +169,10 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "tabs.select"(tabId: TabId, mods: { toggle?: boolean; range?: boolean; keep?: boolean }): void;
   /** A tab dropped in the strip at `toIndex`; a tab of another window dropped here moves to this one (with the tabs selected with it). */
   "tabs.move"(tabId: TabId, toIndex: number, groupId: GroupId | null): void;
-  /** A tab drag ended on no tab strip: let go away from this window's strip, the tab (and those selected with it) goes to a new window. */
-  "tabs.dragEnd"(tabId: TabId): void;
+  /** A tab drag started: a preview of the new window it may open follows the pointer away from the strip. */
+  "tabs.dragStart"(tabId: TabId): void;
+  /** A tab drag ended; `accepted`: a strip or the new window's preview took the drop (the system's drop effect was not "none"). */
+  "tabs.dragEnd"(tabId: TabId, accepted: boolean): void;
   "tabs.pin"(tabId: TabId, pinned: boolean): void;
   "tabs.navigate"(tabId: TabId, input: string): void;
   "tabs.openUrl"(url: string, disposition: "current" | "new-tab" | "background-tab"): void;
@@ -187,8 +189,10 @@ export interface ChromeRpc extends BrowserChromeRpc, AssistChromeRpc, WorkspaceC
   "groups.close"(groupId: GroupId): void;
   /** A group dropped in the strip; a group of another window dropped here moves to this one whole. */
   "groups.move"(groupId: GroupId, toIndex: number): void;
-  /** A group drag ended on no tab strip: let go away from this window's strip, the group goes to a new window. */
-  "groups.dragEnd"(groupId: GroupId): void;
+  /** A group drag started (see tabs.dragStart). */
+  "groups.dragStart"(groupId: GroupId): void;
+  /** A group drag ended (see tabs.dragEnd). */
+  "groups.dragEnd"(groupId: GroupId, accepted: boolean): void;
   "groups.newTab"(groupId: GroupId): void;
   /** `inline`: the address bar may fill in the best page (inline autocomplete), which then comes first. */
   "omnibox.suggest"(input: string, inline?: boolean): Suggestion[];

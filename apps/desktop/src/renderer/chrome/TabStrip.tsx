@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
 import type { TabGroup } from "@corvus/shared";
+import { GROUP_DRAG_MIME as GROUP_MIME, TAB_DRAG_MIME as TAB_MIME } from "../../shared/drag-preview";
 import { GROUP_COLOR_HEX, type TabView, type WindowState } from "../../shared/ipc";
 import { computeDropTarget, type TabStripState } from "../../shared/tab-strip";
 import { buildStripRows, closesOnClick, groupsNeedingYou } from "../../shared/tab-strip-view";
@@ -41,9 +42,6 @@ function selectOnClick(tab: TabView, e: MouseEvent): void {
   if (e.button === 0 && tab.selected && !e.ctrlKey && !e.metaKey && !e.shiftKey) void chromeApi().call("tabs.select", tab.id, {});
 }
 
-const TAB_MIME = "application/x-corvus-tab";
-const GROUP_MIME = "application/x-corvus-group";
-
 type DropHint = { id: string; side: "before" | "after" } | null;
 
 /**
@@ -56,9 +54,16 @@ function dropTarget(state: WindowState, draggedId: string, overId: string, side:
   return over === -1 ? null : { toIndex: over + (side === "after" ? 1 : 0), groupId: state.tabs[over]?.groupId ?? null };
 }
 
-/** A tab drag that ended on no tab strip (dropped outside the window, or on a page): main may move the tab to a new window. */
+/** A tab drag started: main shows a preview of the new window wherever a drop would open one. */
+function startTabDrag(e: DragEvent<HTMLElement>, tabId: string): void {
+  e.dataTransfer.setData(TAB_MIME, tabId);
+  e.dataTransfer.effectAllowed = "move";
+  void chromeApi().call("tabs.dragStart", tabId);
+}
+
+/** A tab drag ended: main hides the preview, and knows whether a strip or the preview took the drop. */
 function endTabDrag(e: DragEvent<HTMLElement>, tabId: string): void {
-  if (e.dataTransfer.dropEffect === "none") void chromeApi().call("tabs.dragEnd", tabId);
+  void chromeApi().call("tabs.dragEnd", tabId, e.dataTransfer.dropEffect !== "none");
 }
 
 function toStrip(state: WindowState): TabStripState {
@@ -183,10 +188,9 @@ function HorizontalTabStrip({
           onDragStart={(e) => {
             e.dataTransfer.setData(GROUP_MIME, group.id);
             e.dataTransfer.effectAllowed = "move";
+            void api.call("groups.dragStart", group.id);
           }}
-          onDragEnd={(e) => {
-            if (e.dataTransfer.dropEffect === "none") void api.call("groups.dragEnd", group.id);
-          }}
+          onDragEnd={(e) => void api.call("groups.dragEnd", group.id, e.dataTransfer.dropEffect !== "none")}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes(TAB_MIME)) e.preventDefault();
           }}
@@ -294,10 +298,7 @@ function Tab({
       title={tabTooltip(tab)}
       style={{ "--group-color": color } as CSSProperties}
       draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(TAB_MIME, tab.id);
-        e.dataTransfer.effectAllowed = "move";
-      }}
+      onDragStart={(e) => startTabDrag(e, tab.id)}
       onDragEnd={(e) => endTabDrag(e, tab.id)}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -484,10 +485,7 @@ function VTab({
       title={tabTooltip(tab)}
       style={{ "--group-color": color } as CSSProperties}
       draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(TAB_MIME, tab.id);
-        e.dataTransfer.effectAllowed = "move";
-      }}
+      onDragStart={(e) => startTabDrag(e, tab.id)}
       onDragEnd={(e) => endTabDrag(e, tab.id)}
       onDragOver={(e) => onDragOver(e, tab.id)}
       onDrop={(e) => onDrop(e, tab.id)}

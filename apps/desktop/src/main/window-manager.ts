@@ -2,10 +2,11 @@ import { app, screen, type WebContents } from "electron";
 import type { GroupId, ProfileId, TabId } from "@corvus/shared";
 import { NEW_TAB_URL } from "../shared/internal-urls";
 import type { SessionWindow } from "../shared/session-state";
-import { tearOffBounds, tearsOff, type Point } from "../shared/tab-tearoff";
+import { tearOffBounds, type Point } from "../shared/tab-tearoff";
 import type { AppContext } from "./context";
 import type { PermissionHost } from "./permissions";
 import { ProfileLockedError } from "./profile-lock";
+import { TabDragPreview } from "./tab-drag-preview";
 import { BrowserWindowCtl, type TabRuntime, type WindowOpenOptions } from "./window";
 
 export class WindowManager implements PermissionHost {
@@ -14,6 +15,14 @@ export class WindowManager implements PermissionHost {
   /** The window that has the system's focus now (null while another app has it). */
   private front: BrowserWindowCtl | null = null;
   private readonly focusListeners = new Set<(win: BrowserWindowCtl) => void>();
+  /** Where the pointer is on screen (the smoke points it elsewhere). */
+  cursor: () => Point = () => screen.getCursorScreenPoint();
+  /** The new window's preview that follows the pointer while tabs are dragged out of a strip. */
+  readonly dragPreview = new TabDragPreview({
+    pointer: () => this.cursor(),
+    partners: (from) => this.windows.filter((w) => w !== from && !w.isDisposed() && from.canTradeTabsWith(w) && w.win.isVisible() && !w.win.isMinimized()),
+    tearOff: (from, ids, pointer) => this.tearOff(from, ids, pointer),
+  });
 
   constructor(private readonly ctx: AppContext) {}
 
@@ -55,13 +64,17 @@ export class WindowManager implements PermissionHost {
 
   /**
    * Moves tabs, pages and all (nothing reloads), from one window to another of the same profile and
-   * kind; `from` closes when it has none left. False when they may not move there.
+   * kind; `from` closes when it has none left. False when they may not move there, or `to` could not
+   * take them: they are then back where they were, since a move never loses a tab.
    */
   moveTabs(from: BrowserWindowCtl, ids: readonly TabId[], to: BrowserWindowCtl, opts: { index?: number; groupId?: GroupId | null; activeId?: TabId } = {}): boolean {
     if (!from.canTradeTabsWith(to)) return false;
     const parcel = from.releaseTabs(ids);
     if (parcel.tabs.length === 0) return false;
-    to.adoptTabs(parcel, opts);
+    if (!to.adoptTabs(parcel, opts)) {
+      from.adoptTabs(parcel, { index: parcel.index, ...(parcel.activeId ? { activeId: parcel.activeId } : {}) });
+      return false;
+    }
     if (from.tabCount === 0) from.close();
     return true;
   }
@@ -87,8 +100,10 @@ export class WindowManager implements PermissionHost {
     this.windows.push(win);
     this.lastFocused = win;
     if (!win.isPrivate) this.ctx.sessionRestore.resume();
-    this.moveTabs(from, going, win);
-    return win;
+    if (this.moveTabs(from, going, win)) return win;
+    // The tabs stayed where they were; the window made for them goes.
+    win.close();
+    return null;
   }
 
   /** A tab of another window dropped on `to`'s strip: it moves there, with the tabs selected with it. */
@@ -109,14 +124,18 @@ export class WindowManager implements PermissionHost {
     return moved;
   }
 
+  /** A drag of tabs (`ids`, the person holding `grabbed`) started in `from`'s strip: the new window's preview follows the pointer. */
+  dragStarted(from: BrowserWindowCtl, ids: readonly TabId[], grabbed: TabId): void {
+    if (ids.length > 0 && !from.profile.locked) this.dragPreview.start(from, ids, grabbed);
+  }
+
   /**
-   * A drag of tabs (`ids`) out of `from`'s strip ended on no tab strip: let go away from the strip,
-   * they go to a new window there; near it, the drag was given up.
+   * A drag of tabs (`ids`) out of `from`'s strip ended; `accepted`: something took the drop (a strip,
+   * or the preview, which opens the new window itself). Given up (Esc) or let go near the strip, the
+   * tabs stay; where no preview could show, a drop away from the strip still opens a window there.
    */
-  dragEnded(from: BrowserWindowCtl, ids: readonly TabId[]): BrowserWindowCtl | null {
-    const pointer = screen.getCursorScreenPoint();
-    if (!tearsOff(pointer, from.stripOnScreen())) return null;
-    return this.tearOff(from, ids, pointer);
+  dragEnded(from: BrowserWindowCtl, ids: readonly TabId[], accepted: boolean): void {
+    this.dragPreview.end(from, accepted, ids);
   }
 
   all(): BrowserWindowCtl[] {
@@ -224,6 +243,7 @@ export class WindowManager implements PermissionHost {
     }
     if (this.lastFocused === win) this.lastFocused = this.windows[this.windows.length - 1] ?? null;
     if (this.front === win) this.front = null;
+    if (this.windows.length === 0) this.dragPreview.dispose();
     if (this.windows.length === 0 && process.platform !== "darwin" && !this.ctx.tray.keepsRunning()) app.quit();
   }
 

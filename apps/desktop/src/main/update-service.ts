@@ -1,5 +1,6 @@
+import { createRequire } from "node:module";
 import { app, net } from "electron";
-import electronUpdater, { type ProgressInfo, type UpdateInfo } from "electron-updater";
+import type { AppUpdater, ProgressInfo, UpdateInfo } from "electron-updater";
 import type { UpdatePhase, UpdateStatus } from "../shared/ipc";
 import type { PortableOffer } from "../shared/portable-update";
 import type { UpdateChannel } from "../shared/settings";
@@ -16,7 +17,12 @@ import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 import { PortableUpdater, portableExecutable } from "./portable-updater";
 
-const { autoUpdater } = electronUpdater;
+let loadedUpdater: AppUpdater | null = null;
+/** electron-updater and its dependencies load the first time an update is checked or fetched, never during Corvus's start. */
+function autoUpdater(): AppUpdater {
+  loadedUpdater ??= (createRequire(import.meta.url)("electron-updater") as typeof import("electron-updater")).autoUpdater;
+  return loadedUpdater;
+}
 
 /**
  * Self-update from GitHub Releases (ParendumOU/Corvus), or from a self-hosted electron-builder
@@ -60,31 +66,32 @@ export class UpdateService {
   /** Attach listeners once, then point the updater at the configured feed and channel. */
   private configure(): boolean {
     if (!this.supported()) return false;
+    const updater = autoUpdater();
     if (!this.wired) {
-      autoUpdater.autoDownload = false;
-      autoUpdater.autoInstallOnAppQuit = true;
-      autoUpdater.logger = null;
-      autoUpdater.on("checking-for-update", () => this.set("checking"));
-      autoUpdater.on("update-available", (info: UpdateInfo) => {
+      updater.autoDownload = false;
+      updater.autoInstallOnAppQuit = true;
+      updater.logger = null;
+      updater.on("checking-for-update", () => this.set("checking"));
+      updater.on("update-available", (info: UpdateInfo) => {
         this.newVersion = info.version;
         this.releaseNotes = notesToText(info.releaseNotes);
         this.set("available");
       });
-      autoUpdater.on("update-not-available", () => {
+      updater.on("update-not-available", () => {
         this.newVersion = null;
         this.set("not-available");
       });
-      autoUpdater.on("download-progress", (p: ProgressInfo) => {
+      updater.on("download-progress", (p: ProgressInfo) => {
         this.percent = Math.max(0, Math.min(100, Math.round(p.percent)));
         this.set("downloading");
       });
-      autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+      updater.on("update-downloaded", (info: UpdateInfo) => {
         this.newVersion = info.version;
         this.releaseNotes = notesToText(info.releaseNotes);
         this.percent = 100;
         this.set("downloaded");
       });
-      autoUpdater.on("error", (err: Error) => {
+      updater.on("error", (err: Error) => {
         this.error = cleanError(err);
         this.set("error");
       });
@@ -94,12 +101,12 @@ export class UpdateService {
     const feedUrl = this.ctx.settings.get().update.feedUrl;
     const pinned = channel === "beta" && !feedUrl.trim() ? this.pinned : null;
     // The channel setter turns allowDowngrade on: set it last.
-    autoUpdater.channel = pinned?.channel ?? channel;
-    autoUpdater.allowPrerelease = allowPrerelease;
-    autoUpdater.allowDowngrade = allowDowngrade;
+    updater.channel = pinned?.channel ?? channel;
+    updater.allowPrerelease = allowPrerelease;
+    updater.allowDowngrade = allowDowngrade;
     try {
       // Set every time: clearing a custom URL must switch back to GitHub within the same session.
-      autoUpdater.setFeedURL(pinned?.feed ?? resolveUpdateFeed(feedUrl, channel));
+      updater.setFeedURL(pinned?.feed ?? resolveUpdateFeed(feedUrl, channel));
     } catch (err) {
       this.error = cleanError(err as Error);
       this.set("error");
@@ -118,7 +125,7 @@ export class UpdateService {
       try {
         await this.pinDesktopRelease();
         if (!this.configure()) return;
-        await autoUpdater.checkForUpdates();
+        await autoUpdater().checkForUpdates();
         this.checkedAt = Date.now();
       } catch (err) {
         this.error = cleanError(err as Error);
@@ -193,7 +200,7 @@ export class UpdateService {
     this.error = null;
     this.percent = 0;
     this.set("downloading");
-    autoUpdater.downloadUpdate().catch((err: unknown) => {
+    autoUpdater().downloadUpdate().catch((err: unknown) => {
       this.error = cleanError(err as Error);
       this.set("error");
     });
@@ -208,7 +215,7 @@ export class UpdateService {
         return;
       }
       // Silent (no installer wizard, the install is updated in place) and started again afterwards.
-      autoUpdater.quitAndInstall(true, true);
+      autoUpdater().quitAndInstall(true, true);
     } catch (err) {
       this.error = cleanError(err as Error);
       this.set("error");

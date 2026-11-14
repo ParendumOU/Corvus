@@ -175,9 +175,13 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       if (w.hasTab(tabId)) w.moveTab(tabId, num(toIndex, "index"), group);
       else ctx.windows.dropTab(w, tabId, num(toIndex, "index"), group);
     },
-    "tabs.dragEnd": (w, id) => {
+    "tabs.dragStart": (w, id) => {
       const tabId = str(id, "tab");
-      if (w.hasTab(tabId)) ctx.windows.dragEnded(w, w.actionTabIds(tabId));
+      if (w.hasTab(tabId)) ctx.windows.dragStarted(w, w.actionTabIds(tabId), tabId);
+    },
+    "tabs.dragEnd": (w, id, accepted) => {
+      const tabId = str(id, "tab");
+      ctx.windows.dragEnded(w, w.hasTab(tabId) ? w.actionTabIds(tabId) : [], accepted === true);
     },
     "tabs.pin": (w, id, pinned) => w.pin(str(id, "tab"), pinned === true),
     "tabs.navigate": (w, id, input) => w.navigateInput(str(id, "tab"), str(input, "input")),
@@ -198,9 +202,14 @@ function chromeHandlers(ctx: AppContext): Handlers<ChromeRpc, BrowserWindowCtl> 
       if (w.hasGroup(groupId)) w.moveGroup(groupId, num(toIndex, "index"));
       else ctx.windows.dropGroup(w, groupId, num(toIndex, "index"));
     },
-    "groups.dragEnd": (w, id) => {
+    "groups.dragStart": (w, id) => {
       const groupId = str(id, "group");
-      if (w.hasGroup(groupId)) ctx.windows.dragEnded(w, w.groupTabIds(groupId));
+      const ids = w.hasGroup(groupId) ? w.groupTabIds(groupId) : [];
+      if (ids.length > 0) ctx.windows.dragStarted(w, ids, ids.find((t) => t === w.activeTab()?.id) ?? ids[0]!);
+    },
+    "groups.dragEnd": (w, id, accepted) => {
+      const groupId = str(id, "group");
+      ctx.windows.dragEnded(w, w.hasGroup(groupId) ? w.groupTabIds(groupId) : [], accepted === true);
     },
     "groups.newTab": (w, id) => w.newTabInGroup(str(id, "group")),
     "omnibox.suggest": async (w, input, inline) => {

@@ -1,7 +1,8 @@
 // Preload for the Corvus Assist panel (corvus://assist), the agent overlay (corvus://agent-overlay),
-// the reader and the account dropdown under a field (corvus://field-menu). All live in their own
-// views, never in tabs.
+// the reader, the account dropdown under a field (corvus://field-menu) and the preview of a new
+// window during a tab drag (corvus://drag-preview). All live in their own views, never in tabs.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { DRAG_PREVIEW_DROP, DRAG_PREVIEW_EVENT, type DragPreviewBridge, type DragPreviewState } from "../shared/drag-preview";
 import {
   ASSIST_EVENT,
   ASSIST_RPC,
@@ -55,6 +56,18 @@ if (trusted && location.hostname === "agent-overlay") {
     dismiss: () => ipcRenderer.send(OVERLAY_DISMISS),
   };
   contextBridge.exposeInMainWorld("corvusOverlay", bridge);
+}
+
+if (trusted && location.hostname === "drag-preview") {
+  const bridge: DragPreviewBridge = {
+    onState: (listener) => {
+      const handler = (_event: IpcRendererEvent, state: DragPreviewState): void => listener(state);
+      ipcRenderer.on(DRAG_PREVIEW_EVENT, handler);
+      return () => ipcRenderer.off(DRAG_PREVIEW_EVENT, handler);
+    },
+    drop: () => ipcRenderer.send(DRAG_PREVIEW_DROP),
+  };
+  contextBridge.exposeInMainWorld("corvusDragPreview", bridge);
 }
 
 if (trusted && location.hostname === "field-menu") {

@@ -50,17 +50,26 @@ index e5436bb..95d9a7c 100644
    System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("PORTABLE_EXECUTABLE_DIR", "$EXEDIR").r0'
    System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("PORTABLE_EXECUTABLE_FILE", "$EXEPATH").r0'
    System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("PORTABLE_EXECUTABLE_APP_FILENAME", "${APP_FILENAME}").r0'
-@@ -83,9 +115,19 @@ Section
+@@ -83,9 +115,28 @@ Section
      BgImage::Destroy
    !endif
  
 +  ClearErrors
++  System::Call 'kernel32::GetTickCount()i .R8'
  	ExecWait "$INSTDIR\${APP_EXECUTABLE_FILENAME} $R0" $0
 +  !ifdef UNPACK_DIR_NAME
-+    # The app could not start or failed: unpack again next time, in case a file of it was damaged.
++    # Unpack again next time only when the app could not start, or failed within its first
++    # seconds (what a damaged file of it does). A non-zero exit later says nothing about its files
++    # (ended from the Task Manager or by Windows, a crash while quitting), and dropping the unpack
++    # for it made the next start seconds slower.
 +    ${if} ${Errors}
-+    ${orIf} $0 <> 0
 +      Delete "$INSTDIR\.unpacked"
++    ${elseIf} $0 <> 0
++      System::Call 'kernel32::GetTickCount()i .R9'
++      IntOp $R9 $R9 - $R8
++      ${if} $R9 < 15000
++        Delete "$INSTDIR\.unpacked"
++      ${endIf}
 +    ${endIf}
 +  !endif
    SetErrorLevel $0

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TabGroup } from "@corvus/shared";
 import { activateTab, createGroup, emptyStrip, insertTab, insertTabs, type TabStripState } from "../src/shared/tab-strip";
-import { STRIP_MARGIN, stripRect, tearOffBounds, tearsOff } from "../src/shared/tab-tearoff";
+import { PREVIEW_GRAB, PREVIEW_SIZE, STRIP_MARGIN, previewBounds, showsTearOffPreview, stripRect, tearOffAtEnd, tearOffBounds, tearsOff } from "../src/shared/tab-tearoff";
 
 const group = (id: string, extra: Partial<TabGroup> = {}): TabGroup => ({ id, title: id, color: "blue", collapsed: false, ...extra });
 
@@ -75,5 +75,47 @@ describe("tabs arriving from another window", () => {
 
   it("a tab already in the strip is not added twice", () => {
     expect(order(insertTabs(strip("a", "b"), [{ id: "a", pinned: false }], 2))).toBe("a b");
+  });
+});
+
+describe("the new window's preview during a drag", () => {
+  const own = { x: 100, y: 100, width: 800, height: 40 };
+  const other = { x: 1200, y: 300, width: 600, height: 40 };
+
+  it("sits under the pointer, held near its top left corner", () => {
+    expect(previewBounds({ x: 500, y: 400 })).toEqual({ x: 500 - PREVIEW_GRAB.x, y: 400 - PREVIEW_GRAB.y, ...PREVIEW_SIZE });
+    const b = previewBounds({ x: 10, y: 10 });
+    expect(10 >= b.x && 10 < b.x + b.width && 10 >= b.y && 10 < b.y + b.height).toBe(true);
+  });
+
+  it("shows away from the own strip and off other windows' strips only", () => {
+    expect(showsTearOffPreview({ x: 400, y: 500 }, own, [other])).toBe(true);
+    expect(showsTearOffPreview({ x: 400, y: 120 }, own, [other])).toBe(false);
+    expect(showsTearOffPreview({ x: 400, y: 140 + STRIP_MARGIN - 1 }, own, [other])).toBe(false);
+    expect(showsTearOffPreview({ x: 1300, y: 320 }, own, [other])).toBe(false);
+    expect(showsTearOffPreview({ x: 1300, y: 360 }, own, [other])).toBe(true);
+  });
+});
+
+describe("the end of a tab drag", () => {
+  const end = { accepted: false, previewShown: false, previewWorked: true, awayFromStrip: true };
+
+  it("waits for the preview's drop when the drop landed on it", () => {
+    expect(tearOffAtEnd({ ...end, accepted: true, previewShown: true })).toBe("wait");
+  });
+
+  it("does nothing more after a drop on a strip", () => {
+    expect(tearOffAtEnd({ ...end, accepted: true })).toBeNull();
+  });
+
+  it("keeps the tabs when a drag with a working preview is given up (Esc) or let go near the strip", () => {
+    expect(tearOffAtEnd(end)).toBeNull();
+    expect(tearOffAtEnd({ ...end, previewShown: true })).toBeNull();
+    expect(tearOffAtEnd({ ...end, awayFromStrip: false })).toBeNull();
+  });
+
+  it("tears off where no preview could show, when let go away from the strip, as before", () => {
+    expect(tearOffAtEnd({ ...end, previewWorked: false })).toBe("tear");
+    expect(tearOffAtEnd({ ...end, previewWorked: false, awayFromStrip: false })).toBeNull();
   });
 });

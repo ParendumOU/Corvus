@@ -203,6 +203,8 @@ export interface TabParcel {
   groups: TabGroup[];
   /** The one of them that was active in the window they leave. */
   activeId: TabId | null;
+  /** Where the first of them was in that window's strip (they go back there if the move fails). */
+  index: number;
 }
 
 export interface OpenTabOptions {
@@ -368,7 +370,8 @@ export class BrowserWindowCtl {
     chromeWc.on("did-finish-load", () => {
       this.chromeReady = true;
       this.flushState();
-      this.reveal();
+      // Focus asked for while the chrome UI loaded (the omnibox of the first new tab) lands now.
+      if (this.win.isVisible() && this.win.isFocused()) this.restoreFocus();
     });
     chromeWc.on("focus", () => {
       this.lastFocused = chromeWc;
@@ -381,8 +384,6 @@ export class BrowserWindowCtl {
     chromeWc.setWindowOpenHandler(() => ({ action: "deny" }));
     chromeWc.on("will-navigate", (event) => event.preventDefault());
     void chromeWc.loadURL("corvus://chrome/");
-    const showFallback = setTimeout(() => this.reveal(), 4000);
-    this.cleanups.push(() => clearTimeout(showFallback));
 
     const relayout = (): void => this.layout();
     const reshape = (): void => {
@@ -443,6 +444,10 @@ export class BrowserWindowCtl {
     this.lockScreen = profile.locked;
     initialUrls.forEach((url, i) => this.createTab(url, { activate: i === 0 }));
     this.layout();
+    // Shown at once, in the strip's colour until the chrome UI paints: on Windows a view in a window
+    // that was never shown does not even load its page, so waiting for the chrome UI to load before
+    // showing the window held every new window (and Corvus's start) until a 4 s fallback.
+    this.reveal();
   }
 
   private reveal(): void {
@@ -1650,6 +1655,7 @@ export class BrowserWindowCtl {
     const entries = this.strip.tabs.filter((t) => going.has(t.id));
     const groups = this.strip.groups.filter((g) => tabsInGroup(this.strip, g.id).every((t) => going.has(t.id))).map((g) => ({ ...g }));
     const activeId = this.strip.activeId !== null && going.has(this.strip.activeId) ? this.strip.activeId : null;
+    const index = Math.max(0, this.strip.tabs.findIndex((t) => going.has(t.id)));
     const tabs: TabRuntime[] = [];
     for (const entry of entries) {
       const tab = this.tabs.get(entry.id)!;
@@ -1671,25 +1677,38 @@ export class BrowserWindowCtl {
       this.syncActive(true);
       this.pushState();
     }
-    return { tabs, entries: entries.map(({ openerId: _opener, ...entry }) => entry), groups, activeId };
+    return { tabs, entries: entries.map(({ openerId: _opener, ...entry }) => entry), groups, activeId, index };
   }
 
   /**
    * Takes in tabs another window released (see releaseTabs), pages and all: nothing reloads. They
    * go together at `index` (default: the end), joining `groupId` when dropped in a group of this
    * window; `activeId` (default: the one that was active, else the first) is shown, and the moved
-   * tabs stay selected together.
+   * tabs stay selected together. False when it could not take them (the window closed meanwhile, or
+   * a step failed): it then holds none of them, and the caller gives them back (WindowManager.moveTabs).
    */
-  adoptTabs(parcel: TabParcel, opts: { index?: number; groupId?: GroupId | null; activeId?: TabId } = {}): void {
-    if (parcel.tabs.length === 0 || this.disposed) return;
-    for (const tab of parcel.tabs) {
-      this.win.contentView.addChildView(tab.view, 0);
-      tab.view.setVisible(false);
-      this.tabs.set(tab.id, tab);
-      this.wire(tab, true);
-      this.profile.extensions.moveTab(tab.view.webContents, this.win);
-      if (this.ctx.backgroundRender.isRendering(tab.id)) this.ctx.backgroundRender.moved(tab.id, this);
-      if (this.isPainting(tab)) this.sizeHidden(tab);
+  adoptTabs(parcel: TabParcel, opts: { index?: number; groupId?: GroupId | null; activeId?: TabId } = {}): boolean {
+    if (parcel.tabs.length === 0 || this.disposed) return false;
+    const taken: TabRuntime[] = [];
+    try {
+      for (const tab of parcel.tabs) {
+        this.win.contentView.addChildView(tab.view, 0);
+        tab.view.setVisible(false);
+        this.tabs.set(tab.id, tab);
+        taken.push(tab);
+        this.wire(tab, true);
+        this.profile.extensions.moveTab(tab.view.webContents, this.win);
+        if (this.ctx.backgroundRender.isRendering(tab.id)) this.ctx.backgroundRender.moved(tab.id, this);
+        if (this.isPainting(tab)) this.sizeHidden(tab);
+      }
+    } catch (err) {
+      console.error("[corvus] taking in moved tabs failed", err);
+      for (const tab of taken) {
+        tab.unwire?.();
+        this.win.contentView.removeChildView(tab.view);
+        this.tabs.delete(tab.id);
+      }
+      return false;
     }
     this.strip = insertTabs(this.strip, parcel.entries, opts.index ?? this.strip.tabs.length, { groups: parcel.groups, joinGroup: opts.groupId ?? null });
     const ids = parcel.tabs.map((t) => t.id);
@@ -1698,6 +1717,7 @@ export class BrowserWindowCtl {
     this.selection = { ids, anchor: activeId };
     this.syncActive(true);
     this.pushState();
+    return true;
   }
 
   // ---------------------------------------------------------------- split view

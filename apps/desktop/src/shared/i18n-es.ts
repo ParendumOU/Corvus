@@ -995,6 +995,8 @@ export const ES: Record<string, string> = {
   "Unmute {n} tabs": "Activar el sonido de {n} pestañas",
   "Close {n} tabs": "Cerrar {n} pestañas",
   "Move tab to new window": "Mover la pestaña a una ventana nueva",
+  "Drop to open in a new window": "Suelta para abrir en una ventana nueva",
+  "Drop to open these tabs in a new window": "Suelta para abrir estas pestañas en una ventana nueva",
   "Move {n} tabs to new window": "Mover {n} pestañas a una ventana nueva",
   "Move tab to another window": "Mover la pestaña a otra ventana",
   "Move {n} tabs to another window": "Mover {n} pestañas a otra ventana",

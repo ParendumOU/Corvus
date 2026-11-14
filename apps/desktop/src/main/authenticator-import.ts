@@ -27,7 +27,6 @@ import type { EntryTotp } from "./keepass-format";
 import { KEEPASS_ID_PREFIX, type KeePassStore } from "./keepass-store";
 import { tr } from "./menu-i18n";
 import { paths } from "./paths";
-import { isHeif, readHeifQr } from "./heic";
 import { decodeQrBitmap, scanPhoto, type QrEffort } from "./qr-decode";
 import type { BrowserWindowCtl } from "./window";
 
@@ -85,7 +84,7 @@ class QrDecoder {
       }
     }
     const bytes = await fs.promises.readFile(file).catch(() => null);
-    return bytes ? readHeifQr(bytes, PHOTO_EFFORT) : { status: "unreadable" };
+    return bytes ? (await heic()).readHeifQr(bytes, PHOTO_EFFORT) : { status: "unreadable" };
   }
 
   private giveUp(err: Error): void {
@@ -161,12 +160,15 @@ async function fileHead(file: string): Promise<Uint8Array> {
 }
 
 /** The text of the QR code in a photo, trying a few sizes; or why there is none. */
+/** The HEIC decoder, loaded the first time a photo needs it: never during Corvus's start. */
+const heic = (): Promise<typeof import("./heic")> => import("./heic");
+
 async function readPhotoQr(file: string, decoder: QrDecoder): Promise<{ text: string } | { status: PhotoStatus }> {
   const stat = await fs.promises.stat(file).catch(() => null);
   if (!stat?.isFile()) return { status: { kind: "unreadable" } };
   if (stat.size > MAX_PHOTO_BYTES) return { status: { kind: "too-large" } };
   // By content, not name: a HEIC photo saved as .jpg is read too.
-  if (isHeif(await fileHead(file))) {
+  if ((await heic()).isHeif(await fileHead(file))) {
     const found = await decoder.decodeHeif(file);
     return "text" in found ? found : { status: { kind: found.status } };
   }

@@ -2,7 +2,7 @@
 
 Corvus is an AI-native Electron browser that is also an MCP server, with AI search, end-to-end-encrypted sync, and a full agent/automation toolset. This file is the one list of what is left to do; what shipped, release by release, is in [CHANGELOG.md](../CHANGELOG.md).
 
-Last updated: 2026-11-14 · current release: **v0.48.1** (Windows + Linux unsigned, macOS unsigned) · Corvus for mobile **0.12.2** (Android preview)
+Last updated: 2026-11-14 · current release: **v0.48.2** (Windows + Linux unsigned, macOS unsigned) · Corvus for mobile **0.12.2** (Android preview)
 
 ---
 
@@ -20,8 +20,8 @@ In order. Each item is one branch (`feat|fix/<name>`), validated and merged on i
 - **Windows**: confirm a taskbar pin survives a real automatic update (the in-place update shipped in v0.31.0).
 - **Profile lock on a real Windows PC**: add and unlock with Windows Hello (face, fingerprint, PIN) and with a USB security key, with and without PRF support, cancelling the prompt, and a key of another profile.
 - **Code-signing certificate** for Windows: deferred, see Open decisions.
-- **Apple developer agreement**: notarization answers HTTP 403 ("A required agreement is missing or has expired") until the Account Holder accepts Apple's updated agreement. Meanwhile the macOS files of v0.48.0 and v0.48.1 are unsigned (v0.48.1: codesign also fails in electron-builder on the build Mac, errSecInternalComponent, keychain search list); both get rebuilt signed and notarized once that is fixed and the agreement accepted.
-- **By hand on Windows**: background tabs with YouTube videos (titles and icons show, nothing plays until you switch to the tab).
+- **Apple developer agreement**: notarization answers HTTP 403 ("A required agreement is missing or has expired") until the Account Holder accepts Apple's updated agreement. Meanwhile the macOS files of v0.48.0, v0.48.1 and v0.48.2 are unsigned (since v0.48.1: codesign also fails in electron-builder on the build Mac, errSecInternalComponent, keychain search list); both get rebuilt signed and notarized once that is fixed and the agreement accepted.
+- **By hand on Windows**: background tabs with YouTube videos (titles and icons show, nothing plays until you switch to the tab); a real tab drag out of the strip (the preview follows the pointer, no "not allowed" cursor, Esc keeps the tabs), a drop on another window's strip, a group drag, vertical tabs and monitors with different scaling.
 
 ## Later
 

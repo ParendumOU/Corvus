@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.48.2
+
+### Fixed
+- **A tab dragged out of the strip opens its window at once.** Let go away from the strip, a tab, the tabs selected with it or a group now open in their new window right away, where you let go, instead of about 5 seconds later with the tabs gone from sight meanwhile. Every new window shows at once too, and Corvus's own window no longer waits up to 4 seconds before it appears when the computer is busy.
+- **Dragging tabs out of the strip shows where they go.** Away from the strip, a small preview of the new window follows the pointer, with the tab's title and page and "Drop to open in a new window", instead of the "not allowed" pointer. Over another Corvus window's tab strip it gives way, and a drop there moves the tabs into that window as before. Pressing Esc during the drag now keeps the tabs where they were.
+- **Tabs never get lost on the way to another window.** If a window cannot take the tabs you move to it, they go back where they were.
+- **The portable build starts quickly after Corvus was ended from outside.** When Corvus had been ended by the Task Manager, by Windows or by a crash while quitting, the portable build unpacked itself again at the next start, which cost 4 to 6 seconds. It now does that only when Corvus could not start or failed right after starting. Corvus also loads its updater and its HEIC image decoder only when they are first needed.
+
 ## v0.48.1
 
 ### Changed
