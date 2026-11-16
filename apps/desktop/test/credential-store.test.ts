@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CredentialVault } from "../src/main/credential-store";
 import { LoginSources, vaultProvider } from "../src/main/login-sources";
+import { isProfileLocked } from "../src/main/profile-lock";
 import type { SecretCipher } from "../src/main/settings-store";
 
 /** Reversible stand-in for the OS keychain (same shape the sync e2e test uses). */
@@ -95,9 +96,11 @@ describe("CredentialVault", () => {
     const vault = new CredentialVault(dir, keychain);
     vault.add({ origin: "https://example.com", username: "alice", password: "pw" });
     vault.flush();
-    // The wrong key can't unseal the entries, so they are dropped instead of leaking.
+    // The wrong key can't unseal the entries: the vault reads as locked, nothing leaks or is dropped.
+    const before = fs.readFileSync(path.join(dir, "credentials.json"), "utf8");
     const reopened = new CredentialVault(dir, wrongKey);
-    expect(reopened.all()).toEqual([]);
+    expect(() => reopened.all()).toThrow(/keychain/);
+    expect(fs.readFileSync(path.join(dir, "credentials.json"), "utf8")).toBe(before);
   });
 
   it("matches logins by origin for autofill", () => {
@@ -142,6 +145,30 @@ describe("CredentialVault", () => {
     vault.flush();
     expect(vault.all()).toHaveLength(1);
     expect(fs.existsSync(path.join(dir, "credentials.json"))).toBe(false);
+  });
+
+  it("never empties a vault the keychain cannot open: it reads as locked and the file stays", () => {
+    const dir = tmp();
+    const vault = new CredentialVault(dir, keychain);
+    vault.add({ origin: "https://example.com", username: "alice", password: "pw" });
+    vault.add({ origin: "https://example.org", username: "bob", password: "pw2" });
+    vault.flush();
+    const file = path.join(dir, "credentials.json");
+    const before = fs.readFileSync(file, "utf8");
+    const failing: SecretCipher = { ...keychain, decryptString: () => { throw new Error("keyring locked"); } };
+    for (const cipher of [failing, noKeychain]) {
+      const closed = new CredentialVault(dir, cipher);
+      let error: unknown;
+      try {
+        closed.all();
+      } catch (err) {
+        error = err;
+      }
+      expect(isProfileLocked(error)).toBe(true);
+      closed.flush();
+      expect(fs.readFileSync(file, "utf8")).toBe(before);
+    }
+    expect(new CredentialVault(dir, keychain).all().map((c) => c.username).sort()).toEqual(["alice", "bob"]);
   });
 
   const TOTP = { secret: "JBSWY3DPEHPK3PXP", algorithm: "SHA1" as const, digits: 6, period: 30 };

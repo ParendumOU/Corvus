@@ -2042,6 +2042,7 @@ export const ES_UI: Record<string, string> = {
     "Un bloqueo (un PIN o una contraseña) protege sus páginas y contraseñas guardadas de cualquiera en este ordenador. Puedes añadirlo o quitarlo más tarde.",
   "This profile is locked. Unlock it to export it.": "Este perfil está bloqueado. Desbloquéalo para exportarlo.",
   "This profile is locked.": "Este perfil está bloqueado.",
+  "The system keychain cannot open this profile's saved secrets right now.": "El llavero del sistema no puede abrir ahora los secretos guardados de este perfil.",
   "delete everything": "borrar todo",
   "Delete a locked profile?": "¿Eliminar un perfil bloqueado?",
   'Everything in it is deleted from this device: its saved passwords, 2FA codes, cards, bookmarks, history, cookies and extensions. Type "{phrase}" to confirm.':

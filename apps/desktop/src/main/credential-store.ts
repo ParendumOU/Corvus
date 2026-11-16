@@ -25,7 +25,7 @@ import {
 import { historyMatches, mergeHistory, retire } from "./password-history";
 import { isValidTotpConfig, type TotpConfig } from "../shared/totp";
 import { JsonFile } from "./json-file";
-import { isProfileLocked, verifyWrappedFile } from "./profile-lock";
+import { isProfileLocked, KeychainUnavailableError, unwrapStoreKey, verifyWrappedFile } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 
 type Listener = () => void;
@@ -195,19 +195,9 @@ export class CredentialVault {
     const current = file.get();
     const cache = new Map<string, Credential>();
     const deletions = new Map<string, DeletedLoginMemory>();
-    let key: Uint8Array | null = null;
-    if (this.persisted && current.key) {
-      try {
-        key = Buffer.from(this.cipher.decryptString(Buffer.from(current.key.data, "base64")), "base64");
-        if (key.length !== 32) key = null;
-      } catch (err) {
-        if (isProfileLocked(err)) throw err;
-        console.warn("[corvus] could not unwrap the credential vault key; starting an empty vault:", (err as Error).message);
-        key = null;
-      }
-    }
+    const hasEntries = current.entries.length > 0 || (current.deletions?.length ?? 0) > 0;
+    const key = unwrapStoreKey(this.cipher, this.persisted, current.key?.data, hasEntries, "credentials.json");
     if (key) {
-      this.opened = { file, key, cache, deletions };
       for (const entry of current.entries) {
         try {
           const secret = JSON.parse(openSecret(key, entry.sealed, entry.id)) as Secret;
@@ -235,12 +225,14 @@ export class CredentialVault {
           // A deletion memory we cannot read is dropped; it only ever blocks a re-import.
         }
       }
+      // Not one login opens: the key is not this vault's, so the file stays as it is.
+      if (cache.size === 0 && current.entries.length > 0) throw new KeychainUnavailableError();
+      this.opened = { file, key, cache, deletions };
       if (cache.size !== current.entries.length) this.write();
     } else {
+      // A new vault: a fresh key, wrapped on disk when the keychain can keep it.
       this.opened = { file, key: generateVaultKey(), cache, deletions };
-      // No key on disk (fresh vault, or keychain just became available): persist the wrapped key.
       if (this.persisted) this.write();
-      else if (current.entries.length > 0) file.set(emptyFile()); // can't read old entries without a key
     }
     return this.opened;
   }

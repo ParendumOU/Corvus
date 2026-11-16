@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CardVault } from "../src/main/card-store";
+import { isProfileLocked } from "../src/main/profile-lock";
 import type { SecretCipher } from "../src/main/settings-store";
 import { emptyCardFields, type AutofillCard, type CardFields } from "../src/shared/cards";
 
@@ -57,6 +58,25 @@ describe("CardVault", () => {
     vault.flush();
     expect(vault.secretsPersisted).toBe(false);
     expect(fs.existsSync(path.join(dir, "cards.json")) ? fs.readFileSync(path.join(dir, "cards.json"), "utf8") : "").not.toContain(VISA);
+  });
+
+  it("never empties a card file the keychain cannot open", () => {
+    const dir = tmp();
+    const card = new CardVault(dir, keychain).add(visa);
+    const file = path.join(dir, "cards.json");
+    const before = fs.readFileSync(file, "utf8");
+    const failing: SecretCipher = { ...keychain, decryptString: () => { throw new Error("keyring locked"); } };
+    for (const cipher of [failing, noKeychain]) {
+      const closed = new CardVault(dir, cipher);
+      expect(() => closed.get(card.id)).toThrow();
+      try {
+        closed.get(card.id);
+      } catch (err) {
+        expect(isProfileLocked(err)).toBe(true);
+      }
+      expect(fs.readFileSync(file, "utf8")).toBe(before);
+    }
+    expect(new CardVault(dir, keychain).get(card.id)).toEqual(card);
   });
 
   it("refuses a card without a valid number and never keeps a CVV", () => {

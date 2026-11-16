@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.48.4
+
+### Fixed
+- **Saved logins, cards and addresses are never wiped when the system keychain cannot open them.** If the keychain could not unwrap a profile's vault key (a Linux keyring not yet unlocked when Corvus starts, say), Corvus started an empty vault over the saved one, and sync then deleted those logins on every other device. The vault now reads as locked until the keychain answers: the file stays as it is and sync deletes nothing.
+
 ## v0.48.3
 
 ### Added

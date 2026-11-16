@@ -1,7 +1,7 @@
 import path from "node:path";
 import { generateVaultKey, openSecret, sealSecret } from "@corvus/sync-core";
 import { JsonFile } from "./json-file";
-import { isProfileLocked, verifyWrappedFile } from "./profile-lock";
+import { isProfileLocked, KeychainUnavailableError, unwrapStoreKey, verifyWrappedFile } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 
 /** What every sealed record has in the clear: its id and when it was made and last changed. */
@@ -101,32 +101,25 @@ export class SealedRecords<T extends SealedRecord> {
     const file = JsonFile.load(this.filePath, emptyFile, reviveFile, 0);
     const current = file.get();
     const cache = new Map<string, T>();
-    let key: Uint8Array | null = null;
-    if (this.persisted && current.key) {
-      try {
-        key = Buffer.from(this.cipher.decryptString(Buffer.from(current.key.data, "base64")), "base64");
-        if (key.length !== 32) key = null;
-      } catch (err) {
-        if (isProfileLocked(err)) throw err;
-        console.warn(`[corvus] could not unwrap the key of ${fileName}; starting empty:`, (err as Error).message);
-        key = null;
-      }
-    }
+    const key = unwrapStoreKey(this.cipher, this.persisted, current.key?.data, current.entries.length > 0, fileName);
     if (key) {
-      this.opened = { file, key, cache };
+      let unreadable = 0;
       for (const entry of current.entries) {
         try {
           const record: unknown = { ...JSON.parse(openSecret(key, entry.sealed, entry.id)), id: entry.id, createdAt: entry.createdAt, updatedAt: entry.updatedAt };
           if (this.isValid(record)) cache.set(entry.id, record);
         } catch (err) {
+          unreadable++;
           console.warn(`[corvus] dropped an unreadable record ${entry.id} of ${fileName}:`, (err as Error).message);
         }
       }
+      // Not one record opens: the key is not this file's, so it stays as it is.
+      if (unreadable > 0 && unreadable === current.entries.length) throw new KeychainUnavailableError();
+      this.opened = { file, key, cache };
       if (cache.size !== current.entries.length) this.write();
     } else {
       this.opened = { file, key: generateVaultKey(), cache };
       if (this.persisted) this.write();
-      else if (current.entries.length > 0) file.set(emptyFile());
     }
     return this.opened;
   }

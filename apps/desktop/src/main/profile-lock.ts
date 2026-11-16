@@ -51,7 +51,53 @@ export class ProfileLockedError extends Error {
   }
 }
 
+/**
+ * The system keychain cannot open a secret store that has secrets on disk (a Linux keyring not yet
+ * unlocked, say). The store reads like a locked profile until the keychain answers, never as empty:
+ * a sync would turn an empty read into deletions on every device, and a write would wipe the file.
+ */
+export class KeychainUnavailableError extends ProfileLockedError {
+  constructor() {
+    super();
+    this.message = tr("The system keychain cannot open this profile's saved secrets right now.");
+    this.name = "KeychainUnavailableError";
+  }
+}
+
 export const isProfileLocked = (err: unknown): boolean => err instanceof ProfileLockedError;
+
+/**
+ * The key of a sealed store, unwrapped by [cipher] from the file's wrapped key: null when the file
+ * holds neither a key nor entries (a new store gets a fresh key). Throws ProfileLockedError while
+ * the profile is locked, and KeychainUnavailableError when there is something on disk the keychain
+ * cannot open now; nothing then writes over it.
+ */
+export function unwrapStoreKey(cipher: SecretCipher, persisted: boolean, wrapped: string | undefined, hasEntries: boolean, fileName: string): Uint8Array | null {
+  if (!wrapped) {
+    if (hasEntries) {
+      console.warn(`[corvus] ${fileName} has entries but no key; leaving it untouched`);
+      throw new KeychainUnavailableError();
+    }
+    return null;
+  }
+  if (!persisted) {
+    console.warn(`[corvus] the system keychain is not available; ${fileName} stays closed`);
+    throw new KeychainUnavailableError();
+  }
+  let key: Buffer;
+  try {
+    key = Buffer.from(cipher.decryptString(Buffer.from(wrapped, "base64")), "base64");
+  } catch (err) {
+    if (isProfileLocked(err)) throw err;
+    console.warn(`[corvus] could not unwrap the key of ${fileName}; it stays closed:`, (err as Error).message);
+    throw new KeychainUnavailableError();
+  }
+  if (key.length !== 32) {
+    console.warn(`[corvus] the key of ${fileName} is not 32 bytes; it stays closed`);
+    throw new KeychainUnavailableError();
+  }
+  return key;
+}
 
 /** Throws, in the UI's language, when a PIN or password cannot be the lock's. */
 export function checkLockSecret(kind: LockKind, secret: string): void {
