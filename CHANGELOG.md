@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.48.3
+
+### Added
+- **F11 puts the window in full screen.** On Windows and Linux, F11 (or "Full screen" in the main menu) now fills the screen with the window and F11 again brings it back; the toolbar stays in sight. Before, it did nothing. macOS keeps its own full screen.
+
+### Fixed
+- **Corvus says why it stayed as administrator.** When Windows' `whoami` cannot run, the log now says so instead of staying silent.
+- **F11 and a video's full screen no longer undo each other.** Leaving a video's full screen keeps F11's, F11 during a video leaves both, and full screen comes back after the profile is unlocked.
+- **Links from other apps open when Corvus was started as administrator from Git Bash.** Corvus checks whether it runs as administrator to start again as the normal user, so that links from other apps (an email link, a sign-in page) reach it. Started from a terminal with Git for Windows on the PATH, such as an AI agent's, the check ran Git's `whoami`, which fails, so Corvus stayed as administrator and those links were silently dropped. It now always runs Windows' own `whoami` and `explorer`.
+- **Your saved logins show in a tab an AI agent worked in.** Once an AI client had used a tab, the login dropdown never opened there again, even when it asked you to sign in yourself. It now opens on your own click or key press in the login field, also while the agent waits for you, and what you pick fills for a minute after your own input. A click or key the agent sends never opens it, moves in it or picks from it (it closes), wipes your last input, and so does leaving the page. Auto sign-in and card fills stay off there.
+- **A long request from an AI agent shows whole.** When an AI client asked you for something with steps or a form, the end of the bar under the toolbar went under the page, with no way to scroll to it. The bar now gets the room it needs, up to what leaves 200px of page, and scrolls inside past that.
+
 ## v0.48.2
 
 ### Fixed

@@ -135,6 +135,7 @@ export function showAppMenu(ctx: AppContext, win: BrowserWindowCtl, x: number, y
           { label: tr("Reset"), accelerator: `${mod}+0`, click: () => zoom(0) },
         ],
       },
+      ...(process.platform === "darwin" ? [] : [{ label: tr("Full screen"), accelerator: "F11", click: () => win.runCommand({ type: "toggle-fullscreen" }) }]),
       { label: tr("Print…"), enabled: Boolean(active), click: () => pageOf(active?.view)?.print() },
       { label: tr("View page source"), accelerator: viewSourceKey, enabled: active ? viewSourceUrl(pageUrl(active)) !== null : false, click: () => win.runCommand({ type: "view-source" }) },
       { label: tr("Developer tools"), accelerator: "F12", enabled: Boolean(active), click: () => win.runCommand({ type: "devtools" }) },

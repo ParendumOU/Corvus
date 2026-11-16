@@ -171,6 +171,7 @@ describe("shortcuts", () => {
     [key("Tab", { control: true, shift: true }), { type: "prev-tab" }],
     [key("r", { control: true }), { type: "reload", hard: false }],
     [key("F5"), { type: "reload", hard: false }],
+    [key("F11"), { type: "toggle-fullscreen" }],
     [key("3", { control: true }), { type: "select-tab", n: 3 }],
     [key("ArrowLeft", { alt: true }), { type: "back" }],
     [key("d", { control: true }), { type: "bookmark-page" }],
@@ -183,6 +184,10 @@ describe("shortcuts", () => {
     expect(commandForInput(key("t", { meta: true }), "darwin")).toEqual({ type: "new-tab" });
     expect(commandForInput(key("t", { control: true }), "darwin")).toBeNull();
     expect(commandForInput(key("Tab", { control: true }), "darwin")).toEqual({ type: "next-tab" });
+  });
+
+  it("leaves F11 to macOS", () => {
+    expect(commandForInput(key("F11"), "darwin")).toBeNull();
   });
 
   it("ignores plain typing and key-up events", () => {

@@ -20,6 +20,7 @@ export type BrowserCommand =
   | { type: "open-bookmarks" }
   | { type: "toggle-bookmarks-bar" }
   | { type: "devtools" }
+  | { type: "toggle-fullscreen" }
   | { type: "zoom"; delta: 1 | -1 | 0 }
   | { type: "find" }
   | { type: "find-next"; forward: boolean }
@@ -76,6 +77,8 @@ export function commandForInput(input: KeyInput, platform: string): BrowserComma
   if (key === "F5") return { type: "reload", hard: input.control || input.shift };
   if (key === "F6") return { type: "focus-omnibox" };
   if (key === "F12") return { type: "devtools" };
+  // macOS keeps F11 for Show Desktop and has its own full screen (the green button, ⌃⌘F).
+  if (key === "F11" && !mac) return { type: "toggle-fullscreen" };
   if (key === "F3") return { type: "find-next", forward: !input.shift };
   if (key === "BrowserBack") return { type: "back" };
   if (key === "BrowserForward") return { type: "forward" };

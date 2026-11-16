@@ -78,7 +78,10 @@ const FRAME_WAIT_MS = 1000;
 async function withRealMouse(win: BrowserWindowCtl, id: TabId, wc: WebContents, settleMs: number, act: () => void | Promise<void>): Promise<void> {
   const release = await win.paintHidden(id);
   try {
+    win.markAgentInput(id);
     await act();
+    // A long drag outlasts the grace window: its last events are the agent's too.
+    win.markAgentInput(id);
     await Promise.race([exec(wc, NEXT_FRAME_SCRIPT).catch(() => undefined), sleep(FRAME_WAIT_MS)]);
     await sleep(settleMs);
   } finally {
@@ -173,6 +176,7 @@ export async function pressKey(ctx: AppContext, id: TabId, press: KeyPress): Pro
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "key", key: press.label });
   const modifiers = press.modifiers;
+  win.markAgentInput(id);
   wc.sendInputEvent({ type: "keyDown", keyCode: press.keyCode, modifiers });
   if (press.char !== null) wc.sendInputEvent({ type: "char", keyCode: press.char, modifiers });
   wc.sendInputEvent({ type: "keyUp", keyCode: press.keyCode, modifiers });
@@ -184,6 +188,7 @@ export async function typeText(ctx: AppContext, id: TabId, text: string): Promis
   const { win, wc } = target(ctx, id);
   win.markAgent(id);
   await ctx.agents.beforeAction(win, id, wc, { kind: "key", key: text.length > 24 ? `${text.slice(0, 23)}…` : text });
+  win.markAgentInput(id);
   await wc.insertText(text);
   await sleep(SETTLE_MS);
 }

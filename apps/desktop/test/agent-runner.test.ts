@@ -631,6 +631,7 @@ describe("AgentRunner embedded (Assist) runs", () => {
       pushState: vi.fn(),
       sendCommand: vi.fn(),
       markAgent: vi.fn(() => (tab.agentControlled = true)),
+      markAgentInput: vi.fn(),
       clearAgentMark: vi.fn(() => (tab.agentControlled = false)),
       activeTab: () => tab,
       paintHidden: async () => () => undefined,

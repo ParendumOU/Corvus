@@ -1,6 +1,7 @@
 import { BaseWindow, View, WebContentsView, nativeTheme, screen, type BrowserWindow, type Input, type WebContents } from "electron";
 import type { GroupColor, GroupId, Tab, TabGroup, TabId } from "@corvus/shared";
 import { hostFromUrl, isYouTubeHost } from "../shared/adblock";
+import { AGENT_INPUT_GRACE_MS } from "../shared/agent-tab-autofill";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError, type CertBlockReason } from "../shared/cert-errors";
@@ -78,6 +79,7 @@ import type { SplitState } from "../shared/split";
 import { stripRect, type Rect } from "../shared/tab-tearoff";
 import { actionTabs, clickSelection, emptySelection, selectedTabs, type SelectModifiers, type TabSelection } from "../shared/tab-selection";
 import type { CertProblem } from "./cert-errors";
+import { chromeBandHeight } from "./chrome-layout";
 import type { AppContext } from "./context";
 import { showPageContextMenu } from "./menus";
 import { paths } from "./paths";
@@ -123,7 +125,6 @@ const SIDEBAR_COLLAPSED_WIDTH = 52;
 /** Isolated world that checks whether a page has typed text before its tab sleeps. */
 const SLEEP_CHECK_WORLD_ID = 1999;
 /** Input in a tab this soon after an agent acted on it may be the agent's own (see BrowserWindowCtl.downloadByAgent). */
-const AGENT_INPUT_GRACE_MS = 2000;
 /** How long after a new tab page took focus by itself its click or key would have arrived (see onTabFocus). */
 const STRAY_FOCUS_CHECK_MS = 60;
 /** Isolated world that waits for a hidden page to paint before it is captured. */
@@ -186,6 +187,10 @@ export interface TabRuntime {
   pdfBesideInputAt?: number;
   /** The last time an agent acted on it (epoch ms). */
   agentActedAt?: number;
+  /** The last time an agent sent it mouse or keyboard input (epoch ms). */
+  agentInputAt?: number;
+  /** Its last click or key press not sent by an agent, while any agent may be working (epoch ms): see agent-tab-autofill.ts. */
+  ownInputAt?: number;
   /** Why it paints while not on screen (see shared/background-tabs.ts); captures count. */
   paintHolds?: Partial<Record<PaintReason, number>>;
   /** Since when it has been painting while not on screen (epoch ms). */
@@ -272,9 +277,13 @@ export class BrowserWindowCtl {
   /** Groups an agent run is working in (see setAgentGroup). */
   private readonly agentGroups = new Set<GroupId>();
   private closedTabs: ClosedTab[] = [];
+  /** Height the chrome UI asks for; the band gets it up to what the window leaves (chromeBandHeight). */
+  private chromeWanted = 112;
   private chromeHeight = 112;
   private overlay = false;
   private htmlFullscreen = false;
+  /** The person asked for full screen (F11): it outlasts a page's own full screen and the lock screen. */
+  private windowFullscreen = false;
   /** Tabs whose page views are currently visible (one, or the two panes of a split). */
   private shownTabIds: TabId[] = [];
   /** The tab that was active (focused) at the last sync, used to drive focus/selectTab only on change. */
@@ -400,6 +409,9 @@ export class BrowserWindowCtl {
     this.win.on("unmaximize", reshape);
     this.win.on("enter-full-screen", reshape);
     this.win.on("leave-full-screen", () => {
+      // Left from outside (the window manager, Escape on a page): neither wish stands any more.
+      if (!this.lockScreen) this.windowFullscreen = false;
+      if (this.htmlFullscreen) for (const tab of this.tabs.values()) void pageOf(tab.view)?.executeJavaScript("document.fullscreenElement && document.exitFullscreen()", false).catch(() => undefined);
       this.htmlFullscreen = false;
       reshape();
     });
@@ -485,6 +497,7 @@ export class BrowserWindowCtl {
     // the Command Bar, dialogs).
     const vertical = !fullscreen && this.ctx.settings.get().appearance.tabLayout === "vertical";
     const left = vertical ? this.sidebarWidth() : 0;
+    this.chromeHeight = chromeBandHeight(this.chromeWanted, height);
     const top = fullscreen ? 0 : this.chromeHeight;
     this.chrome.setVisible(!fullscreen);
     if (this.overlay || vertical) this.chrome.setBounds({ x: 0, y: 0, width, height });
@@ -601,6 +614,8 @@ export class BrowserWindowCtl {
   private leaveLock(): void {
     if (!this.lockScreen) return;
     this.lockScreen = false;
+    // Full screen the person had asked for (F11) comes back with the profile.
+    if (this.windowFullscreen && !this.win.isFullScreen()) this.win.setFullScreen(true);
     // Opened by the person: the computer is unlocked too (Linux never says so).
     this.paintWhileComputerLocked(false);
     for (const id of this.lockMuted) pageOf(this.tabs.get(id)?.view)?.setAudioMuted(false);
@@ -671,9 +686,9 @@ export class BrowserWindowCtl {
   }
 
   setChromeHeight(height: number): void {
-    const h = Math.max(0, Math.min(400, Math.round(height)));
-    if (h === this.chromeHeight) return;
-    this.chromeHeight = h;
+    const h = Math.max(0, Math.round(height));
+    if (h === this.chromeWanted) return;
+    this.chromeWanted = h;
     this.layout();
   }
 
@@ -1327,6 +1342,7 @@ export class BrowserWindowCtl {
         const now = Date.now();
         tab.inputAt = now;
         if (!this.ctx.agents.acting() && now - (tab.agentActedAt ?? 0) > AGENT_INPUT_GRACE_MS) tab.personInputAt = now;
+        if (now - (tab.agentInputAt ?? 0) > AGENT_INPUT_GRACE_MS) tab.ownInputAt = now;
       }
     });
     if (!moved) followSignInUserAgent(wc, this.profile.userAgents);
@@ -1388,6 +1404,8 @@ export class BrowserWindowCtl {
       this.profile.adblock.resetTab(wc.id);
       this.ctx.translate.onNavigated(tab);
       this.ctx.reader.onNavigated(this, tab);
+      // Input on the page before belongs to that page: the new one's logins wait for the person's next.
+      tab.ownInputAt = undefined;
       this.ctx.autofill.onNavigated(this, tab);
       // A new document: any secret Corvus filled into the old one is gone, so script access returns.
       this.ctx.secretFills.clear(tab.id);
@@ -1483,7 +1501,8 @@ export class BrowserWindowCtl {
     });
     on("leave-html-full-screen", () => {
       this.htmlFullscreen = false;
-      this.win.setFullScreen(false);
+      // The video leaves full screen; F11's stays.
+      if (!this.windowFullscreen) this.win.setFullScreen(false);
       this.layout();
     });
     on("zoom-changed", (_e, direction) => this.zoomTab(tab, direction === "in" ? 1 : -1));
@@ -2522,9 +2541,23 @@ export class BrowserWindowCtl {
     this.ctx.annotations.agentActed(tab);
     if (!tab.agentControlled) {
       tab.agentControlled = true;
+      // A click the person made just before handing the tab over opens nothing for the agent.
+      tab.ownInputAt = undefined;
       this.pushState();
     }
     this.ctx.backgroundRender.use(this, id);
+  }
+
+  /**
+   * An agent is about to send the tab mouse or keyboard input: the input events that follow are not
+   * the person's. The person's last input no longer counts, and the login dropdown of the tab closes.
+   */
+  markAgentInput(id: TabId): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.agentInputAt = Date.now();
+    tab.ownInputAt = undefined;
+    this.ctx.autofill.onAgentInput(this, tab);
   }
 
   /** Whether a download from this tab is an AI agent's doing rather than the person's (see downloadedByAgent). */
@@ -2791,6 +2824,16 @@ export class BrowserWindowCtl {
         else wc.openDevTools({ mode: "detach" });
         break;
       }
+      case "toggle-fullscreen":
+        // The toolbar stays, so the way back (F11 again) is always in sight. Leaving it also ends a
+        // page's own full screen, so the page does not go on thinking it has the screen.
+        {
+          const leave = this.win.isFullScreen();
+          this.windowFullscreen = !leave;
+          if (leave && this.htmlFullscreen) void pageOf(active?.view)?.executeJavaScript("document.fullscreenElement && document.exitFullscreen()", false).catch(() => undefined);
+          this.win.setFullScreen(!leave);
+        }
+        break;
       case "zoom":
         if (active) this.zoomTab(active, command.delta);
         break;

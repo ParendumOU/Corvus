@@ -5,6 +5,7 @@ import { DROPDOWN_WIDTH, dropdownBounds, dropdownEntries, dropdownStays, moveHig
 import { fitGenerator, GENERATED_MAX, GENERATED_MIN, toggleClass, type FieldPasswordRules } from "../shared/password-rules";
 import { uiLanguage } from "./menu-i18n";
 import { paths } from "./paths";
+import { agentKeysLikely } from "../shared/agent-tab-autofill";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
 /** How long after a click on the dropdown the page's "the field lost the keyboard" is put down to that click. */
@@ -214,6 +215,11 @@ export class FieldDropdown {
     this.post();
   }
 
+  /** Closes the dropdown when it is open over [tab]. */
+  closeFor(tab: TabRuntime): void {
+    if (this.tab === tab) this.close();
+  }
+
   close(): void {
     if (!this.current) return;
     this.flushOptions();
@@ -397,6 +403,8 @@ export class FieldDropdown {
   private onKey(event: Electron.Event, input: Electron.Input): void {
     const state = this.current;
     if (!state || input.type !== "keyDown" || input.control || input.alt || input.meta) return;
+    // Keys an agent sends never move in the dropdown or pick from it: it closes, and they reach the page.
+    if (this.tab && agentKeysLikely(this.tab, Date.now())) return this.close();
     if (input.key === "Tab") return this.close();
     if (input.shift) return;
     if (state.generator?.open) {

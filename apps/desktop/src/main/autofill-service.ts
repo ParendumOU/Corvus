@@ -31,6 +31,7 @@ import type { AppContext } from "./context";
 import { FieldDropdown, pageOf, type FieldBox, type PasswordOffer } from "./field-dropdown";
 import { toMatch, type LoginAccount } from "./login-sources";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
+import { personAutofillAllowed, personOpensDropdown } from "../shared/agent-tab-autofill";
 import { tr } from "./menu-i18n";
 
 const SCRIPT_TIMEOUT_MS = 4000;
@@ -422,12 +423,28 @@ export class AutofillService {
     this.dropdowns.get(win)?.onLayout();
   }
 
+  /** What the person picks may fill here: a person-driven tab, or within a minute of their own input in an agent's. */
+  private personAt(tab: TabRuntime): boolean {
+    return personAutofillAllowed(tab, Date.now());
+  }
+
+  /** A field click may open the dropdown here: in an agent's tab, only the person's own click of just now. */
+  private personOpens(tab: TabRuntime): boolean {
+    return personOpensDropdown(tab, Date.now());
+  }
+
+  /** An agent sends the tab input: its dropdown closes, so no key of the agent's moves or picks in it. */
+  onAgentInput(win: BrowserWindowCtl, tab: TabRuntime): void {
+    this.dropdowns.get(win)?.closeFor(tab);
+  }
+
   /**
    * A page found a password field (or a code field the person has a 2FA for): the window's dropdown
-   * loads ahead (hidden), so it shows at once on the first click. Never for an agent's tab.
+   * loads ahead (hidden), so it shows at once on the first click. In an agent's tab, only right after
+   * the person's own input there (see personAutofillAllowed).
    */
   private warmDropdown(win: BrowserWindowCtl, tab: TabRuntime, fields: Detected): void {
-    if ((!fields.login && !fields.identifier && !fields.otp) || tab.agentControlled || win.isDisposed() || this.dropdowns.get(win)?.webContents) return;
+    if ((!fields.login && !fields.identifier && !fields.otp) || !this.personAt(tab) || win.isDisposed() || this.dropdowns.get(win)?.webContents) return;
     if (dropdownMayOpen(fields, win.profile.logins.matchesFor(this.pageUrl(tab)))) this.dropdownOf(win).warm();
   }
 
@@ -447,8 +464,9 @@ export class AutofillService {
    * field-dropdown.ts), as the omnibox key button does; under a code field, the accounts with a 2FA.
    * Under a password field, also "Copy password" when it holds something, and a suggested strong
    * password for a new password (or a lone password field with no account to offer, see
-   * offersGenerator). The page keeps the keyboard. Only in the active, person-driven tab (never an
-   * agent's), and only where the page has such a field: probed again when it was not seen yet, since a
+   * offersGenerator). The page keeps the keyboard. Only in the active tab (in an agent's, only when the
+   * person clicked it themselves, see personAutofillAllowed), and only where the page has such a
+   * field: probed again when it was not seen yet, since a
    * two-step sign-in shows its code field after the page loaded. Nothing is filled until the person picks.
    * A field in a subframe gets its frame's own accounts (see onFrameLoginField).
    */
@@ -456,9 +474,9 @@ export class AutofillService {
     if (click.kind === "card") return this.onCardField(win, tab, click, frame);
     if (click.kind === "address") return this.onAddressField(win, tab, click, frame);
     if (!frame.top) return this.onFrameLoginField(win, tab, click, frame);
-    const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
+    const active = (): boolean => this.personAt(tab) && win.activeTab()?.id === tab.id;
     const has = (d: Detected | undefined): boolean => Boolean(click.kind === "otp" ? d?.otp : d?.login || d?.identifier);
-    if (!active()) return;
+    if (!this.personOpens(tab) || !active()) return;
     if (!has(this.detected.get(tab.id)) && !has(await this.probe(win, tab))) return;
     const url = this.pageUrl(tab);
     const matches = dropdownAccounts(click.kind, this.suggestions(win));
@@ -482,9 +500,9 @@ export class AutofillService {
    * "Copy password" or similar sites' logins there. Nothing is filled until the person picks.
    */
   private async onFrameLoginField(win: BrowserWindowCtl, tab: TabRuntime, click: FieldClick, frame: ClickFrame): Promise<void> {
-    const active = (): boolean => !tab.agentControlled && win.activeTab()?.id === tab.id;
+    const active = (): boolean => this.personAt(tab) && win.activeTab()?.id === tab.id;
     const page = pageOf(tab);
-    if (!page || !active()) return;
+    if (!page || !this.personOpens(tab) || !active()) return;
     const sub = await this.subframeTarget(page, frame, click);
     if (!sub || !active()) return;
     const origin = sub.target.origin;
@@ -496,6 +514,9 @@ export class AutofillService {
 
   /** An account picked in the dropdown (the smoke test awaits it): filled into the subframe it opened over, else into the page. */
   pickAccount(win: BrowserWindowCtl, kind: FieldClick["kind"], id: string): Promise<void> {
+    // In an agent's tab, a pick fills only within a minute of the person's own input there.
+    const tab = win.activeTab();
+    if (!tab || !this.personAt(tab)) return Promise.resolve();
     const opened = this.loginFrames.get(win);
     if (opened) return this.fillFrameAccount(win, opened.tabId, opened.target, id, kind === "otp" ? "code" : "account");
     return kind === "otp" ? this.fillTotp(win, id) : this.fill(win, id);
@@ -511,7 +532,7 @@ export class AutofillService {
   private async fillFrameAccount(win: BrowserWindowCtl, tabId: TabId, target: FrameTarget, id: string, pick: AccountPick): Promise<void> {
     const tab = win.activeTab();
     const account = win.profile.logins.accountFor(id, target.origin);
-    if (!tab || tab.id !== tabId || tab.agentControlled || !account) return;
+    if (!tab || tab.id !== tabId || !this.personAt(tab) || !account) return;
     const found = await this.frameReady(tab, target);
     if (!found) return;
     const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, found);
@@ -797,7 +818,7 @@ export class AutofillService {
    */
   async fillGenerated(win: BrowserWindowCtl, password: string, field: FieldBox): Promise<void> {
     const tab = win.activeTab();
-    if (!tab || tab.agentControlled) return;
+    if (!tab || !this.personAt(tab)) return;
     this.ctx.secretFills.mark(tab.id, [password]);
     const result = await this.run<GeneratedFill>(tab, fillGeneratedScript(password, field));
     const origin = originKeyOf(this.pageUrl(tab));
@@ -809,7 +830,7 @@ export class AutofillService {
   /** "Copy password": what the active tab's password field under the dropdown holds goes to the clipboard; false when nothing. */
   async copyField(win: BrowserWindowCtl, field: FieldBox): Promise<boolean> {
     const tab = win.activeTab();
-    if (!tab || tab.agentControlled) return false;
+    if (!tab || !this.personAt(tab)) return false;
     const value = await this.run<string>(tab, readPasswordFieldScript(field));
     if (!value) return false;
     clipboard.writeText(value);
@@ -842,7 +863,7 @@ export class AutofillService {
   private async fillSimilar(win: BrowserWindowCtl, tab: TabRuntime, url: string, id: string, pick: AccountPick): Promise<void> {
     const account = win.profile.logins.similarAccountFor(id, url);
     const origin = originKeyOf(url);
-    if (!account || !origin || tab.agentControlled) return;
+    if (!account || !origin || !this.personAt(tab)) return;
     const saveCopy = pick === "code" && Boolean(account.totp) && !win.isPrivate;
     const approved = this.similarApproved.get(tab.id);
     const known = approved?.origin === origin && account.entries.some((e) => approved.ids.has(e.record.id));

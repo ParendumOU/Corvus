@@ -312,13 +312,36 @@ export async function runPasswordGeneratorSmoke(ctx: AppContext, { url, win, che
     key(fresh.wc, "Escape");
     await closed();
 
-    // ---- An agent's tab: nothing.
+    // ---- An agent's tab: nothing on the input the agent sends, the dropdown on the person's.
     const agent = await open(at("agent", "/pwgen-signup"));
     win.markAgent(agent.tab.id);
     const agentToken = state()?.token ?? 0;
+    win.markAgentInput(agent.tab.id);
     await clickAt(agent.wc, "#pw");
     await sleep(1500);
-    check("password generator: never offered in an agent's tab", (state()?.token ?? 0) === agentToken && !state(), { state: state() });
+    check("password generator: never offered on an agent's click in its tab", (state()?.token ?? 0) === agentToken && !state(), { state: state() });
+    await sleep(1000);
+    const offered = await clickField(agent.wc, "#pw");
+    const personTypes = types();
+    check("password generator: offered in an agent's tab once the person clicks the field themselves", offered && personTypes.includes("suggest") && agent.tab.agentControlled, { offered, personTypes });
+    // The agent's keys while it is open (as press_keys sends them): it closes and nothing is picked.
+    win.markAgentInput(agent.tab.id);
+    key(agent.wc, "ArrowDown");
+    key(agent.wc, "Enter");
+    const agentKeysClosed = await closed();
+    const afterAgentKeys = await value(agent.wc, "pw");
+    check("autofill: an agent's keys close the dropdown in its tab and pick nothing", agentKeysClosed && afterAgentKeys === "", { agentKeysClosed, afterAgentKeys });
+    // The person clicked a moment ago, then the agent clicks the field: nothing opens for the agent.
+    await sleep(2500);
+    await clickField(agent.wc, "#pw");
+    key(agent.wc, "Escape");
+    await closed();
+    await sleep(1200);
+    const lateToken = state()?.token ?? 0;
+    win.markAgentInput(agent.tab.id);
+    await clickAt(agent.wc, "#pw");
+    await sleep(1500);
+    check("autofill: an agent's click soon after the person's opens nothing in its tab", (state()?.token ?? 0) === lateToken && !state(), { state: state() });
 
     // ---- In Spanish (dark).
     ctx.settings.update({ appearance: { language: "es" } });

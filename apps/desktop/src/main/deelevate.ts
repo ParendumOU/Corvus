@@ -8,9 +8,19 @@ import { portableExecutable } from "./portable-updater";
 
 const SHORTCUT_PREFIX = "corvus-deelevate-";
 
+/** Full path to a Windows tool: on the PATH, Git for Windows' `whoami` (no /groups) can come first. */
+function windowsTool(dir: string, exe: string): string {
+  return path.join(process.env.SystemRoot ?? String.raw`C:\Windows`, dir, exe);
+}
+
 function isElevated(): boolean {
-  const res = spawnSync("whoami", ["/groups"], { windowsHide: true, timeout: 5_000, encoding: "utf8" });
-  return !res.error && parseElevated(String(res.stdout ?? ""));
+  const res = spawnSync(windowsTool("System32", "whoami.exe"), ["/groups"], { windowsHide: true, timeout: 5_000, encoding: "utf8" });
+  if (res.error || res.status !== 0) {
+    // Unknown is taken as not elevated (Corvus starts as it is); the log says why links may not reach it.
+    console.warn(`[deelevate] whoami failed (${res.error?.message ?? `exit ${res.status}`}): staying as started`);
+    return false;
+  }
+  return parseElevated(String(res.stdout ?? ""));
 }
 
 /** Shortcuts left by earlier relaunches (the new copy cannot delete its own before explorer reads it). */
@@ -51,7 +61,7 @@ export function relaunchWithoutAdminRights(): boolean {
   });
   if (!written) return false;
   try {
-    spawn(path.join(process.env.SystemRoot ?? String.raw`C:\Windows`, "explorer.exe"), [lnk], {
+    spawn(windowsTool("", "explorer.exe"), [lnk], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

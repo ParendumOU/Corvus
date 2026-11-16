@@ -444,6 +444,7 @@ export class Controller implements BrowserController {
         const zoom = wc.getZoomFactor();
         const x = Math.round(point.x * zoom);
         const y = Math.round(point.y * zoom);
+        window.markAgentInput(id);
         wc.sendInputEvent({ type: "mouseMove", x, y });
         wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
         wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
@@ -467,8 +468,10 @@ export class Controller implements BrowserController {
     const mode = await this.exec<string | null>(wc, focusForTypingScript(ref));
     if (mode === null) throw new AgentError(`Element ${ref} not found; take a new page_snapshot`);
     if (mode === "input" || mode === "editable") {
+      window.markAgentInput(id);
       await wc.insertText(text);
       if (submit) {
+        window.markAgentInput(id);
         wc.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
         wc.sendInputEvent({ type: "char", keyCode: "\r" });
         wc.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
