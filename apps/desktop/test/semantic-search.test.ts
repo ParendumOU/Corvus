@@ -22,6 +22,14 @@ describe("tokenize / queryTokens", () => {
   it("lowercases, splits on non-alphanumerics and drops short + stopwords", () => {
     expect(tokenize("The Raven-Bird, v2!")).toEqual(["raven", "bird", "v2"]);
   });
+  it("keeps words of any script and folds accents", () => {
+    expect(tokenize("Música en Málaga")).toEqual(["musica", "en", "malaga"]);
+    expect(tokenize("Москва, Αθήνα")).toEqual(["москва", "αθηνα"]);
+    const corpus = [doc("history", "https://news.example/a", "Новости Москвы", "Сегодня в Москве"), doc("history", "https://music.example/b", "Música clásica", "Conciertos")];
+    expect(bm25Rank(corpus, "москвы").map((h) => h.doc.url)).toEqual(["https://news.example/a"]);
+    expect(bm25Rank(corpus, "musica clasica").map((h) => h.doc.url)).toEqual(["https://music.example/b"]);
+    expect(snippetAround(`${"x ".repeat(200)}la música clásica`, "musica", 40)).toContain("música");
+  });
   it("falls back to raw tokens when stopword stripping empties the query", () => {
     expect(queryTokens("how to")).toEqual(["how", "to"]);
   });

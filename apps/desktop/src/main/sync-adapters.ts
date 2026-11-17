@@ -57,8 +57,48 @@ export const PROFILE_RECORD_ID = "profile";
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-export function bookmarksAdapter(store: BookmarkStore): SyncAdapter<Bookmark> {
+/**
+ * What a synced store says about records it lacks although nobody deleted them here. The engine then
+ * forgets them (adapter.retain) instead of deleting them on every other device.
+ */
+export interface LossAware {
+  /** Its file was missing or unreadable at load: what it lacks may have been lost, not deleted. */
+  readonly loadedFresh?: boolean;
+  /** A record it still holds but cannot read (a damaged entry). */
+  isUnreadable?(id: string): boolean;
+}
+
+/**
+ * One per profile. A store that started from nothing keeps every record it lacks on the chain until a
+ * sync cycle has gone through (the engine has forgotten them by then); deletions after that sync as
+ * usual.
+ */
+export class SyncLossGuard {
+  private readonly settled = new WeakSet<object>();
+  private readonly watched = new Set<object>();
+
+  /** Whether `id`, missing from the store's list, was lost rather than deleted here. */
+  lost(store: LossAware, id: string, unreadable = (key: string) => store.isUnreadable?.(key) === true): boolean {
+    if (unreadable(id)) return true;
+    return !this.settled.has(store) && store.loadedFresh === true;
+  }
+
+  /** A sync cycle went through: from now on what the stores lack was deleted. */
+  settle(): void {
+    for (const store of this.watched) this.settled.add(store);
+    this.watched.clear();
+  }
+
+  /** The adapter's retain(): lost records, then the store's own rule. */
+  retain(store: LossAware, own?: (id: string) => boolean, unreadable?: (id: string) => boolean): (id: string) => boolean {
+    this.watched.add(store);
+    return (id) => this.lost(store, id, unreadable) || own?.(id) === true;
+  }
+}
+
+export function bookmarksAdapter(store: BookmarkStore, guard?: SyncLossGuard): SyncAdapter<Bookmark> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     // The two root folders exist on every device and never change, so they are not synced.
     list: () => store.list().filter((b) => !ROOT_IDS.has(b.id)).map((b) => ({ id: b.id, payload: b })),
     apply: (items) => {
@@ -76,8 +116,9 @@ export function bookmarksAdapter(store: BookmarkStore): SyncAdapter<Bookmark> {
  * History records are keyed by URL, so visits to the same page on two devices merge into one. Pages
  * known only from another browser's live history stay on this computer.
  */
-export function historyAdapter(store: HistoryStore): SyncAdapter<SyncedHistoryEntry> {
+export function historyAdapter(store: HistoryStore, guard?: SyncLossGuard): SyncAdapter<SyncedHistoryEntry> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.all().flatMap((e) => (e.source ? [] : [{ id: e.url, payload: toSyncedHistory(e) }])),
     apply: (items) => {
       const changes: Array<{ url: string; entry: SyncedHistoryEntry | null }> = [];
@@ -94,16 +135,19 @@ export function historyAdapter(store: HistoryStore): SyncAdapter<SyncedHistoryEn
   };
 }
 
-export interface CredentialStore {
+export interface CredentialStore extends LossAware {
   all(): Credential[];
   applyRemote(changes: Array<{ id: string; cred: Credential | null }>): void;
   deletionItems(): Array<{ id: string; memory: DeletedLoginMemory }>;
   applyRemoteDeletions(changes: Array<{ id: string; memory: DeletedLoginMemory | null }>): void;
+  /** A deleted-login memory it still holds but cannot read. */
+  isUnreadableDeletion?(key: string): boolean;
 }
 
 /** Logins are keyed by their stable id; the full record (including the password) is the synced payload. */
-export function credentialsAdapter(store: CredentialStore): SyncAdapter<Credential> {
+export function credentialsAdapter(store: CredentialStore, guard?: SyncLossGuard): SyncAdapter<Credential> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.all().map((c) => ({ id: c.id, payload: c })),
     apply: (items) => {
       const changes: Array<{ id: string; cred: Credential | null }> = [];
@@ -117,8 +161,9 @@ export function credentialsAdapter(store: CredentialStore): SyncAdapter<Credenti
 }
 
 /** Deleted-login memory, keyed by its stable natural id, merged by union. */
-export function credentialDeletionsAdapter(store: CredentialStore): SyncAdapter<DeletedLoginMemory> {
+export function credentialDeletionsAdapter(store: CredentialStore, guard?: SyncLossGuard): SyncAdapter<DeletedLoginMemory> {
   return {
+    ...(guard ? { retain: guard.retain(store, undefined, (key) => store.isUnreadableDeletion?.(key) === true) } : {}),
     list: () => store.deletionItems().map((d) => ({ id: d.id, payload: d.memory })),
     apply: (items) => {
       const changes: Array<{ id: string; memory: DeletedLoginMemory | null }> = [];
@@ -131,14 +176,15 @@ export function credentialDeletionsAdapter(store: CredentialStore): SyncAdapter<
   };
 }
 
-export interface AddressSyncStore {
+export interface AddressSyncStore extends LossAware {
   all(): AutofillAddress[];
   applyRemote(changes: Array<{ id: string; address: AutofillAddress | null }>): void;
 }
 
 /** Saved addresses, keyed by their stable id; the full record is the synced payload (end to end encrypted). */
-export function addressesAdapter(store: AddressSyncStore): SyncAdapter<AutofillAddress> {
+export function addressesAdapter(store: AddressSyncStore, guard?: SyncLossGuard): SyncAdapter<AutofillAddress> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.all().map((a) => ({ id: a.id, payload: a })),
     apply: (items) => {
       const changes: Array<{ id: string; address: AutofillAddress | null }> = [];
@@ -154,14 +200,15 @@ export function addressesAdapter(store: AddressSyncStore): SyncAdapter<AutofillA
   };
 }
 
-export interface CardSyncStore {
+export interface CardSyncStore extends LossAware {
   all(): AutofillCard[];
   applyRemote(changes: Array<{ id: string; card: AutofillCard | null }>): void;
 }
 
 /** Saved payment cards (never a CVV), keyed by their stable id; the full record is the synced payload (end to end encrypted). */
-export function cardsAdapter(store: CardSyncStore): SyncAdapter<AutofillCard> {
+export function cardsAdapter(store: CardSyncStore, guard?: SyncLossGuard): SyncAdapter<AutofillCard> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.all().map((c) => ({ id: c.id, payload: c })),
     apply: (items) => {
       const changes: Array<{ id: string; card: AutofillCard | null }> = [];
@@ -177,14 +224,15 @@ export function cardsAdapter(store: CardSyncStore): SyncAdapter<AutofillCard> {
   };
 }
 
-export interface ReadingSyncStore {
+export interface ReadingSyncStore extends LossAware {
   allItems(): ReadingItem[];
   applyRemote(changes: Array<{ url: string; item: ReadingItem | null }>): void;
 }
 
 /** Saved reader-mode articles, keyed by URL across devices (the store dedupes saves by URL). */
-export function readingAdapter(store: ReadingSyncStore): SyncAdapter<ReadingItem> {
+export function readingAdapter(store: ReadingSyncStore, guard?: SyncLossGuard): SyncAdapter<ReadingItem> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.allItems().map((item) => ({ id: item.url, payload: item })),
     apply: (items) => {
       const changes: Array<{ url: string; item: ReadingItem | null }> = [];
@@ -197,14 +245,15 @@ export function readingAdapter(store: ReadingSyncStore): SyncAdapter<ReadingItem
   };
 }
 
-export interface WatchSyncStore {
+export interface WatchSyncStore extends LossAware {
   syncList(): SyncedWatch[];
   applyRemote(changes: Array<{ url: string; def: SyncedWatch | null }>): void;
 }
 
 /** Watched pages, keyed by URL. Only the user's intent syncs; monitoring state stays per device. */
-export function watchesAdapter(store: WatchSyncStore): SyncAdapter<SyncedWatch> {
+export function watchesAdapter(store: WatchSyncStore, guard?: SyncLossGuard): SyncAdapter<SyncedWatch> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.syncList().map((w) => ({ id: w.url, payload: w })),
     apply: (items) => {
       const changes: Array<{ url: string; def: SyncedWatch | null }> = [];
@@ -217,7 +266,7 @@ export function watchesAdapter(store: WatchSyncStore): SyncAdapter<SyncedWatch> 
   };
 }
 
-export interface WorkspaceSyncStore {
+export interface WorkspaceSyncStore extends LossAware {
   list(): Workspace[];
   applyRemote(changes: Array<{ id: string; workspace: Workspace | null }>): void;
 }
@@ -227,8 +276,9 @@ function looksLikeWorkspace(v: unknown): v is Workspace {
 }
 
 /** Named workspaces, keyed by their stable id. The store fully validates upserts on apply. */
-export function workspacesAdapter(store: WorkspaceSyncStore): SyncAdapter<Workspace> {
+export function workspacesAdapter(store: WorkspaceSyncStore, guard?: SyncLossGuard): SyncAdapter<Workspace> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.list().map((w) => ({ id: w.id, payload: w })),
     apply: (items) => {
       const changes: Array<{ id: string; workspace: Workspace | null }> = [];
@@ -241,14 +291,15 @@ export function workspacesAdapter(store: WorkspaceSyncStore): SyncAdapter<Worksp
   };
 }
 
-export interface AnnotationSyncStore {
+export interface AnnotationSyncStore extends LossAware {
   all(): Annotation[];
   applyRemote(changes: Array<{ id: string; annotation: Annotation | null }>): void;
 }
 
 /** Page annotations, keyed by their stable id (distinct across devices, like workspaces). */
-export function annotationsAdapter(store: AnnotationSyncStore): SyncAdapter<Annotation> {
+export function annotationsAdapter(store: AnnotationSyncStore, guard?: SyncLossGuard): SyncAdapter<Annotation> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.all().map((a) => ({ id: a.id, payload: a })),
     apply: (items) => {
       const changes: Array<{ id: string; annotation: Annotation | null }> = [];
@@ -261,7 +312,7 @@ export function annotationsAdapter(store: AnnotationSyncStore): SyncAdapter<Anno
   };
 }
 
-export interface WorkflowSyncStore {
+export interface WorkflowSyncStore extends LossAware {
   syncList(): SyncedWorkflow[];
   applyRemote(changes: ReadonlyArray<{ id: string; record: SyncedWorkflow | null }>): void;
   resetSyncMarkers(): void;
@@ -271,8 +322,9 @@ export interface WorkflowSyncStore {
  * Saved workflows, keyed by their stable id. Records merge (last writer wins by updatedAt, usage
  * per device) instead of replacing; deletions travel as dated records (shared/workflow-sync.ts).
  */
-export function workflowsAdapter(store: WorkflowSyncStore): SyncAdapter<SyncedWorkflow> {
+export function workflowsAdapter(store: WorkflowSyncStore, guard?: SyncLossGuard): SyncAdapter<SyncedWorkflow> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.syncList().map((w) => ({ id: w.id, payload: w })),
     apply: (items) => {
       const changes: Array<{ id: string; record: SyncedWorkflow | null }> = [];
@@ -289,7 +341,7 @@ export function workflowsAdapter(store: WorkflowSyncStore): SyncAdapter<SyncedWo
   };
 }
 
-export interface CommandHistorySyncStore {
+export interface CommandHistorySyncStore extends LossAware {
   syncList(): Array<{ id: string; payload: unknown }>;
   applyRemote(changes: ReadonlyArray<{ id: string; recent: CommandRecent | null }>): void;
 }
@@ -298,8 +350,9 @@ export interface CommandHistorySyncStore {
  * Command Bar recents, one record per entry (random ids). The store keeps the newest 50, one per
  * kind and text: an entry it drops (older, or the same text again) is deleted on the chain too.
  */
-export function commandHistoryAdapter(store: CommandHistorySyncStore): SyncAdapter<unknown> {
+export function commandHistoryAdapter(store: CommandHistorySyncStore, guard?: SyncLossGuard): SyncAdapter<unknown> {
   return {
+    ...(guard ? { retain: guard.retain(store) } : {}),
     list: () => store.syncList(),
     apply: (items) => {
       const changes: Array<{ id: string; recent: CommandRecent | null }> = [];
@@ -315,14 +368,14 @@ export function commandHistoryAdapter(store: CommandHistorySyncStore): SyncAdapt
   };
 }
 
-export interface AssistHistorySyncStore {
+export interface AssistHistorySyncStore extends LossAware {
   syncList(): Array<{ id: string; payload: AssistConversation }>;
   applyRemote(changes: ReadonlyArray<{ id: string; conversation: AssistConversation | null }>): void;
   retain(id: string): boolean;
 }
 
 /** Assist conversations, one record per conversation; the newer version wins (see the store). */
-export function assistHistoryAdapter(store: AssistHistorySyncStore): SyncAdapter<unknown> {
+export function assistHistoryAdapter(store: AssistHistorySyncStore, guard?: SyncLossGuard): SyncAdapter<unknown> {
   return {
     list: () => store.syncList(),
     apply: (items) => {
@@ -336,7 +389,7 @@ export function assistHistoryAdapter(store: AssistHistorySyncStore): SyncAdapter
       }
       store.applyRemote(changes);
     },
-    retain: (id) => store.retain(id),
+    retain: guard ? guard.retain(store, (id) => store.retain(id)) : (id) => store.retain(id),
   };
 }
 
@@ -432,8 +485,11 @@ export function deviceRecordsAdapter(opts: {
   own: () => unknown;
   records: DeviceRecords;
   valid: (raw: unknown) => boolean;
+  /** Retains what a lost sync-remote.json no longer lists. */
+  retain?: (id: string) => boolean;
 }): SyncAdapter<unknown> {
   return {
+    ...(opts.retain ? { retain: opts.retain } : {}),
     list: async () => {
       const ownId = await opts.ownId();
       const items: LocalItem[] = [{ id: ownId, payload: opts.own() }];
@@ -457,8 +513,9 @@ export function deviceRecordsAdapter(opts: {
  * stays here until it has been opened (SyncService), and its removal is then pushed as a deletion,
  * which tells the sender it arrived.
  */
-export function sentTabsAdapter(records: DeviceRecords): SyncAdapter<unknown> {
+export function sentTabsAdapter(records: DeviceRecords, retain?: (id: string) => boolean): SyncAdapter<unknown> {
   return {
+    ...(retain ? { retain } : {}),
     list: () => Object.entries(records.all()).map(([id, payload]) => ({ id, payload })),
     apply: (items) => {
       for (const item of items) {
@@ -495,8 +552,9 @@ export function asksAdapter(records: DeviceRecords): SyncAdapter<unknown> {
  * record this device writes (in "This computer" mode: its current addresses), or null to keep the
  * record as it came (SyncService follows the chain when it moved elsewhere).
  */
-export function chainServerAdapter(opts: { records: DeviceRecords; own: () => Promise<ChainServer | null> }): SyncAdapter<unknown> {
+export function chainServerAdapter(opts: { records: DeviceRecords; own: () => Promise<ChainServer | null>; retain?: (id: string) => boolean }): SyncAdapter<unknown> {
   return {
+    ...(opts.retain ? { retain: opts.retain } : {}),
     list: async () => {
       const own = await opts.own();
       if (own) opts.records.set(CHAIN_SERVER_ID, own);
@@ -593,6 +651,11 @@ export class SyncRemoteStore {
   clear(): void {
     this.file.set(emptyRemote());
   }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
+  }
 }
 
 export interface SyncSources {
@@ -625,46 +688,53 @@ export interface SyncSources {
   watchStatus: () => DeviceWatchStatus;
   /** The chain_server record this device writes, or null to keep the one that came (default: none). */
   chainServer?: () => Promise<ChainServer | null>;
+  /** Keeps on the chain what a store lost rather than deleted (left out: every missing record is a deletion). */
+  lossGuard?: SyncLossGuard;
 }
 
 export function createSyncAdapters(src: SyncSources): Partial<Record<SyncCollection, SyncAdapter<any>>> {
+  const guard = src.lossGuard;
+  const remoteRetain = guard?.retain(src.remote);
   return {
-    bookmarks: bookmarksAdapter(src.bookmarks),
-    history: historyAdapter(src.history),
-    credentials: credentialsAdapter(src.credentials),
-    credential_deletions: credentialDeletionsAdapter(src.credentials),
-    addresses: addressesAdapter(src.addresses),
-    cards: cardsAdapter(src.cards),
-    reading: readingAdapter(src.reading),
-    watches: watchesAdapter(src.watches),
-    workspaces: workspacesAdapter(src.workspaces),
-    annotations: annotationsAdapter(src.annotations),
-    ...(src.workflows ? { workflows: workflowsAdapter(src.workflows) } : {}),
+    bookmarks: bookmarksAdapter(src.bookmarks, guard),
+    history: historyAdapter(src.history, guard),
+    credentials: credentialsAdapter(src.credentials, guard),
+    credential_deletions: credentialDeletionsAdapter(src.credentials, guard),
+    addresses: addressesAdapter(src.addresses, guard),
+    cards: cardsAdapter(src.cards, guard),
+    reading: readingAdapter(src.reading, guard),
+    watches: watchesAdapter(src.watches, guard),
+    workspaces: workspacesAdapter(src.workspaces, guard),
+    annotations: annotationsAdapter(src.annotations, guard),
+    ...(src.workflows ? { workflows: workflowsAdapter(src.workflows, guard) } : {}),
     ...(src.siteMemory ? { site_memory: siteMemoryAdapter(src.siteMemory) } : {}),
-    ...(src.commands ? { command_history: commandHistoryAdapter(src.commands) } : {}),
-    ...(src.assistHistory ? { assist_history: assistHistoryAdapter(src.assistHistory) } : {}),
+    ...(src.commands ? { command_history: commandHistoryAdapter(src.commands, guard) } : {}),
+    ...(src.assistHistory ? { assist_history: assistHistoryAdapter(src.assistHistory, guard) } : {}),
     settings: settingsAdapter(src.settings, src.includeServiceUrls),
     profiles: profileAdapter(src.profile),
     open_tabs: deviceRecordsAdapter({
       ownId: src.ownDeviceId,
       own: src.openTabs,
       records: src.remote.records("open_tabs"),
+      retain: remoteRetain,
       valid: (raw) => parseDeviceTabs(raw) !== null,
     }),
     extensions: deviceRecordsAdapter({
       ownId: src.ownDeviceId,
       own: src.extensions,
       records: src.remote.records("extensions"),
+      retain: remoteRetain,
       valid: (raw) => parseDeviceExtensions(raw) !== null,
     }),
     watch_status: deviceRecordsAdapter({
       ownId: src.ownDeviceId,
       own: src.watchStatus,
       records: src.remote.records("watch_status"),
+      retain: remoteRetain,
       valid: (raw) => parseDeviceWatchStatus(raw) !== null,
     }),
-    sent_tabs: sentTabsAdapter(src.remote.records("sent_tabs")),
+    sent_tabs: sentTabsAdapter(src.remote.records("sent_tabs"), remoteRetain),
     asks: asksAdapter(src.remote.records("asks")),
-    chain_server: chainServerAdapter({ records: src.remote.records("chain_server"), own: src.chainServer ?? (async () => null) }),
+    chain_server: chainServerAdapter({ records: src.remote.records("chain_server"), own: src.chainServer ?? (async () => null), retain: remoteRetain }),
   };
 }

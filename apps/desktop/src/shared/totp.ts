@@ -228,7 +228,7 @@ export function parseOtpauthUri(uri: string): { config: TotpConfig } & OtpauthLa
   const colon = label.indexOf(":");
   const labelIssuer = colon >= 0 ? label.slice(0, colon).trim() : "";
   const account = (colon >= 0 ? label.slice(colon + 1) : label).trim();
-  const issuer = (params.get("issuer") ?? labelIssuer).trim();
+  const issuer = params.get("issuer")?.trim() || labelIssuer;
   return { config: { secret, algorithm, digits, period }, issuer, account };
 }
 

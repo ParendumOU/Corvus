@@ -54,6 +54,32 @@ export function expandPayloadSet(set: PayloadSet): string[] {
   }
 }
 
+/** How many values a payload set expands to, without expanding it. */
+function payloadCount(set: PayloadSet | undefined): number {
+  if (!set) return 0;
+  switch (set.kind) {
+    case "wordlist":
+      return set.values?.length ?? 0;
+    case "charset":
+      return [...(set.charset ?? "")].length;
+    case "numbers": {
+      const span = Math.abs((set.to ?? 0) - (set.from ?? 0));
+      const step = set.step && set.step !== 0 ? Math.abs(set.step) : 1;
+      return Number.isNaN(span / step) ? 0 : Math.floor(span / step) + 1;
+    }
+  }
+}
+
+/** How many requests an attack issues (as planRequests would build), computed without building them. */
+export function countRequests(config: FuzzerConfig): number {
+  const positions = parseTemplate(config.template).positions;
+  if (positions === 0) return 1;
+  const sizes = config.payloadSets.map(payloadCount);
+  if (config.attack === "sniper") return positions * (sizes[0] ?? 0);
+  const perPosition = Array.from({ length: positions }, (_, i) => sizes[i] ?? (config.attack === "pitchfork" ? 0 : (sizes[sizes.length - 1] ?? 0)));
+  return config.attack === "pitchfork" ? Math.min(...perPosition) : perPosition.reduce((n, s) => n * s, 1);
+}
+
 interface SlottedField {
   literals: string[];
   /** Default text for each slot (the text between the § markers in the template). */
@@ -234,11 +260,14 @@ export async function runFuzz(config: FuzzerConfig, deps: RunFuzzDeps): Promise<
   if (!deps.inScope(config.template.url)) {
     throw new FuzzScopeError("The fuzz target is not in scope; add it to the scope allowlist first");
   }
-  const planned = planRequests(config);
   const ceiling = Math.min(config.maxRequests ?? HARD_MAX_REQUESTS, HARD_MAX_REQUESTS);
-  if (planned.length > ceiling) {
-    throw new FuzzLimitError(`This attack would issue ${planned.length} requests, above the ${ceiling} cap; narrow the payload sets`);
+  // Counted before anything is built: a cluster bomb or a wide number range would otherwise fill
+  // memory long before the cap is checked.
+  const count = countRequests(config);
+  if (count > ceiling) {
+    throw new FuzzLimitError(`This attack would issue ${Number.isFinite(count) ? count : "unlimited"} requests, above the ${ceiling} cap; narrow the payload sets`);
   }
+  const planned = planRequests(config);
 
   const rps = clampRate(config.requestsPerSecond);
   const concurrency = clampConcurrency(config.concurrency);

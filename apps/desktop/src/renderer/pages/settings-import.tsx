@@ -85,7 +85,7 @@ function PasswordResult({ summary }: { summary: PasswordImportSummary }) {
     if (!summary.reviewToken) return;
     internalApi()
       .call("import.passwordReview", summary.reviewToken, which)
-      .then(() => setUpdated(new Set([...updated, ...(which === "all" ? summary.review.map((_, i) => i) : which)])))
+      .then(() => setUpdated((done) => new Set([...done, ...(which === "all" ? summary.review.map((_, i) => i) : which)])))
       .catch((e: unknown) => setError(errorMessage(e)));
   };
   const groups = REASON_ORDER.map((reason) => ({ reason, notes: summary.notes.filter((note) => note.reason === reason && reason !== "review") })).filter((g) => g.notes.length > 0);

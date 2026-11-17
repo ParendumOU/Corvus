@@ -37,7 +37,7 @@ import { phonePairingAddress, probeHealth } from "./pairing-address";
 import type { ProfileRuntime } from "./profiles";
 import { blobsReadBack, type LockWrapped } from "./profile-lock";
 import { ReadingFiller } from "./reading-fill";
-import { SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
+import { SyncLossGuard, SyncRemoteStore, createSyncAdapters } from "./sync-adapters";
 import { SyncConflictStore } from "./sync-conflict-store";
 import { SyncScheduler } from "./sync-scheduler";
 import { ownChainServer, reviveSyncState, type ProfileSyncState } from "./sync-state";
@@ -142,6 +142,8 @@ export class SyncService {
   private readonly remotes = new Map<string, SyncRemoteStore>();
   private readonly runtimes = new Map<string, Runtime>();
   private readonly conflictStores = new Map<string, SyncConflictStore>();
+  /** Per profile: what its stores lost at load stays on the chain (see SyncLossGuard). */
+  private readonly lossGuards = new Map<string, SyncLossGuard>();
   private readonly errors = new Map<string, string>();
   private readonly filler = new ReadingFiller();
   private readonly memoryPhrases = new Map<string, string>();
@@ -373,6 +375,7 @@ export class SyncService {
         },
       },
       remote,
+      lossGuard: this.lossGuard(profile),
       ownDeviceId: () => client.getDeviceId(),
       openTabs: () => {
         tabs.refresh();
@@ -494,6 +497,7 @@ export class SyncService {
       profile.commands.flush();
       profile.assistHistory.flush();
       await engine.sync();
+      this.lossGuard(profile).settle();
       file.update((s) => ({ ...s, lastSyncAt: Date.now() }));
       this.errors.delete(id);
       void this.followChain(profile);
@@ -859,6 +863,15 @@ export class SyncService {
       syncAssistHistory: s.syncAssistHistory,
       conflicts: this.conflictStore(profile).list().length,
     };
+  }
+
+  private lossGuard(profile: ProfileRuntime): SyncLossGuard {
+    let guard = this.lossGuards.get(profile.profile.id);
+    if (!guard) {
+      guard = new SyncLossGuard();
+      this.lossGuards.set(profile.profile.id, guard);
+    }
+    return guard;
   }
 
   private conflictStore(profile: ProfileRuntime): SyncConflictStore {

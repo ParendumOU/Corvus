@@ -95,6 +95,21 @@ describe("authentication", () => {
     expect(again.json().error).toBe("replayed");
   });
 
+  it("rejects a replay whose header was reformatted", async () => {
+    app = await makeServer();
+    await registerChain(app, KEYS_A, DEV_1, DEV_2);
+    const authorization = signRequest(KEYS_A, DEV_1, { method: "GET", path: records });
+    expect((await signed(app, KEYS_A, DEV_1, "GET", records, { authorization })).statusCode).toBe(200);
+    const spaced = authorization.replace(/,/g, ", ");
+    const padded = authorization.replace(/ts=(\d+)/, "ts=0$1");
+    const otherDevice = authorization.replace(`device=${DEV_1}`, `device=${DEV_2}`);
+    for (const variant of [spaced, padded, otherDevice]) {
+      const again = await signed(app, KEYS_A, DEV_1, "GET", records, { authorization: variant });
+      expect(again.statusCode).toBe(401);
+      expect(again.json().error).toBe("replayed");
+    }
+  });
+
   it("requires a registered device for data routes", async () => {
     app = await makeServer();
     await registerChain(app, KEYS_A, DEV_1);

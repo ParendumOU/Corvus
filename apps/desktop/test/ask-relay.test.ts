@@ -214,3 +214,36 @@ describe("when the answer so far is written", () => {
     expect(pushed.at(-1)!.state).toBe("done");
   });
 });
+
+describe("a progress write that fails", () => {
+  it("is dropped without an unhandled rejection, and the whole answer is still written", async () => {
+    const pushed: Ask[] = [];
+    let clock = 2000;
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const last = await answerAsk(question, {
+        stream: () =>
+          events([
+            { type: "answer-delta", text: "Ravens live " },
+            { type: "answer-delta", text: "10-15 years." },
+            { type: "answer-done", text: "Ravens live 10-15 years.", citations: [] },
+          ]),
+        push: async (ask) => {
+          pushed.push(ask);
+          if (pushed.length === 2) throw new Error("sync server unreachable");
+          return true;
+        },
+        deviceName: "Desk",
+        now: () => (clock += 500),
+        progressMs: 1000,
+      });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(last).toMatchObject({ state: "done", answer: "Ravens live 10-15 years." });
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});

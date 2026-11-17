@@ -43,13 +43,7 @@ export interface ReaderDoc {
 
 export type ReaderToolKind = "key-points" | "tldr" | "simplify" | "eli5" | "translate" | "define" | "explain";
 
-export const READER_TOOLS: ReadonlyArray<{ kind: ReaderToolKind; label: string }> = [
-  { kind: "key-points", label: "Key points" },
-  { kind: "tldr", label: "TL;DR" },
-  { kind: "simplify", label: "Simplify" },
-  { kind: "eli5", label: "Explain like I'm 5" },
-  { kind: "translate", label: "Translate" },
-];
+export const READER_TOOLS: ReadonlyArray<ReaderToolKind> = ["key-points", "tldr", "simplify", "eli5", "translate"];
 
 export interface ReaderUsage {
   inputTokens: number;

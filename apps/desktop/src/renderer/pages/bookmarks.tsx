@@ -3,7 +3,7 @@ import type { Bookmark } from "@corvus/shared";
 import { BAR_FOLDER_ID, BOOKMARK_DRAG_MIME, OTHER_FOLDER_ID, ROOT_IDS, bookmarkUrlFromInput, childrenOf, isDescendant, pathTo } from "../../shared/bookmark-tree";
 import { errorMessage, internalApi } from "../common/api";
 import { IconChevronDown, IconChevronRight, IconEdit, IconFolder, IconPlus, IconTrash } from "../common/icons";
-import { Favicon, hostOf } from "../common/ui";
+import { ConfirmButton, Favicon, hostOf } from "../common/ui";
 import "./bookmarks.css";
 import { PageShell, mount } from "./shell";
 
@@ -277,9 +277,15 @@ function BookmarksPage() {
       <button className="icon-btn" title={t("Edit")} onClick={() => setEditing({ id: b.id, title: b.title, url: b.url ?? "" })}>
         <IconEdit size={15} />
       </button>
-      <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("bookmarks.remove", b.id))}>
-        <IconTrash size={15} />
-      </button>
+      {b.kind === "folder" ? (
+        <ConfirmButton className="icon-btn" title={t("Delete")} confirm={t("Click again to delete the folder and everything in it")} onConfirm={() => run(api.call("bookmarks.remove", b.id))}>
+          <IconTrash size={15} />
+        </ConfirmButton>
+      ) : (
+        <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("bookmarks.remove", b.id))}>
+          <IconTrash size={15} />
+        </button>
+      )}
     </div>
   );
 

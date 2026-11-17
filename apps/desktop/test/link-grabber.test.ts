@@ -51,6 +51,12 @@ pw:*****`;
     expect(findPasswords("Bypass: no, compass: north")).toEqual([]);
     expect(downloadLinksIn("see https://news.example/x and https://cdn.example/b.zip")).toEqual(["https://cdn.example/b.zip"]);
   });
+
+  it("stays linear on an address with a long run of punctuation inside (copied text is page-supplied)", () => {
+    const run = ")".repeat(200_000);
+    expect(extractUrls(`https://cdn.example/${run}x`)).toEqual([`https://cdn.example/${run}x`]);
+    expect(extractUrls(`(https://cdn.example/a.zip${run})`)).toEqual(["https://cdn.example/a.zip"]);
+  });
 });
 
 describe("packages", () => {

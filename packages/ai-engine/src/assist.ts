@@ -5,7 +5,7 @@
  */
 import { parseCitations } from "./prompt.js";
 import type { AnswerProvider, ProviderEvent } from "./providers/types.js";
-import { collapseWhitespace, truncate } from "./text.js";
+import { collapseWhitespace, stripAll, truncate } from "./text.js";
 
 export interface PageSection {
   heading: string;
@@ -262,7 +262,7 @@ const FENCE_TAGS = /<\/?\s*(page|article|selection|segments|term|tabs|conversati
 
 /** Neutralizes text that could close a fence or forge a numbered header. */
 export function sanitizeUntrusted(text: string): string {
-  return text.replace(FENCE_TAGS, "").replace(/\u0000/g, "");
+  return stripAll(text.replace(/\u0000/g, ""), FENCE_TAGS);
 }
 
 function oneLine(text: string, max: number): string {

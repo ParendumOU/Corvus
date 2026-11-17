@@ -4,6 +4,7 @@ import { READER_RPC, type ReaderChromeRpc, type ReaderRpc, type ReaderSettings, 
 import { readingExportFilename, readingItemToMarkdown } from "../shared/reading";
 import type { InternalPage } from "../shared/internal-urls";
 import type { AppContext } from "./context";
+import { tr } from "./menu-i18n";
 import type { ProfileRuntime } from "./profiles";
 import type { BrowserWindowCtl } from "./window";
 
@@ -101,7 +102,7 @@ export function readingInternalHandlers(): InternalHandlers<ReadingLibraryRpc> {
       if (!item) return false;
       const parent = c.window?.win;
       const options: Electron.SaveDialogOptions = {
-        title: "Export article as Markdown",
+        title: tr("Export article as Markdown"),
         defaultPath: readingExportFilename(item),
         filters: [{ name: "Markdown", extensions: ["md"] }],
       };

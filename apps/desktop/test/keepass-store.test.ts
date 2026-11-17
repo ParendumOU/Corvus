@@ -205,6 +205,29 @@ describe("KeePassStore", () => {
     expect(third.databases()[0]!.status).toBe("locked");
   });
 
+  it("keeps a kept master password the keychain cannot read for now", async () => {
+    const dir = tmp();
+    const file = await writeDb(path.join(dir, "kept.kdbx"), ENTRIES, "very-secret-master");
+    const first = store(dir);
+    first.addSources([file], "file");
+    expect(await first.unlock(dbIdOf(file), "very-secret-master", null, true)).toEqual({ ok: true });
+    first.flush();
+    first.dispose();
+
+    let keychainDown = true;
+    const flaky: SecretCipher = { ...keychain, decryptString: (enc) => (keychainDown ? noKeychain.decryptString(enc) : keychain.decryptString(enc)) };
+    const second = store(dir, flaky);
+    await second.restoreRemembered();
+    expect(second.databases()[0]).toMatchObject({ status: "locked", remembered: true });
+    second.flush();
+    second.dispose();
+
+    keychainDown = false;
+    const third = store(dir, flaky);
+    await third.restoreRemembered();
+    expect(third.databases()[0]).toMatchObject({ status: "unlocked", remembered: true });
+  });
+
   it("refuses to keep a password without an OS keychain", async () => {
     const dir = tmp();
     const file = await writeDb(path.join(dir, "x.kdbx"), ENTRIES, "master");
@@ -314,4 +337,20 @@ describe("export of the built-in vault", () => {
     expect(db.entries[0]!.totp).toEqual(TOTP);
     await expect(openKdbx(bytes, "wrong", null)).rejects.toThrow("Wrong master password");
   }, 30_000);
+});
+
+describe("a profile lock during a database unlock", () => {
+  it("keeps the database locked when the profile locks while it opens", async () => {
+    const dir = tmp();
+    const file = await writeDb(path.join(dir, "a.kdbx"), ENTRIES, "master");
+    const s = store(dir);
+    s.addSources([file], "file");
+    const id = dbIdOf(file);
+    const unlocking = s.unlock(id, "master", null, false);
+    s.suspend();
+    expect((await unlocking).ok).toBe(false);
+    expect(s.databases()[0]).toMatchObject({ status: "locked", error: null, entryCount: 0 });
+    expect(s.records()).toEqual([]);
+    expect(await s.unlock(id, "master", null, false)).toEqual({ ok: true });
+  });
 });

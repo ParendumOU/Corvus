@@ -68,6 +68,8 @@ export function readingExportFilename(item: ReadingItem): string {
 
 const ABBREVIATIONS = /\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|Inc|Ltd|Co|No|Fig|Vol|pp|al|e\.g|i\.e)\./gi;
 const DOT = "\u0001";
+const TERMINAL = ".!?…";
+const CLOSERS = "\"'”’)]";
 
 /**
  * Splits text into sentences for read-aloud highlighting. Keeps terminal punctuation and avoids
@@ -80,7 +82,29 @@ export function splitSentences(text: string): string[] {
   const guarded = normalized
     .replace(/(\d)\.(\d)/g, `$1${DOT}$2`)
     .replace(ABBREVIATIONS, (m) => m.replace(/\./g, DOT));
-  const parts = guarded.match(/[^.!?…]+[.!?…]+["'”’)\]]*(?=\s|$)|[^.!?…]+$/g);
-  const out = (parts ?? [guarded]).map((p) => p.replace(new RegExp(DOT, "g"), ".").trim()).filter(Boolean);
-  return out.length > 0 ? out : [normalized];
+  // A scan, not a regex: page text is untrusted and a backtracking pattern is quadratic on a long
+  // run without a sentence end. A sentence ends at terminal punctuation (plus closing quotes or
+  // brackets) followed by a space or the end; a piece of punctuation alone is no sentence.
+  const parts: string[] = [];
+  const push = (piece: string): void => {
+    const p = piece.replace(new RegExp(DOT, "g"), ".").trim();
+    if (/[^.!?…"'”’)\]]/.test(p)) parts.push(p);
+  };
+  let start = 0;
+  for (let i = 0; i < guarded.length; ) {
+    if (!TERMINAL.includes(guarded[i]!)) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < guarded.length && TERMINAL.includes(guarded[j]!)) j++;
+    while (j < guarded.length && CLOSERS.includes(guarded[j]!)) j++;
+    if (j === guarded.length || guarded[j] === " ") {
+      push(guarded.slice(start, j));
+      start = j;
+    }
+    i = j;
+  }
+  push(guarded.slice(start));
+  return parts.length > 0 ? parts : [normalized];
 }

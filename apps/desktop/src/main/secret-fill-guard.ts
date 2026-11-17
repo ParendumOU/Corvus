@@ -88,3 +88,11 @@ export class SecretFillGuard {
     return this.locked.has(tabId) ? SECRET_FILL_LOCK_MESSAGE : null;
   }
 }
+
+/**
+ * A script that writes a secret, made to run only in a document of `origin` (else it returns null):
+ * the page may have navigated to another site since the secret was chosen for it.
+ */
+export function atOriginOnly(code: string, origin: string): string {
+  return `(location.origin === ${JSON.stringify(origin)} ? ${code} : null)`;
+}

@@ -23,7 +23,7 @@ import { JsonFile } from "./json-file";
 import { entryFit, entryMatchScore, entrySimilar, entrySite, type KeePassEntry } from "./keepass-entries";
 import { deleteKdbxEntry, openKdbx, saveKdbxEntry, setKdbxTotps, type EntryInput, type EntryTotp } from "./keepass-format";
 import type { LoginCandidate, LoginProvider, LoginRecord } from "./login-sources";
-import { blobsReadBack, isProfileLocked, rewrapBlobs } from "./profile-lock";
+import { ProfileLockedError, blobsReadBack, isProfileLocked, rewrapBlobs } from "./profile-lock";
 import type { SecretCipher } from "./settings-store";
 import type { TotpConfig } from "../shared/totp";
 
@@ -136,9 +136,13 @@ export class KeePassStore {
   private readonly backedUp = new Set<string>();
   private refreshTimer: NodeJS.Timeout | null = null;
   private refreshing: Promise<void> = Promise.resolve();
+  /** The database write in progress (see write). */
+  private writing: Promise<void> = Promise.resolve();
   private readonly watch: boolean;
   private readonly debounceMs: number;
   private disposed = false;
+  /** Counts profile locks (suspend): a database read that started before one never opens after it. */
+  private suspensions = 0;
 
   constructor(
     dir: string,
@@ -327,7 +331,7 @@ export class KeePassStore {
         } catch (err) {
           this.wipe(db);
           db.status = "locked";
-          db.error = `The database changed on disk and could not be reopened: ${errorText(err)}`;
+          db.error = isProfileLocked(err) ? null : `The database changed on disk and could not be reopened: ${errorText(err)}`;
         }
       }
       this.emit();
@@ -347,9 +351,11 @@ export class KeePassStore {
   // ------------------------------------------------------------------ lock / unlock
 
   private async load(db: Db, key: DbKey): Promise<void> {
+    const suspensions = this.suspensions;
     const stamp = await this.stampOf(db.path);
     const data = await fs.promises.readFile(db.path);
     const opened = await openKdbx(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), key.password, key.keyFile);
+    if (suspensions !== this.suspensions) throw new ProfileLockedError();
     db.entries = opened.entries;
     db.groups = opened.groups;
     db.byUuid = new Map(opened.entries.map((e) => [e.uuid, e]));
@@ -385,8 +391,9 @@ export class KeePassStore {
       keyFile?.fill(0);
       this.wipe(db);
       db.status = "locked";
-      db.error = errorText(err);
-      return { ok: false, error: db.error };
+      // The profile locked meanwhile: the database stays locked, with nothing to fix.
+      db.error = isProfileLocked(err) ? null : errorText(err);
+      return { ok: false, error: db.error ?? errorText(err) };
     } finally {
       this.emit();
     }
@@ -432,6 +439,7 @@ export class KeePassStore {
    * passwords stay kept, wrapped under the profile's lock, and open the databases again on unlock.
    */
   suspend(): void {
+    this.suspensions += 1;
     for (const db of this.dbs.values()) {
       if (db.status !== "unlocked" && db.status !== "unlocking") continue;
       this.wipe(db);
@@ -464,12 +472,20 @@ export class KeePassStore {
     for (const [id, blob] of Object.entries(remembered)) {
       const db = this.dbs.get(id);
       if (!db || db.status !== "locked" || !this.canRemember) continue;
-      let saved: { password: string; keyFile: string | null };
+      let plain: string;
       try {
-        saved = JSON.parse(this.cipher.decryptString(Buffer.from(blob.data, "base64"))) as { password: string; keyFile: string | null };
+        plain = this.cipher.decryptString(Buffer.from(blob.data, "base64"));
       } catch (err) {
         // Locked, the profile keeps them for when it opens again.
         if (isProfileLocked(err)) return;
+        // Kept: the keychain may only be unavailable for now (unlocking again with "keep" replaces it).
+        db.error = "The kept master password could not be read. Unlock the database again.";
+        continue;
+      }
+      let saved: { password: string; keyFile: string | null };
+      try {
+        saved = JSON.parse(plain) as { password: string; keyFile: string | null };
+      } catch {
         db.error = "The kept master password could not be read. Unlock the database again.";
         this.forget(id);
         continue;
@@ -664,8 +680,17 @@ export class KeePassStore {
     return parsed;
   }
 
-  /** Changes a database file: the conflict check, the .bak copy of the run's first write, the swap, the reload. */
-  private async write(dbId: string, edit: (data: Uint8Array, key: DbKey) => Promise<Uint8Array>): Promise<void> {
+  /**
+   * Changes a database file: the conflict check, the .bak copy of the run's first write, the swap, the
+   * reload. One write at a time: two at once would both edit the same read and the last would undo the first.
+   */
+  private write(dbId: string, edit: (data: Uint8Array, key: DbKey) => Promise<Uint8Array>): Promise<void> {
+    const done = this.writing.then(() => this.writeNow(dbId, edit));
+    this.writing = done.catch(() => undefined);
+    return done;
+  }
+
+  private async writeNow(dbId: string, edit: (data: Uint8Array, key: DbKey) => Promise<Uint8Array>): Promise<void> {
     const db = this.dbs.get(dbId);
     if (!db || db.status !== "unlocked" || !db.key) throw new Error(tr("Unlock the database first."));
     if ((await this.stampOf(db.path)) !== db.stamp) {

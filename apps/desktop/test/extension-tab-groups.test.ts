@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TabGroup } from "@corvus/shared";
 import { registerTabGroupApis, type TabGroupAccess } from "../src/main/extension-apis";
 import type { RouterCallback } from "../src/main/extensions";
-import { groupEvents, queryGroups, type GroupPlacement } from "../src/shared/chrome-tab-groups";
+import { groupEvents, matchesGlob, queryGroups, type GroupPlacement } from "../src/shared/chrome-tab-groups";
 
 const group = (id: string, over: Partial<TabGroup> = {}): TabGroup => ({ id, title: "", color: "blue", collapsed: false, ...over });
 const place = (id: number, g: TabGroup, index: number, over: Partial<GroupPlacement> = {}): GroupPlacement => ({ id, windowId: 1, index, windowTabs: 6, group: g, ...over });
@@ -16,6 +16,22 @@ describe("chrome.tabGroups helpers", () => {
     expect(queryGroups(list, { windowId: -2 }, 2).map((g) => g.id)).toEqual([2]);
     expect(queryGroups(list, { title: "Work" })).toEqual([]);
     expect(queryGroups(list, { title: "Trip" })[0]).toEqual({ id: 2, collapsed: true, color: "red", title: "Trip", windowId: 2 });
+  });
+
+  it("matches * wildcards anywhere, and a pattern of many wildcards answers at once", () => {
+    expect(matchesGlob("*", "")).toBe(true);
+    expect(matchesGlob("a*c", "abc")).toBe(true);
+    expect(matchesGlob("a*c", "ac")).toBe(true);
+    expect(matchesGlob("ab*bc", "abc")).toBe(false);
+    expect(matchesGlob("*b*b*", "abcb")).toBe(true);
+    expect(matchesGlob("*b*b*", "abc")).toBe(false);
+    expect(matchesGlob("a.c", "abc")).toBe(false);
+    const title = "a".repeat(200);
+    const list = [place(1, group("g1", { title }), 0)];
+    const started = Date.now();
+    expect(queryGroups(list, { title: `${"*a".repeat(30)}b` })).toEqual([]);
+    expect(queryGroups(list, { title: `${"*a".repeat(30)}*` }).map((g) => g.id)).toEqual([1]);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it("turns snapshots into created, updated, moved and removed events", () => {

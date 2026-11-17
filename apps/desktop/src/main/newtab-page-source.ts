@@ -6,6 +6,7 @@
  */
 import { WebContentsView, type Session } from "electron";
 import { MIN_PAGE_MINUTES } from "../shared/newtab";
+import { siteOf } from "../shared/tab-organizer";
 import type { PageSnapshot } from "../shared/newtab-ipc";
 
 const LOAD_TIMEOUT_MS = 25_000;
@@ -70,12 +71,28 @@ export class PageSourceReader {
     const wc = view.webContents;
     wc.setAudioMuted(true);
     wc.setWindowOpenHandler(() => ({ action: "deny" }));
+    // The person allowed one site: a redirect or a script sending the page elsewhere (another site
+    // where they are signed in) must not be read under that consent.
+    const site = siteOf(url);
+    let elsewhere = "";
+    const stayOnSite = (event: Electron.Event, target: string, isMainFrame: boolean): void => {
+      if (!isMainFrame || siteOf(target) === site) return;
+      event.preventDefault();
+      elsewhere ||= new URL(target).hostname;
+    };
+    wc.on("will-redirect", (event) => stayOnSite(event, event.url, event.isMainFrame));
+    wc.on("will-navigate", (event) => stayOnSite(event, event.url, event.isMainFrame));
+    const leftSite = (): Error | null => (elsewhere || siteOf(wc.getURL() || url) !== site ? new Error(`The page went on to ${elsewhere || new URL(wc.getURL()).hostname}, which this widget may not read.`) : null);
     try {
       await Promise.race([
-        wc.loadURL(url),
+        wc.loadURL(url).catch((err: unknown) => {
+          throw leftSite() ?? err;
+        }),
         new Promise((_, reject) => setTimeout(() => reject(new Error("The page took too long to load.")), LOAD_TIMEOUT_MS)),
       ]);
       await new Promise((r) => setTimeout(r, SETTLE_MS));
+      const left = leftSite();
+      if (left) throw left;
       // An isolated world, so the page's own scripts cannot change what Corvus reads.
       const read = (await wc.executeJavaScriptInIsolatedWorld(999, [
         {

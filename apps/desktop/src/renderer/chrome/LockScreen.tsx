@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import "./lock-screen.css";
 import type { LockKind, LockScreenView, UnlockAttempt } from "../../shared/profile-lock";
 import { lockProblemText } from "../common/lock-text";
@@ -9,9 +9,15 @@ import { IconLock, IconPlus } from "../common/icons";
 /** Seconds left until `at`, ticking; 0 once it passed. */
 function useCountdown(at: number | null): number {
   const [now, setNow] = useState(Date.now());
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // `now` may be from long before this wait began: without a fresh one the first frame shows it too long.
+    setNow(Date.now());
     if (!at || at <= Date.now()) return;
-    const timer = setInterval(() => setNow(Date.now()), 500);
+    const timer = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= at) clearInterval(timer);
+    }, 500);
     return () => clearInterval(timer);
   }, [at]);
   return at ? Math.max(0, Math.ceil((at - now) / 1000)) : 0;

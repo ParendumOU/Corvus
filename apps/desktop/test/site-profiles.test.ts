@@ -49,6 +49,15 @@ describe("matchSiteProfile", () => {
     expect(matchSiteProfile(p, "https://notexample.com/")).toBeNull();
   });
 
+  it("matches a fully qualified host with a trailing dot and international names", () => {
+    const p = [profile({ pattern: "bank.example" })];
+    expect(matchSiteProfile(p, "https://bank.example./login")?.id).toBe("p1");
+    expect(matchSiteProfile(p, "https://app.bank.example./")?.id).toBe("p1");
+    expect(matchSiteProfile([profile({ pattern: "bank.example." })], "https://bank.example/")?.id).toBe("p1");
+    expect(matchSiteProfile([profile({ pattern: "*.münchen.de" })], "https://stadt.münchen.de/")?.id).toBe("p1");
+    expect(parsePattern("München.de/Rathaus")).toEqual({ host: "xn--mnchen-3ya.de", wildcard: false, path: "/rathaus" });
+  });
+
   it("wildcard matches subdomains only, not the apex", () => {
     const p = [profile({ pattern: "*.example.com" })];
     expect(matchSiteProfile(p, "https://app.example.com/")?.id).toBe("p1");

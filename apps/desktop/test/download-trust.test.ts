@@ -34,6 +34,12 @@ describe("file types Corvus warns about", () => {
     expect(isExecutableFilename("report.zip")).toBe(false);
   });
 
+  it("warns about Windows shortcuts, help files and consoles that run code when opened", () => {
+    for (const name of ["invoice.url", "manual.chm", "tool.msc", "a.scf", "b.settingcontent-ms", "c.website", "d.appref-ms", "e.jnlp", "f.wsc", "g.sct", "h.ws", "i.vb", "j.hlp", "k.xll", "l.ocx", "m.xbap"]) {
+      expect(isExecutableFilename(name), name).toBe(true);
+    }
+  });
+
   it("says why the person is asked", () => {
     const record: DownloadRecord = {
       id: "a",

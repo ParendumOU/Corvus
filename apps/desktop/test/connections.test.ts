@@ -100,12 +100,17 @@ describe("connections: Chromium's proxy settings", () => {
       webrtcProtection: false,
     });
     expect(revived.proxies.map((p) => p.id)).toEqual(["s"]);
-    expect(revived.profile).toEqual({ mode: "system" });
-    expect(revived.containers).toEqual({ work: { mode: "proxy", proxyId: "s" } });
-    expect(revived.rules).toEqual([{ pattern: "*.ok.example", via: "s" }]);
+    expect(revived.profile).toEqual({ mode: "proxy", proxyId: "missing" });
+    expect(revived.containers).toEqual({ work: { mode: "proxy", proxyId: "s" }, old: { mode: "proxy", proxyId: "missing" } });
+    expect(revived.rules).toEqual([{ pattern: "*.ok.example", via: "s" }, { pattern: "x.example", via: "missing" }]);
     expect(revived.webrtcProtection).toBe(false);
     expect(parseTrace("fl=1\nh=www.cloudflare.com\nip=203.0.113.9\nloc=ES\n")).toEqual({ ip: "203.0.113.9", country: "ES" });
     expect(parseTrace("<html>")).toBeNull();
+  });
+
+  it("blocks a profile whose saved proxy is damaged instead of going direct", () => {
+    const revived = reviveConnections({ proxies: [{ id: "bad", kind: "socks5", host: "", port: 1080 }], profile: { mode: "proxy", proxyId: "bad" } });
+    expect(chromiumProxy(revived.profile, revived)).toEqual({ mode: "fixed_servers", proxyRules: "http://127.0.0.1:9", proxyBypassRules: "<local>;localhost;127.0.0.1;[::1]" });
   });
 
   it("keeps WebRTC on the proxy only when the profile goes through one", () => {
@@ -177,5 +182,14 @@ describe("a profile's connection store", () => {
     expect(reloaded.proxies).toEqual([]);
     expect(reloaded.profile).toEqual({ mode: "direct" });
     expect(changes.length).toBe(6);
+  });
+
+  it("keeps a saved rule whose proxy failed to load while other rules are edited", () => {
+    const store = new ConnectionStore(dir, cipher());
+    // As loaded when the proxy it names could not be read: the rule keeps its id.
+    (store as unknown as { file: { update(fn: (f: { rules: unknown[] }) => unknown): void } }).file.update((f) => ({ ...f, rules: [{ pattern: "vpn.example", via: "lost" }] }));
+    store.setRules([{ pattern: "vpn.example", via: "lost" }, { pattern: "intranet.example", via: "direct" }]);
+    expect(store.config().rules).toEqual([{ pattern: "vpn.example", via: "lost" }, { pattern: "intranet.example", via: "direct" }]);
+    expect(() => store.setRules([{ pattern: "other.example", via: "nope" }])).toThrow("No such proxy");
   });
 });

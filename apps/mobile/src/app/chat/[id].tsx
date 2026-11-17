@@ -38,6 +38,7 @@ function Turn({
   last,
   busy,
   onAsk,
+  onError,
 }: {
   ask: AskRecord;
   /** When the phone last saw it change (its own clock). */
@@ -49,13 +50,15 @@ function Turn({
   last: boolean;
   busy: boolean;
   onAsk: (q: string) => void;
+  /** An action on this turn failed (the network). */
+  onError: (err: unknown) => void;
 }) {
   const name = ask.answeredBy || computer?.name || t('your computer');
   const phase = askPhase(ask, computer, now, movedAt);
-  const retry = <Button key="retry" label={t('Try again')} icon="refresh" kind="tonal" size="sm" onPress={() => void retryAsk(ask)} testID={`ask-retry-${ask.question}`} />;
-  const cancel = <Button key="cancel" label={t('Cancel')} kind="text" size="sm" onPress={() => void forgetAsks([ask.id])} testID={`ask-remove-${ask.question}`} />;
+  const retry = <Button key="retry" label={t('Try again')} icon="refresh" kind="tonal" size="sm" onPress={() => void retryAsk(ask).catch(onError)} testID={`ask-retry-${ask.question}`} />;
+  const cancel = <Button key="cancel" label={t('Cancel')} kind="text" size="sm" onPress={() => void forgetAsks([ask.id]).catch(onError)} testID={`ask-remove-${ask.question}`} />;
   const elsewhere = others[0] ? (
-    <Button key="other" label={t('Ask {computer}', { computer: others[0].name })} kind="tonal" size="sm" onPress={() => void retryAsk(ask, others[0]!.id)} testID={`ask-other-${ask.question}`} />
+    <Button key="other" label={t('Ask {computer}', { computer: others[0].name })} kind="tonal" size="sm" onPress={() => void retryAsk(ask, others[0]!.id).catch(onError)} testID={`ask-other-${ask.question}`} />
   ) : null;
 
   let status: string;
@@ -231,7 +234,12 @@ export default function ChatScreen() {
       destructive: true,
     });
     if (!ok) return;
-    await forgetThread(id);
+    try {
+      await forgetThread(id);
+    } catch (err) {
+      failed(err);
+      return;
+    }
     if (router.canGoBack()) router.back();
     else nav.replace('/assist');
   };
@@ -406,7 +414,7 @@ export default function ChatScreen() {
 
           {asks.map((ask, i) => (
             // Keyed by its place: a stopped answer's copy takes over the question's turn, which goes on writing out what had come.
-            <Turn key={`${ask.askedAt}:${ask.question}`} ask={ask} movedAt={session.askMoved[ask.id]} computer={session.devices.find((d) => d.id === ask.to)} others={online.filter((d) => d.id !== ask.to)} now={now} last={i === asks.length - 1} busy={busy || !computer} onAsk={(q) => void send(q)} />
+            <Turn key={`${ask.askedAt}:${ask.question}`} ask={ask} movedAt={session.askMoved[ask.id]} computer={session.devices.find((d) => d.id === ask.to)} others={online.filter((d) => d.id !== ask.to)} now={now} last={i === asks.length - 1} busy={busy || !computer} onAsk={(q) => void send(q)} onError={failed} />
           ))}
 
           {error ? <Banner tone="error" message={error} testID="ask-error" /> : null}

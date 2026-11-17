@@ -111,6 +111,13 @@ describe("otpauth URIs", () => {
     expect(parsed.account).toBe("alice");
   });
 
+  it("keeps the label's issuer when the issuer parameter is empty", () => {
+    const parsed = parseOtpauthUri("otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=");
+    expect(parsed.issuer).toBe("GitHub");
+    expect(parsed.account).toBe("alice");
+    expect(parseOtpauthUri("otpauth://totp/GitHub:alice?secret=JBSWY3DPEHPK3PXP&issuer=%20").issuer).toBe("GitHub");
+  });
+
   it("rejects hotp, missing secrets and bad parameters", () => {
     expect(() => parseOtpauthUri("otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP&counter=1")).toThrow(/HOTP/);
     expect(() => parseOtpauthUri("otpauth://totp/x")).toThrow(/no secret/);

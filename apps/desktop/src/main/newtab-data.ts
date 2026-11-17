@@ -10,21 +10,33 @@ import type { FeedItem, WallpaperView } from "../shared/newtab-ipc";
 const UA = "Corvus/0.4 (+https://corvus.parendum.com)";
 const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 1024 * 1024;
+const MAX_REDIRECTS = 5;
 
 type Fetcher = (url: string, init?: { headers?: Record<string, string> }) => Promise<Response>;
 
 /** Fetches a public http(s) address and returns its body as text (capped), or throws. */
 export async function fetchPublicText(url: string, fetcher: Fetcher = fetch, lookup = defaultLookup): Promise<{ text: string; type: string }> {
-  if (!(await resolvesToPublic(url, lookup))) throw new Error("Only public http(s) addresses can be read.");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await (fetcher as (u: string, i: RequestInit) => Promise<Response>)(url, {
-      headers: { "user-agent": UA, accept: "application/json, application/xml, text/xml, text/plain, */*" },
-      signal: controller.signal,
-      credentials: "omit",
-      redirect: "follow",
-    });
+    // Redirects are followed by hand so every hop gets the public-address check: a public address
+    // redirecting to the LAN or loopback must not hand those answers to a widget.
+    let res: Response | null = null;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (!(await resolvesToPublic(url, lookup))) throw new Error("Only public http(s) addresses can be read.");
+      res = await (fetcher as (u: string, i: RequestInit) => Promise<Response>)(url, {
+        headers: { "user-agent": UA, accept: "application/json, application/xml, text/xml, text/plain, */*" },
+        signal: controller.signal,
+        credentials: "omit",
+        redirect: "manual",
+      });
+      const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+      if (!location) break;
+      await res.body?.cancel();
+      res = null;
+      url = new URL(location, url).href;
+    }
+    if (!res) throw new Error("Too many redirects");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const reader = res.body?.getReader();
     if (!reader) return { text: await res.text(), type: res.headers.get("content-type") ?? "" };
@@ -126,6 +138,11 @@ const today = (): string => new Date().toISOString().slice(0, 10);
  */
 const NASA_FEED = "https://www.nasa.gov/feeds/iotd-feed/";
 
+/** A credit link from a feed, opened from the New Tab page: only an https address, else the source's own page. */
+function httpsLink(link: string | undefined, fallback: string): string {
+  return link && /^https:\/\//i.test(link) ? link : fallback;
+}
+
 /** The newest picture of NASA's Image of the Day feed, at a wallpaper size. */
 export function nasaImageOfTheDay(xml: string): WallpaperView | null {
   for (const block of xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? []) {
@@ -142,7 +159,7 @@ export function nasaImageOfTheDay(xml: string): WallpaperView | null {
     // nasa.gov serves resized copies; the originals run to several megabytes.
     if (/(^|\.)nasa\.gov$/.test(url.hostname)) url.searchParams.set("w", "2560");
     const link = decodeText(tag(block, "link") ?? "");
-    return { url: url.href, credit: decodeText(tag(block, "title") ?? "") || "NASA Image of the Day", link: /^https:\/\//.test(link) ? link : "https://www.nasa.gov/image-of-the-day/" };
+    return { url: url.href, credit: decodeText(tag(block, "title") ?? "") || "NASA Image of the Day", link: httpsLink(link, "https://www.nasa.gov/image-of-the-day/") };
   }
   return null;
 }
@@ -162,7 +179,7 @@ export async function wallpaper(source: WallpaperSource, fetcher?: Fetcher): Pro
         };
         const img = json.images?.[0];
         if (!img) throw new Error("No image");
-        return { url: new URL(img.url, "https://www.bing.com").href, credit: img.copyright ?? "Bing", link: img.copyrightlink ?? "https://www.bing.com/" };
+        return { url: new URL(img.url, "https://www.bing.com").href, credit: img.copyright ?? "Bing", link: httpsLink(img.copyrightlink, "https://www.bing.com/") };
       }
       if (source === "wikimedia") {
         const [y, m, d] = today().split("-");
@@ -171,7 +188,7 @@ export async function wallpaper(source: WallpaperSource, fetcher?: Fetcher): Pro
         };
         const img = json.image;
         if (!img?.image?.source) throw new Error("No image");
-        return { url: img.image.source, credit: [img.description?.text, img.artist?.text].filter(Boolean).join(" · ") || "Wikimedia Commons", link: img.file_page ?? "https://commons.wikimedia.org/" };
+        return { url: img.image.source, credit: [img.description?.text, img.artist?.text].filter(Boolean).join(" · ") || "Wikimedia Commons", link: httpsLink(img.file_page, "https://commons.wikimedia.org/") };
       }
       if (source === "nasa") {
         const image = nasaImageOfTheDay((await fetchPublicText(NASA_FEED, fetcher)).text);

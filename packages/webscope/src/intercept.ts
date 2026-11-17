@@ -234,18 +234,24 @@ export class InterceptEngine {
 
   /** Forward a held exchange, optionally with edits. */
   async forward(id: string, edit?: InterceptEdit, auto = false): Promise<void> {
+    const url = this.held.get(id)?.phase === "request" ? edit?.url : undefined;
+    // An edit may send the held request elsewhere: only within scope. Refused, it stays held.
+    if (url && !isInScope(this.opts.scope(), url)) throw new Error(`Cannot forward to ${url}: it is out of scope`);
     const item = this.take(id);
     if (!item) return;
     const rules = this.opts.rules?.();
+    // A held response's body is never read, so an edit replaces the response only when it brings its own
+    // body; without one, fulfilling would send the page an empty body: it is forwarded unchanged.
+    const edited = item.phase === "response" ? edit?.body !== undefined : edit !== undefined;
     if (item.phase === "response") {
-      if (edit && (edit.status !== undefined || edit.headers || edit.body !== undefined)) {
+      if (edit?.body !== undefined) {
         const base = item.response;
         const headers = edit.headers ?? base?.headers ?? [];
         await this.opts.client.send("Fetch.fulfillRequest", {
           requestId: item.cdpId,
           responseCode: edit.status ?? base?.status ?? 200,
           responseHeaders: fetchHeaders(headers),
-          ...(edit.body !== undefined ? { body: edit.bodyBase64 ? edit.body : toBase64(edit.body) } : {}),
+          body: edit.bodyBase64 ? edit.body : toBase64(edit.body),
         });
       } else {
         await this.opts.client.send("Fetch.continueResponse", { requestId: item.cdpId });
@@ -278,7 +284,7 @@ export class InterceptEngine {
       }
       await this.continueRequest(item.cdpId, finalEdit);
     }
-    this.opts.onAction?.(edit ? "intercept-modify" : "intercept-forward", `${item.request.method} ${item.host}${item.path}${auto ? " (auto)" : ""}`);
+    this.opts.onAction?.(edited ? "intercept-modify" : "intercept-forward", `${item.request.method} ${item.host}${item.path}${auto ? " (auto)" : ""}`);
     this.opts.onChange?.();
   }
 

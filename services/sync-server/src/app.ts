@@ -201,7 +201,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
         if (!verifyRequestSignature(publicKey, auth, req.method, req.url, req.rawBody ?? new Uint8Array())) {
           throw new HttpError(401, "bad_signature", "Signature verification failed");
         }
-        if (!replay.checkAndRemember(header as string, t)) throw new HttpError(401, "replayed", "Request signature already used");
+        // Keyed by the signed fields, not the header text: the parser tolerates spaces and leading
+        // zeros, and the device field is not signed, so one signature has many header spellings.
+        if (!replay.checkAndRemember(`${auth.chain}|${auth.ts}|${auth.nonce}`, t)) throw new HttpError(401, "replayed", "Request signature already used");
 
         if (mode === "device") {
           const device = store.getDevice(auth.chain, auth.device);

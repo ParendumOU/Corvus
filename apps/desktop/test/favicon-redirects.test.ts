@@ -174,6 +174,16 @@ describe("icons a page names", () => {
     expect(pageIconLinks("", "https://new.example/")).toEqual([]);
     expect(pageIconLinks("<html><body>no icons</body></html>", "https://new.example/")).toEqual([]);
   });
+
+  it("reads a page full of unclosed tags at once", () => {
+    const started = Date.now();
+    expect(pageIconLinks(`<link rel="icon" href="/a.png">${"<link<base".repeat(50_000)}`, "https://new.example/")).toEqual(["https://new.example/a.png"]);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("finds the icon after characters whose lowercase is longer", () => {
+    expect(pageIconLinks(`<title>${"İ".repeat(20)}</title><LINK rel="icon" href="/b.png">`, "https://new.example/")).toEqual(["https://new.example/b.png"]);
+  });
 });
 
 describe("cached favicon address", () => {
@@ -305,6 +315,24 @@ describe("favicon cache and redirects", () => {
     expect((await cache.icon("https://plain.example/a"))?.body).toEqual(png(6));
     expect(probed).toEqual(["https://down.example/", "https://plain.example/a"]);
     expect(fetched).toEqual(["https://typed.example/favicon.ico", "https://down.example/favicon.ico", "https://plain.example/favicon.ico"]);
+  });
+
+  it("stops reading an icon once it grows past the size cap", async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const endless = new ReadableStream<Uint8Array>({
+      pull: (controller) => {
+        pulled++;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+      cancel: () => {
+        cancelled = true;
+      },
+    });
+    const cache = new FaviconCache(tempDir(), async () => new Response(endless, { status: 200 }));
+    expect(await cache.icon("https://huge.example/")).toBeNull();
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(5);
   });
 
   it("tells the UI when a bookmark that had no icon gets one", async () => {

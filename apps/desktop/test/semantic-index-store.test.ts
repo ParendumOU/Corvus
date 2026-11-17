@@ -42,12 +42,23 @@ describe("SemanticIndexStore", () => {
     expect(urls).toEqual(["https://c.example/", "https://h.example/"]);
   });
 
-  it("removeUrl drops every kind for that URL", () => {
+  it("removeVisits drops only the history docs of those URLs", () => {
     const store = new SemanticIndexStore(dir);
     store.addVisit("https://a.example/", "A", "x", 1);
+    store.addVisit("https://b.example/", "B", "y", 1);
     store.addBookmark("https://a.example/", "A", 2);
-    store.removeUrl("https://a.example/");
-    expect(store.size()).toBe(0);
+    store.addReading("https://a.example/", "A", "body", 3);
+    store.removeVisits(["https://a.example/"]);
+    expect(store.all().map((d) => d.id).sort()).toEqual(["bookmark:https://a.example/", "history:https://b.example/", "reading:https://a.example/"]);
+  });
+
+  it("removeVisits('all') clears history and keeps bookmarks and reading", () => {
+    const store = new SemanticIndexStore(dir);
+    store.addVisit("https://a.example/", "A", "x", 1);
+    store.addBookmark("https://b.example/", "B", 2);
+    store.addReading("https://c.example/", "C", "body", 3);
+    store.removeVisits("all");
+    expect(store.all().map((d) => d.kind).sort()).toEqual(["bookmark", "reading"]);
   });
 
   it("persists and reloads across instances", () => {

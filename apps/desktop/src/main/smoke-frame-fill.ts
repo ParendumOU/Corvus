@@ -80,6 +80,13 @@ const frameJs = <T>(frame: WebFrameMain | undefined | null, expr: string): Promi
 const fakeConfig = (seed: number): TotpConfig => ({ secret: base32Encode(Uint8Array.from({ length: 20 }, (_, i) => (seed * 53 + i * 29 + 7) & 0xff)), algorithm: "SHA1", digits: 6, period: 30 });
 const nearbyCodes = async (config: TotpConfig): Promise<string[]> => Promise.all([-30_000, 0, 30_000].map(async (offset) => (await totpCode(config, Date.now() + offset)).code));
 
+/** A point of the tab's page and the frame of the element there. */
+interface Point {
+  x: number;
+  y: number;
+  frame: WebFrameMain;
+}
+
 /** Every field value of a frame (in its web components too) and every value its page heard set. */
 interface FrameHeld {
   values: string[];
@@ -135,8 +142,8 @@ export async function runFrameFillSmoke(ctx: AppContext, { url, win, check }: He
     }, 10_000);
     return found;
   };
-  /** The middle of the last element, in the tab's page: each frame element's place up the chain plus the element's box in its frame. */
-  const pointOf = async (steps: [WebFrameMain, string][]): Promise<{ x: number; y: number } | null> => {
+  /** The middle of the last element, in the tab's page (each frame element's place up the chain plus the element's box in its frame), and the frame it is in. */
+  const pointOf = async (steps: [WebFrameMain, string][]): Promise<Point | null> => {
     let x = 0;
     let y = 0;
     for (const [i, [frame, expr]] of steps.entries()) {
@@ -150,7 +157,7 @@ export async function runFrameFillSmoke(ctx: AppContext, { url, win, check }: He
         y += r.y + r.h / 2;
       }
     }
-    return { x: Math.round(x), y: Math.round(y) };
+    return { x: Math.round(x), y: Math.round(y), frame: steps[steps.length - 1]![0] };
   };
   /** Real input through the DevTools input domain, which routes it to the frame under it (or with the keyboard), whatever its process. */
   const cdp = async (wc: WebContents, commands: [string, Record<string, unknown>][]): Promise<void> => {
@@ -163,10 +170,26 @@ export async function runFrameFillSmoke(ctx: AppContext, { url, win, check }: He
       if (attach) wc.debugger.detach();
     }
   };
-  const click = (wc: WebContents, at: { x: number; y: number }): Promise<void> => cdp(wc, ["mousePressed", "mouseReleased"].map((type) => ["Input.dispatchMouseEvent", { type, ...at, button: "left", clickCount: 1 }]));
+  /**
+   * Moves the mouse onto the point until its frame hears it there. Chromium sends input for a frame of
+   * another site (a process of its own) to the page that embeds it until the browser has that frame's
+   * hit-test data, a moment after it loaded: a click before then lands on the <iframe> element.
+   */
+  const hover = async (wc: WebContents, { x, y, frame }: Point): Promise<void> => {
+    await frameJs(frame, `window.__hovered = false; window.__hoverWatch = window.__hoverWatch || (document.addEventListener("mousemove", () => { window.__hovered = true; }, true), true); true`);
+    let step = 0;
+    await until(async () => {
+      await cdp(wc, [["Input.dispatchMouseEvent", { type: "mouseMoved", x: x - (step++ % 2), y }]]);
+      return (await frameJs<boolean>(frame, `window.__hovered === true`)) === true;
+    }, 5000);
+  };
+  const click = async (wc: WebContents, at: Point): Promise<void> => {
+    await hover(wc, at);
+    await cdp(wc, ["mousePressed", "mouseReleased"].map((type) => ["Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 }]));
+  };
   const arrowDown = (wc: WebContents): Promise<void> => cdp(wc, ["rawKeyDown", "keyUp"].map((type) => ["Input.dispatchKeyEvent", { type, key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 }]));
   /** A real click at a point; true when the dropdown opened for it. */
-  const clickOpens = async (wc: WebContents, at: { x: number; y: number } | null, timeoutMs = 5000): Promise<boolean> => {
+  const clickOpens = async (wc: WebContents, at: Point | null, timeoutMs = 5000): Promise<boolean> => {
     const before = dropdown.token();
     if (!at) return false;
     await click(wc, at);

@@ -172,6 +172,11 @@ const SHARED_HOSTING = [
   "ngrok.io", "ngrok-free.app", "ngrok.app", "trycloudflare.com", "duckdns.org", "no-ip.org", "myshopify.com", "wixsite.com",
   "bitbucket.io", "readthedocs.io", "surge.sh", "replit.dev", "repl.co", "deno.dev", "supabase.co", "neocities.org",
   "github.io", "gitlab.io", "vercel.app", "netlify.app",
+  "run.app", "cloudfunctions.net", "elasticbeanstalk.com", "on.aws", "r2.dev", "web.core.windows.net", "ondigitalocean.app",
+  "railway.app", "hf.space", "streamlit.app", "csb.app", "stackblitz.io", "github.dev", "gitpod.io", "replit.app", "pythonanywhere.com",
+  "codeberg.page", "translate.goog", "webflow.io", "framer.app", "notion.site", "weebly.com", "000webhostapp.com", "loca.lt",
+  "lhr.life", "serveo.net", "ngrok.dev", "ngrok-free.dev",
+  "uk.com", "us.com", "eu.com", "gb.net", "uk.net", "de.com", "br.com", "cn.com", "ru.com", "sa.com", "za.com", "jpn.com", "us.org",
 ];
 
 /**

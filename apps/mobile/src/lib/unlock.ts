@@ -15,7 +15,10 @@ let unlockedAt = 0;
 /** True when the passwords may be used now (asking for the phone's lock if needed). */
 export async function unlockPasswords(now = Date.now()): Promise<boolean> {
   if (now - unlockedAt < UNLOCKED_FOR_MS) return true;
-  if (Platform.OS === 'web') return true;
+  if (Platform.OS === 'web') {
+    unlockedAt = now;
+    return true;
+  }
   const level = await LocalAuthentication.getEnrolledLevelAsync().catch(() => LocalAuthentication.SecurityLevel.NONE);
   if (level === LocalAuthentication.SecurityLevel.NONE) {
     unlockedAt = now;
@@ -27,9 +30,35 @@ export async function unlockPasswords(now = Date.now()): Promise<boolean> {
   return true;
 }
 
+const lockListeners = new Set<() => void>();
+
 /** Locks the passwords again (the app went to the background). */
 export function lockPasswords(): void {
   unlockedAt = 0;
+  for (const listener of [...lockListeners]) listener();
+}
+
+/**
+ * Hides what an unlock showed (a password on screen) once the passwords lock again: the app went to
+ * the background, or the unlock's minutes are over. Returns the function that stops listening.
+ */
+export function whileUnlocked(hide: () => void): () => void {
+  const left = UNLOCKED_FOR_MS - (Date.now() - unlockedAt);
+  if (left <= 0) {
+    hide();
+    return () => undefined;
+  }
+  const done = (): void => {
+    stop();
+    hide();
+  };
+  const timer = setTimeout(done, left);
+  const stop = (): void => {
+    clearTimeout(timer);
+    lockListeners.delete(done);
+  };
+  lockListeners.add(done);
+  return stop;
 }
 
 AppState.addEventListener('change', (next) => {

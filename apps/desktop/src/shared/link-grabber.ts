@@ -100,11 +100,18 @@ export function looksLikeFile(raw: string): boolean {
   return Boolean(splitArchive(name)) || FILE_EXT.test(name);
 }
 
+/** `text` without the given characters at its end (a loop: a regex ending in `[...]+$` is quadratic on long runs). */
+function trimTrailing(text: string, chars: string): string {
+  let end = text.length;
+  while (end > 0 && chars.includes(text[end - 1]!)) end--;
+  return text.slice(0, end);
+}
+
 /** Web addresses in free text, trailing punctuation removed, in order, without repeats. */
 export function extractUrls(text: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
-    const url = m[0].replace(/[),.;:!?\]]+$/, "");
+    const url = trimTrailing(m[0], "),.;:!?]");
     if (!out.includes(url)) out.push(url);
   }
   return out;

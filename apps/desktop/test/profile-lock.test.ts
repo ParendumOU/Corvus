@@ -130,6 +130,7 @@ describe("WebAuthn assertions", () => {
     const stored = { credentialId: auth.credentialId, publicKey: auth.publicKey, algorithm: auth.algorithm, signCount: 0 };
     const expected = expectation();
     expect(() => verifyAssertion(auth.assert(expected, { challenge: randomKey() }), stored, expected, false)).toThrow(/another request/);
+    expect(() => verifyAssertion(auth.assert(expected, { challenge: randomKey(16) }), stored, expected, false)).toThrow(/another request/);
     expect(() => verifyAssertion(auth.assert(expected, { origin: "https://example.com" }), stored, expected, false)).toThrow(/another site/);
     expect(() => verifyAssertion(auth.assert(expected, { rpId: "example.com" }), stored, expected, false)).toThrow(/another site/);
     expect(() => verifyAssertion(auth.assert(expected, { flags: 0x00 }), stored, expected, false)).toThrow(/not touched/);
@@ -184,6 +185,20 @@ describe("ProfileLock", () => {
     now += lockBackoffMs(FREE_LOCK_ATTEMPTS);
     expect(await lock.unlockWithSecret("135790")).toEqual({ ok: true });
     expect(lock.retryAt()).toBeNull();
+  });
+
+  it("counts attempts sent at once one after another, so they cannot skip the wait", async () => {
+    const dir = tmp();
+    const now = 1_000_000;
+    const lock = new ProfileLock(dir, keychain, () => now);
+    await lock.create("pin", "135790", FAST);
+    lock.lock();
+    const guesses = Array.from({ length: FREE_LOCK_ATTEMPTS + 3 }, (_, i) => lock.unlockWithSecret(String(100000 + i)));
+    const right = lock.unlockWithSecret("135790");
+    const results = await Promise.all(guesses);
+    expect(results.filter((r) => r.ok === false && r.retryAt !== null).length).toBeGreaterThan(0);
+    expect((await right).ok).toBe(false);
+    expect(lock.locked).toBe(true);
   });
 
   it("changes the PIN without touching the secrets", async () => {

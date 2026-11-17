@@ -14,7 +14,7 @@ import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconExternal, IconTrash } from "../common/icons";
 import { PermissionIcon, displayOrigin } from "../common/permission-icon";
-import { Toggle } from "../common/ui";
+import { Toggle, colorName } from "../common/ui";
 import "./settings-browser.css";
 import { BrowserImportPanel } from "./settings-import";
 import { Row, Section } from "./shell";
@@ -461,22 +461,6 @@ export function SitePermissionsSection() {
       {error && <div className="notice error">{error}</div>}
     </Section>
   );
-}
-
-/** A container colour's name, in the interface language. */
-function colorName(c: GroupColor): string {
-  const names: Record<GroupColor, string> = {
-    blue: t("Blue"),
-    cyan: t("Turquoise"),
-    green: t("Green"),
-    yellow: t("Yellow"),
-    orange: t("Orange"),
-    red: t("Red"),
-    pink: t("Pink"),
-    purple: t("Purple"),
-    grey: t("Grey"),
-  };
-  return names[c];
 }
 
 /** One container: its colour, an editable name and "Remove". */

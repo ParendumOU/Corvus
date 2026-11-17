@@ -84,6 +84,21 @@ interface ParsedPattern {
   path: string;
 }
 
+/**
+ * A host as page URLs carry it: punycode for international names ("münchen.de" is
+ * "xn--mnchen-3ya.de" in a URL) and without the trailing dot of a fully qualified name, which
+ * reaches the same site ("example.com." is example.com) and must not slip past its profile.
+ */
+function asciiHost(host: string): string {
+  let ascii = host;
+  try {
+    ascii = new URL(`http://${host}/`).hostname;
+  } catch {
+    // Not a host URL accepts: keep it as typed (it then matches nothing).
+  }
+  return ascii.replace(/\.$/, "");
+}
+
 /** Parses a user pattern into host + optional path. Returns null when it has no usable host. */
 export function parsePattern(pattern: string): ParsedPattern | null {
   let raw = pattern.trim().toLowerCase();
@@ -96,6 +111,8 @@ export function parsePattern(pattern: string): ParsedPattern | null {
   const wildcard = host.startsWith("*.");
   if (wildcard) host = host.slice(2);
   if (!host || host.includes("*") || host.includes("/")) return null;
+  host = asciiHost(host);
+  if (!host) return null;
   path = path.replace(/\/+$/, "");
   return { host, wildcard, path };
 }
@@ -104,7 +121,7 @@ function hostOf(url: string): { host: string; path: string } | null {
   try {
     const u = new URL(url);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return { host: u.hostname.toLowerCase(), path: u.pathname.toLowerCase() || "/" };
+    return { host: u.hostname.toLowerCase().replace(/\.$/, ""), path: u.pathname.toLowerCase() || "/" };
   } catch {
     return null;
   }

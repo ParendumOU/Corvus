@@ -119,6 +119,13 @@ export class SettingsStore {
   mcpToken(): string {
     const existing = this.getSecret("mcpToken");
     if (existing) return existing;
+    // The keychain is unavailable for now: the saved token stays on disk for the next start, so
+    // approved agent clients keep working then; this session uses one of its own.
+    if (this.secretsFile.get().mcpToken?.enc && !this.cipher.isEncryptionAvailable()) {
+      const token = crypto.randomBytes(24).toString("base64url");
+      this.memorySecrets.set("mcpToken", token);
+      return token;
+    }
     return this.regenerateMcpToken();
   }
 

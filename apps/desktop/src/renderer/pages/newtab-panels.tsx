@@ -16,6 +16,7 @@ import { errorMessage, internalApi } from "../common/api";
 import { t } from "../common/i18n";
 import { IconClose, IconPlus, IconTrash } from "../common/icons";
 import { Toggle } from "../common/ui";
+import { sourceComplete } from "./newtab-sources";
 import { widgetTemplates, type WidgetTemplate } from "./newtab-templates";
 
 function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -193,12 +194,21 @@ const KIND_LABEL: Record<SourceKind, () => string> = {
 };
 
 function SourcesEditor({ sources, onChange }: { sources: CustomSource[]; onChange: (s: CustomSource[]) => void }) {
-  const set = (i: number, patch: Partial<CustomSource>): void => onChange(sources.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+  const [draft, setDraft] = useState(sources);
+  const stored = JSON.stringify(sources);
+  useEffect(() => setDraft(sources), [stored]);
+  const commit = (next: CustomSource[]): void => {
+    setDraft(next);
+    if (next.every(sourceComplete) && JSON.stringify(next) !== stored) onChange(next);
+  };
+  const edit = (i: number, patch: Partial<CustomSource>): CustomSource[] => draft.map((s, j) => (j === i ? { ...s, ...patch } : s));
+  const type = (i: number, patch: Partial<CustomSource>): void => setDraft(edit(i, patch));
+  const set = (i: number, patch: Partial<CustomSource>): void => commit(edit(i, patch));
   return (
     <div className="nt-sources">
-      {sources.map((s, i) => (
-        <div key={i} className="nt-source">
-          <input className="input mono" value={s.name} title={t("Name the code reads it by")} onChange={(e) => set(i, { name: e.target.value })} />
+      {draft.map((s, i) => (
+        <div key={i} className="nt-source" onBlur={() => commit(draft)}>
+          <input className="input mono" value={s.name} title={t("Name the code reads it by")} onChange={(e) => type(i, { name: e.target.value })} />
           <select className="input" value={s.kind} onChange={(e) => set(i, { kind: e.target.value as SourceKind, url: e.target.value === "corvus" ? "watches" : s.url })}>
             {SOURCE_KINDS.map((k) => (
               <option key={k} value={k}>
@@ -212,17 +222,17 @@ function SourcesEditor({ sources, onChange }: { sources: CustomSource[]; onChang
               <option value="top-sites">{t("Most visited sites")}</option>
             </select>
           ) : (
-            <input className="input" value={s.url} placeholder="https://" onChange={(e) => set(i, { url: e.target.value })} />
+            <input className="input" value={s.url} placeholder="https://" onChange={(e) => type(i, { url: e.target.value })} />
           )}
-          {s.kind === "page" && <input className="input mono" value={s.select} placeholder={t("CSS selector (optional)")} onChange={(e) => set(i, { select: e.target.value })} />}
-          <input className="input" type="number" min={1} value={s.everyMinutes} title={t("Refresh every N minutes")} onChange={(e) => set(i, { everyMinutes: Number(e.target.value) || 15 })} />
-          <button type="button" className="icon-btn" title={t("Remove source")} onClick={() => onChange(sources.filter((_, j) => j !== i))}>
+          {s.kind === "page" && <input className="input mono" value={s.select} placeholder={t("CSS selector (optional)")} onChange={(e) => type(i, { select: e.target.value })} />}
+          <input className="input" type="number" min={1} value={s.everyMinutes} title={t("Refresh every N minutes")} onChange={(e) => type(i, { everyMinutes: Number(e.target.value) || 15 })} />
+          <button type="button" className="icon-btn" title={t("Remove source")} onClick={() => commit(draft.filter((_, j) => j !== i))}>
             <IconTrash size={14} />
           </button>
         </div>
       ))}
-      {sources.length < 8 && (
-        <button type="button" className="btn small" onClick={() => onChange([...sources, { name: `source${sources.length + 1}`, kind: "fetch", url: "", select: "", everyMinutes: 15 }])}>
+      {draft.length < 8 && (
+        <button type="button" className="btn small" onClick={() => setDraft([...draft, { name: `source${draft.length + 1}`, kind: "fetch", url: "", select: "", everyMinutes: 15 }])}>
           <IconPlus size={13} /> {t("Add source")}
         </button>
       )}

@@ -452,6 +452,8 @@ export class AgentRunner {
     if (!win) return { ok: false, reason: "Open the run from a browser window to resume it." };
     const stored = win.profile.agentRuns.get(id);
     if (!stored) return { ok: false, reason: "That run is no longer in the history." };
+    // A live status after load (which marks a dead app's runs "interrupted") is a run going right now: a second loop would drive it twice.
+    if (stored.status === "running" || stored.status === "paused" || stored.status === "awaiting-approval") return { ok: false, reason: "This run is still going." };
     if (!isResumableStatus(stored.status, stored.stopReason)) return { ok: false, reason: "This run finished and cannot be resumed." };
     const messages = normalizeResumeTranscript(stored.transcript);
     if (!messages) return { ok: false, reason: "This run has no saved step state to continue from." };

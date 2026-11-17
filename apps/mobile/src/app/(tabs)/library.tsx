@@ -6,6 +6,7 @@ import { Button, Fab, IconButton } from '@/components/button';
 import { SectionHeader } from '@/components/card';
 import { EmptyState, LoadingState } from '@/components/empty-state';
 import { Favicon } from '@/components/favicon';
+import { showFailure } from '@/components/feedback';
 import { SearchField } from '@/components/fields';
 import { Icon } from '@/components/icon';
 import { IconTile, ListGroup, ListRow } from '@/components/list';
@@ -119,7 +120,9 @@ function Reading({ items, query, refreshed }: { items: ReadingItem[]; query: str
   const [busy, setBusy] = useState<string | null>(null);
   const toggle = (item: ReadingItem, read: boolean): void => {
     setBusy(item.url);
-    void setRead(item, read).finally(() => setBusy(null));
+    void setRead(item, read)
+      .catch(showFailure)
+      .finally(() => setBusy(null));
   };
   const meta = (item: ReadingItem): string =>
     [item.siteName || tabHost(item.url), item.readingMinutes > 0 ? t('{n} min read', { n: item.readingMinutes }) : null, t('saved {when}', { when: ago(item.savedAt) })]

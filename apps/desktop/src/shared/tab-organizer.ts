@@ -45,6 +45,12 @@ const TWO_LEVEL_SUFFIXES = new Set([
   "github.io", "gitlab.io", "vercel.app", "netlify.app",
 ]);
 
+/**
+ * Second-level labels under a country code that registries hand out to anyone ("com.gt", "gob.ar",
+ * "me.uk"), for the ones the list above lacks: two names under one belong to different owners.
+ */
+const GENERIC_SECOND_LEVEL = new Set(["ac", "co", "com", "edu", "gob", "gov", "govt", "ltd", "me", "mil", "ne", "net", "nom", "or", "org", "plc", "sch"]);
+
 export function hostOf(url: string): string {
   try {
     return new URL(url).hostname.toLowerCase();
@@ -55,12 +61,13 @@ export function hostOf(url: string): string {
 
 /** eTLD+1 approximation: "docs.github.com" -> "github.com", "bbc.co.uk" stays "bbc.co.uk". */
 export function siteOf(url: string): string {
-  const host = hostOf(url).replace(/^www\./, "");
+  const host = hostOf(url).replace(/^www\./, "").replace(/\.$/, "");
   if (!host || /^[\d.]+$/.test(host) || host.includes(":")) return host;
   const parts = host.split(".");
   if (parts.length <= 2) return host;
-  const lastTwo = parts.slice(-2).join(".");
-  return TWO_LEVEL_SUFFIXES.has(lastTwo) ? parts.slice(-3).join(".") : lastTwo;
+  const [second = "", tld = ""] = parts.slice(-2);
+  const twoLevel = TWO_LEVEL_SUFFIXES.has(`${second}.${tld}`) || (tld.length === 2 && GENERIC_SECOND_LEVEL.has(second));
+  return twoLevel ? parts.slice(-3).join(".") : `${second}.${tld}`;
 }
 
 /** Web tabs the organizer may regroup: not pinned, not already in a group. */

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { nasaImageOfTheDay, parseFeed } from "../src/main/newtab-data";
+import { fetchPublicText, nasaImageOfTheDay, parseFeed } from "../src/main/newtab-data";
 import { titleCount } from "../src/main/newtab-page-source";
 import { NewTabService } from "../src/main/newtab-service";
 import { widgetDocument } from "../src/main/newtab-widget-doc";
@@ -26,6 +26,37 @@ describe("feeds", () => {
     const xml = `<feed xmlns="http://www.w3.org/2005/Atom"><title>Blog</title>
       <entry><title>Hello</title><link rel="alternate" href="https://blog.example/hello"/><updated>2026-10-20T08:00:00Z</updated></entry></feed>`;
     expect(parseFeed(xml, "https://blog.example/atom")).toEqual([{ title: "Hello", url: "https://blog.example/hello", source: "Blog", at: Date.parse("2026-10-20T08:00:00Z") }]);
+  });
+});
+
+describe("public reads", () => {
+  const lookup = async (host: string): Promise<string[]> => (host === "lan.example" ? ["192.168.1.1"] : ["203.0.113.7"]);
+  const redirecting = (hops: Record<string, string>) => {
+    const asked: string[] = [];
+    const fetcher = async (url: string): Promise<Response> => {
+      asked.push(url);
+      return hops[url] ? new Response(null, { status: 302, headers: { location: hops[url]! } }) : new Response("ok", { status: 200, headers: { "content-type": "text/plain" } });
+    };
+    return { asked, fetcher };
+  };
+
+  it("follows redirects that stay on public addresses", async () => {
+    const { asked, fetcher } = redirecting({ "https://a.example/": "/b" });
+    await expect(fetchPublicText("https://a.example/", fetcher, lookup)).resolves.toMatchObject({ text: "ok" });
+    expect(asked).toEqual(["https://a.example/", "https://a.example/b"]);
+  });
+
+  it("never follows a redirect into the LAN or loopback", async () => {
+    for (const target of ["http://127.0.0.1:9229/json", "http://lan.example/", "http://localhost/"]) {
+      const { asked, fetcher } = redirecting({ "https://a.example/": target });
+      await expect(fetchPublicText("https://a.example/", fetcher, lookup)).rejects.toThrow(/public/);
+      expect(asked).toEqual(["https://a.example/"]);
+    }
+  });
+
+  it("gives up after a few redirects", async () => {
+    const { fetcher } = redirecting(Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`https://a.example/${i}`, `/${i + 1}`])));
+    await expect(fetchPublicText("https://a.example/0", fetcher, lookup)).rejects.toThrow(/redirects/);
   });
 });
 
@@ -139,6 +170,21 @@ describe("New Tab service", () => {
     expect(res.widgets.find((w) => w.id === id)?.config).toMatchObject({ consent: ["x.com"] });
     res = agent({ action: "update", id, config: { sources: [{ ...page, select: "main" }] } });
     expect(res.widgets.find((w) => w.id === id)?.config).toMatchObject({ consent: [] });
+  });
+
+  it("never brings back consent the person took away when an agent undoes", () => {
+    const res = agent({ action: "custom", config: { title: "X", sources: [{ name: "x", kind: "page", url: "https://x.com/home" }] } });
+    const id = res.widgets.find((w) => w.type === "custom")!.id;
+    const consentOf = () => (service.layout(runtime).widgets.find((w) => w.id === id)!.config as WidgetConfigs["custom"]).consent;
+    service.consent(runtime, id, ["x.com"]);
+    service.consent(runtime, id, []);
+    agent({ action: "undo" });
+    expect(consentOf()).toEqual([]);
+    // The person's own Undo on the page restores their earlier choice.
+    service.consent(runtime, id, ["x.com"]);
+    service.consent(runtime, id, []);
+    service.undo(runtime);
+    expect(consentOf()).toEqual(["x.com"]);
   });
 
   it("keeps consent out of page saves", () => {

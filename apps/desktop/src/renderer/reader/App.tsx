@@ -232,6 +232,19 @@ function Article({ doc }: { doc: ReaderDoc }) {
   );
 }
 
+/** The label of a reading tool, in the UI language. */
+function toolLabel(kind: ReaderToolKind): string {
+  return {
+    "key-points": tx("Key points"),
+    tldr: tx("TL;DR"),
+    simplify: tx("Simplify"),
+    eli5: tx("Explain like I'm 5"),
+    translate: tx("Translate"),
+    define: tx("Define"),
+    explain: tx("Explain"),
+  }[kind];
+}
+
 function jumpToSection(index: number): void {
   const el = document.querySelector(`[data-corvus-section="${index}"]`);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -259,9 +272,9 @@ function ToolStrip({ state }: { state: ReaderState }) {
       </div>
       {ready ? (
         <div className="strip-tools">
-          {READER_TOOLS.map((t) => (
-            <button key={t.kind} className="rbtn" disabled={!state.doc || state.busy} onClick={() => run(t.kind)}>
-              {t.kind === "translate" ? tx("Translate → {translateLanguage}", { translateLanguage: langName(state.translateLanguage) }) : t.label}
+          {READER_TOOLS.map((kind) => (
+            <button key={kind} className="rbtn" disabled={!state.doc || state.busy} onClick={() => run(kind)}>
+              {kind === "translate" ? tx("Translate → {translateLanguage}", { translateLanguage: langName(state.translateLanguage) }) : toolLabel(kind)}
             </button>
           ))}
         </div>
@@ -291,7 +304,7 @@ function Message({ msg, headings }: { msg: ReaderToolMessage; headings: string[]
     <div className={`msg ${msg.status === "error" ? "error" : ""}`}>
       <div className="msg-head">
         <span className="label">
-          {msg.label}
+          {toolLabel(msg.kind)}
           {msg.prompt ? <small> · “{msg.prompt.length > 40 ? `${msg.prompt.slice(0, 40)}…` : msg.prompt}”</small> : null}
         </span>
         {streaming && <span className="spin-mini" />}
@@ -320,7 +333,7 @@ function Message({ msg, headings }: { msg: ReaderToolMessage; headings: string[]
       ) : null}
       {msg.usage && (
         <div className="usage">
-          {msg.usage.cached ? "cached" : tx("{inputTokens} tokens", { inputTokens: msg.usage.inputTokens + msg.usage.outputTokens })} · {(msg.usage.ms / 1000).toFixed(1)}s
+          {msg.usage.cached ? tx("cached") : tx("{inputTokens} tokens", { inputTokens: msg.usage.inputTokens + msg.usage.outputTokens })} · {(msg.usage.ms / 1000).toFixed(1)}s
         </div>
       )}
     </div>

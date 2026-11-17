@@ -3,7 +3,7 @@ import type { Bookmark, GroupId, Tab, TabId } from "@corvus/shared";
 import { BAR_FOLDER_ID, childrenOf, folderUrls } from "../shared/bookmark-tree";
 import { WRITE_ACTIONS, type WriteAction } from "../shared/inline-write";
 import { MAX_PANES } from "../shared/split";
-import { NEW_TAB_URL } from "../shared/internal-urls";
+import { NEW_TAB_URL, isInternalUrl } from "../shared/internal-urls";
 import { searchUrl } from "../shared/omnibox";
 import { viewSourceUrl } from "../shared/view-source";
 import type { ConnectionChoice } from "../shared/connections";
@@ -494,6 +494,8 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   const sep = (): void => {
     if (items.length > 0 && items[items.length - 1]?.type !== "separator") items.push({ type: "separator" });
   };
+  // A web page may not lead into Corvus's own pages (see BrowserWindowCtl.wire), its links' menu included.
+  const reachable = (url: string): boolean => !isInternalUrl(url) || isInternalUrl(wc.getURL());
   // Tabs opened from an agent-driven tab stay agent-driven, and from a container tab in its container.
   // Until its page has a title, the tab is named after the link's text.
   const openInTab = (url: string, title?: string): void => {
@@ -519,8 +521,8 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   if (params.linkURL) {
     const link = params.linkURL;
     items.push(
-      { label: tr("Open link in new tab"), click: () => openInTab(link, params.linkText.trim().slice(0, 200)) },
-      { label: tr("Open link in new window"), enabled: !tab.agentControlled, click: () => win.openInNewWindow(link) },
+      { label: tr("Open link in new tab"), enabled: reachable(link), click: () => openInTab(link, params.linkText.trim().slice(0, 200)) },
+      { label: tr("Open link in new window"), enabled: !tab.agentControlled && reachable(link), click: () => win.openInNewWindow(link) },
       {
         label: tr("Open link in private window"),
         enabled: !tab.agentControlled && /^https?:/i.test(link),
@@ -547,7 +549,7 @@ export function showPageContextMenu(ctx: AppContext, win: BrowserWindowCtl, tab:
   if (params.mediaType === "image" && params.srcURL) {
     const src = params.srcURL;
     items.push(
-      { label: tr("Open image in new tab"), click: () => openInTab(src) },
+      { label: tr("Open image in new tab"), enabled: reachable(src), click: () => openInTab(src) },
       { label: tr("Save image as…"), enabled: /^(https?|data|blob):/i.test(src), click: () => ctx.downloads.saveAs(wc, src) },
       { label: tr("Copy image"), click: () => pageOf(tab.view)?.copyImageAt(params.x, params.y) },
       { label: tr("Copy image address"), click: () => clipboard.writeText(src) },

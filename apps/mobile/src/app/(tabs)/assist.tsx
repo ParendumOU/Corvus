@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { Button, Fab } from '@/components/button';
@@ -74,11 +75,15 @@ export default function AssistScreen() {
   const shown = useMemo(() => searchChats(all, query), [all, query]);
   const pending = all.some((c) => c.pending);
 
-  useEffect(() => {
-    if (!pending) return;
-    const timer = setInterval(() => void refreshSession(), ANSWER_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [pending]);
+  // Only while the list is on screen: under an open chat (which follows its answer itself) or behind
+  // another tab, a full pull every few seconds would hold up the chat's quick looks.
+  useFocusEffect(
+    useCallback(() => {
+      if (!pending) return undefined;
+      const timer = setInterval(() => void refreshSession(), ANSWER_REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [pending]),
+  );
 
   const start = (): void => nav.push({ pathname: '/chat/[id]', params: { id: 'new' } });
 

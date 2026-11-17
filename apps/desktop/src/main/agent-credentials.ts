@@ -13,6 +13,7 @@
 import type { WebContents } from "electron";
 import type { TabId } from "@corvus/shared";
 import { isAgentAllowedUrl } from "../shared/internal-urls";
+import { originOf } from "../shared/permissions";
 import { totpCode } from "../shared/totp";
 import { approvalReason, pickAgentLogin, signsInWithoutAsking, type CredentialUse } from "./agent-credential-policy";
 import { askNativeApproval } from "./approval-dialog";
@@ -22,6 +23,7 @@ import type { LoginRecord } from "./login-sources";
 import { pageOf } from "./tab-page";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { tr } from "./menu-i18n";
+import { atOriginOnly } from "./secret-fill-guard";
 
 const REF_RE = /^e\d{1,7}$/;
 const SCRIPT_TIMEOUT_MS = 8000;
@@ -65,10 +67,11 @@ function hostOf(url: string): string {
   }
 }
 
-function runInPage<T>(wc: WebContents, code: string): Promise<T> {
+/** Runs a fill in the page while it is still of `origin` (the site the login was approved for). */
+function runInPage<T>(wc: WebContents, code: string, origin: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("The page did not respond.")), SCRIPT_TIMEOUT_MS);
-    (wc.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code }]) as Promise<T>).then(
+    (wc.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code: atOriginOnly(code, origin) }]) as Promise<T>).then(
       (v) => {
         clearTimeout(timer);
         resolve(v);
@@ -173,12 +176,35 @@ export class AgentCredentialService {
     return { ok: true, record, window: after.window, wc: after.wc, url: after.url };
   }
 
+  /**
+   * Locks script access to the tab, then runs a fill that writes `secrets` into the page while it is
+   * still of the approved page's origin (it may have navigated during the awaits since the gate). A
+   * refused fill lifts the lock only when this fill set it: an earlier fill's secret may still be in the page.
+   */
+  private async fillSecret(tabId: TabId, wc: WebContents, url: string, secrets: string[], code: string, ref: string | null): Promise<FillOutcome | CredentialFillOutcome> {
+    const origin = originOf(url);
+    if (!origin || originOf(wc.getURL()) !== origin) return { status: "error", message: "The page changed before the fill. Take a new page_snapshot." };
+    const lockedBefore = this.ctx.secretFills.isLocked(tabId);
+    this.ctx.secretFills.mark(tabId, secrets);
+    let outcome: FillOutcome;
+    try {
+      outcome = await runInPage<FillOutcome>(wc, code, origin);
+    } catch (err) {
+      return { status: "error", message: (err as Error).message };
+    }
+    if (!outcome?.ok) {
+      if (!lockedBefore) this.ctx.secretFills.clear(tabId);
+      return { status: "error", message: refProblem(outcome ?? { ok: false }, ref) };
+    }
+    return outcome;
+  }
+
   /** Fills the current 2FA code of an opted-in login into the field `ref` points at. */
   async fillTotp(tabId: TabId, ref: string, opts: CredentialFillOptions): Promise<CredentialFillOutcome> {
     if (!REF_RE.test(ref)) return { status: "error", message: `Invalid element ref "${ref}"; use a ref from page_snapshot.` };
     const gated = await this.gate(tabId, "totp", opts);
     if (!gated.ok) return gated.outcome;
-    const { record, window, wc } = gated;
+    const { record, window, wc, url } = gated;
 
     let current = await totpCode(record.totp!);
     if (current.expiresAt - Date.now() < MIN_CODE_LIFETIME_MS) {
@@ -187,18 +213,8 @@ export class AgentCredentialService {
     }
     window.markAgent(tabId);
     await this.ctx.agents.beforeAction(window, tabId, wc, { kind: "type", ref, text: "••••••" }).catch(() => undefined);
-    // Lock script access before the code lands in the page; lifted on the next new document.
-    this.ctx.secretFills.mark(tabId, [current.code]);
-    let outcome: FillOutcome;
-    try {
-      outcome = await runInPage<FillOutcome>(wc, fillOtpByRefScript(ref, current.code));
-    } catch (err) {
-      return { status: "error", message: (err as Error).message };
-    }
-    if (!outcome?.ok) {
-      this.ctx.secretFills.clear(tabId);
-      return { status: "error", message: refProblem(outcome ?? { ok: false }, ref) };
-    }
+    const outcome = await this.fillSecret(tabId, wc, url, [current.code], fillOtpByRefScript(ref, current.code), ref);
+    if ("status" in outcome) return outcome;
     const who = record.username ? ` for ${record.username}` : "";
     return { status: "filled", message: `Filled the current 2FA code${who} into ${ref}. You cannot read it; continue by submitting the form.` };
   }
@@ -208,21 +224,12 @@ export class AgentCredentialService {
     if (ref !== null && !REF_RE.test(ref)) return { status: "error", message: `Invalid element ref "${ref}"; use a ref from page_snapshot.` };
     const gated = await this.gate(tabId, "signIn", opts);
     if (!gated.ok) return gated.outcome;
-    const { record, window, wc } = gated;
+    const { record, window, wc, url } = gated;
 
     window.markAgent(tabId);
     if (ref) await this.ctx.agents.beforeAction(window, tabId, wc, { kind: "type", ref, text: "••••••" }).catch(() => undefined);
-    this.ctx.secretFills.mark(tabId, [record.password]);
-    let outcome: FillOutcome;
-    try {
-      outcome = await runInPage<FillOutcome>(wc, fillLoginByRefScript(ref, record.username, record.password));
-    } catch (err) {
-      return { status: "error", message: (err as Error).message };
-    }
-    if (!outcome?.ok) {
-      this.ctx.secretFills.clear(tabId);
-      return { status: "error", message: refProblem(outcome ?? { ok: false }, ref) };
-    }
+    const outcome = await this.fillSecret(tabId, wc, url, [record.password], fillLoginByRefScript(ref, record.username, record.password), ref);
+    if ("status" in outcome) return outcome;
     const who = record.username ? ` for ${record.username}` : "";
     const filled = outcome.user && outcome.pass ? "the username and password" : outcome.pass ? "the password" : "the username";
     const next = outcome.pass ? "Submit the form to sign in." : "This step has no password field; continue, then call fill_login again on the password step.";

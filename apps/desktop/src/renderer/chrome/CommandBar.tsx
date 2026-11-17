@@ -473,7 +473,7 @@ function RunPanel({ run, state, api }: { run: AgentRunView; state: WindowState; 
       <div className="run-meta">
         <span>{run.stepCount}{t("/{maxSteps} steps", { maxSteps: run.maxSteps })}</span>
         <span title={run.cachedInputTokens ? t("{cached} input tokens reused from the prompt cache", { cached: run.cachedInputTokens.toLocaleString() }) : undefined}>{(run.inputTokens + run.outputTokens).toLocaleString()}{" "}{t("tokens")}</span>
-        {run.siteHints && run.siteHints.workflows > 0 && <span title={t("Saved workflows for this site were offered to the agent")}>{run.siteHints.workflows}{" "}{t("workflow")}{run.siteHints.workflows === 1 ? "" : "s"}</span>}
+        {run.siteHints && run.siteHints.workflows > 0 && <span title={t("Saved workflows for this site were offered to the agent")}>{run.siteHints.workflows === 1 ? t("1 workflow") : t("{n} workflows", { n: run.siteHints.workflows })}</span>}
         {run.siteHints && run.siteHints.hints > 0 && <span title={t("Learned hints about this site were given to the agent")}>{run.siteHints.hints}{" "}{t("site hints")}</span>}
         <span className="run-model">{run.model}</span>
       </div>

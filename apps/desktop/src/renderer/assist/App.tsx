@@ -10,7 +10,7 @@ import { editOf } from "../../shared/workflow";
 import { OriginBadge, UsageLine, WorkflowEditor, WorkflowRunForm, WorkflowStepList, ago as timeAgo } from "../common/workflows";
 import { LearnedSite, StatsLine } from "../common/site-memory";
 import { prettyClientName } from "../../shared/agent-activity";
-import { Favicon, Toggle, hostOf } from "../common/ui";
+import { ConfirmButton, Favicon, Toggle, hostOf } from "../common/ui";
 import {
   AssistMark,
   GlyphClose,
@@ -1130,7 +1130,7 @@ function WorkflowsPane({ view }: { view: WorkflowsPaneView | null }) {
             initial={draft.edit}
             intro={tx("Review the steps Corvus took for \"{v}\". Nothing is saved until you click Save.", { v: draft.task.slice(0, 120) }) + (draft.dropped === 0 ? "" : draft.dropped === 1 ? tx(" 1 step was left out (page reads, failed or skipped steps).") : tx(" {dropped} steps were left out (page reads, failed or skipped steps).", { dropped: draft.dropped }))}
             saveLabel={tx("Save workflow")}
-            cancelLabel="Discard"
+            cancelLabel={tx("Discard")}
             onSave={(edit) => call(api().call("workflows.saveDraft", edit))}
             onCancel={() => call(api().call("workflows.discardDraft"))}
           />
@@ -1224,7 +1224,7 @@ function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) =>
         <WorkflowEditor
           initial={editOf(f)}
           saveLabel={tx("Save changes")}
-          cancelLabel="Cancel"
+          cancelLabel={tx("Cancel")}
           onSave={(edit) => {
             call(api().call("workflows.update", f.id, edit));
             setMode("view");
@@ -1285,7 +1285,7 @@ function WorkflowCard({ f, call }: { f: FlowView; call: (p: Promise<unknown>) =>
             <button className="btn small primary" onClick={() => (f.params.length > 0 ? setMode("run") : call(api().call("workflows.run", f.id, {})))}>
               <GlyphPlay size={13} />{" "}{tx("Run")}</button>
             <button className="btn small" onClick={() => setMode("edit")}>{tx("Edit")}</button>
-            <button className="btn small ghost danger" onClick={() => call(api().call("workflows.remove", f.id))}>{tx("Delete")}</button>
+            <ConfirmButton className="btn small ghost danger" confirm={tx("Click again to delete")} onConfirm={() => call(api().call("workflows.remove", f.id))}>{tx("Delete")}</ConfirmButton>
           </>
         )}
       </div>

@@ -232,7 +232,7 @@ function ProfileRow({ p, api, run, onEdit }: { p: SiteProfile; api: Api; run: (p
           <span className={`pill sp-tag ${p.accessCap === "read" ? "warn" : ""}`}>{accessLabel(p.accessCap)}</span>
           {p.provider && <span className="pill sp-tag">{p.provider}</span>}
           {p.model && <span className="pill sp-tag mono">{p.model}</span>}
-          {p.promptAddendum.trim() && <span className="pill sp-tag">{t("prompt")}{" "}{p.promptPosition === "prepend" ? "before" : "after"}</span>}
+          {p.promptAddendum.trim() && <span className="pill sp-tag">{t("prompt")}{" "}{p.promptPosition === "prepend" ? t("Before") : t("After")}</span>}
         </div>
         {p.promptAddendum.trim() && <div className="sp-preview muted">{p.promptAddendum}</div>}
       </div>
@@ -240,7 +240,7 @@ function ProfileRow({ p, api, run, onEdit }: { p: SiteProfile; api: Api; run: (p
         <label className="sp-toggle" title={p.enabled ? t("Disable") : t("Enable")}>
           <input type="checkbox" checked={p.enabled} onChange={(e) => run(api.call("siteProfile.setEnabled", p.id, e.target.checked))} />
         </label>
-        <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("siteProfile.remove", p.id))}>
+        <button className="icon-btn" title={t("Delete")} onClick={() => confirm(t("Delete “{name}”?", { name: p.label || p.pattern })) && run(api.call("siteProfile.remove", p.id))}>
           <IconTrash size={15} />
         </button>
       </div>

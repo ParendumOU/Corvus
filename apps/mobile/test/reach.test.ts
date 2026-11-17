@@ -50,7 +50,7 @@ describe('outbox', () => {
     const replica: Record<string, Record<string, unknown>> = { reading: { 'https://a.example/': { url: 'https://a.example/' } }, bookmarks: {} };
     const again = new Outbox(storage, 'corvus-sync/chain/outbox');
     expect(await again.size()).toBe(2);
-    const items = await again.items({ records: async (c) => replica[c] ?? {} });
+    const items = await again.items({ records: async (c) => replica[c] ?? {}, unreadable: async () => false });
     expect(items).toEqual([
       { collection: 'reading', id: 'https://a.example/', payload: { url: 'https://a.example/' }, deleted: false },
       { collection: 'bookmarks', id: 'b1', payload: null, deleted: true },

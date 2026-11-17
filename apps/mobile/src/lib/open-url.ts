@@ -3,6 +3,8 @@
  * iOS), unless the person opens pages in another browser app (Settings → Open pages in). While Corvus
  * is the phone's default browser (Android), a page handed to the system would come straight back to
  * Corvus, so a page for another browser goes to the one picked in Settings by its package instead.
+ * Only http(s) addresses open: a synced address of another kind (a javascript: bookmarklet, another
+ * app's link) is never loaded into a tab or handed to the system from a list.
  */
 import * as WebBrowser from 'expo-web-browser';
 import { Alert, Linking, Platform } from 'react-native';
@@ -13,6 +15,7 @@ import { browserState, loadBrowser } from './browser-store';
 import { openRoute, type OpenRoute } from './browser-choice';
 import { defaultBrowserState } from './default-browser';
 import { t } from './i18n';
+import { webLink } from './links';
 
 /** How a page leaves the app now; `incoming` for a link Corvus was asked to open as the browser. */
 async function route(incoming: boolean): Promise<OpenRoute> {
@@ -31,7 +34,9 @@ function noBrowser(): void {
  * Opens a page in the app: Corvus's browser, or with "Open pages in" set to another browser app, that
  * browser's in-app view (Custom Tabs on Android, Safari View Controller on iOS).
  */
-export async function openInApp(url: string): Promise<void> {
+export async function openInApp(address: string): Promise<void> {
+  const url = webLink(address);
+  if (!url) return;
   if (Platform.OS !== 'web') {
     await loadBrowser().catch(() => undefined);
     if (browserState().prefs.openIn === 'corvus') {
@@ -53,7 +58,9 @@ export async function openInApp(url: string): Promise<void> {
 }
 
 /** Opens a page in the phone's browser app. */
-export async function openInBrowser(url: string): Promise<void> {
+export async function openInBrowser(address: string): Promise<void> {
+  const url = webLink(address);
+  if (!url) return;
   const how = await route(false);
   if (how.via === 'window') window.open(url, '_blank', 'noopener,noreferrer');
   else if (how.via === 'system') await Linking.openURL(url);

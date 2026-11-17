@@ -30,7 +30,7 @@ function glyph(kind: FlowStep["kind"]): string {
 }
 
 export function ago(ms: number | null, now = Date.now()): string {
-  if (!ms) return "never";
+  if (!ms) return t("never");
   const diff = Math.max(0, now - ms);
   if (diff < 60_000) return t("just now");
   const mins = Math.round(diff / 60_000);

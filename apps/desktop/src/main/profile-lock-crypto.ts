@@ -106,7 +106,8 @@ export function checkClientData(clientDataJSON: Buffer, expected: Expected): voi
     throw new Error(tr("The authenticator's answer could not be read."));
   }
   if (data.type !== expected.type) throw new Error(tr("The authenticator answered another request."));
-  if (typeof data.challenge !== "string" || !crypto.timingSafeEqual(fromB64url(data.challenge), expected.challenge)) {
+  const challenge = typeof data.challenge === "string" ? fromB64url(data.challenge) : null;
+  if (!challenge || challenge.length !== expected.challenge.length || !crypto.timingSafeEqual(challenge, expected.challenge)) {
     throw new Error(tr("The authenticator answered another request."));
   }
   if (data.origin !== expected.origin || data.crossOrigin === true) throw new Error(tr("The authenticator answered another site."));

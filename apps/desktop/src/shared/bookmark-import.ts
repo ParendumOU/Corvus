@@ -44,7 +44,7 @@ function decodeEntities(input: string): string {
   return input.replace(/&(#x?[0-9a-f]+|[a-z0-9]+);/gi, (match, body: string) => {
     if (body[0] === "#") {
       const code = body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+      return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
     }
     return NAMED_ENTITIES[body.toLowerCase()] ?? match;
   });

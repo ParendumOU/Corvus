@@ -128,8 +128,13 @@ export class TelegramLink {
   }
 
   private open(links: string[]): void {
-    const win = this.ctx.windows.focused() ?? this.ctx.windows.all()[0];
-    if (!win) return;
+    // Never a private window or a locked profile's (its pages would load behind the lock screen).
+    let win;
+    try {
+      win = this.ctx.windows.target();
+    } catch {
+      return;
+    }
     for (const url of links) win.createTab(url, { activate: false });
     if (Notification.isSupported()) {
       const n = new Notification({ title: links.length === 1 ? tr("A link from your phone") : tr("{count} links from your phone", { count: links.length }), body: links.join("\n").slice(0, 200) });

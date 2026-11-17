@@ -41,6 +41,12 @@ describe("password CSV import", () => {
     expect(result.skipped).toBe(1);
   });
 
+  it("reads the username of a KeePass CSV (1.x) export", () => {
+    const csv = ['"Account","Login Name","Password","Web Site","Comments"', '"Example","ana","pw1","https://example.com/",""'].join("\n");
+    expect(parsePasswordCsv(csv).logins).toEqual([{ origin: "https://example.com", username: "ana", password: "pw1" }]);
+    expect(parsePasswordCsv("Title,User Name,Password,URL\nShop,bob,pw2,https://shop.example/").logins).toEqual([{ origin: "https://shop.example", username: "bob", password: "pw2" }]);
+  });
+
   it("skips everything when the header has no url or password column", () => {
     expect(parsePasswordCsv("foo,bar\n1,2\n3,4")).toEqual({ logins: [], skipped: 2, skippedRows: [] });
     expect(parsePasswordCsv("")).toEqual({ logins: [], skipped: 0, skippedRows: [] });

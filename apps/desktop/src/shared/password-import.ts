@@ -78,7 +78,7 @@ export function parseCsv(text: string): string[][] {
 }
 
 const URL_HEADERS = ["url", "login_uri", "website", "web site", "hostname", "origin"];
-const USER_HEADERS = ["username", "login_username", "user", "login", "email"];
+const USER_HEADERS = ["username", "login_username", "user name", "login name", "user", "login", "email"];
 const PASS_HEADERS = ["password", "login_password", "pass"];
 /** Firefox's export dates (ms): the change, else the last use, else the creation. */
 const TIME_HEADERS = ["timepasswordchanged", "timelastused", "timecreated"];

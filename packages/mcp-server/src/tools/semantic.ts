@@ -1,7 +1,7 @@
 import type { PageSnapshot, SnapshotElement } from "@corvus/shared";
 import { z } from "zod";
 import { compactJson, truncate } from "../content.js";
-import { defined, errorResult, need, OK, optionalTabId, ref, text, untrusted, type ToolContext } from "./types.js";
+import { defined, errorResult, need, OK, optionalTabId, ref, sleep, text, untrusted, type ToolContext } from "./types.js";
 import { challengeNote } from "./visual.js";
 
 const SNAPSHOT_DEFAULT_CHARS = 4000;
@@ -261,8 +261,9 @@ export function registerSemanticTools({ controller, register, resolveTab }: Tool
       const { tabId: _tab, ...condition } = a;
       if (condition.textChanged !== undefined && condition.textChanged !== false && !condition.ref && !condition.selector) throw new Error("textChanged needs a ref or a selector");
       if (!condition.text && !condition.textGone && !condition.ref && !condition.selector && !condition.url && !condition.load && !condition.networkIdle) {
-        await new Promise((r) => setTimeout(r, Math.min(condition.timeoutMs, 30_000)));
-        return text(`waited ${Math.min(condition.timeoutMs, 30_000)}ms`);
+        const ms = Math.min(condition.timeoutMs, 30_000);
+        await sleep(ms, signal);
+        return text(`waited ${ms}ms`);
       }
       const wait = need(controller.waitFor?.bind(controller), "wait_for");
       const id = await resolveTab(a.tabId);

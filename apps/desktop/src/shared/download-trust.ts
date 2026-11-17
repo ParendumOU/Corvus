@@ -13,10 +13,10 @@ export interface DangerousTypeGroup {
 
 /** File types that run code when opened, by kind (the settings page says why each kind is risky). */
 export const DANGEROUS_TYPE_GROUPS: readonly DangerousTypeGroup[] = [
-  { id: "windows", extensions: ["exe", "msi", "msix", "msixbundle", "appx", "appxbundle", "com", "scr", "pif", "application", "gadget", "msp", "mst"] },
-  { id: "scripts", extensions: ["bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "sh", "bash", "zsh", "command", "py", "pyw", "pl", "rb"] },
-  { id: "java", extensions: ["jar"] },
-  { id: "system", extensions: ["lnk", "reg", "dll", "sys", "inf", "cpl"] },
+  { id: "windows", extensions: ["exe", "msi", "msix", "msixbundle", "appx", "appxbundle", "com", "scr", "pif", "application", "appref-ms", "gadget", "msp", "mst", "url", "website", "scf", "settingcontent-ms", "xbap"] },
+  { id: "scripts", extensions: ["bat", "cmd", "ps1", "psm1", "vb", "vbs", "vbe", "js", "jse", "ws", "wsc", "wsf", "wsh", "sct", "hta", "sh", "bash", "zsh", "command", "py", "pyw", "pl", "rb"] },
+  { id: "java", extensions: ["jar", "jnlp"] },
+  { id: "system", extensions: ["lnk", "reg", "dll", "ocx", "sys", "inf", "cpl", "msc", "chm", "hlp", "xll"] },
   { id: "mac-linux", extensions: ["app", "dmg", "pkg", "mpkg", "deb", "rpm", "appimage", "snap", "flatpakref", "run", "bin"] },
   { id: "android", extensions: ["apk", "xapk"] },
 ];

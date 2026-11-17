@@ -36,6 +36,8 @@ export const BUNDLE_FILES = [
 
 export const MIN_BUNDLE_PASSWORD = 8;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
+/** Near V8's longest string: a bigger payload could not be read as text anyway. */
+const MAX_PAYLOAD_BYTES = 512 * 1024 * 1024;
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 export interface BundleContents {
@@ -99,7 +101,7 @@ export function sealBundle(contents: BundleContents, password: string, now = Dat
 }
 
 /** Opens a bundle with `password`, keeping only well-formed parts. Throws BundleError otherwise. */
-export function openBundle(text: string, password: string): BundleContents {
+export function openBundle(text: string, password: string, maxPayloadBytes = MAX_PAYLOAD_BYTES): BundleContents {
   let sealed: SealedFile;
   try {
     sealed = JSON.parse(text) as SealedFile;
@@ -110,16 +112,22 @@ export function openBundle(text: string, password: string): BundleContents {
   const { N, r, p } = sealed.kdf;
   // Bounded work: a crafted file must not make the key derivation take forever.
   if (![N, r, p].every((n) => Number.isInteger(n) && n > 0) || N > 1 << 20 || r > 16 || p > 4) throw new BundleError("This profile file is damaged.");
-  let plain: Buffer;
+  let gzipped: Buffer;
   try {
     const decipher = createDecipheriv("aes-256-gcm", keyFor(password, Buffer.from(sealed.kdf.salt, "base64"), { N, r, p }), Buffer.from(sealed.iv, "base64"));
     decipher.setAuthTag(Buffer.from(sealed.tag, "base64"));
-    plain = gunzipSync(Buffer.concat([decipher.update(Buffer.from(sealed.data, "base64")), decipher.final()]));
+    gzipped = Buffer.concat([decipher.update(Buffer.from(sealed.data, "base64")), decipher.final()]);
   } catch {
     throw new BundleError("Wrong password, or the file is damaged.");
   }
-  const payload = JSON.parse(plain.toString("utf8")) as Partial<BundleContents> & { format?: string };
-  if (payload.format !== "corvus-profile-data") throw new BundleError("This profile file is damaged.");
+  let payload: (Partial<BundleContents> & { format?: string }) | null;
+  try {
+    // Bounded: a small file must not inflate into more memory than the computer has.
+    payload = JSON.parse(gunzipSync(gzipped, { maxOutputLength: maxPayloadBytes }).toString("utf8")) as typeof payload;
+  } catch {
+    throw new BundleError("This profile file is damaged.");
+  }
+  if (payload?.format !== "corvus-profile-data") throw new BundleError("This profile file is damaged.");
   const files: Record<string, string> = {};
   for (const name of BUNDLE_FILES) {
     const body = payload.files?.[name];

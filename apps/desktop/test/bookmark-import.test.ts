@@ -42,6 +42,11 @@ describe("parseNetscapeHtml", () => {
     expect(tech!.children).toHaveLength(1);
   });
 
+  it("keeps a character reference beyond Unicode as written instead of failing the import", () => {
+    const tree = parseNetscapeHtml('<DL><p><DT><A HREF="https://example.com/">A &#99999999; &#x110000; &#65; B</A></DL>');
+    expect(tree).toEqual([{ title: "A &#99999999; &#x110000; A B", url: "https://example.com/" }]);
+  });
+
   it("counts leaves and folders across nesting", () => {
     const tree = parseNetscapeHtml(NETSCAPE);
     expect(countBookmarks(tree)).toBe(4);

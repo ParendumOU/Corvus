@@ -192,6 +192,11 @@ export class BookmarkStore {
   flush(): void {
     this.file.flush();
   }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
+  }
 }
 
 export class HistoryStore {
@@ -341,5 +346,10 @@ export class HistoryStore {
 
   flush(): void {
     this.file.flush();
+  }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
   }
 }

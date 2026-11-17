@@ -52,6 +52,14 @@ describe("parseCron", () => {
     expect([...f!.dow].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
   });
 
+  it("accepts day-of-week ranges and steps that reach 7 (Sunday)", () => {
+    expect([...parseCron("0 9 * * 1-7")!.dow].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect([...parseCron("0 9 * * 5-7")!.dow].sort((a, b) => a - b)).toEqual([0, 5, 6]);
+    expect([...parseCron("0 9 * * */7")!.dow].sort((a, b) => a - b)).toEqual([0]);
+    expect([...parseCron("0 9 * * 6,7")!.dow].sort((a, b) => a - b)).toEqual([0, 6]);
+    expect(isValidCron("0 9 * * 8")).toBe(false);
+  });
+
   it("treats dow 7 as Sunday", () => {
     const f = parseCron("0 0 * * 7");
     expect(f!.dow.has(0)).toBe(true);

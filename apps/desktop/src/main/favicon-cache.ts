@@ -59,6 +59,24 @@ function reviveRedirects(raw: unknown): Record<string, Redirect> {
 
 const sha1 = (text: string): string => crypto.createHash("sha1").update(text).digest("hex");
 
+/** The body, or null once it grows past `max` bytes: a huge "icon" is never read whole. */
+async function readCapped(res: Response, max: number): Promise<Buffer | null> {
+  const reader = res.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return Buffer.concat(chunks);
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+}
+
 /**
  * Favicons of one profile, by site (origin), kept on disk: the icon of each page the person opens
  * in a tab, and on demand the icon of a bookmark never opened in Corvus. Fetched through the
@@ -123,7 +141,8 @@ export class FaviconCache {
       // No cookies: an icon is the same for everyone.
       const res = await fetcher(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), credentials: "omit" });
       if (!res.ok) return null;
-      const body = Buffer.from(await res.arrayBuffer());
+      const body = await readCapped(res, MAX_ICON_BYTES);
+      if (!body) return null;
       const type = sniffImageType(body);
       return type && body.length > 0 && body.length <= MAX_ICON_BYTES ? { type, body } : null;
     } catch {

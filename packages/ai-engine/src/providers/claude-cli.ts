@@ -162,6 +162,8 @@ export function createClaudeCliProvider(opts: ClaudeCliProviderOptions): AnswerP
    * process (signal, or timeoutMs without a call) is all it takes to release it.
    */
   function prepare(call: PreparedCall): PreparedAnswer {
+    // An abort that already happened never fires its event: a process started now would idle until timeoutMs.
+    if (call.signal?.aborted) return { answer: async function* () {} };
     const child = spawnCli(cliPath, buildClaudeCliArgs(opts.model, call.system), {
       // A neutral cwd keeps project CLAUDE.md files out of the context.
       cwd: tmpdir(),

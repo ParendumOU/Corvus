@@ -43,6 +43,8 @@ function typeEnd(sig: string, i: number): number {
   if (c === "a") return typeEnd(sig, i + 1);
   if (c === "(" || c === "{") {
     const close = c === "(" ? ")" : "}";
+    // An empty struct reads no bytes: an array of them would never end.
+    if (sig[i + 1] === close) throw new Error("D-Bus: empty struct");
     let j = i + 1;
     while (sig[j] !== close) {
       if (j >= sig.length) throw new Error("D-Bus: unbalanced signature");

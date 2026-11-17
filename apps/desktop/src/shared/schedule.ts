@@ -121,8 +121,9 @@ export function parseCron(expr: string): CronFields | null {
   const hour = parseField(h, 0, 23);
   const domSet = parseField(dom, 1, 31);
   const month = parseField(mon, 1, 12);
-  // Day-of-week: 0-7 with both 0 and 7 meaning Sunday.
-  const dowSet = parseField(dowRaw.replace(/7/g, "0"), 0, 6);
+  // Day-of-week: 0-7 with both 0 and 7 meaning Sunday (parsed as 0-7 so "1-7" and "*/7" stay valid).
+  const dowFull = parseField(dowRaw, 0, 7);
+  const dowSet = dowFull && new Set([...dowFull].map((d) => d % 7));
   if (!minute || !hour || !domSet || !month || !dowSet) return null;
   return {
     minute,

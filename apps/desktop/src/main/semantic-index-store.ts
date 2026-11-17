@@ -5,7 +5,6 @@ import {
   capByKind,
   docId,
   makeSnippet,
-  removeDocUrl,
   upsertDoc,
 } from "../shared/semantic-search";
 import { JsonFile } from "./json-file";
@@ -87,9 +86,13 @@ export class SemanticIndexStore {
     this.put("reading", url, title, text, savedAt);
   }
 
-  /** Drop every doc of a URL across all kinds (history removed / bookmark deleted). */
-  removeUrl(url: string): void {
-    const next = removeDocUrl(this.file.get(), url);
+  /**
+   * History entries were removed: their visit docs go. Bookmarks and saved articles of the same pages
+   * stay, as they do in their own stores (replaceKind would only bring them back at the next resync).
+   */
+  removeVisits(urls: readonly string[] | "all"): void {
+    const gone = urls === "all" ? null : new Set(urls);
+    const next = this.file.get().filter((d) => d.kind !== "history" || (gone !== null && !gone.has(d.url)));
     if (next.length !== this.file.get().length) {
       this.file.set(next);
       this.emit();
@@ -108,11 +111,6 @@ export class SemanticIndexStore {
       ts: d.ts,
     }));
     this.file.set(capByKind([...others, ...next]));
-    this.emit();
-  }
-
-  clear(): void {
-    this.file.set([]);
     this.emit();
   }
 

@@ -114,7 +114,10 @@ export async function answerAsk(ask: Ask, deps: AskRelayDeps): Promise<Ask> {
       }
       // Progress while the answer streams in; the last write below carries the rest.
       if (event.type === "answer-delta" && !pushing && progressDue(written, deps.now(), answer.length, deps.progressMs)) {
-        pushing = write({ ...current, answer, sources }).finally(() => {
+        // A failed progress write is dropped (the last write below tries again); left unhandled it was a stray rejection.
+        pushing = write({ ...current, answer, sources })
+          .catch(() => false)
+          .finally(() => {
           pushing = null;
         });
       }

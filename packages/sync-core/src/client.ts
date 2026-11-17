@@ -126,6 +126,15 @@ export function deviceTimesHere(res: SyncDeviceListResponse, now: number): Devic
   return res.devices.map((d) => ({ ...d, lastSeen: d.lastSeen + shift }));
 }
 
+/**
+ * The cursor after a page. A page that says there is more must move the cursor forward: otherwise a
+ * faulty or hostile server would keep the pull asking for the same page forever.
+ */
+function nextCursor(res: SyncPullResponse, since: number): number {
+  if (res.hasMore && !(res.cursor > since)) throw new SyncError("The sync server answered a page that does not move forward", 0, "bad_cursor");
+  return res.cursor;
+}
+
 /** LWW order: higher version wins; equal versions fall back to the higher deviceId. */
 export function isNewer(version: number, deviceId: string, than: KnownVersion | undefined): boolean {
   if (!than) return true;
@@ -288,7 +297,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
       for (const { record } of fresh) (await versions(record.collection)).set(record.id, [record.version, record.deviceId]);
       await saveVersions(fresh.map((f) => f.record.collection));
       delivered += fresh.length;
-      cursor = res.cursor;
+      cursor = nextCursor(res, cursor);
       await opts.storage.set(storageKey("cursor"), String(cursor));
       if (!res.hasMore) return delivered;
     }
@@ -326,7 +335,7 @@ export function createSyncClient(opts: CorvusSyncClientOptions): CorvusSyncClien
       for (const { record } of fresh) map.set(record.id, [record.version, record.deviceId]);
       if (fresh.length > 0) await saveVersions([collection]);
       delivered += fresh.length;
-      since = res.cursor;
+      since = nextCursor(res, since);
       if (!res.hasMore) return { delivered, cursor: since };
     }
   }

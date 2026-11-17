@@ -87,6 +87,8 @@ describe("agent URL policy", () => {
     ["about:blank", true],
     ["corvus://search?q=x", true],
     ["corvus://newtab/", true],
+    ["corvus://newtab", true],
+    ["corvus://newtab/widget/w1", false],
     ["corvus://settings", false],
     ["corvus://extensions", false],
     ["file:///etc/passwd", false],

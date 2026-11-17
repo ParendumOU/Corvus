@@ -71,14 +71,14 @@ function itemStatus(item: QueueItem, speed: number | undefined): string {
 
 function packageStatus(pkg: QueuePackageView): string {
   const p = pkg.progress;
-  const size = p.total !== null ? `${formatBytes(p.received)} of ${formatBytes(p.total)}` : formatBytes(p.received);
+  const size = formatBytes(p.received) + (p.total !== null ? t(" of {total}", { total: formatBytes(p.total) }) : "");
   const parts = [t("{done} of {count} files", { done: p.done, count: p.count }), size];
   if (pkg.speed > 0) parts.push(`${formatBytes(pkg.speed)}/s`);
   if (pkg.eta !== null) parts.push(t("{eta} left", { eta: duration(pkg.eta) }));
   if (p.attention > 0) parts.push(p.attention === 1 ? t("1 needs you") : t("{n} need you", { n: p.attention }));
   if (p.waiting > 0) parts.push(t("{n} waiting", { n: p.waiting }));
   if (p.failed > 0) parts.push(t("{failed} failed", { failed: p.failed }));
-  if (pkg.addedBy) parts.push(`added by ${pkg.addedBy === "Corvus" ? t("Corvus's agent") : pkg.addedBy}`);
+  if (pkg.addedBy) parts.push(t("added by {name}", { name: pkg.addedBy === "Corvus" ? t("Corvus's agent") : pkg.addedBy }));
   return parts.join(" · ");
 }
 

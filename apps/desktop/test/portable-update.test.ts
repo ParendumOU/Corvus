@@ -162,6 +162,17 @@ describe("PortableUpdater", () => {
     expect(fs.existsSync(updater.downloadPath(offer))).toBe(false);
   });
 
+  it("fails the download instead of crashing when the file cannot be written", async () => {
+    const updater = new PortableUpdater(path.join(dir, "Corvus-Portable-0.4.1.exe"), fetch, path.join(dir, "updates"));
+    const offer = (await updater.check("stable", "0.4.1", base))!;
+    sums = `${good} *Corvus-Portable-0.4.9.exe
+`;
+    fs.rmSync(updater.downloadPath(offer), { recursive: true, force: true });
+    fs.mkdirSync(updater.downloadPath(offer), { recursive: true });
+    await expect(updater.download(offer, () => undefined)).rejects.toThrow();
+    fs.rmSync(updater.downloadPath(offer), { recursive: true, force: true });
+  });
+
   it("reads GitHub releases when no feed is set", async () => {
     const calls: string[] = [];
     const updater = new PortableUpdater("C:\\x\\Corvus-Portable-0.4.1.exe", async (url) => {

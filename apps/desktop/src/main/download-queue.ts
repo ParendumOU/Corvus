@@ -446,6 +446,8 @@ export class DownloadQueue {
         if (!found) return;
       }
       const { pkg, item } = found;
+      // A file host's answer names the file's address: session.fetch would also read file: and Corvus's own pages.
+      if (!/^https?:\/\//i.test(item.resolved?.url ?? item.url)) throw new FatalDownloadError("Only web addresses can be downloaded");
       fs.mkdirSync(pkg.dir, { recursive: true });
       const savePath =
         item.segments && item.segments.length > 0 && item.savePath && item.totalBytes !== null

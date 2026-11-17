@@ -16,7 +16,7 @@ function kindLabel(link: GrabbedLink): string {
 }
 
 function PackageCard({ pkg, act, rename }: { pkg: GrabbedPackage; act: (call: GrabberCall, ids: string[]) => void; rename: (id: string, name: string) => void }) {
-  const source = pkg.source === "clipboard" || pkg.source === "pasted" ? `from ${pkg.source === "clipboard" ? "copied" : "pasted"} text` : `from ${hostOf(pkg.source)}`;
+  const source = pkg.source === "clipboard" || pkg.source === "pasted" ? pkg.source === "clipboard" ? t("from copied text") : t("from pasted text") : t("from {site}", { site: hostOf(pkg.source) });
   return (
     <div className="card grab-package" data-package={pkg.name}>
       <div className="grab-head">

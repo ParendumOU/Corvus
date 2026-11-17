@@ -140,6 +140,7 @@ describe("saving a sent card", () => {
     expect(capturedCard([{ role: "number", value: VISA }, { role: "expMonth", value: "8" }, { role: "expYear", value: "2028" }])).toEqual({ number: VISA, expMonth: "08", expYear: "2028" });
     expect(capturedCard([{ role: "number", value: VISA }, { role: "exp", value: "0828" }])).toMatchObject({ expMonth: "08", expYear: "2028" });
     expect(capturedCard([{ role: "number", value: VISA }, { role: "exp", value: "08/2028" }])).toMatchObject({ expMonth: "08", expYear: "2028" });
+    expect(capturedCard([{ role: "number", value: VISA }, { role: "exp", value: "2028-08" }])).toMatchObject({ expMonth: "08", expYear: "2028" });
   });
 
   it("parses what a tab reports, leaving out any CVV-like role", () => {

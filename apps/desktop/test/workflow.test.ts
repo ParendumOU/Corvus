@@ -136,6 +136,7 @@ describe("parameters", () => {
     expect(substitute("{{query}} now", { query: "red & blue" }, "text").text).toBe("red & blue now");
     expect(substitute("https://s.example/s?k={{query}}", { query: "red & blue" }, "url").text).toBe("https://s.example/s?k=red%20%26%20blue");
     expect(substitute("{{a}} {{ B }}", { a: "1" }, "text").missing).toEqual(["b"]);
+    expect(substitute("{{constructor}}", {}, "text")).toEqual({ text: "{{constructor}}", missing: ["constructor"] });
   });
 
   it("materializes a flow from given values or defaults, leaving secrets alone", () => {

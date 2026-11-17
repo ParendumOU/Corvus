@@ -126,6 +126,8 @@ describe("tab organizer", () => {
     expect(siteOf("https://www.bbc.co.uk/")).toBe("bbc.co.uk");
     expect(siteOf("http://127.0.0.1:8080/")).toBe("127.0.0.1");
     expect(siteOf("not a url")).toBe("");
+    expect(siteOf("https://docs.example.com./")).toBe("example.com");
+    expect(siteOf("https://www.bank.com.gt/")).toBe("bank.com.gt");
   });
 
   it("only regroups ungrouped, unpinned web tabs", () => {

@@ -338,6 +338,8 @@ export class ScheduledAgentRunner {
 
   private async execute(run: ActiveRun, name: string, input: unknown, signal: AbortSignal): Promise<AgentToolResult> {
     if (signal.aborted) throw new AgentStopError("aborted");
+    await this.waitWhilePaused(signal);
+    if (signal.aborted) throw new AgentStopError("aborted");
     const risk = await classifyToolCall(this.ctx, run, name, input);
 
     if (name === "ask_user") {
@@ -377,6 +379,22 @@ export class ScheduledAgentRunner {
     }
   }
 
+  /** "Pause agents" holds a scheduled run before its next action, as it does the Command Bar's. */
+  private waitWhilePaused(signal: AbortSignal): Promise<void> {
+    if (!this.ctx.agents.paused || signal.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const finish = (): void => {
+        off();
+        signal.removeEventListener("abort", finish);
+        resolve();
+      };
+      const off = this.ctx.agents.onChange(() => {
+        if (!this.ctx.agents.paused) finish();
+      });
+      signal.addEventListener("abort", finish, { once: true });
+    });
+  }
+
   private requestApproval(run: ActiveRun, view: ScheduleApprovalView, signal: AbortSignal): Promise<AgentApprovalDecision> {
     return new Promise<AgentApprovalDecision>((resolve) => {
       let settled = false;
@@ -398,13 +416,16 @@ export class ScheduledAgentRunner {
     });
   }
 
-  /** Bring the agent tab to the front and notify, so the user can see what needs approval. */
+  /**
+   * Show the agent tab in its window and notify, so the user can see what needs approval. The window
+   * is not pulled to the front (focusing it would also un-minimize it): its taskbar button flashes.
+   */
   private surfaceForApproval(run: ActiveRun, view: ScheduleApprovalView): void {
     const groupId = run.tabs?.groupId;
     if (groupId && !run.win.isDisposed() && run.win.hasGroup(groupId)) run.win.updateGroup(groupId, { collapsed: false });
     if (run.tabId && !run.win.isDisposed()) {
       run.win.activate(run.tabId);
-      if (!run.win.win.isDestroyed()) run.win.win.focus();
+      run.win.askForAttention();
     }
     if (Notification.isSupported()) {
       const notification = new Notification({

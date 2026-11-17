@@ -76,6 +76,19 @@ describe("loginDomainOf and loginFit", () => {
     for (const host of ["127.0.0.1", "localhost", "intranet", "app.herokuapp.com", "me.github.io", "x.web.app", "[::1]"]) expect(loginDomainOf(host), host).toBe("");
   });
 
+  it("never shares logins between different owners under a country's open second level", () => {
+    expect(loginDomainOf("www.bank.com.gt")).toBe("bank.com.gt");
+    expect(loginDomainOf("tramites.afip.gob.ar")).toBe("afip.gob.ar");
+    expect(loginDomainOf("alice.me.uk")).toBe("alice.me.uk");
+    expect(loginFit({ scheme: "https:", host: "victim.com.gt", port: "" }, "https://evil.com.gt/")).toBeNull();
+    expect(similarFit({ scheme: "https:", host: "victim.com.gt" }, "https://evil.com.do/")).toBe(false);
+  });
+
+  it("keeps logins to each host of hosting suffixes that serve anyone's pages", () => {
+    for (const host of ["victim.csb.app", "app.hf.space", "x.a.run.app", "shop.uk.com"]) expect(loginDomainOf(host), host).toBe("");
+    expect(loginFit({ scheme: "https:", host: "victim.csb.app", port: "" }, "https://evil.csb.app/")).toBeNull();
+  });
+
   it("says how a saved site fits a page", () => {
     const at = (scheme: "http:" | "https:" | null, host: string, port = "") => ({ scheme, host, port });
     expect(loginFit(at("https:", "central.example.com"), "https://central.example.com/login")).toBe("exact");

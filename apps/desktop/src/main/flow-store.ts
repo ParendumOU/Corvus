@@ -276,4 +276,9 @@ export class FlowStore {
     this.file.flush();
     this.syncFile.flush();
   }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
+  }
 }

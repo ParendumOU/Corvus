@@ -63,6 +63,8 @@ describe("the D-Bus wire format", () => {
     expect(splitSignature("a(yv)(ii)aai")).toEqual(["a(yv)", "(ii)", "aai"]);
     expect(() => splitSignature("a{sv")).toThrow();
     expect(() => splitSignature("z")).toThrow();
+    expect(() => splitSignature("a()")).toThrow();
+    expect(() => splitSignature("a{}")).toThrow();
   });
 
   it("reads back what it writes, containers and variants included", () => {
@@ -93,6 +95,11 @@ describe("the D-Bus wire format", () => {
     const wrongOrder = Buffer.from(whole);
     wrongOrder[0] = 0x58;
     expect(() => decodeMessage(wrongOrder)).toThrow();
+    // A signal from any program on the bus with an array of empty structs used to loop forever.
+    const structs = encodeMessage({ type: MESSAGE.signal, path: "/", interface: "org.freedesktop.ScreenSaver", member: "ActiveChanged", signature: "a(i)", body: [[[1]]] }, 2);
+    const at = structs.indexOf("a(i)");
+    structs.write("a()y", at, "ascii");
+    expect(() => decodeMessage(structs)).toThrow(/empty struct/);
     const huge = Buffer.from(whole);
     huge.writeUInt32LE(0x7fffffff, 4);
     expect(() => decodeMessage(huge)).toThrow();

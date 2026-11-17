@@ -13,6 +13,12 @@ export interface SendOptions {
   cookieHeader?: string | undefined;
   timeoutMs?: number;
   maxBodyBytes?: number;
+  /**
+   * Decides each redirect hop when `followRedirects` is set: the override and Cookie header for the
+   * next URL, or null to stop and return the 3xx response. Without it, a hop to another host goes
+   * without the override and the Cookie header.
+   */
+  redirect?: (url: string) => Promise<Pick<SendOptions, "override" | "cookieHeader"> | null>;
 }
 
 export interface SendResult {
@@ -90,15 +96,8 @@ export function sendRequest(req: OutboundRequest, opts: SendOptions = {}, redire
           }
         }
       });
-      res.on("end", () => {
+      const captured = (): SendResult => {
         const status = res.statusCode ?? 0;
-        const location = res.headers.location;
-        if (req.followRedirects && status >= 300 && status < 400 && location && redirectsLeft > 0) {
-          res.resume();
-          const nextUrl = new URL(location, req.url).href;
-          void sendRequest({ ...req, url: nextUrl, method: status === 303 ? "GET" : req.method }, opts, redirectsLeft - 1).then(resolve, reject);
-          return;
-        }
         const buffer = Buffer.concat(chunks);
         const textual = isTextual(res.headers["content-type"]);
         const response: CapturedResponse = {
@@ -110,7 +109,23 @@ export function sendRequest(req: OutboundRequest, opts: SendOptions = {}, redire
           ...(textual ? {} : { bodyBase64: true }),
           ...(typeof res.headers["content-type"] === "string" ? { mimeType: res.headers["content-type"].split(";")[0] } : {}),
         };
-        resolve({ response, durationMs: Date.now() - start });
+        return { response, durationMs: Date.now() - start };
+      };
+      res.on("error", reject);
+      res.on("end", () => {
+        const status = res.statusCode ?? 0;
+        const location = res.headers.location;
+        const nextUrl = req.followRedirects && status >= 300 && status < 400 && location && redirectsLeft > 0 ? redirectUrl(location, req.url) : null;
+        if (nextUrl) {
+          const { body: _body, bodyBase64: _base64, ...bodiless } = req;
+          // 303 turns the request into a GET without its body.
+          const next: OutboundRequest = status === 303 ? { ...bodiless, url: nextUrl, method: "GET" } : { ...req, url: nextUrl };
+          void redirectOptions(nextUrl, parsed, opts)
+            .then((hopOpts) => (hopOpts ? sendRequest(next, hopOpts, redirectsLeft - 1) : captured()))
+            .then(resolve, reject);
+          return;
+        }
+        resolve(captured());
       });
     });
     request.setTimeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, () => request.destroy(new Error("Request timed out")));
@@ -118,6 +133,25 @@ export function sendRequest(req: OutboundRequest, opts: SendOptions = {}, redire
     if (payload) request.write(payload);
     request.end();
   });
+}
+
+/** The http(s) URL a Location header points to, or null when it is malformed or another scheme. */
+function redirectUrl(location: string, base: string): string | null {
+  try {
+    const url = new URL(location, base);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+async function redirectOptions(url: string, from: URL, opts: SendOptions): Promise<SendOptions | null> {
+  const { override: _override, cookieHeader: _cookie, ...rest } = opts;
+  if (opts.redirect) {
+    const hop = await opts.redirect(url);
+    return hop && { ...rest, ...hop };
+  }
+  return new URL(url).host === from.host ? opts : rest;
 }
 
 function isTextual(contentType: string | undefined): boolean {

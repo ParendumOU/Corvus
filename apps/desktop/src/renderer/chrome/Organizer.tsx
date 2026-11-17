@@ -5,7 +5,7 @@ import { GROUP_COLORS } from "../../shared/tab-strip";
 import type { GroupProposal, OrganizerProposal } from "../../shared/tab-organizer";
 import { chromeApi, errorMessage } from "../common/api";
 import { IconClose, IconSparkle } from "../common/icons";
-import { Favicon } from "../common/ui";
+import { Favicon, colorName } from "../common/ui";
 import "./organizer.css";
 
 import { t as tx } from "../common/i18n";
@@ -113,7 +113,7 @@ export function Organizer({ dark, tabCount, onClose }: { dark: boolean; tabCount
                       key={c}
                       role="radio"
                       aria-checked={g.color === c}
-                      title={c}
+                      title={colorName(c)}
                       className={`org-color ${g.color === c ? "on" : ""}`}
                       style={{ "--c": color(c) } as CSSProperties}
                       onClick={() => patch(g.key, { color: c })}

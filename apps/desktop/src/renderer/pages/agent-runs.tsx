@@ -6,6 +6,7 @@ import { modelLabel } from "../../shared/model-label";
 import { errorMessage, internalApi } from "../common/api";
 import { IconAgent, IconCopy, IconReload, IconTrash } from "../common/icons";
 import { RichMarkdown } from "../common/rich-text";
+import { ConfirmButton } from "../common/ui";
 import "./agent-runs.css";
 import { PageShell, mount } from "./shell";
 
@@ -126,9 +127,9 @@ function AgentRunsPage() {
       toolbar={
         <>
           {(list?.length ?? 0) > 0 && (
-            <button className="btn small ghost danger" onClick={() => run(api.call("agentRuns.clear"))}>
+            <ConfirmButton className="btn small ghost danger" confirm={t("Click again to clear the whole history")} onConfirm={() => run(api.call("agentRuns.clear"))}>
               {t("Clear history")}
-            </button>
+            </ConfirmButton>
           )}
           <a className="btn small ghost" href="corvus://schedules/">
             {t("Scheduled agents")}

@@ -360,10 +360,10 @@ export function showExtensionMenu(win: BrowserWindowCtl, id: string, x: number, 
   const template: MenuItemConstructorOptions[] = [
     { label: info.name, enabled: homepage !== null, click: () => homepage && win.createTab(homepage) },
     { type: "separator" },
-    { label: info.pinned ? "Unpin from toolbar" : "Pin to toolbar", click: () => host.setPinned(id, !info.pinned) },
-    { label: "Options", enabled: info.optionsUrl !== null && info.enabled, click: () => report(host.openOptions(id)) },
+    { label: info.pinned ? tr("Unpin from toolbar") : tr("Pin to toolbar"), click: () => host.setPinned(id, !info.pinned) },
+    { label: tr("Options"), enabled: info.optionsUrl !== null && info.enabled, click: () => report(host.openOptions(id)) },
     {
-      label: "Remove from Corvus…",
+      label: tr("Remove from Corvus…"),
       click: () =>
         report(
           win
@@ -380,7 +380,7 @@ export function showExtensionMenu(win: BrowserWindowCtl, id: string, x: number, 
         ),
     },
     { type: "separator" },
-    { label: "Manage extension", click: () => win.openSingleton("corvus://extensions/") },
+    { label: tr("Manage extension"), click: () => win.openSingleton("corvus://extensions/") },
   ];
   Menu.buildFromTemplate(template).popup({ window: win.win, x: Math.round(x), y: Math.round(y) });
 }

@@ -60,10 +60,18 @@ const STOPWORDS = new Set([
   "i", "my", "me", "about", "find", "page",
 ]);
 
-/** Lowercase word tokens: letters/digits runs, 2+ chars, stopwords dropped. */
+/**
+ * Lowercase letter/digit runs of any script with accents folded, so "Música" matches "musica" and
+ * Greek or Cyrillic pages are searchable at all.
+ */
+function words(text: string): string[] {
+  return text.toLowerCase().normalize("NFD").replace(/\p{M}+/gu, "").split(/[^\p{L}\p{N}]+/u);
+}
+
+/** Lowercase word tokens (see words): 2+ chars, stopwords dropped. */
 export function tokenize(text: string): string[] {
   const out: string[] = [];
-  for (const raw of text.toLowerCase().split(/[^a-z0-9]+/)) {
+  for (const raw of words(text)) {
     if (raw.length < 2) continue;
     if (STOPWORDS.has(raw)) continue;
     out.push(raw);
@@ -76,7 +84,7 @@ export function queryTokens(query: string): string[] {
   const toks = tokenize(query);
   // If stopword stripping emptied the query (e.g. "how to"), fall back to raw length>=2 tokens.
   if (toks.length > 0) return toks;
-  return query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+  return words(query).filter((t) => t.length >= 2);
 }
 
 /** Weighted term-frequency map for one doc: title terms counted TITLE_WEIGHT times, plus body + host. */
@@ -198,7 +206,9 @@ export function snippetAround(text: string, query: string, max = DISPLAY_SNIPPET
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= max) return clean;
   const terms = queryTokens(query);
-  const lower = clean.toLowerCase();
+  // Terms are accent-folded; search folded text when folding kept every position in place.
+  const folded = clean.toLowerCase().normalize("NFD").replace(/\p{M}+/gu, "");
+  const lower = folded.length === clean.length ? folded : clean.toLowerCase();
   let at = -1;
   for (const t of terms) {
     const idx = lower.indexOf(t);
@@ -222,10 +232,6 @@ export function upsertDoc(list: readonly IndexDoc[], doc: IndexDoc, maxPerKind =
   const next = list.filter((d) => d.id !== doc.id);
   next.push(doc);
   return capByKind(next, maxPerKind);
-}
-
-export function removeDocUrl(list: readonly IndexDoc[], url: string): IndexDoc[] {
-  return list.filter((d) => d.url !== url);
 }
 
 /** Enforce the per-kind cap, dropping the oldest docs of any over-cap kind. */

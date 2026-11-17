@@ -4,6 +4,8 @@
  * Enter or "Hide" confirms and Escape cancels. The script resolves with the chosen element's CSS
  * selector (unique on the page, avoiding generated ids and classes) or null.
  */
+import { tr } from "./menu-i18n";
+
 export interface PickerStart {
   /** Start with the element at this point (CSS px of the page), as from a right-click. */
   x?: number;
@@ -11,7 +13,19 @@ export interface PickerStart {
 }
 
 export function elementPickerScript(start: PickerStart): string {
+  // Its bar speaks Corvus's language; the page never sees it.
+  const [confirmBefore = "", confirmAfter = ""] = tr("Hide {selector}?").split("{selector}");
+  const labels = {
+    intro: tr("Click an element to hide it · Esc to cancel"),
+    wider: tr("Wider"),
+    widerTitle: tr("Select the element around it (Up)"),
+    hide: tr("Hide"),
+    cancel: tr("Cancel"),
+    confirmBefore,
+    confirmAfter,
+  };
   return `new Promise((resolve) => {
+  const L = ${JSON.stringify(labels)};
   const doc = document;
   if (window.__corvusPicker) { window.__corvusPicker(null); }
   const stable = (s) => /^[A-Za-z_][\\w-]{0,48}$/.test(s) && !/\\d{4,}|[a-f0-9]{8,}/i.test(s);
@@ -51,13 +65,13 @@ export function elementPickerScript(start: PickerStart): string {
   const box = make("div", "box");
   box.hidden = true;
   const bar = make("div", "bar");
-  const text = make("span", "text", "Click an element to hide it · Esc to cancel");
-  const wider = make("button", "wider", "Wider");
-  wider.title = "Select the element around it (Up)";
+  const text = make("span", "text", L.intro);
+  const wider = make("button", "wider", L.wider);
+  wider.title = L.widerTitle;
   wider.hidden = true;
-  const hideBtn = make("button", "hide primary", "Hide");
+  const hideBtn = make("button", "hide primary", L.hide);
   hideBtn.hidden = true;
-  const cancelBtn = make("button", "cancel", "Cancel");
+  const cancelBtn = make("button", "cancel", L.cancel);
   bar.append(text, wider, hideBtn, cancelBtn);
   root.append(style, box, bar);
   doc.documentElement.appendChild(host);
@@ -74,7 +88,7 @@ export function elementPickerScript(start: PickerStart): string {
     if (!el || el === doc.documentElement || el === doc.body) return;
     chosen = el;
     outline(el);
-    text.replaceChildren("Hide ", make("code", "", selectorFor(el)), "?");
+    text.replaceChildren(L.confirmBefore, make("code", "", selectorFor(el)), L.confirmAfter);
     wider.hidden = !el.parentElement || el.parentElement === doc.body;
     hideBtn.hidden = false;
   };

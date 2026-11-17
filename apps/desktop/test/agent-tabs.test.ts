@@ -78,7 +78,7 @@ function fakeWindow() {
   };
   const ctx = {
     windows: {
-      regular: () => [win],
+      usable: () => [win],
       findTab: (id: string) => {
         const tab = runtime(id);
         return tab ? { window: win, tab } : undefined;
@@ -181,5 +181,16 @@ describe("RunTabs", () => {
     expect(f.tabs).toHaveLength(2);
     expect(run.list(null)).toContain("[yours] https://10.0.10.1/");
     expect(policies).toEqual(["refuse"]);
+  });
+});
+
+describe("RunTabs.list", () => {
+  it("never lists the tabs of a locked profile's window", () => {
+    const { win, ctx } = fakeWindow();
+    const locked = { listTabs: () => [{ id: "t9", windowId: "w2", url: "https://bank.example/", title: "Private bank", pinned: false, active: true, loading: false, agentControlled: false }] };
+    const windows = { ...(ctx.windows as object), regular: () => [win, locked], usable: () => [win] };
+    const run = new RunTabs({ ...ctx, windows } as unknown as AppContext, win, "task", "t1");
+    expect(run.list(null)).toContain("https://news.example/");
+    expect(run.list(null)).not.toContain("bank.example");
   });
 });

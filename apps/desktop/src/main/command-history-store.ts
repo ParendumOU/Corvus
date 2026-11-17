@@ -69,4 +69,9 @@ export class CommandHistoryStore {
     this.file.set(list);
     for (const l of this.listeners) l();
   }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
+  }
 }

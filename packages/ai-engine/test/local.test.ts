@@ -97,6 +97,12 @@ describe("createLocalProvider (ollama)", () => {
     const provider = createLocalProvider({ model: "ghost", api: "ollama", fetch: fn });
     await expect(collect(provider.answer({ prompt, maxOutputTokens: 100 }))).rejects.toThrow(/404.*not found/);
   });
+
+  it("keeps a plain-text error body in the message", async () => {
+    const { fn } = streamingFetch(() => ({ status: 500, text: "tools are not supported by this model" }));
+    const provider = createLocalProvider({ model: "m", api: "ollama", fetch: fn });
+    await expect(collect(provider.answer({ prompt, maxOutputTokens: 100 }))).rejects.toThrow(/500: tools are not supported/);
+  });
 });
 
 describe("createLocalProvider (openai)", () => {

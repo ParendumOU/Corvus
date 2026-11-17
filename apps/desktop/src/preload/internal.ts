@@ -35,13 +35,14 @@ import { MEDIA_HOLD_CHANNEL, MEDIA_RELEASE_CHANNEL, holdMediaInPage } from "../s
 import { PAGE_COMMAND_CHANNEL, commandForInput, isPageFirst } from "../shared/shortcuts";
 
 // The preload is type-checked with the Node project (no DOM lib); declare the globals it reads.
-declare const location: { protocol: string; origin: string };
+declare const location: { protocol: string; origin: string; pathname: string };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const document: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const window: { top: unknown; addEventListener(type: string, listener: (e: any) => void, capture: boolean): void };
 
-if (location.protocol === "corvus:" && window.top === window) {
+// Only a Corvus page's own document: other paths of its host (New Tab widget documents) run other content.
+if (location.protocol === "corvus:" && window.top === window && (location.pathname === "/" || location.pathname === "")) {
   const bridge: InternalBridge = {
     call: ((method: string, ...args: unknown[]) => ipcRenderer.invoke(INTERNAL_RPC, method, args)) as InternalBridge["call"],
     onEvent: (listener) => {
@@ -728,7 +729,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     "click",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
-      if (!recording) return;
+      if (!recording || !e.isTrusted) return;
       try {
         const desc = descriptorFor(e.target);
         if (!desc) return;
@@ -782,7 +783,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     "keydown",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
-      if (!recording || e.key !== "Enter" || e.isComposing || e.shiftKey) return;
+      if (!recording || !e.isTrusted || e.key !== "Enter" || e.isComposing || e.shiftKey) return;
       try {
         const el = e.target;
         if (!el || el.tagName !== "INPUT" || !el.value) return;
@@ -1012,6 +1013,19 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     svg.appendChild(path);
     return svg;
   };
+  // A button acts on its click, so Enter and Space work too; its mousedown keeps the page's selection.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onPress = (button: any, act: () => void): void => {
+    button.addEventListener("mousedown", (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    button.addEventListener("click", (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      act();
+    });
+  };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const swatch = (color: AnnotationColor, onPick: () => void, current = false): any => {
     const sw = el("button", current ? "sw on" : "sw");
@@ -1019,11 +1033,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     sw.title = labels.colors[color];
     sw.setAttribute("aria-label", labels.colors[color]);
     if (current) sw.setAttribute("aria-pressed", "true");
-    sw.addEventListener("mousedown", (e: any) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onPick();
-    });
+    onPress(sw, onPick);
     return sw;
   };
 
@@ -1078,9 +1088,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const noteBtn = el("button", "btn");
     noteBtn.appendChild(pencil());
     noteBtn.appendChild(d.createTextNode(labels.note));
-    noteBtn.addEventListener("mousedown", (e: any) => {
-      e.preventDefault();
-      e.stopPropagation();
+    onPress(noteBtn, () => {
       const open = !composing();
       noteBox.style.display = open ? "flex" : "none";
       if (open) noteArea.focus();
@@ -1092,11 +1100,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     noteArea.placeholder = labels.notePlaceholder;
     const actions = el("div", "row end");
     const noteSave = el("button", "btn primary", labels.saveHighlight);
-    noteSave.addEventListener("mousedown", (e: any) => {
-      e.preventDefault();
-      e.stopPropagation();
-      sendCreate(ANNOTATION_COLORS[0], noteArea.value);
-    });
+    onPress(noteSave, () => sendCreate(ANNOTATION_COLORS[0], noteArea.value));
     actions.appendChild(noteSave);
     noteBox.appendChild(noteArea);
     noteBox.appendChild(actions);
@@ -1214,15 +1218,13 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const edit = el("button", "btn");
     edit.appendChild(pencil());
     edit.appendChild(d.createTextNode(labels.editNote));
-    edit.addEventListener("mousedown", (e: any) => {
-      e.preventDefault();
+    onPress(edit, () => {
       const area = el("textarea", "");
       area.value = a.note;
       area.placeholder = labels.notePlaceholder;
       const row = el("div", "row end");
       const save = el("button", "btn primary", labels.save);
-      save.addEventListener("mousedown", (ev: any) => {
-        ev.preventDefault();
+      onPress(save, () => {
         ipcRenderer.send(ANNOTATION_UPDATE_CHANNEL, { id: a.id, note: area.value });
         hidePop();
       });
@@ -1233,8 +1235,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       area.focus();
     });
     const del = el("button", "btn danger", labels.delete);
-    del.addEventListener("mousedown", (e: any) => {
-      e.preventDefault();
+    onPress(del, () => {
       ipcRenderer.send(ANNOTATION_DELETE_CHANNEL, { id: a.id });
       hidePop();
     });

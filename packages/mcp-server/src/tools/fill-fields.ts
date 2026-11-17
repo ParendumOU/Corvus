@@ -93,7 +93,8 @@ export function registerFillFieldsTools({ controller, register, resolveTab }: To
           }
           try {
             await controller.click(id, btn.ref);
-            submitNote = `; submitted via "${truncate(btn.name, 60).text}"`;
+            // The button name is page text: name it by ref so the trusted reply carries no page content.
+            submitNote = `; submitted via ${btn.ref}`;
           } catch (err) {
             submitNote = `; submit failed: ${clip(err)}`;
           }

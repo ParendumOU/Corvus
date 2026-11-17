@@ -134,7 +134,7 @@ async function httpError(res: Response, api: LocalModelApi): Promise<LocalModelE
     // body already consumed or unreadable
   }
   const parsed = tryParse(detail);
-  const message = parsed?.error?.message ?? (typeof parsed?.error === "string" ? parsed.error : "") ?? detail;
+  const message = (parsed?.error?.message ?? (typeof parsed?.error === "string" ? parsed.error : "")) || detail;
   return new LocalModelError(`Local model server (${api}) returned HTTP ${res.status}${message ? `: ${message}` : ""}`, res.status);
 }
 

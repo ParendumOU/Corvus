@@ -126,6 +126,8 @@ export class FilterSet {
   blocker: ElectronBlocker;
   meta: ListMeta;
   updating = false;
+  /** The one pending retry after a failed check: the interval failing too must not add more. */
+  private retry: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly cacheDir: string,
@@ -171,7 +173,12 @@ export class FilterSet {
       this.onSwap(unfilteredBefore);
     } catch (err) {
       console.warn(`[corvus] adblock list refresh failed (${this.spec.set}): ${(err as Error).message}`);
-      setTimeout(() => void this.refresh(false), RETRY_MS).unref();
+      if (this.retry) clearTimeout(this.retry);
+      this.retry = setTimeout(() => {
+        this.retry = null;
+        void this.refresh(false);
+      }, RETRY_MS);
+      this.retry.unref();
     } finally {
       this.updating = false;
       this.onChange();

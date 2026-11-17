@@ -464,9 +464,16 @@ export class ProfileRegistry {
   /** Caller must close the profile's windows first. */
   async remove(id: ProfileId): Promise<void> {
     const runtime = this.runtimes.get(id);
-    const ses = runtime?.session ?? electronSession.fromPartition(ProfileManager.partition(id));
+    const partition = ProfileManager.partition(id);
+    const ses = runtime?.session ?? electronSession.fromPartition(partition);
     await ses.clearStorageData();
     await ses.clearCache();
+    // Each container keeps its cookies and site data in a session of its own, outside the profile's folder.
+    for (const container of (runtime?.containers ?? new ContainerStore(this.manager.dataDir(id))).list()) {
+      const containerSes = electronSession.fromPartition(containerPartition(partition, container.id));
+      await containerSes.clearStorageData().catch(() => undefined);
+      await containerSes.clearCache().catch(() => undefined);
+    }
     runtime?.flush();
     runtime?.keepass.dispose();
     this.runtimes.delete(id);

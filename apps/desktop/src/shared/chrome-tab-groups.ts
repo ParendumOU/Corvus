@@ -39,13 +39,33 @@ export interface TabGroupQuery {
   windowId?: number;
 }
 
+/**
+ * Whether `text` matches `pattern`, where each * stands for any run of characters. Matched piece by
+ * piece, leftmost first: a regular expression of many wildcards backtracks exponentially, and the
+ * pattern comes from an extension.
+ */
+export function matchesGlob(pattern: string, text: string): boolean {
+  const pieces = pattern.split("*");
+  if (pieces.length === 1) return text === pattern;
+  const first = pieces[0]!;
+  const last = pieces[pieces.length - 1]!;
+  if (text.length < first.length + last.length || !text.startsWith(first) || !text.endsWith(last)) return false;
+  let at = first.length;
+  const end = text.length - last.length;
+  for (const piece of pieces.slice(1, -1)) {
+    const found = text.indexOf(piece, at);
+    if (found === -1 || found + piece.length > end) return false;
+    at = found + piece.length;
+  }
+  return true;
+}
+
 /** chrome.tabGroups.query(): every property given must match (the title as a pattern with * wildcards). */
 export function queryGroups(list: readonly GroupPlacement[], q: TabGroupQuery, currentWindowId?: number): ChromeTabGroup[] {
   const windowId = q.windowId === -2 ? currentWindowId : q.windowId;
-  const title = q.title === undefined ? null : new RegExp(`^${q.title.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
   return list
     .filter((p) => (q.collapsed === undefined || p.group.collapsed === q.collapsed) && (q.color === undefined || p.group.color === q.color))
-    .filter((p) => (windowId === undefined || p.windowId === windowId) && (!title || title.test(p.group.title)))
+    .filter((p) => (windowId === undefined || p.windowId === windowId) && (q.title === undefined || matchesGlob(String(q.title), p.group.title)))
     .map(toChromeGroup);
 }
 

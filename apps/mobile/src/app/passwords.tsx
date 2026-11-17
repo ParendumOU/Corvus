@@ -22,7 +22,7 @@ import { t } from '@/lib/i18n';
 import { openInApp } from '@/lib/open-url';
 import { filterLogins, loginHost, type Login } from '@/lib/passwords';
 import { savedLogins } from '@/lib/session';
-import { unlockPasswords } from '@/lib/unlock';
+import { unlockPasswords, whileUnlocked } from '@/lib/unlock';
 
 /** A copied password is cleared from the clipboard after this long, unless something else replaced it. */
 const CLEAR_CLIPBOARD_MS = 60 * 1000;
@@ -34,6 +34,8 @@ async function copy(text: string, what: string): Promise<void> {
 
 function LoginCard({ login }: { login: Login }) {
   const [shown, setShown] = useState(false);
+  // A shown password hides again when the passwords lock (background, or the unlock's minutes are over).
+  useEffect(() => (shown ? whileUnlocked(() => setShown(false)) : undefined), [shown]);
 
   const withLock = async (action: () => Promise<void> | void): Promise<void> => {
     if (await unlockPasswords()) await action();

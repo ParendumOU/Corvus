@@ -24,6 +24,16 @@ export function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** Removes every match until none is left: one pass would turn "</pa</page>ge>" into "</page>". */
+export function stripAll(text: string, pattern: RegExp): string {
+  let out = text;
+  for (let prev = ""; prev !== out; ) {
+    prev = out;
+    out = out.replace(pattern, "");
+  }
+  return out;
+}
+
 /** Strips tags (Brave/SearXNG wrap matches in <strong>), decodes entities, collapses whitespace. */
 export function cleanText(text: string | undefined | null): string {
   if (!text) return "";

@@ -114,7 +114,17 @@ export class CardVault {
     return this.records.verify();
   }
 
+  /** See SealedRecords.isUnreadable. */
+  isUnreadable(id: string): boolean {
+    return this.records.isUnreadable(id);
+  }
+
   flush(): void {
     this.records.flush();
+  }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.records.loadedFresh;
   }
 }

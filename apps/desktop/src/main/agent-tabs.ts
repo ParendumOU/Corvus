@@ -90,7 +90,7 @@ export class RunTabs implements RunTabsHandle {
 
   list(working: TabId | null): string {
     return this.ctx.windows
-      .regular()
+      .usable()
       .flatMap((w) => w.listTabs())
       .map((t) => agentTabLine(t, { working: t.id === working, own: this.isOwn(t.id), start: t.id === this.start }))
       .join("\n");

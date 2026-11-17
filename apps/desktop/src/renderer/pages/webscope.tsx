@@ -237,13 +237,16 @@ function HistoryView({ onRepeater, onFuzzer, onCompare }: HistoryActions) {
   };
   const importHar = (file: File): void => {
     setImportError(null);
+    const invalid = (): void => setImportError(tx("That file is not valid JSON or HAR."));
     void file.text().then((text) => {
+      let json: unknown;
       try {
-        void api.call("webscope.importHar", JSON.parse(text));
+        json = JSON.parse(text);
       } catch {
-        setImportError(tx("That file is not valid JSON or HAR."));
+        return invalid();
       }
-    });
+      api.call("webscope.importHar", json).catch(invalid);
+    }, invalid);
   };
   const clearHistory = (): void => {
     if (!confirm(tx("Clear all captured history? This cannot be undone."))) return;
@@ -932,7 +935,8 @@ function InterceptView({ state }: { state: WebScopeState }) {
     }
     if (selected !== held.id) setSelected(held.id);
     if (!edit || edit.forId !== held.id) {
-      setEdit({ forId: held.id, method: held.request.method, url: held.request.url, headers: headersToText(held.request.headers), body: held.request.body ?? "" });
+      const headers = held.phase === "response" ? (held.response?.headers ?? []) : held.request.headers;
+      setEdit({ forId: held.id, method: held.request.method, url: held.request.url, headers: headersToText(headers), body: held.phase === "response" ? "" : (held.request.body ?? "") });
     }
   }, [held, selected, edit]);
 
@@ -968,9 +972,11 @@ function InterceptView({ state }: { state: WebScopeState }) {
     }, 300);
   };
   useEffect(() => () => { if (matchTimer.current) clearTimeout(matchTimer.current); }, []);
+  // A held response is shown read-only: the engine never reads its body, so an edit would replace
+  // the page's response with an empty one.
   const forward = (useEdit: boolean): void => {
     if (!held) return;
-    const payload = useEdit && edit ? { method: edit.method, url: edit.url, headers: parseHeaders(edit.headers), body: edit.body } : null;
+    const payload = useEdit && edit && held.phase === "request" ? { method: edit.method, url: edit.url, headers: parseHeaders(edit.headers), body: edit.body } : null;
     void api.call("webscope.interceptForward", held.id, payload).then(setIntercept);
   };
   const drop = (): void => { if (held) void api.call("webscope.interceptDrop", held.id).then(setIntercept); };
@@ -1038,15 +1044,17 @@ function InterceptView({ state }: { state: WebScopeState }) {
                 </div>
                 <div className="ws-field fill">
                   <label className="ws-flabel">{tx("Headers")}</label>
-                  <textarea className="input mono" rows={6} value={edit.headers} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} />
+                  <textarea className="input mono" rows={6} value={edit.headers} onChange={(e) => setEdit({ ...edit, headers: e.target.value })} readOnly={held.phase === "response"} />
                 </div>
-                <div className="ws-field fill">
-                  <label className="ws-flabel">{tx("Body")}</label>
-                  <textarea className="input mono" rows={6} value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
-                </div>
+                {held.phase === "request" && (
+                  <div className="ws-field fill">
+                    <label className="ws-flabel">{tx("Body")}</label>
+                    <textarea className="input mono" rows={6} value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} />
+                  </div>
+                )}
               </div>
               <div className="ws-editor-actions">
-                <button className="btn small primary" onClick={() => forward(true)}>{tx("Forward edited")}</button>
+                {held.phase === "request" && <button className="btn small primary" onClick={() => forward(true)}>{tx("Forward edited")}</button>}
                 <button className="btn small" onClick={() => forward(false)}>{tx("Forward")}</button>
                 <span className="ws-toolbar-sep" />
                 <button className="btn small ghost danger" onClick={drop}>{tx("Drop")}</button>
@@ -1148,7 +1156,7 @@ function FindingCard({ group }: { group: FindingGroup }) {
     <div className="ws-finding">
       <div className="ws-finding-head">
         <span className="ws-finding-title">{group.title}</span>
-        <span className="ws-finding-count">{group.items.length}{" "}{tx("location")}{group.items.length === 1 ? "" : "s"}</span>
+        <span className="ws-finding-count">{group.items.length === 1 ? tx("1 location") : tx("{n} locations", { n: group.items.length })}</span>
       </div>
       <p className="ws-finding-detail">{group.detail}</p>
       <ul className="ws-finding-locs">
@@ -1739,7 +1747,7 @@ function App() {
 
   const captured = state?.historySize ?? 0;
   const tabs = state?.attachedTabs ?? 0;
-  const tabsLabel = `${tx("tab")}${tabs === 1 ? "" : "s"}`;
+  const tabsLabel = tabs === 1 ? tx("tab") : tx("tabs");
 
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const onTabKey = (e: React.KeyboardEvent, idx: number): void => {

@@ -50,6 +50,8 @@ interface Opened<T> {
   file: JsonFile<RecordsFile>;
   key: Uint8Array;
   cache: Map<string, T>;
+  /** Entries that did not open (corrupt): kept in the file as they are, never dropped by a write. */
+  unreadable: StoredRecord[];
 }
 
 export class SealedRecords<T extends SealedRecord> {
@@ -103,22 +105,23 @@ export class SealedRecords<T extends SealedRecord> {
     const cache = new Map<string, T>();
     const key = unwrapStoreKey(this.cipher, this.persisted, current.key?.data, current.entries.length > 0, fileName);
     if (key) {
-      let unreadable = 0;
+      const unreadable: StoredRecord[] = [];
       for (const entry of current.entries) {
         try {
           const record: unknown = { ...JSON.parse(openSecret(key, entry.sealed, entry.id)), id: entry.id, createdAt: entry.createdAt, updatedAt: entry.updatedAt };
           if (this.isValid(record)) cache.set(entry.id, record);
         } catch (err) {
-          unreadable++;
-          console.warn(`[corvus] dropped an unreadable record ${entry.id} of ${fileName}:`, (err as Error).message);
+          unreadable.push(entry);
+          console.warn(`[corvus] kept an unreadable record ${entry.id} of ${fileName}:`, (err as Error).message);
         }
       }
       // Not one record opens: the key is not this file's, so it stays as it is.
-      if (unreadable > 0 && unreadable === current.entries.length) throw new KeychainUnavailableError();
-      this.opened = { file, key, cache };
-      if (cache.size !== current.entries.length) this.write();
+      if (unreadable.length > 0 && unreadable.length === current.entries.length) throw new KeychainUnavailableError();
+      this.opened = { file, key, cache, unreadable };
+      // Records that fail isValid are dropped; an unreadable one stays in the file.
+      if (cache.size + unreadable.length !== current.entries.length) this.write();
     } else {
-      this.opened = { file, key: generateVaultKey(), cache };
+      this.opened = { file, key: generateVaultKey(), cache, unreadable: [] };
       if (this.persisted) this.write();
     }
     return this.opened;
@@ -132,6 +135,12 @@ export class SealedRecords<T extends SealedRecord> {
     opened.file.flush();
     opened.key.fill(0);
     opened.cache.clear();
+    opened.unreadable = [];
+  }
+
+  /** Entry `id` is in the file but did not open (corrupt): all() leaves it out, yet it is not deleted. */
+  isUnreadable(id: string): boolean {
+    return this.open().unreadable.some((e) => e.id === id);
   }
 
   /** Writes the wrapped key again with the cipher as it is now (a lock added or removed). */
@@ -142,7 +151,7 @@ export class SealedRecords<T extends SealedRecord> {
 
   /** Whether the file on disk opens with the cipher as it is now, to the key and records in memory. */
   verify(): boolean {
-    return verifyWrappedFile(this.filePath, this.cipher, this.key, this.cache.size);
+    return verifyWrappedFile(this.filePath, this.cipher, this.key, this.cache.size + this.open().unreadable.length);
   }
 
   /** Whether records are written to disk (true when the OS keychain is available). */
@@ -162,8 +171,9 @@ export class SealedRecords<T extends SealedRecord> {
   put(changes: Array<{ id: string; record: T | null }>): boolean {
     let changed = false;
     for (const { id, record } of changes) {
-      if (record === null) changed = this.cache.delete(id) || changed;
+      if (record === null) changed = this.forget(id) || changed;
       else if (this.isValid(record) && record.id === id) {
+        this.forget(id);
         this.cache.set(id, record);
         changed = true;
       }
@@ -174,17 +184,31 @@ export class SealedRecords<T extends SealedRecord> {
     return true;
   }
 
+  /** Removes a record, readable or not. */
+  private forget(id: string): boolean {
+    const opened = this.open();
+    const before = opened.unreadable.length;
+    opened.unreadable = opened.unreadable.filter((e) => e.id !== id);
+    return opened.cache.delete(id) || opened.unreadable.length !== before;
+  }
+
   private write(): void {
     if (!this.persisted) return;
     const entries: StoredRecord[] = [...this.cache.values()].map((r) => {
       const { id, createdAt, updatedAt, ...rest } = r;
       return { id, createdAt, updatedAt, sealed: sealSecret(this.key, JSON.stringify(rest), id) };
     });
+    for (const entry of this.open().unreadable) if (!this.cache.has(entry.id)) entries.push(entry);
     const wrapped = this.cipher.encryptString(Buffer.from(this.key).toString("base64")).toString("base64");
     this.file.set({ v: 1, key: { data: wrapped }, entries });
   }
 
   flush(): void {
     this.opened?.file.flush();
+  }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
   }
 }

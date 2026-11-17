@@ -86,6 +86,14 @@ const UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
 /** How long an upload waits for the person to allow it. */
 const UPLOAD_APPROVAL_MS = 5 * 60 * 1000;
 
+/**
+ * A UNC or device path (\\host\share, //host/share, \\?\..., \\.\...). Merely touching one makes
+ * Windows connect to that host and offer the user's NTLM credentials, so agents' paths never get there.
+ */
+export function isRemoteOrDevicePath(p: string): boolean {
+  return /^[\\/]{2}/.test(p);
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host;
@@ -655,6 +663,9 @@ export class Controller implements BrowserController {
     const { window, wc } = await this.page(id);
     if (ref !== undefined) this.validRef(ref);
     if (paths.length === 0 || paths.length > UPLOAD_MAX_FILES) throw new AgentError(`Pass 1 to ${UPLOAD_MAX_FILES} files`);
+    // Checked for every path before the first file system call: one remote path must not reach the network.
+    const remote = paths.find(isRemoteOrDevicePath);
+    if (remote !== undefined) throw new AgentError(`Network and device paths cannot be uploaded: ${remote}. Copy the file to a local folder first.`);
     let total = 0;
     for (const p of paths) {
       if (!path.isAbsolute(p)) throw new AgentError(`Not an absolute path: ${p}`);

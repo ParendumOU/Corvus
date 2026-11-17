@@ -8,7 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useMemo } from 'react';
 
-import { FeedbackHost } from '@/components/feedback';
+import { FeedbackHost, showFailure } from '@/components/feedback';
 import { useAppLanguage } from '@/hooks/use-language';
 import { useRouteMemory } from '@/hooks/use-route-memory';
 import { openReceived } from '@/hooks/use-session';
@@ -38,7 +38,7 @@ export default function RootLayout() {
   useEffect(
     () =>
       onNotificationTap((tap) => {
-        if (tap.kind === 'sent' && tap.recordId) void openReceived(tap.recordId, tap.url);
+        if (tap.kind === 'sent' && tap.recordId) void openReceived(tap.recordId, tap.url).catch(showFailure);
         else nav.push('/watches');
       }),
     [],

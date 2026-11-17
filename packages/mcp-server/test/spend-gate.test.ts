@@ -162,7 +162,7 @@ describe("spend gate: fill_fields with submit", () => {
     const c = controller({ initialTabs: [CHECKOUT] });
     harness = await startHarness({ accessLevel: "full" }, c);
     const res = await call(await harness.agent(), "fill_fields", { fields: [{ name: "Email", value: "a@b.c" }], submit: true, submitName: "Continue" });
-    expect(textOf(res)).toBe('filled 1/1; submitted via "Continue"');
+    expect(textOf(res)).toBe("filled 1/1; submitted via e2");
     expect(clicks(c)).toEqual(["e2"]);
   });
 });

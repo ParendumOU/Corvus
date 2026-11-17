@@ -53,6 +53,20 @@ describe("InterceptEngine", () => {
     expect(cont?.params.headers).toEqual([{ name: "X-Test", value: "1" }]);
   });
 
+  it("refuses an edit that sends a held request out of scope and keeps it held", async () => {
+    const f = fakeClient();
+    const eng = new InterceptEngine({ client: f.client, scope, config: () => cfg() });
+    await eng.sync();
+    f.pauseRequest("r9", "https://example.com/login");
+    await Promise.resolve();
+    const id = eng.queue()[0]!.id;
+    await expect(eng.forward(id, { url: "https://evil.com/collect" })).rejects.toThrow(/out of scope/);
+    expect(eng.queue()).toHaveLength(1);
+    expect(f.sent.some((c) => c.method === "Fetch.continueRequest")).toBe(false);
+    await eng.forward(id, { url: "https://example.com/other" });
+    expect(f.sent.find((c) => c.method === "Fetch.continueRequest")?.params.url).toBe("https://example.com/other");
+  });
+
   it("forwards out-of-scope requests immediately without holding", async () => {
     const f = fakeClient();
     const eng = new InterceptEngine({ client: f.client, scope, config: () => cfg() });
@@ -87,6 +101,19 @@ describe("InterceptEngine", () => {
     const fulfill = f.sent.find((c) => c.method === "Fetch.fulfillRequest");
     expect(fulfill?.params.responseCode).toBe(403);
     expect(fulfill?.params.body).toBe(Buffer.from("denied").toString("base64"));
+  });
+
+  it("forwards a held response unchanged when its edit brings no body (never an empty body)", async () => {
+    const f = fakeClient();
+    const actions: string[] = [];
+    const eng = new InterceptEngine({ client: f.client, scope, config: () => cfg({ interceptResponses: true }), onAction: (a) => actions.push(a) });
+    await eng.sync();
+    f.pauseResponse("r6", "https://example.com/page", 200);
+    await Promise.resolve();
+    await eng.forward(eng.queue()[0]!.id, { status: 404, headers: [{ name: "X-Test", value: "1" }] });
+    expect(f.sent.some((c) => c.method === "Fetch.fulfillRequest")).toBe(false);
+    expect(f.sent.some((c) => c.method === "Fetch.continueResponse" && c.params.requestId === "r6")).toBe(true);
+    expect(actions).toEqual(["intercept-forward"]);
   });
 
   it("continues responses without holding when response interception is off", async () => {

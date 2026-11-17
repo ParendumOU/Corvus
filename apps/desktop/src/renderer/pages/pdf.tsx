@@ -234,10 +234,9 @@ function PdfApp() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const pageEls = useRef<Array<HTMLDivElement | null>>([]);
-  const pagesText = useRef<PdfPageText[]>([]);
   /** The PDF as it came, for Download: saved as a file, not fetched again. */
   const fileRef = useRef<{ blob: Blob; name: string } | null>(null);
-  const textReady = useRef(false);
+  const pageTexts = useRef<Promise<PdfPageText[]> | null>(null);
   const currentPageRef = useRef(1);
   currentPageRef.current = currentPage;
 
@@ -325,22 +324,27 @@ function PdfApp() {
     setCurrentPage(target);
   }, []);
 
-  const ensureText = useCallback(async (): Promise<PdfPageText[]> => {
-    if (textReady.current || !doc) return pagesText.current;
-    const out: PdfPageText[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((it) => ("str" in it ? it.str : ""))
-        .join(" ")
-        .replace(/[ \t ]+/g, " ")
-        .trim();
-      out.push({ page: i, text });
-    }
-    pagesText.current = out;
-    textReady.current = true;
-    return out;
+  /** Every page's text, read once: callers while it is being read share the same reading. */
+  const ensureText = useCallback((): Promise<PdfPageText[]> => {
+    if (!doc) return Promise.resolve([]);
+    pageTexts.current ??= (async () => {
+      const out: PdfPageText[] = [];
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const text = content.items
+          .map((it) => ("str" in it ? it.str : ""))
+          .join(" ")
+          .replace(/[ \t ]+/g, " ")
+          .trim();
+        out.push({ page: i, text });
+      }
+      return out;
+    })().catch((err: unknown) => {
+      pageTexts.current = null;
+      throw err;
+    });
+    return pageTexts.current;
   }, [doc]);
 
   const runFind = useCallback(
@@ -374,7 +378,8 @@ function PdfApp() {
 
   const runAi = useCallback(
     (kind: PdfAiKind, input = "") => {
-      const label = kind === "ask" ? "Ask" : kind === "explain" ? "Explain" : PDF_AI_TOOLS.find((t) => t.kind === kind)?.label ?? kind;
+      const tool = PDF_AI_TOOLS.find((t) => t.kind === kind);
+      const label = kind === "ask" ? tx("Ask") : kind === "explain" ? tx("Explain") : tool ? tx(tool.label) : kind;
       const id = window.crypto.randomUUID();
       const message: AiMessage = { id, kind, label, input, status: "loading", text: "" };
       setAiOpen(true);
@@ -595,7 +600,7 @@ function PdfApp() {
             <div className="pdf-ai-head">
               {PDF_AI_TOOLS.map((t) => (
                 <button key={t.kind} className="pdf-btn" onClick={() => runAi(t.kind)}>
-                  {t.label}
+                  {tx(t.label)}
                 </button>
               ))}
             </div>

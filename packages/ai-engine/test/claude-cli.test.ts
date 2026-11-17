@@ -130,6 +130,13 @@ describe.skipIf(process.platform === "win32")("createClaudeCliProvider (fake bin
     await expect(collect(prepared.answer(prompt.user))).resolves.toEqual([]);
   });
 
+  it("starts no process for a call prepared after its signal was aborted", async () => {
+    // A missing binary would fail if a process were started.
+    const provider = createClaudeCliProvider({ model: "m", cliPath: "/nonexistent/claude" });
+    const prepared = provider.prepare!({ system: prompt.system, maxOutputTokens: 400, signal: AbortSignal.abort() });
+    await expect(collect(prepared.answer(prompt.user))).resolves.toEqual([]);
+  });
+
   it("reports a missing binary", async () => {
     const provider = createClaudeCliProvider({ model: "m", cliPath: "/nonexistent/claude" });
     await expect(collect(provider.answer({ prompt, maxOutputTokens: 400 }))).rejects.toThrow(/not found/);

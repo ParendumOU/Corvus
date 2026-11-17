@@ -81,6 +81,11 @@ export function showToast(message: string, tone: Tone = 'success'): void {
   toastListener?.({ id: ++toastId, message, tone });
 }
 
+/** Says for a few seconds that an action failed, with why (an action started from a list row). */
+export function showFailure(err: unknown): void {
+  showToast(t('That did not work: {error}', { error: err instanceof Error ? err.message : String(err) }), 'error');
+}
+
 /** Asks before something that cannot be undone. Resolves to true when the person confirms. */
 export function confirm(options: { title: string; message: string; confirmLabel: string; cancelLabel?: string; destructive?: boolean }): Promise<boolean> {
   return new Promise((resolve) => {

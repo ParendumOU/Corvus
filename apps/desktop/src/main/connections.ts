@@ -180,7 +180,8 @@ export class ConnectionStore {
 
   /** Replaces the site rules (each pattern cleaned; unknown targets refused). */
   setRules(rules: ReadonlyArray<{ pattern: string; via: string }>): void {
-    const ids = new Set(this.file.get().proxies.map((p) => p.id));
+    // A rule kept from a proxy that failed to load stays as saved (blocked meanwhile); new ones need a loaded proxy.
+    const ids = new Set([...this.file.get().proxies.map((p) => p.id), ...this.file.get().rules.map((r) => r.via)]);
     const clean = rules.map((r) => {
       const pattern = cleanPattern(r.pattern);
       if (!pattern) throw new Error(`Not a site: ${r.pattern}`);

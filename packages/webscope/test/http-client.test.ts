@@ -17,6 +17,12 @@ beforeAll(async () => {
       } else if (req.url === "/redir") {
         res.writeHead(302, { location: "/echo" });
         res.end();
+      } else if (req.url === "/redir-away") {
+        res.writeHead(302, { location: `http://localhost:${port}/echo` });
+        res.end();
+      } else if (req.url === "/redir-bad") {
+        res.writeHead(302, { location: "http://[" });
+        res.end();
       } else {
         res.writeHead(404);
         res.end("nope");
@@ -57,5 +63,31 @@ describe("sendRequest", () => {
     expect(response.status).toBe(302);
     const followed = await sendRequest({ method: "GET", url: `http://127.0.0.1:${port}/redir`, headers: [], followRedirects: true });
     expect(followed.response.status).toBe(200);
+  });
+
+  it("drops the cookie header on a redirect to another host", async () => {
+    const { response } = await sendRequest({ method: "GET", url: `http://127.0.0.1:${port}/redir-away`, headers: [], followRedirects: true }, { cookieHeader: "sid=xyz" });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body ?? "{}").cookie).toBeNull();
+  });
+
+  it("asks the redirect hook for every hop and stops when it refuses", async () => {
+    const asked: string[] = [];
+    const stopped = await sendRequest(
+      { method: "GET", url: `http://127.0.0.1:${port}/redir-away`, headers: [], followRedirects: true },
+      { redirect: async (url) => (asked.push(url), null) },
+    );
+    expect(asked).toEqual([`http://localhost:${port}/echo`]);
+    expect(stopped.response.status).toBe(302);
+    const allowed = await sendRequest(
+      { method: "GET", url: `http://127.0.0.1:${port}/redir-away`, headers: [], followRedirects: true },
+      { redirect: async () => ({ cookieHeader: "hop=1" }) },
+    );
+    expect(JSON.parse(allowed.response.body ?? "{}").cookie).toBe("hop=1");
+  });
+
+  it("returns the 3xx as is when its Location is malformed", async () => {
+    const { response } = await sendRequest({ method: "GET", url: `http://127.0.0.1:${port}/redir-bad`, headers: [], followRedirects: true });
+    expect(response.status).toBe(302);
   });
 });

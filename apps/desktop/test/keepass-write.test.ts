@@ -180,3 +180,20 @@ describe("writing KeePass entries", () => {
     expect(after.deletedObjects.map((d) => d.uuid?.id)).toContain(entry!.uuid);
   });
 });
+
+describe("two saves at once", () => {
+  it("keeps both entries: the second save edits the file the first wrote", async () => {
+    const file = path.join(tmp(), "both.kdbx");
+    fs.writeFileSync(file, await createKdbx(ENTRIES, "master", FAST));
+    const s = unlockedStore(file);
+    await s.refresh();
+    const id = dbIdOf(file);
+    expect(await s.unlock(id, "master", null, false)).toEqual({ ok: true });
+    await Promise.all([
+      s.saveEntry(id, { group: "", title: "One", username: "a", password: "p1", url: "", notes: "" }),
+      s.saveEntry(id, { group: "", title: "Two", username: "b", password: "p2", url: "", notes: "" }),
+    ]);
+    const titles = (await openKdbx(fs.readFileSync(file), "master", null)).entries.map((e) => e.title);
+    expect(titles).toEqual(expect.arrayContaining(["One", "Two"]));
+  });
+});

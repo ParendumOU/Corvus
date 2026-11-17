@@ -1,6 +1,8 @@
+import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 import { BUNDLE_FILES, BundleError, collectProfile, openBundle, sealBundle, writeProfileFiles } from "../src/main/profile-bundle";
 import type { Credential } from "../src/shared/credentials";
@@ -52,6 +54,22 @@ describe("profile bundle", () => {
     const greedy = JSON.parse(sealed) as { kdf: { N: number } };
     greedy.kdf.N = 1 << 24;
     expect(() => openBundle(JSON.stringify(greedy), "long enough")).toThrow(/damaged/);
+  });
+
+  it("calls a sealed payload that is not JSON or inflates too far damaged", () => {
+    const seal = (plain: Buffer): string => {
+      const salt = randomBytes(16);
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", scryptSync("long enough", salt, 32, { N: 1024, r: 8, p: 1 }), iv);
+      const data = Buffer.concat([cipher.update(plain), cipher.final()]);
+      const kdf = { name: "scrypt", N: 1024, r: 8, p: 1, salt: salt.toString("base64") };
+      return JSON.stringify({ format: "corvus-profile", v: 1, kdf, iv: iv.toString("base64"), tag: cipher.getAuthTag().toString("base64"), data: data.toString("base64") });
+    };
+    expect(() => openBundle(seal(gzipSync(Buffer.from("not json"))), "long enough")).toThrow(/damaged/);
+    expect(() => openBundle(seal(gzipSync(Buffer.from("null"))), "long enough")).toThrow(/damaged/);
+    const big = seal(gzipSync(Buffer.from(JSON.stringify({ format: "corvus-profile-data", files: { "history.json": `"${"x".repeat(1 << 20)}"` } }))));
+    expect(() => openBundle(big, "long enough", 1 << 16)).toThrow(BundleError);
+    expect(openBundle(big, "long enough").files["history.json"]).toHaveLength((1 << 20) + 2);
   });
 
   it("keeps only known files that parse, and names a nameless profile", () => {

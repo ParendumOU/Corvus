@@ -60,6 +60,7 @@ describe("planCardFill", () => {
     expect(planCardFill([field({ autocomplete: "cc-number" }, "", true), field({ autocomplete: "cc-exp", placeholder: "MM/YYYY" })], CARD, "123")[1]).toBe("08/2028");
     expect(planCardFill([field({ autocomplete: "cc-number" }, "", true), field({ autocomplete: "cc-exp", maxLength: 4 })], CARD, "123")[1]).toBe("0828");
     expect(planCardFill([field({ autocomplete: "cc-number" }, "", true), field({ autocomplete: "cc-exp", maxLength: 7 })], CARD, "123")[1]).toBe("08/2028");
+    expect(planCardFill([field({ autocomplete: "cc-number" }, "", true), field({ autocomplete: "cc-exp", type: "month" })], CARD, "123")[1]).toBe("2028-08");
     expect(planCardFill([field({ autocomplete: "cc-number" }, "", true), field({ autocomplete: "cc-exp", placeholder: "MM-AA" })], CARD, "123")[1]).toBe("08-28");
   });
 

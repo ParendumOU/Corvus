@@ -276,6 +276,8 @@ export class ProfileLock {
   private lk: Buffer | null = null;
   /** The lock is being removed: secrets are written without the lock key layer again. */
   private removing = false;
+  /** The unlock attempt in progress (see oneAtATime). */
+  private attempts: Promise<unknown> = Promise.resolve();
   private readonly listeners = new Set<() => void>();
   readonly cipher: SecretCipher;
 
@@ -428,6 +430,16 @@ export class ProfileLock {
     return { ok: true };
   }
 
+  /**
+   * Runs unlock attempts one after another: the wait after wrong ones is read only once the attempt
+   * before has counted, so attempts sent at once cannot all skip it (nor reuse one 2FA code).
+   */
+  private oneAtATime<T>(attempt: () => Promise<T>): Promise<T> {
+    const result = this.attempts.then(attempt, attempt);
+    this.attempts = result.catch(() => undefined);
+    return result;
+  }
+
   private async keyFromSecret(secret: string): Promise<Buffer | null> {
     const config = this.config;
     if (!config) return null;
@@ -443,43 +455,49 @@ export class ProfileLock {
     }
   }
 
-  async unlockWithSecret(secret: string): Promise<UnlockResult> {
-    if (!this.locked) return { ok: true };
-    const waiting = this.wait();
-    if (waiting) return waiting;
-    const lk = await this.keyFromSecret(secret);
-    if (!this.locked) {
-      lk?.fill(0);
-      return { ok: true };
-    }
-    return lk ? this.opened(lk) : this.failed(this.kind === "pin" ? tr("Wrong PIN.") : tr("Wrong password."));
+  unlockWithSecret(secret: string): Promise<UnlockResult> {
+    return this.oneAtATime<UnlockResult>(async () => {
+      if (!this.locked) return { ok: true };
+      const waiting = this.wait();
+      if (waiting) return waiting;
+      const lk = await this.keyFromSecret(secret);
+      if (!this.locked) {
+        lk?.fill(0);
+        return { ok: true };
+      }
+      return lk ? this.opened(lk) : this.failed(this.kind === "pin" ? tr("Wrong PIN.") : tr("Wrong password."));
+    });
   }
 
   /** The PIN or password is the lock's (Settings asks for it before changing the lock); counts as an attempt. */
-  async checkSecret(secret: string): Promise<UnlockResult> {
-    const waiting = this.wait();
-    if (waiting) return waiting;
-    const lk = await this.keyFromSecret(secret);
-    if (!lk) return this.failed(this.kind === "pin" ? tr("Wrong PIN.") : tr("Wrong password."));
-    lk.fill(0);
-    if (this.config!.failures > 0) this.update((f) => ({ ...f, failures: 0, retryAt: 0 }));
-    return { ok: true };
+  checkSecret(secret: string): Promise<UnlockResult> {
+    return this.oneAtATime<UnlockResult>(async () => {
+      const waiting = this.wait();
+      if (waiting) return waiting;
+      const lk = await this.keyFromSecret(secret);
+      if (!lk) return this.failed(this.kind === "pin" ? tr("Wrong PIN.") : tr("Wrong password."));
+      lk.fill(0);
+      if (this.config!.failures > 0) this.update((f) => ({ ...f, failures: 0, retryAt: 0 }));
+      return { ok: true };
+    });
   }
 
-  async unlockWithTotp(code: string): Promise<UnlockResult> {
-    if (!this.locked) return { ok: true };
-    const waiting = this.wait();
-    if (waiting) return waiting;
-    const digits = code.replace(/\s+/g, "");
-    const now = Math.floor(this.now() / 1000);
-    for (const method of this.config!.methods) {
-      if (method.type !== "totp") continue;
-      const step = await this.matchingStep(method, digits, now);
-      if (step === null) continue;
-      this.update((f) => ({ ...f, methods: f.methods.map((m) => (m.id === method.id ? { ...m, lastStep: step } : m)) }));
-      return this.opened(Buffer.from(this.keychain.decryptString(Buffer.from(method.lk, "base64")), "base64"));
-    }
-    return this.failed(tr("Wrong code."));
+  unlockWithTotp(code: string): Promise<UnlockResult> {
+    return this.oneAtATime<UnlockResult>(async () => {
+      if (!this.locked) return { ok: true };
+      const waiting = this.wait();
+      if (waiting) return waiting;
+      const digits = code.replace(/\s+/g, "");
+      const now = Math.floor(this.now() / 1000);
+      for (const method of this.config!.methods) {
+        if (method.type !== "totp") continue;
+        const step = await this.matchingStep(method, digits, now);
+        if (step === null) continue;
+        this.update((f) => ({ ...f, methods: f.methods.map((m) => (m.id === method.id ? { ...m, lastStep: step } : m)) }));
+        return this.opened(Buffer.from(this.keychain.decryptString(Buffer.from(method.lk, "base64")), "base64"));
+      }
+      return this.failed(tr("Wrong code."));
+    });
   }
 
   private async matchingStep(method: TotpMethod, code: string, nowSeconds: number): Promise<number | null> {

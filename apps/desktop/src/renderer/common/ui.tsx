@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import type { GroupColor } from "@corvus/shared";
 import { cachedFaviconUrl, faviconSrcToShow } from "../../shared/favicon";
 import { liveSourceName } from "../../shared/live-history";
 import { t } from "./i18n";
@@ -149,5 +150,44 @@ export function Pager({ page, size, total, onPage }: { page: number; size: numbe
         {t("Next")}
       </button>
     </div>
+  );
+}
+
+/** A tab group or container colour's name, in the interface language. */
+export function colorName(c: GroupColor): string {
+  const names: Record<GroupColor, string> = {
+    blue: t("Blue"),
+    cyan: t("Turquoise"),
+    green: t("Green"),
+    yellow: t("Yellow"),
+    orange: t("Orange"),
+    red: t("Red"),
+    pink: t("Pink"),
+    purple: t("Purple"),
+    grey: t("Grey"),
+  };
+  return names[c];
+}
+
+/**
+ * A button for an action that cannot be undone: the first click arms it and it shows `confirm`, the
+ * second does it. Leaving it (pointer or keyboard) disarms it.
+ */
+export function ConfirmButton({ className, title, confirm, onConfirm, children }: { className: string; title?: string; confirm: string; onConfirm: () => void; children: ReactNode }) {
+  const [armed, setArmed] = useState(false);
+  return (
+    <button
+      className={armed ? "btn small danger" : className}
+      title={armed ? confirm : title}
+      onClick={() => {
+        if (!armed) return setArmed(true);
+        setArmed(false);
+        onConfirm();
+      }}
+      onMouseLeave={() => setArmed(false)}
+      onBlur={() => setArmed(false)}
+    >
+      {armed ? confirm : children}
+    </button>
   );
 }

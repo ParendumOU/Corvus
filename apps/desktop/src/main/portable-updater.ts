@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -94,21 +95,25 @@ export class PortableUpdater {
     fs.mkdirSync(this.workDir, { recursive: true });
     const hash = createHash("sha256");
     const out = fs.createWriteStream(target);
+    // A write that fails (disk full, the file locked) ends the download; unheard, it would crash Corvus.
+    const failed = new Promise<never>((_, reject) => out.once("error", reject));
+    failed.catch(() => undefined);
     let received = 0;
     let lastPercent = -1;
+    const reader = res.body.getReader();
     try {
-      const reader = res.body.getReader();
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await Promise.race([reader.read(), failed]);
         if (done) break;
         hash.update(value);
         received += value.byteLength;
-        if (!out.write(value)) await new Promise<void>((r) => out.once("drain", () => r()));
+        if (!out.write(value)) await Promise.race([once(out, "drain"), failed]);
         const percent = total > 0 ? Math.min(99, Math.floor((received / total) * 100)) : 0;
         if (percent !== lastPercent) onProgress((lastPercent = percent));
       }
-      await new Promise<void>((resolve, reject) => out.end((err?: Error | null) => (err ? reject(err) : resolve())));
+      await Promise.race([new Promise<void>((resolve, reject) => out.end((err?: Error | null) => (err ? reject(err) : resolve()))), failed]);
     } catch (err) {
+      void reader.cancel().catch(() => undefined);
       out.destroy();
       fs.rmSync(target, { force: true });
       throw err;

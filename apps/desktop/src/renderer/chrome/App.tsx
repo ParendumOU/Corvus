@@ -21,7 +21,7 @@ import { isWorkspaceTabUrl } from "../../shared/workspaces";
 import { chromeApi } from "../common/api";
 import { IconGlobe, IconLock, IconBack, IconChevronRight, IconClose, IconFolder, IconForward, IconHome, IconMenu, IconReload, IconSparkle } from "../common/icons";
 import { DialogBars, DialogModal } from "./Dialogs";
-import { Favicon, setFaviconProfile } from "../common/ui";
+import { Favicon, colorName, setFaviconProfile } from "../common/ui";
 import { CommandBar } from "./CommandBar";
 import { ExtensionsToolbar } from "./Extensions";
 import { FindBar } from "./FindBar";
@@ -707,7 +707,7 @@ function GroupEditor({ state, editor, onClose }: { state: WindowState; editor: G
           <button
             key={c}
             className={`color-dot ${group.color === c ? "selected" : ""}`}
-            title={c}
+            title={colorName(c)}
             style={{ "--dot": GROUP_COLOR_HEX[c][state.dark ? "dark" : "light"] } as CSSProperties}
             onClick={() => setColor(c)}
           />

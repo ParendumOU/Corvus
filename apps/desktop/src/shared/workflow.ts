@@ -249,7 +249,8 @@ export function substitute(text: string, values: Readonly<Record<string, string>
   const missing: string[] = [];
   const out = text.replace(PARAM_RE, (whole, raw: string) => {
     const name = raw.toLowerCase();
-    const value = values[name];
+    // Own keys only: "{{constructor}}" must not read Object.prototype.constructor.
+    const value = Object.hasOwn(values, name) ? values[name] : undefined;
     if (value === undefined) {
       if (!missing.includes(name)) missing.push(name);
       return whole;

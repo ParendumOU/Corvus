@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyAction, classifyPointAction, type PointTarget } from "../src/shared/agent-safety";
 import { cssToDip, fitShot, parseKey, pointOf, shotToCss, wheelDelta } from "../src/shared/visual-input";
 import { classifyToolCall, cssPointOf, hitLabel, type ToolRunState } from "../src/main/agent-tools";
+import { clickAt } from "../src/main/visual-input";
 import type { AppContext } from "../src/main/context";
 
 const shop = "https://shop.test/item";
@@ -142,7 +143,7 @@ describe("classifyToolCall reads the live target for click_at", () => {
         return hit;
       },
     };
-    return { windows: { findTab: () => ({ window: {}, tab: { url: shop, view: { webContents: wc } } }) } } as unknown as AppContext;
+    return { windows: { findTab: () => ({ window: { profile: { locked: false } }, tab: { url: shop, view: { webContents: wc } } }) } } as unknown as AppContext;
   }
 
   it("maps the screenshot point to CSS px and gates a spend button in every mode", async () => {
@@ -163,5 +164,21 @@ describe("classifyToolCall reads the live target for click_at", () => {
     const state: ToolRunState = { tabId: "t1", elementNames: new Map() };
     expect((await classifyToolCall(ctxWith(t({ name: "Place order" }), []), state, "press_key", { key: "Enter" })).alwaysAsk).toBe(true);
     expect((await classifyToolCall(ctxWith(t({ name: "Place order" }), []), state, "press_key", { key: "Escape" })).risky).toBe(false);
+  });
+});
+
+describe("coordinate input in a locked profile", () => {
+  it("refuses before showing or doing anything", async () => {
+    let shown = false;
+    const ctx = {
+      windows: { findTab: () => ({ window: { profile: { locked: true } }, tab: { url: shop, view: { webContents: { isDestroyed: () => false, getURL: () => shop } } } }) },
+      agents: {
+        beforeAction: async () => {
+          shown = true;
+        },
+      },
+    } as unknown as AppContext;
+    await expect(clickAt(ctx, "t1", { x: 10, y: 10 }, "")).rejects.toThrow(/locked/);
+    expect(shown).toBe(false);
   });
 });

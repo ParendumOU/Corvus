@@ -140,6 +140,24 @@ function attributes(tag: string): Map<string, string> {
   return found;
 }
 
+/**
+ * The <name ...> tags of `text`, in order. Scanned with indexOf: a /<link\b[^>]*>/ regex rescans to
+ * the end for every unclosed "<link", which a hostile page turns into seconds of a frozen main process.
+ */
+function tagsNamed(text: string, name: string): string[] {
+  // ASCII only: a full toLowerCase changes the length of some characters ("İ") and shifts every index after them.
+  const lower = text.replace(/[A-Z]/g, (c) => c.toLowerCase());
+  const open = `<${name}`;
+  const out: string[] = [];
+  for (let at = lower.indexOf(open); at !== -1; at = lower.indexOf(open, at + open.length)) {
+    if (/[a-z0-9-]/.test(lower[at + open.length] ?? "")) continue;
+    const end = lower.indexOf(">", at);
+    if (end === -1) break;
+    out.push(text.slice(at, end + 1));
+  }
+  return out;
+}
+
 /** Longest stretch of a page read for its icons (they are named in its <head>). */
 const MAX_HTML_SCANNED = 512 * 1024;
 
@@ -154,8 +172,8 @@ export function pageIconLinks(html: string, pageUrl: string): string[] {
     .replace(/<!--[\s\S]*?(-->|$)/g, "")
     .replace(/<(script|style|template)\b[\s\S]*?(<\/\1\s*>|$)/gi, "");
   let base = pageUrl;
-  const baseTag = /<base\b[^>]*>/i.exec(text);
-  const baseHref = baseTag ? attributes(baseTag[0]).get("href")?.trim() : undefined;
+  const baseTag = tagsNamed(text, "base")[0];
+  const baseHref = baseTag ? attributes(baseTag).get("href")?.trim() : undefined;
   if (baseHref) {
     try {
       base = new URL(baseHref, pageUrl).href;
@@ -164,7 +182,7 @@ export function pageIconLinks(html: string, pageUrl: string): string[] {
     }
   }
   const icons: string[] = [];
-  for (const tag of text.match(/<link\b[^>]*>/gi) ?? []) {
+  for (const tag of tagsNamed(text, "link")) {
     const attrs = attributes(tag);
     if (!(attrs.get("rel") ?? "").toLowerCase().split(/\s+/).includes("icon")) continue;
     const href = attrs.get("href")?.trim();

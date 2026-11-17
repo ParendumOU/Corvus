@@ -90,18 +90,22 @@ const ALLOWED_ATTRS: Record<string, Set<string>> = {
 
 const BLOCK_SELECTOR = "h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,td,dd,dt,figcaption";
 
+/**
+ * The scheme is read from the parsed URL: the parser drops tabs, newlines and leading control
+ * characters, so "java&#9;script:" is still javascript: once parsed.
+ */
 function safeUrl(value: string | null, base: string): string | null {
   if (!value) return null;
-  const trimmed = value.trim();
-  if (/^(javascript|data|vbscript|file):/i.test(trimmed)) {
-    // data: images are safe to keep; block everything else in that family.
-    return /^data:image\//i.test(trimmed) ? trimmed : null;
-  }
+  let url: URL;
   try {
-    return new URL(trimmed, base).toString();
+    url = new URL(value.trim(), base);
   } catch {
     return null;
   }
+  if (["javascript:", "vbscript:", "file:"].includes(url.protocol)) return null;
+  // data: images are safe to keep; block everything else in that family.
+  if (url.protocol === "data:") return /^data:image\//i.test(url.href) ? url.href : null;
+  return url.toString();
 }
 
 /** Depth-first allow-list sanitizer. Disallowed structural tags are unwrapped, unsafe tags dropped. */

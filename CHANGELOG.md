@@ -1,5 +1,67 @@
 # Changelog
 
+## Unreleased
+
+### Corvus for mobile
+- **Changes made offline no longer delete items on your other devices.** If the phone had to sync again from scratch (the server lost it, or your sync moved to another server) while it still had changes waiting, such as an article marked read or a watched page changed, those items could be deleted on every device. They are now kept and sent as they were. The same holds when a synced list on the phone cannot be read.
+- **Unpairing during a sync now stays unpaired.** A sync still running when you unpaired the phone, or paired it with another computer, could bring the old pairing back after a restart.
+- **A shown password hides again when the passwords lock.** It used to stay on screen after you left the app or the unlock time ran out.
+- **Links from your synced lists open only web pages.** Bookmarklets and links to other apps from bookmarks, history or sent pages no longer open from a list, and links to files on the phone no longer fail without a word.
+- **The Assist list and Home no longer sync over and over in the background**, and a failed action in a chat or a list now tells you.
+
+## v0.48.5
+
+### Your data
+- **A damaged file on one computer no longer deletes your data on your other devices.** If Corvus found its bookmarks, history, saved passwords or another synced list missing or unreadable when it started, the next sync removed those items from every paired device. Corvus now keeps them on your other devices.
+- **A saved login that cannot be read is kept instead of erased.** If one login, card or address in the vault file was damaged, Corvus dropped it for good on the next start. It is now kept untouched, and sync no longer deletes it on your other devices.
+- **Corvus no longer replaces a settings or data file it could not read.** If another program held one of Corvus's files when it started, Corvus could overwrite it with an empty one; it now leaves the file as it is.
+- **A kept KeePass master password survives a passing keychain problem**, and two quick changes to a KeePass database are both saved.
+- **Deleting a bookmark folder, a workflow or the agent run history takes a second click.** These cannot be undone, and a folder takes everything in it on every synced device. Deleting a site AI profile asks first, and "Forget everything" in the agent's memory takes a second click too.
+- **Custom New Tab widgets keep a data source while you type it.** Adding a source or changing its address no longer makes the row disappear; it is saved when you leave the field and it is complete.
+- **Private windows leave nothing in your history or zoom settings**, and closing a private tab set to "Forget this site when I close it" no longer signs you out of that site in your normal windows.
+- **Deleting a profile now also deletes the cookies and site data of its containers.**
+- **Two downloaded programs with the same name are both kept**, and clearing history keeps your bookmarks and Reading List searchable.
+
+### Passwords and autofill
+- **Saved logins are only ever filled into the site they belong to.** If a page moved to another site at the moment Corvus filled a saved login or 2FA code (by you, by automatic sign-in or by an AI agent), the other site could receive it. Corvus now checks the site again right as it fills.
+- **Saved passwords stay on their own site under more country domains and hosting services.** Sites that only share a country ending such as .com.gt or .gob.ar, or a hosting service where anyone can publish pages, no longer see each other's saved logins in the autofill menu.
+- **Cards with a month-picker expiry field are filled and saved correctly.** Corvus now fills the expiry into such fields and no longer offers to update a saved card with a wrong year.
+- **Passwords imported from KeePass CSV files keep their usernames**, and the two-factor import keeps the service name from setup links with an empty issuer.
+- **Wrong PIN attempts always count.** Several unlock attempts sent at the same moment could skip the waiting time after wrong PINs. Locking a profile also locks a KeePass database that was still opening, and the lock screen shows the right waiting time.
+- **KeePass unlock and export say what went wrong** instead of staying on "Unlocking..." or "Exporting...". Updating reviewed passwords after an import keeps every row marked.
+
+### AI agents
+- **AI agents can no longer upload files from network folders.** An agent asked to upload a file from a network path (\\server\share) is refused before Corvus touches it, so a malicious page cannot make Windows send your sign-in to another computer.
+- **The AI agents server starts again when Windows takes its port.** If Windows reserved the port Corvus had picked for AI agents (it can after an update or when Hyper-V or WSL start), Corvus now picks a new one instead of leaving agents off. A port you typed yourself is kept. If agents could not connect before this version, set the port to 0 once in Settings > AI agents.
+- **A locked profile stays private from AI agents.** Agents no longer see the tabs of a locked profile, and an agent action under way stops when the profile locks.
+- **Scheduled tasks respect "Pause agents", and their approval no longer jumps in front of you.** Schedules such as "0 9 * * 1-7" or "5-7" now run as written.
+- **Recorded workflows only contain what you did.** While recording a flow, clicks and Enter presses that a web page fakes by script are no longer saved as steps.
+- **Agent clients stay connected after a start without the keychain.** If the system keychain could not be read when Corvus started, it replaced the AI agents' access token for good and every approved agent app had to be set up again. Corvus now uses a temporary token for that session and keeps the saved one.
+- **Cancelled AI searches no longer leave the CLI provider running**, and a local model server's plain-text error is shown instead of only its code.
+
+### Security
+- **More dangerous file types ask before they are kept.** Internet shortcuts (.url), help files (.chm), management consoles (.msc), Java Web Start (.jnlp) and other Windows files that run code when opened now wait for Keep, like programs do, and AI agents can no longer download them without you.
+- **Custom New Tab widgets read only the site you allowed, and can no longer reach your local network.** Redirects to another site or to your router are now stopped, and an agent's Undo on the New Tab page no longer brings back a permission you took away.
+- **Corvus's own pages stay out of reach of web pages and extensions.** Links to Corvus pages in a web page's right-click menu no longer open them, and extensions can no longer open New Tab widget pages or remove anything other than an extension.
+- **The download queue only downloads web addresses.** A file host's answer can no longer make the queue copy a file from your computer into your downloads.
+- **A damaged proxy setting no longer sends traffic around the proxy.** If a saved proxy cannot be read, the profile or sites set to use it stay blocked, as with a deleted proxy, instead of connecting directly.
+- **Safer reader view links.** A page could hide a script link from the reader view's cleaner with invisible characters. Such links are now removed.
+- **Your own sync server refuses a replayed request even when its header is written differently.**
+- **WebScope stays in scope.** With "Follow redirects" on, the repeater followed a redirect to any site with the cookies of the site you were testing; now it follows only redirects in scope. A URL rule can no longer send fuzz requests out of scope, an edited intercepted request cannot go anywhere, a very large attack is refused at once instead of freezing Corvus, and a held response is never emptied.
+
+### Fixed
+- **Pages and extensions can no longer freeze Corvus.** A page with broken markup while Corvus looked for a bookmark's icon, an extension searching tab groups, copying a strange link, very long article text read aloud, a site's huge icon and, on Linux, a malformed system message could each make Corvus hang.
+- **Sync never gets stuck asking a broken server for the same page.**
+- **"Find in my pages" works in every language.** Pages in Russian, Greek, Chinese and other scripts are found, and "musica" finds "música". Read aloud and the reader tools keep every sentence.
+- **Site AI profiles apply to every address of the site**, including "example.com." and international domain names.
+- **Links from your phone open in a normal window**, not in a private window or behind a locked profile.
+- **Long paragraphs are translated in full.**
+- **Faster search in large PDFs**, and PDFs are saved under a clean name.
+- **Importing bookmarks no longer fails on an unusual character code**, and a damaged or oversized profile file no longer causes trouble when you import it.
+- **A portable update that cannot be saved no longer crashes Corvus.**
+- **Highlights can be colored, noted and deleted from the keyboard**, sending a page to your phone shows a clear error, and WebScope says when an imported file is not a HAR.
+- **More of Corvus in Spanish.** Reader and PDF tools, tab group colours, schedules, downloads, WebScope counts, KeePass dialogs, the extension button's menu, the "hide this element" bar, the translate button's language names and several labels that still showed in English.
+
 ## v0.48.4
 
 ### Fixed

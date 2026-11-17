@@ -420,6 +420,9 @@ class BrowserKitModule : Module() {
     // A link that is a web page after all opens in the tab, not through the system (which could
     // hand it straight back to Corvus).
     intent.data?.toString()?.takeIf { isWeb(it) }?.let { return "web:$it" }
+    // A file: address may not leave the app (startActivity throws FileUriExposedException), and a
+    // page never opens the phone's files anyway.
+    if (intent.data?.scheme.equals("file", ignoreCase = true)) return fallback?.let { "web:$it" } ?: "none"
     // Only another app's activity that links may open (no component a page names, no selector, no
     // access to Corvus's own files), and never Corvus itself.
     intent.addCategory(Intent.CATEGORY_BROWSABLE)

@@ -517,6 +517,9 @@ export class DownloadManager {
       target = path.join(dir, uniqueFilename(record.filename, (n) => this.reserved.has(path.join(dir, n)) || fs.existsSync(path.join(dir, n))));
     }
     const { warning: _warning, ...rest } = record;
+    // Taken until the file is there: another kept file of the same name finishing meanwhile, or a new
+    // download, would otherwise pick this name too and one would overwrite the other.
+    this.reserved.add(target);
     try {
       await fs.promises.rename(waiting.temp, target);
     } catch {
@@ -530,6 +533,8 @@ export class DownloadManager {
         this.commit(runtime, { ...rest, savePath: "", state: "interrupted", endedAt: Date.now() });
         return;
       }
+    } finally {
+      this.reserved.delete(target);
     }
     this.entry(runtime).unseen.add(id);
     this.commit(runtime, { ...rest, filename: path.basename(target), savePath: target, state: "completed", endedAt: record.endedAt ?? Date.now() });

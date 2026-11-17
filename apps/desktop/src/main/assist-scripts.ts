@@ -112,16 +112,26 @@ export function collectSegmentsScript(maxSegments: number, maxChars: number): st
       return NodeFilter.FILTER_ACCEPT;
     },
   });
+  const SEGMENT = 300;
   const batch = [];
   let chars = 0;
   let more = false;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (state.done.has(node)) continue;
     if (!shown(node.parentElement)) continue;
-    const text = node.nodeValue.trim().slice(0, 300);
-    if (batch.length >= ${Math.max(1, maxSegments)} || chars + text.length > ${Math.max(100, maxChars)}) { more = true; break; }
+    const length = Math.min(node.nodeValue.trim().length, SEGMENT);
+    if (batch.length >= ${Math.max(1, maxSegments)} || chars + length > ${Math.max(100, maxChars)}) { more = true; break; }
+    // A segment is at most SEGMENT characters and its translation replaces the whole node: a longer
+    // node is split at a word, and the walker visits the rest as a node of its own.
+    const value = node.nodeValue;
+    const lead = value.length - value.trimStart().length;
+    if (value.trim().length > SEGMENT) {
+      const head = value.slice(lead, lead + SEGMENT);
+      const space = Math.max(head.lastIndexOf(" "), head.lastIndexOf("\\n"), head.lastIndexOf("\\t"));
+      node.splitText(lead + (space > SEGMENT / 2 ? space : SEGMENT));
+    }
     batch.push(node);
-    chars += text.length;
+    chars += node.nodeValue.trim().length;
   }
   state.pending = batch;
   return { segments: batch.map((n) => n.nodeValue.trim().slice(0, 300)), more };

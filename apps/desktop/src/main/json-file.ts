@@ -14,25 +14,33 @@ export class JsonFile<T> {
     readonly filePath: string,
     private value: T,
     private readonly debounceMs = 250,
+    /**
+     * The file was missing or unreadable when loaded, so the value started from the fallback. A
+     * synced store must then not report what it lacks as deleted (see sync-adapters.ts).
+     */
+    readonly fresh = false,
+    /** False when an unreadable file could not be moved aside: it is then never written over. */
+    private readonly writable = true,
   ) {}
 
   static load<T>(filePath: string, fallback: () => T, revive: (raw: unknown) => T = (raw) => raw as T, debounceMs = 250): JsonFile<T> {
-    let value: T;
     try {
-      value = revive(JSON.parse(fs.readFileSync(filePath, "utf8")));
+      return new JsonFile(filePath, revive(JSON.parse(fs.readFileSync(filePath, "utf8"))), debounceMs);
     } catch (err) {
+      let writable = true;
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         const backup = `${filePath}.corrupt-${Date.now()}`;
         try {
           fs.renameSync(filePath, backup);
           console.warn(`[corvus] ${filePath} was unreadable, moved to ${backup}`);
         } catch {
-          // nothing to back up
+          // Still there (locked, or no rights): writing would destroy what it holds.
+          writable = !fs.existsSync(filePath);
+          if (!writable) console.warn(`[corvus] ${filePath} is unreadable and left as it is: changes to it are not saved until Corvus restarts`);
         }
       }
-      value = fallback();
+      return new JsonFile(filePath, fallback(), debounceMs, true, writable);
     }
-    return new JsonFile(filePath, value, debounceMs);
   }
 
   get(): T {
@@ -63,7 +71,7 @@ export class JsonFile<T> {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    if (!this.dirty) return;
+    if (!this.dirty || !this.writable) return;
     this.dirty = false;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
     const tmp = `${this.filePath}.tmp`;

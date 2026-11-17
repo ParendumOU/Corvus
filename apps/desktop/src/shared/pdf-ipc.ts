@@ -154,7 +154,7 @@ export function pdfTitleFromSource(src: string): string {
 
 /** The name the PDF is saved under: the server's or the source's, with a .pdf extension and no characters a file system refuses. */
 export function pdfFileName(name: string): string {
-  const base = name.replace(/[\/:*?"<>|\u0000-\u001f]+/g, " ").trim().replace(/\.(pdf|aspx?|php|jsp|cgi)$/i, "").slice(0, 120).trim() || "document";
+  const base = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").trim().replace(/\.(pdf|aspx?|php|jsp|cgi)$/i, "").slice(0, 120).trim() || "document";
   return `${base}.pdf`;
 }
 

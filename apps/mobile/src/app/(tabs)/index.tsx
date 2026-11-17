@@ -1,5 +1,6 @@
 import type { GroupColor, SyncedTab } from '@corvus/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -9,7 +10,7 @@ import { Card, CardHeader, SectionHeader } from '@/components/card';
 import { DefaultBrowserOffer } from '@/components/default-browser-card';
 import { EmptyState, LoadingState } from '@/components/empty-state';
 import { Favicon } from '@/components/favicon';
-import { Banner } from '@/components/feedback';
+import { Banner, showFailure } from '@/components/feedback';
 import { SearchField } from '@/components/fields';
 import { CorvusMark, Icon } from '@/components/icon';
 import { IconTile, ListGroup, ListHeader, ListRow } from '@/components/list';
@@ -188,12 +189,14 @@ export default function HomeScreen() {
   const browser = useBrowser();
   const phoneTabs = browser.tabs.tabs.filter((x) => x.url !== '');
 
-  // While a sent page waits, look every few seconds for its computer to have opened it.
-  useEffect(() => {
-    if (!waiting) return;
-    const timer = setInterval(() => void refreshSession(), OUTBOX_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [waiting]);
+  // While a sent page waits and Home is on screen, look every few seconds for its computer to have opened it.
+  useFocusEffect(
+    useCallback(() => {
+      if (!waiting) return undefined;
+      const timer = setInterval(() => void refreshSession(), OUTBOX_REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [waiting]),
+  );
 
   return (
     <Screen tab header={<HeaderBand welcome={session.status === 'unpaired'} />} refreshing={session.refreshing} onRefresh={paired ? () => void refreshSession() : undefined} contentStyle={styles.column}>
@@ -248,7 +251,7 @@ export default function HomeScreen() {
                 title={page.title || page.url}
                 subtitle={`${t('From {device}', { device: page.from || t('your computer') })} · ${ago(page.sentAt)}`}
                 accessibilityRole="link"
-                onPress={() => void openReceived(page.id)}
+                onPress={() => void openReceived(page.id).catch(showFailure)}
                 trailing={<View style={[styles.dot, { backgroundColor: theme.accent }]} />}
                 testID={`inbox-${page.url}`}
               />
@@ -268,7 +271,7 @@ export default function HomeScreen() {
               title={page.title || page.url}
               subtitle={t('Waiting for {computer} to open it · sent {when}', { computer: deviceName(page.to), when: ago(page.sentAt) })}
               subtitleLines={2}
-              trailing={<Button label={t('Cancel')} kind="text" size="sm" onPress={() => void cancelSending(page.id)} testID={`outbox-cancel-${page.url}`} />}
+              trailing={<Button label={t('Cancel')} kind="text" size="sm" onPress={() => void cancelSending(page.id).catch(showFailure)} testID={`outbox-cancel-${page.url}`} />}
               testID={`outbox-${page.url}`}
             />
           ))}

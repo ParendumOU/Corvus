@@ -6,7 +6,7 @@ import { PERMISSION_LABELS, type PermissionDecision } from "../../shared/permiss
 import type { WatchBarState } from "../../shared/watch-ipc";
 import type { WorkspaceView } from "../../shared/workspace-ipc";
 import type { PhoneShare } from "../../shared/phone-share";
-import { chromeApi } from "../common/api";
+import { chromeApi, errorMessage } from "../common/api";
 import { ProgramWarning } from "../common/download-warning";
 import {
   IconAgent,
@@ -651,7 +651,7 @@ export function AdblockButton({ state, onOpen }: { state: AdblockBarState; onOpe
 
 export function AdblockPopover({ state, anchor, onClose }: { state: AdblockBarState; anchor: Anchor; onClose: () => void }) {
   const api = chromeApi();
-  const site = state.host || "this page";
+  const site = state.host || t("this page");
   return (
     <div className="popover shield-popover" role="dialog" aria-label={t("Ad blocker")} style={placement(anchor)} onMouseDown={stop}>
       <div className="shield-head">
@@ -750,7 +750,7 @@ export function SharePopover({ share, anchor, onClose }: { share: PhoneShare; an
     setToPhone((s) => ({ ...s, [id]: "sending" }));
     api.call("share.device", id, share.url, share.title).then(
       () => setToPhone((s) => ({ ...s, [id]: "sent" })),
-      (err: unknown) => setToPhone((s) => ({ ...s, [id]: err instanceof Error ? err.message : String(err) })),
+      (err: unknown) => setToPhone((s) => ({ ...s, [id]: errorMessage(err) })),
     );
   };
   const phoneError = Object.values(toPhone).find((v) => v !== "sending" && v !== "sent");
@@ -758,7 +758,7 @@ export function SharePopover({ share, anchor, onClose }: { share: PhoneShare; an
     setSent("sending");
     api.call("share.telegram", share.url, share.title).then(
       () => setSent("sent"),
-      (err: unknown) => setSent(err instanceof Error ? err.message : String(err)),
+      (err: unknown) => setSent(errorMessage(err)),
     );
   };
   return (

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { RateLimiter, clampRate, expandPayloadSet, planRequests, runFuzz, processPayload, fuzzResultsToCsv, FuzzLimitError, FuzzScopeError } from "../src/fuzzer.js";
+import { RateLimiter, clampRate, countRequests, expandPayloadSet, planRequests, runFuzz, processPayload, fuzzResultsToCsv, FuzzLimitError, FuzzScopeError } from "../src/fuzzer.js";
 import type { FuzzerConfig, OutboundRequest } from "../src/types.js";
 
 const template: OutboundRequest = { method: "GET", url: "https://example.com/u/§id§?x=§y§", headers: [] };
@@ -74,6 +74,18 @@ describe("runFuzz", () => {
     await expect(
       runFuzz(config({ maxRequests: 2 }), { send: vi.fn(), inScope: () => true }),
     ).rejects.toBeInstanceOf(FuzzLimitError);
+  });
+  it("refuses a huge attack before building any of it", async () => {
+    const wide = { kind: "numbers" as const, from: 0, to: 1e12 };
+    await expect(runFuzz(config({ payloadSets: [wide] }), { send: vi.fn(), inScope: () => true })).rejects.toBeInstanceOf(FuzzLimitError);
+    const words = { kind: "wordlist" as const, values: Array.from({ length: 1000 }, (_, i) => String(i)) };
+    await expect(runFuzz(config({ attack: "cluster-bomb", payloadSets: [words] }), { send: vi.fn(), inScope: () => true })).rejects.toThrow(/1000000 requests/);
+  });
+  it("counts the requests each attack plans", () => {
+    for (const attack of ["sniper", "pitchfork", "cluster-bomb"] as const) {
+      const c = config({ attack, payloadSets: [{ kind: "wordlist", values: ["a", "b", "c"] }, { kind: "numbers", from: 1, to: 2 }] });
+      expect(countRequests(c)).toBe(planRequests(c).length);
+    }
   });
   it("sends in-scope requests and greps responses", async () => {
     const send = vi.fn(async (req: OutboundRequest) => ({ status: 200, length: 10, durationMs: 1, body: req.url.includes("a") ? "FOUND" : "" }));

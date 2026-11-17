@@ -150,6 +150,15 @@ export function setLockGate(locked: (session: Session) => boolean): void {
 /** What a locked profile's tab gets for any Corvus page: an empty page (its window shows the lock screen). */
 const LOCKED_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark"><title>Corvus</title></head><body></body></html>';
 
+/** The decoded path of a corvus:// address, or null when it holds a malformed % escape. */
+export function decodedPath(pathname: string): string | null {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
 async function handle(request: Request, session: Session): Promise<Response> {
   const url = new URL(request.url);
   const page = url.hostname;
@@ -163,7 +172,9 @@ async function handle(request: Request, session: Session): Promise<Response> {
   if (!(INTERNAL_PAGES as readonly string[]).includes(page)) {
     return new Response("Not found", { status: 404 });
   }
-  let pathname = decodeURIComponent(url.pathname);
+  const decoded = decodedPath(url.pathname);
+  if (decoded === null) return new Response("Bad request", { status: 400 });
+  let pathname = decoded;
   if (page === "newtab") {
     const routed = newTabRoute(session, pathname, url.searchParams);
     if (routed) return routed;

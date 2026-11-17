@@ -199,14 +199,21 @@ export function parseProxyAddress(raw: string): { kind: ProxyKind; host: string;
   };
 }
 
-function reviveChoice(raw: unknown, proxyIds: ReadonlySet<string>): ConnectionChoice | null {
+/** A proxy id as saved: kept even when its proxy did not load, so the route fails closed (see chromiumProxy). */
+const proxyIdOf = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 && v.length <= 64 ? v : undefined);
+
+function reviveChoice(raw: unknown): ConnectionChoice | null {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   if (o.mode === "system" || o.mode === "direct") return { mode: o.mode };
-  if (o.mode === "proxy" && typeof o.proxyId === "string" && proxyIds.has(o.proxyId)) return { mode: "proxy", proxyId: o.proxyId };
-  return null;
+  const proxyId = o.mode === "proxy" ? proxyIdOf(o.proxyId) : undefined;
+  return proxyId ? { mode: "proxy", proxyId } : null;
 }
 
-/** Loads saved connections, dropping what does not make sense (unknown proxies, bad rules). */
+/**
+ * Loads saved connections, dropping bad proxies and bad rules. A choice or rule that names a proxy
+ * that did not load (a damaged entry) keeps naming it: its traffic is blocked as for a deleted proxy,
+ * never sent direct.
+ */
 export function reviveConnections(raw: unknown): ConnectionsConfig {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const proxies: ProxyServer[] = (Array.isArray(o.proxies) ? o.proxies : []).flatMap((p): ProxyServer[] => {
@@ -229,21 +236,20 @@ export function reviveConnections(raw: unknown): ConnectionsConfig {
       },
     ];
   });
-  const ids = new Set(proxies.map((p) => p.id));
   const containers: Record<string, ConnectionChoice> = {};
   for (const [id, c] of Object.entries(o.containers && typeof o.containers === "object" ? (o.containers as Record<string, unknown>) : {})) {
-    const choice = reviveChoice(c, ids);
+    const choice = reviveChoice(c);
     if (choice) containers[id] = choice;
   }
   const rules = (Array.isArray(o.rules) ? o.rules : []).flatMap((r): SiteRule[] => {
     const x = r && typeof r === "object" ? (r as Record<string, unknown>) : {};
     const pattern = cleanPattern(str(x.pattern) ?? "");
-    const via = str(x.via);
-    return pattern && via && (via === "direct" || ids.has(via)) ? [{ pattern, via }] : [];
+    const via = x.via === "direct" ? "direct" : proxyIdOf(x.via);
+    return pattern && via ? [{ pattern, via }] : [];
   });
   return {
     proxies,
-    profile: reviveChoice(o.profile, ids) ?? { mode: "system" },
+    profile: reviveChoice(o.profile) ?? { mode: "system" },
     containers,
     rules,
     webrtcProtection: o.webrtcProtection !== false,

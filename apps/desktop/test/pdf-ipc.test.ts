@@ -145,6 +145,7 @@ describe("pdfFileName", () => {
     expect(pdfFileName("cert.pdf")).toBe("cert.pdf");
     expect(pdfFileName("WELE200M_CertificadoTitularidad_Res.aspx")).toBe("WELE200M_CertificadoTitularidad_Res.pdf");
     expect(pdfFileName('a/b:c*?"<>|.pdf')).toBe("a b c.pdf");
+    expect(pdfFileName("..\\..\\report.pdf")).toBe(".. .. report.pdf");
     expect(pdfFileName("")).toBe("document.pdf");
   });
 });

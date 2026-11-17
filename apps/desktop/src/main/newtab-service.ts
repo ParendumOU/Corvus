@@ -46,6 +46,18 @@ const IMAGE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "imag
 const AGENT_BUILT_INS = new Set<WidgetType>(["greeting", "search", "shortcuts", "clock", "notes"]);
 
 const hostOf = (url: string): string => new URL(url).hostname.toLowerCase();
+/** `layout` with each custom widget's consent cut down to what the same widget has in `current`. */
+function withConsentOf(layout: NewTabLayout, current: NewTabLayout): NewTabLayout {
+  const held = new Map(current.widgets.filter((w) => w.type === "custom").map((w) => [w.id, (w.config as WidgetConfigs["custom"]).consent]));
+  return {
+    ...layout,
+    widgets: layout.widgets.map((w) => {
+      if (w.type !== "custom") return w;
+      const config = w.config as WidgetConfigs["custom"];
+      return { ...w, config: { ...config, consent: config.consent.filter((h) => held.get(w.id)?.includes(h)) } };
+    }),
+  };
+}
 const sameSources = (a: WidgetConfigs["custom"], b: WidgetConfigs["custom"]): boolean => JSON.stringify(a.sources) === JSON.stringify(b.sources);
 
 export class NewTabService {
@@ -122,11 +134,13 @@ export class NewTabService {
     return this.view(runtime);
   }
 
-  undo(runtime: ProfileRuntime): NewTabView {
+  /** `byAgent`: an agent's undo never brings back consent the current layout does not hold. */
+  undo(runtime: ProfileRuntime, byAgent = false): NewTabView {
     const file = this.file(runtime);
-    const [previous, ...rest] = file.get().history;
+    const { layout: current, history } = file.get();
+    const [previous, ...rest] = history;
     if (previous) {
-      file.set({ layout: previous, history: rest });
+      file.set({ layout: byAgent ? withConsentOf(previous, current) : previous, history: rest });
       this.notify(runtime);
     }
     return this.view(runtime);
@@ -326,7 +340,7 @@ export class NewTabService {
         break;
       }
       case "undo":
-        this.undo(runtime);
+        this.undo(runtime, true);
         return this.summary(runtime);
       default:
         throw new Error(`Unknown action ${JSON.stringify(request.action)}`);

@@ -363,7 +363,8 @@ export function mergeSettings(base: Settings, patch: unknown): Settings {
       const current = target[key];
       if (Array.isArray(current)) {
         if (Array.isArray(value) && value.every((v) => typeof v === "string")) target[key] = [...value];
-      } else if (typeof current === typeof value) {
+      } else if (typeof current === typeof value && (typeof value !== "number" || Number.isFinite(value))) {
+        // NaN and Infinity keep the value they would replace: the clamps below cannot repair NaN.
         target[key] = value;
       }
     }

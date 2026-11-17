@@ -703,7 +703,7 @@ function PasswordsSection({ view, update }: { view: SettingsView; update: (p: Se
       description={
         <>
           {t("Saved logins, 2FA codes and KeePass databases are managed on the")} <a href="corvus://passwords/">{t("Passwords")}</a>
-          {t("page.")}
+          {t(" page.")}
         </>
       }
     >
@@ -937,6 +937,7 @@ function UserMemoryEditor() {
   const [notes, setNotes] = useState<UserNote[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     void api.call("userMemory.list").then(setNotes);
   }, [api]);
@@ -984,8 +985,15 @@ function UserMemoryEditor() {
       {error && <div className="error-text small">{error}</div>}
       {notes.length > 0 && (
         <div className="inline">
-          <button className="btn small ghost danger" onClick={() => void api.call("userMemory.clear").then(setNotes)}>
-            {t("Forget everything")}
+          <button
+            className="btn small ghost danger"
+            onClick={() => {
+              if (!confirmClear) return setConfirmClear(true);
+              setConfirmClear(false);
+              void api.call("userMemory.clear").then(setNotes);
+            }}
+          >
+            {confirmClear ? t("Click again to forget everything") : t("Forget everything")}
           </button>
         </div>
       )}

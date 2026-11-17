@@ -63,6 +63,17 @@ describe("extractArticle", () => {
     expect(out!.content).not.toContain("data:text/html");
   });
 
+  it("strips javascript: urls hidden by tabs, newlines or control characters", () => {
+    const hostile = ARTICLE_HTML.replace(
+      "Corvus corax",
+      `<a href="java&#9;script:alert(1)">a</a> <a href="&#1;javascript:alert(2)">b</a> <a href="jav&#10;ascript:alert(3)">c</a> Corvus corax`,
+    );
+    const out = extractArticle(hostile, "https://example.org/raven");
+    expect(out).not.toBeNull();
+    expect(out!.content).toContain(">a</a>");
+    expect(out!.content).not.toMatch(/href="[^"]*script/i);
+  });
+
   it("resolves relative links to absolute", () => {
     const withLink = ARTICLE_HTML.replace("Corvus corax", `<a href="/corax">Corvus corax</a>`);
     const out = extractArticle(withLink, "https://example.org/birds/raven");

@@ -120,6 +120,7 @@ function fakeWindow(): BrowserWindowCtl {
     openSingleton: vi.fn(),
     notifyInternalPages: vi.fn(),
     win: { isDestroyed: () => false, focus: vi.fn() },
+    askForAttention: vi.fn(),
     profile: { userMemory: { list: () => [] } },
   } as unknown as BrowserWindowCtl;
 }
@@ -196,7 +197,7 @@ describe("ScheduledAgentRunner", () => {
 
   it("pauses for approval on a risky action and never runs it unattended", async () => {
     const controller = mockController();
-    const { ctx } = fakeContext(controller);
+    const { ctx, win } = fakeContext(controller);
     const runner = new ScheduledAgentRunner(ctx);
     runner.setTestProvider(
       scripted([
@@ -211,6 +212,9 @@ describe("ScheduledAgentRunner", () => {
 
     await waitFor(() => only(runner).approval !== null);
     expect(only(runner).approval!.reason).toContain("Buy now");
+    // The window flashes for the person; it is never pulled to the front.
+    expect(win.askForAttention).toHaveBeenCalled();
+    expect(win.win.focus).not.toHaveBeenCalled();
     // The risky click has NOT been executed while it waits for approval.
     expect(controller.calls).toEqual(["snapshot"]);
 
@@ -292,6 +296,37 @@ describe("ScheduledAgentRunner", () => {
     runner.approve(runtime, id, "stop");
     await waitFor(() => !only(runner).running && only(runner).lastRun?.status === "stopped");
     expect(controller.calls).toEqual(["snapshot"]);
+  });
+
+  it("holds before its next action while agents are paused", async () => {
+    const controller = mockController();
+    const { ctx } = fakeContext(controller);
+    const listeners = new Set<() => void>();
+    const agents = ctx.agents as unknown as { paused: boolean; onChange: (l: () => void) => () => void };
+    agents.paused = true;
+    agents.onChange = (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    };
+    const runner = new ScheduledAgentRunner(ctx);
+    runner.setTestProvider(
+      scripted([
+        [{ type: "tool_use", id: "t1", name: "page_snapshot", input: {} }],
+        [{ type: "text", text: "Checked." }],
+      ]),
+    );
+    runner.attach(runtime);
+    const id = runner.add(runtime, INTERVAL)[0]!.id;
+    runner.runNow(runtime, id);
+    await waitFor(() => listeners.size > 0);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(controller.calls).toEqual([]);
+
+    agents.paused = false;
+    for (const l of [...listeners]) l();
+    await waitFor(() => !only(runner).running && only(runner).lastRun?.status === "done");
+    expect(controller.calls).toEqual(["snapshot"]);
+    expect(listeners.size).toBe(0);
   });
 
   it("stops at the configured step cap", async () => {

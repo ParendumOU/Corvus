@@ -81,4 +81,9 @@ export class AssistHistoryStore {
   flush(): void {
     this.file.flush();
   }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
+  }
 }

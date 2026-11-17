@@ -6,7 +6,7 @@ import { PageShell, mount } from "./shell";
 
 import { t } from "../common/i18n";
 function when(ms: number): string {
-  if (!ms) return "never";
+  if (!ms) return t("never");
   return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 

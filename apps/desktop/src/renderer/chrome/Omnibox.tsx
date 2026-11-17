@@ -14,7 +14,7 @@ import { SavePasswordPrompt } from "./SavePassword";
 import { SaveAddressPrompt } from "./SaveAddress";
 import { AutofillPanel } from "./AutofillPanel";
 
-import { t } from "../common/i18n";
+import { t, uiLanguage } from "../common/i18n";
 export interface OmniboxHandle {
   focus(selectAll: boolean): void;
   close(): void;
@@ -100,8 +100,8 @@ function SecurityChip({ url, title, certError, onOpen }: { url: string; title: s
 
 /** Translate (offered or failed), stop (translating), or show the original (translated). */
 function TranslateButton({ state, onClick }: { state: TranslateBarState; onClick: () => void }) {
-  const target = languageName(state.target, "en");
-  const from = state.pageLang ? languageName(state.pageLang, "en") : "";
+  const target = languageName(state.target, uiLanguage());
+  const from = state.pageLang ? languageName(state.pageLang, uiLanguage()) : "";
   const title =
     state.state === "translating"
       ? t("Translating to {target}… ({translated} done) · click to stop", { target, translated: state.translated })

@@ -151,9 +151,9 @@ function idList(value: unknown): string[] {
 /** Lets the person pick an image, then decodes the QR code in it. Null when the dialog is cancelled. */
 async function importTotpQr(window: BrowserWindowCtl | undefined): Promise<TotpQrImport> {
   const options: Electron.OpenDialogOptions = {
-    title: "Import a 2FA QR code",
+    title: tr("Import a 2FA QR code"),
     properties: ["openFile"],
-    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }],
+    filters: [{ name: tr("Images"), extensions: ["png", "jpg", "jpeg"] }],
   };
   const parent = window?.win;
   const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
@@ -488,15 +488,15 @@ export function keepassInternalHandlers(ctx: AppContext): InternalHandlers<KeePa
     "keepass.state": (c) => keepassState(ctx, c.profile),
     "keepass.addFiles": async (c) => {
       const files = await pickPaths(c.window, {
-        title: "Add KeePass databases",
+        title: tr("Add KeePass databases"),
         properties: ["openFile", "multiSelections"],
-        filters: [{ name: "KeePass databases", extensions: ["kdbx"] }],
+        filters: [{ name: tr("KeePass databases"), extensions: ["kdbx"] }],
       });
       if (files.length) c.profile.keepass.addSources(files, "file");
       return keepassState(ctx, c.profile);
     },
     "keepass.addFolder": async (c) => {
-      const [dir] = await pickPaths(c.window, { title: "Add a folder of KeePass databases", properties: ["openDirectory"] });
+      const [dir] = await pickPaths(c.window, { title: tr("Add a folder of KeePass databases"), properties: ["openDirectory"] });
       if (dir) c.profile.keepass.addSources([dir], "folder");
       return keepassState(ctx, c.profile);
     },
@@ -504,7 +504,7 @@ export function keepassInternalHandlers(ctx: AppContext): InternalHandlers<KeePa
       c.profile.keepass.removeSource(str(id, "id", 64));
       return keepassState(ctx, c.profile);
     },
-    "keepass.pickKeyFile": async (c) => (await pickPaths(c.window, { title: "Choose the key file", properties: ["openFile"] }))[0] ?? null,
+    "keepass.pickKeyFile": async (c) => (await pickPaths(c.window, { title: tr("Choose the key file"), properties: ["openFile"] }))[0] ?? null,
     "keepass.unlock": (c, dbId, password, keyFilePath, keep) =>
       c.profile.keepass.unlock(
         str(dbId, "database", 64),
@@ -543,9 +543,9 @@ export function keepassInternalHandlers(ctx: AppContext): InternalHandlers<KeePa
       const pw = str(password ?? "", "password", MAX_FIELD);
       if (pw.length < MIN_EXPORT_PASSWORD) return { ok: false, error: `Choose a master password of at least ${MIN_EXPORT_PASSWORD} characters.` };
       const options: Electron.SaveDialogOptions = {
-        title: "Export saved logins to a new KeePass database",
+        title: tr("Export saved logins to a new KeePass database"),
         defaultPath: "Corvus passwords.kdbx",
-        filters: [{ name: "KeePass database", extensions: ["kdbx"] }],
+        filters: [{ name: tr("KeePass database"), extensions: ["kdbx"] }],
       };
       const parent = c.window?.win;
       const result = parent ? await dialog.showSaveDialog(parent, options) : await dialog.showSaveDialog(options);

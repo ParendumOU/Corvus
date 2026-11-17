@@ -225,7 +225,9 @@ export function checkExtensionUrl(url: string, extensionId: string | undefined):
     throw new Error("Invalid URL");
   }
   const scheme = resolved.slice(0, resolved.indexOf(":") + 1).toLowerCase();
-  if (isInternalUrl(resolved) && !isNewTabUrl(resolved)) throw new Error("Extensions cannot open corvus:// pages");
+  // Only the New Tab document itself: its widget documents (corvus://newtab/widget/...) hold the
+  // person's or an agent's code and must stay in their sandboxed frames.
+  if (isInternalUrl(resolved) && !(isNewTabUrl(resolved) && new URL(resolved).pathname === "/")) throw new Error("Extensions cannot open corvus:// pages");
   if (["javascript:", "chrome:", "file:", "devtools:", "view-source:"].includes(scheme)) throw new Error(`Extensions cannot open ${scheme} URLs`);
   return resolved;
 }
@@ -621,6 +623,8 @@ export class ExtensionHost {
 
   async remove(id: string): Promise<void> {
     const entry = this.find(id);
+    // The web store path deletes <Extensions>/<id> recursively: ".." would take the whole profile.
+    if (!entry && !EXTENSION_ID_RE.test(id)) throw new Error("Extension is not installed");
     const forget = (p: ExtensionPrefs): ExtensionPrefs => ({
       ...p,
       disabled: p.disabled.filter((x) => x !== id),

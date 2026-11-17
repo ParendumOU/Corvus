@@ -108,7 +108,7 @@ export const ES: Record<string, string> = {
   Top: "Arriba",
   Sidebar: "Barra lateral",
   "Sidebar width": "Ancho de la barra lateral",
-  "Pixels (180–480). Drag the sidebar edge to resize too.": "Píxeles (180–480). También puedes arrastrar el borde de la barra.",
+  "Pixels (180–480). Drag the sidebar edge to resize too.": "Píxeles (180-480). También puedes arrastrar el borde de la barra.",
 
   // ------------------------------------------------------------------ reader and PDF
   "Reader mode": "Modo lectura",
@@ -116,7 +116,7 @@ export const ES: Record<string, string> = {
     "Valores por defecto de la vista de lectura limpia (se abre con el icono del libro en la barra de direcciones).",
   "Font size": "Tamaño de letra",
   "Line width": "Ancho de línea",
-  "Characters per line (36–90).": "Caracteres por línea (36–90).",
+  "Characters per line (36–90).": "Caracteres por línea (36-90).",
   Sepia: "Sepia",
   Typeface: "Tipo de letra",
   Serif: "Con serifa",
@@ -335,7 +335,7 @@ export const ES: Record<string, string> = {
   // ------------------------------------------------------------------ passwords
   "Saved logins, 2FA codes and KeePass databases are managed on the":
     "Los inicios de sesión guardados, los códigos 2FA y las bases de datos de KeePass se gestionan en la página",
-  "page.": ".",
+  " page.": ".",
   "Let AI agents use logins you opt in": "Dejar que los agentes de IA usen los inicios de sesión que elijas",
   "Let trusted AI agents sign in without asking": "Dejar que los agentes de IA de confianza inicien sesión sin preguntar",
   "For agents you let work on their own: MCP clients at Full access (such as Claude Code) and the Command Bar agent with “Ask before risky actions” off. They sign in with any saved login of the site, fill its 2FA code, answer its sign-in box and open the apps it asks for, such as AutoFirma, without asking you. They never see the password or the code. Anything that spends money still asks. Off by default.":
@@ -498,7 +498,7 @@ export const ES: Record<string, string> = {
   "Every 12 hours": "Cada 12 horas",
   Daily: "Cada día",
   "Maximum watched pages": "Máximo de páginas vigiladas",
-  "Per profile (1–200).": "Por perfil (1–200).",
+  "Per profile (1–200).": "Por perfil (1-200).",
   "See everything you are watching and the latest changes.": "Mira todo lo que vigilas y los últimos cambios.",
   "Open watched pages": "Abrir páginas vigiladas",
 
@@ -613,7 +613,7 @@ export const ES: Record<string, string> = {
   "Enable scheduled agents": "Activar los agentes programados",
   "Turning this off stops all scheduled runs.": "Si lo desactivas, se detienen todas las ejecuciones programadas.",
   "Max steps per run": "Máximo de pasos por ejecución",
-  "Hard cap on tool actions any scheduled run may take (1–50).": "Límite estricto de acciones que puede hacer una ejecución programada (1–50).",
+  "Hard cap on tool actions any scheduled run may take (1–50).": "Límite estricto de acciones que puede hacer una ejecución programada (1-50).",
   "Token budget per run": "Presupuesto de tokens por ejecución",
   "Total input + output tokens before a run stops.": "Tokens de entrada y salida en total antes de que se detenga una ejecución.",
   "Add, edit, pause and watch your scheduled tasks.": "Añade, edita, pausa y sigue tus tareas programadas.",
@@ -1140,6 +1140,19 @@ export const ES: Record<string, string> = {
   "Your own sync server.": "Tu propio servidor de sincronización.",
   "Your phone reached this computer.": "Tu móvil ha llegado a este ordenador.",
   "If the phone cannot connect, allow port {port} in this computer's firewall.": "Si el móvil no consigue conectar, permite el puerto {port} en el cortafuegos de este ordenador.",
+  "Remove from Corvus…": "Quitar de Corvus…",
+  "Manage extension": "Gestionar la extensión",
+  "Export article as Markdown": "Exportar el artículo como Markdown",
+  "Import a 2FA QR code": "Importar un código QR de 2FA",
+  "Add KeePass databases": "Añadir bases de datos de KeePass",
+  "KeePass databases": "Bases de datos de KeePass",
+  "Add a folder of KeePass databases": "Añadir una carpeta de bases de datos de KeePass",
+  "Choose the key file": "Elegir el archivo de clave",
+  "Export saved logins to a new KeePass database": "Exportar los inicios de sesión guardados a una base de datos de KeePass nueva",
+  "KeePass database": "Base de datos de KeePass",
+  "Click an element to hide it · Esc to cancel": "Haz clic en un elemento para ocultarlo · Esc para cancelar",
+  "Select the element around it (Up)": "Seleccionar el elemento que lo rodea (Arriba)",
+  "Hide {selector}?": "¿Ocultar {selector}?",
 };
 
 /** `text` in `language` (English text when it has no translation), with `{name}` placeholders filled from `vars`. */

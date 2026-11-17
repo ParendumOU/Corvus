@@ -67,10 +67,7 @@ export class SemanticSearchService {
     this.backfillHistory(runtime);
     runtime.bookmarks.changes.on(() => this.syncBookmarks(runtime));
     runtime.reading.onChange(() => this.syncReading(runtime));
-    runtime.history.onRemove((urls) => {
-      if (urls === "all") runtime.semanticIndex.clear();
-      else for (const url of urls) runtime.semanticIndex.removeUrl(url);
-    });
+    runtime.history.onRemove((urls) => runtime.semanticIndex.removeVisits(urls));
   }
 
   private indexingEnabled(): boolean {

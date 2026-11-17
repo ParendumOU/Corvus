@@ -211,9 +211,10 @@ export function parseCardSave(raw: unknown): { id?: string; fields: CardFields }
   return typeof id === "string" ? { id, fields: clean } : { fields: clean };
 }
 
-/** An expiry typed in one field ("08/28", "08 / 2028", "0828") as month and year. */
+/** An expiry typed in one field ("08/28", "08 / 2028", "0828", or a month input's "2028-08") as month and year. */
 export function splitExpiry(value: string): { expMonth: string; expYear: string } {
   const parts = value.split(/[^\d]+/).filter(Boolean);
+  if (parts.length >= 2 && parts[0]!.length === 4) return { expMonth: month(parts[1]!), expYear: year(parts[0]!) };
   if (parts.length >= 2) return { expMonth: month(parts[0]!), expYear: year(parts[1]!) };
   const d = digits(value);
   if (d.length === 4) return { expMonth: month(d.slice(0, 2)), expYear: year(d.slice(2)) };

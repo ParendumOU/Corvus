@@ -7,8 +7,8 @@ import { compareResponses } from "./compare.js";
 import { FuzzLimitError, FuzzScopeError, runFuzz } from "./fuzzer.js";
 import { exportHar, importHar } from "./har.js";
 import { HistoryBuffer, summarize } from "./history.js";
-import { sendRequest, type SendResult } from "./http-client.js";
-import { applyRequestRules, emptyRuleSet } from "./rules.js";
+import { sendRequest, type SendOptions, type SendResult } from "./http-client.js";
+import { type AppliedRequest, applyRequestRules, emptyRuleSet, isBlocked, resolveOverride } from "./rules.js";
 import { emptyScope, isInScope, scopeRejectionReason } from "./scope.js";
 import { buildSession, parseSession, type WebScopeSession } from "./session.js";
 import type {
@@ -362,21 +362,33 @@ export class WebScopeEngine {
     return this.cookieProvider(req.url);
   }
 
+  /** Send options for one request: its override and cookies, and the same scope and rules on every redirect hop. */
+  private async sendOptions(applied: AppliedRequest, useProfileCookies: boolean | undefined): Promise<SendOptions> {
+    const cookieHeader = await this.cookieFor({ ...applied.request, useProfileCookies });
+    return {
+      ...(applied.override ? { override: applied.override } : {}),
+      ...(cookieHeader ? { cookieHeader } : {}),
+      maxBodyBytes: this.maxBodyBytes,
+      redirect: async (url) => {
+        if (!isInScope(this.scope, url) || isBlocked(url, this.rules)) return null;
+        const override = resolveOverride(url, this.rules);
+        const cookie = await this.cookieFor({ ...applied.request, url, useProfileCookies });
+        return { ...(override ? { override } : {}), ...(cookie ? { cookieHeader: cookie } : {}) };
+      },
+    };
+  }
+
   /** Issue a request from Node. Enforces scope, applies rules, reuses cookies only for in-scope hosts. */
   async repeaterSend(req: OutboundRequest): Promise<HistoryEntry> {
     this.requireInScope(req.url);
     const applied = applyRequestRules(req, this.rules);
     if (applied.blockedBy) throw new BlockedError(`Request blocked by rule "${applied.blockedBy}"`);
     this.requireInScope(applied.request.url);
-    const cookieHeader = await this.cookieFor({ ...applied.request, useProfileCookies: req.useProfileCookies });
+    const options = await this.sendOptions(applied, req.useProfileCookies);
     const started = Date.now();
     this.audit.record("repeater-send", `${applied.request.method} ${applied.request.url}`);
     try {
-      const result = await this.send(applied.request, {
-        ...(applied.override ? { override: applied.override } : {}),
-        ...(cookieHeader ? { cookieHeader } : {}),
-        maxBodyBytes: this.maxBodyBytes,
-      });
+      const result = await this.send(applied.request, options);
       return this.record(applied.request, started, result);
     } catch (err) {
       const entry = this.failedEntry(applied.request, started, (err as Error).message);
@@ -403,12 +415,8 @@ export class WebScopeEngine {
         send: async (req) => {
           const applied = applyRequestRules(req, this.rules);
           if (applied.blockedBy) throw new BlockedError(`blocked by rule "${applied.blockedBy}"`);
-          const cookieHeader = await this.cookieFor({ ...applied.request, useProfileCookies: config.useProfileCookies });
-          const res = await this.send(applied.request, {
-            ...(applied.override ? { override: applied.override } : {}),
-            ...(cookieHeader ? { cookieHeader } : {}),
-            maxBodyBytes: this.maxBodyBytes,
-          });
+          this.requireInScope(applied.request.url);
+          const res = await this.send(applied.request, await this.sendOptions(applied, config.useProfileCookies));
           return {
             status: res.response.status,
             length: bodyLength(res),

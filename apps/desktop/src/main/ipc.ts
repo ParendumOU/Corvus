@@ -1103,6 +1103,18 @@ function internalHandlers(ctx: AppContext): Handlers<InternalRpc, InternalContex
   };
 }
 
+/**
+ * The Corvus page a frame may call internal methods as: only its own document at "/". Other paths
+ * of the same host (a New Tab custom widget at corvus://newtab/widget/<id>, renderer assets) run
+ * someone else's content or are not pages, and must not inherit the page's permissions.
+ */
+export function internalCallerPage(url: string): InternalPage | null {
+  const page = internalPageOf(url);
+  if (!page) return null;
+  const { pathname } = new URL(url);
+  return pathname === "/" || pathname === "" ? page : null;
+}
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host || url;
@@ -1157,7 +1169,7 @@ export function registerIpc(ctx: AppContext): void {
   ipcMain.handle(INTERNAL_RPC, (event: IpcMainInvokeEvent, method: unknown, args: unknown) => {
     const frame = event.senderFrame;
     if (!frame || frame !== event.sender.mainFrame) throw new IpcError("Unauthorized frame");
-    const page = internalPageOf(frame.url);
+    const page = internalCallerPage(frame.url);
     if (!page || page === "chrome") throw new IpcError("Unauthorized sender");
     if (typeof method !== "string" || !Object.hasOwn(internal, method)) throw new IpcError(`Unknown method ${String(method)}`);
     if (!PERMISSIONS[method as keyof InternalRpc].includes(page)) throw new IpcError(`${method} is not allowed on corvus://${page}`);

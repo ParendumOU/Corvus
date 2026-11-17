@@ -76,6 +76,20 @@ describe("replica", () => {
     await upgraded.sync(chain);
     expect(chain.forgotten).toEqual(["bookmarks"]);
   });
+
+  it("fetches a collection in full again when its saved copy cannot be read", async () => {
+    const storage = memory();
+    const chain = new FakeChain();
+    chain.add(item("bookmarks", "b1", { url: "https://b.example/" }), item("bookmarks", "b2", { url: "https://c.example/" }));
+    await new Replica(storage, "p/", ["bookmarks"]).sync(chain);
+    await storage.set("p/data/bookmarks", '{"b1":');
+
+    const restarted = new Replica(storage, "p/", ["bookmarks"]);
+    await restarted.sync(chain);
+    expect(chain.forgotten).toEqual(["bookmarks"]);
+    expect(Object.keys(await restarted.records("bookmarks")).sort()).toEqual(["b1", "b2"]);
+    expect(await restarted.unreadable("bookmarks")).toBe(false);
+  });
 });
 
 describe("replica: changes saved later", () => {

@@ -46,19 +46,30 @@ export class Replica {
     let records = this.cache.get(collection);
     if (!records) {
       const raw = await this.storage.get(`${this.prefix}data/${collection}`);
+      let read: Record<string, unknown> | null = {};
       if (raw && this.sealer && this.sealed(collection)) {
         try {
-          records = parse(await this.sealer.open(raw, collection));
+          read = parse(await this.sealer.open(raw, collection));
         } catch {
-          records = {};
-          this.lost.add(collection);
+          read = null;
         }
-      } else {
-        records = parse(raw);
+      } else if (raw) {
+        read = parse(raw);
       }
+      if (read === null) this.lost.add(collection);
+      records = read ?? {};
       this.cache.set(collection, records);
     }
     return records;
+  }
+
+  /**
+   * Whether the saved copy of `collection` could not be read (it is fetched again in full at the
+   * next sync): until then, a record missing from it says nothing about the chain.
+   */
+  async unreadable(collection: SyncCollection): Promise<boolean> {
+    await this.records(collection);
+    return this.lost.has(collection);
   }
 
   /**
@@ -68,7 +79,7 @@ export class Replica {
   async sync(client: ReplicaClient, progress: Progress = () => undefined): Promise<number> {
     progress({ kind: 'download' });
     const joined = new Set(parseList(await this.storage.get(`${this.prefix}data/joined`)));
-    for (const collection of this.collections) if (this.sealed(collection)) await this.records(collection);
+    for (const collection of this.collections) await this.records(collection);
     for (const collection of this.lost) joined.delete(collection);
     let count = 0;
     const apply = async (items: SyncItem[]): Promise<void> => {
@@ -173,13 +184,13 @@ export function tabHost(url: string): string {
   }
 }
 
-function parse(raw: string | undefined | null): Record<string, unknown> {
-  if (!raw) return {};
+/** A saved collection's records; null when the saved text is not one. */
+function parse(raw: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(raw);
-    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 

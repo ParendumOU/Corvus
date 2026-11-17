@@ -129,6 +129,7 @@ export function cardKit(): CardKit {
 
   /** The expiry as a single field takes it: its placeholder or length says the separator and the year's digits. */
   const expiryFor = (f: CardFieldFacts, mm: string, yyyy: string): string => {
+    if (f.tag === "INPUT" && f.type === "month") return `${yyyy}-${mm}`;
     const hint = `${f.placeholder} ${f.label}`.toLowerCase();
     const shape = /m{1,2}\s*([/\-. ]*)\s*(y{2,4}|a{2,4})/.exec(hint);
     if (shape) {

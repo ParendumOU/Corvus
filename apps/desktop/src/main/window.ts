@@ -1434,7 +1434,7 @@ export class BrowserWindowCtl {
     });
     on("page-title-updated", (_e, title) => {
       tab.title = title;
-      if (isHistoryWorthy(tab.url) && !tab.certError) this.profile.history.update(tab.url, { title });
+      if (isHistoryWorthy(tab.url) && !tab.certError && !this.isPrivate) this.profile.history.update(tab.url, { title });
       push();
     });
     this.ctx.pageDialogs.watch(wc);
@@ -1442,9 +1442,11 @@ export class BrowserWindowCtl {
       const favicon = pickFavicon(favicons);
       if (!favicon) return;
       tab.faviconUrl = favicon;
-      if (isHistoryWorthy(tab.url)) this.profile.history.update(tab.url, { faviconUrl: favicon });
-      // Kept for the bookmarks bar and Corvus's pages; a private window keeps nothing.
-      if (!this.isPrivate) this.profile.favicons.remember(tab.url, favicon, (url, init) => wc.session.fetch(url, init));
+      // Kept for history, the bookmarks bar and Corvus's pages; a private window keeps nothing.
+      if (!this.isPrivate) {
+        if (isHistoryWorthy(tab.url)) this.profile.history.update(tab.url, { faviconUrl: favicon });
+        this.profile.favicons.remember(tab.url, favicon, (url, init) => wc.session.fetch(url, init));
+      }
       push();
     });
     on("did-fail-load", (_e, code, description, validatedURL, isMainFrame) => {
@@ -1865,9 +1867,9 @@ export class BrowserWindowCtl {
     this.strip = removeTab(this.strip, id);
     this.tabs.delete(id);
     // A site set to be forgotten loses its cookies and data once no tab of its session shows it.
-    const sameSession = (t: TabRuntime): boolean => (t.containerId ?? "") === (tab.containerId ?? "");
-    const openUrls = this.ctx.windows.forProfile(this.profile.profile.id).flatMap((w) => w.tabRuntimes().filter(sameSession).map((t) => t.url));
-    const tabSession = tab.containerId ? this.profile.containerSession(tab.containerId) : this.profile.session;
+    // Its session: a private window's tabs are in the private one, not the profile's.
+    const tabSession = page?.session ?? (tab.containerId ? this.profile.containerSession(tab.containerId) : this.isPrivate ? this.profile.privateSession() : this.profile.session);
+    const openUrls = this.ctx.windows.forProfile(this.profile.profile.id).flatMap((w) => w.tabRuntimes().filter((t) => pageOf(t.view)?.session === tabSession).map((t) => t.url));
     void this.ctx.adblock.onTabClosed(tabSession, tab.url, openUrls);
     this.shownTabIds = this.shownTabIds.filter((t) => t !== id);
     if (this.activeShown === id) this.activeShown = null;
@@ -2902,8 +2904,13 @@ export class BrowserWindowCtl {
     const factor = stepZoom(wc.getZoomFactor(), delta);
     const key = zoomKey(wc.getURL() || tab.url);
     wc.setZoomFactor(factor);
-    this.profile.siteSettings.setZoom(key, factor);
-    if (key) this.ctx.windows.applyZoom(this.profile.profile.id, key, factor);
+    // A private window keeps no trace of the sites it zoomed: the level holds in its own tabs only.
+    if (this.isPrivate) {
+      if (key) this.applyZoom(key, factor);
+    } else {
+      this.profile.siteSettings.setZoom(key, factor);
+      if (key) this.ctx.windows.applyZoom(this.profile.profile.id, key, factor);
+    }
     this.pushState();
   }
 

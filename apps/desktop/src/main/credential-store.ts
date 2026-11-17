@@ -146,6 +146,10 @@ interface Opened {
   cache: Map<string, Credential>;
   /** Deleted-login memory, keyed by `${origin}\n${username}`. */
   deletions: Map<string, DeletedLoginMemory>;
+  /** Logins that did not open (corrupt): kept in the file as they are, never dropped by a write. */
+  unreadable: StoredEntry[];
+  /** Deleted-login memories that did not open, kept in the file the same way. */
+  unreadableDeletions: StoredDeletion[];
 }
 
 export class CredentialVault {
@@ -198,6 +202,8 @@ export class CredentialVault {
     const hasEntries = current.entries.length > 0 || (current.deletions?.length ?? 0) > 0;
     const key = unwrapStoreKey(this.cipher, this.persisted, current.key?.data, hasEntries, "credentials.json");
     if (key) {
+      const unreadable: StoredEntry[] = [];
+      const unreadableDeletions: StoredDeletion[] = [];
       for (const entry of current.entries) {
         try {
           const secret = JSON.parse(openSecret(key, entry.sealed, entry.id)) as Secret;
@@ -214,7 +220,8 @@ export class CredentialVault {
             updatedAt: entry.updatedAt,
           });
         } catch (err) {
-          console.warn(`[corvus] dropped an unreadable credential ${entry.id}:`, (err as Error).message);
+          unreadable.push(entry);
+          console.warn(`[corvus] kept an unreadable credential ${entry.id}:`, (err as Error).message);
         }
       }
       for (const stored of current.deletions ?? []) {
@@ -222,16 +229,15 @@ export class CredentialVault {
           const body = JSON.parse(openSecret(key, stored.sealed, stored.key)) as { username: string; hashes: PasswordHistoryEntry[] };
           deletions.set(stored.key, { origin: stored.origin, username: body.username, hashes: body.hashes ?? [], at: stored.at });
         } catch {
-          // A deletion memory we cannot read is dropped; it only ever blocks a re-import.
+          unreadableDeletions.push(stored);
         }
       }
       // Not one login opens: the key is not this vault's, so the file stays as it is.
       if (cache.size === 0 && current.entries.length > 0) throw new KeychainUnavailableError();
-      this.opened = { file, key, cache, deletions };
-      if (cache.size !== current.entries.length) this.write();
+      this.opened = { file, key, cache, deletions, unreadable, unreadableDeletions };
     } else {
       // A new vault: a fresh key, wrapped on disk when the keychain can keep it.
-      this.opened = { file, key: generateVaultKey(), cache, deletions };
+      this.opened = { file, key: generateVaultKey(), cache, deletions, unreadable: [], unreadableDeletions: [] };
       if (this.persisted) this.write();
     }
     return this.opened;
@@ -246,6 +252,18 @@ export class CredentialVault {
     opened.key.fill(0);
     opened.cache.clear();
     opened.deletions.clear();
+    opened.unreadable = [];
+    opened.unreadableDeletions = [];
+  }
+
+  /** Entry `id` is in the file but did not open (corrupt): all() leaves it out, yet it is not deleted. */
+  isUnreadable(id: string): boolean {
+    return this.open().unreadable.some((e) => e.id === id);
+  }
+
+  /** The same for a deleted-login memory (deletionItems leaves it out). */
+  isUnreadableDeletion(key: string): boolean {
+    return this.open().unreadableDeletions.some((d) => d.key === key);
   }
 
   /** Writes the wrapped key again with the cipher as it is now (a lock added or removed). */
@@ -256,7 +274,7 @@ export class CredentialVault {
 
   /** Whether the file on disk opens with the cipher as it is now, to the key and logins in memory. */
   verify(): boolean {
-    return verifyWrappedFile(this.filePath, this.cipher, this.key, this.cache.size);
+    return verifyWrappedFile(this.filePath, this.cipher, this.key, this.cache.size + this.open().unreadable.length);
   }
 
   /** Whether secrets are written to disk (true when the OS keychain is available). */
@@ -481,6 +499,10 @@ export class CredentialVault {
   applyRemote(changes: Array<{ id: string; cred: Credential | null }>): void {
     let changed = false;
     for (const { id, cred } of changes) {
+      const opened = this.open();
+      const unreadableBefore = opened.unreadable.length;
+      if (cred === null || isValidCredential(cred)) opened.unreadable = opened.unreadable.filter((e) => e.id !== id);
+      changed = opened.unreadable.length !== unreadableBefore || changed;
       if (cred === null) {
         changed = this.cache.delete(id) || changed;
       } else if (isValidCredential(cred)) {
@@ -510,6 +532,10 @@ export class CredentialVault {
   applyRemoteDeletions(changes: Array<{ id: string; memory: DeletedLoginMemory | null }>): void {
     let changed = false;
     for (const { id, memory } of changes) {
+      const opened = this.open();
+      const unreadableBefore = opened.unreadableDeletions.length;
+      if (memory === null || isDeletedLoginMemory(memory)) opened.unreadableDeletions = opened.unreadableDeletions.filter((d) => d.key !== id);
+      changed = opened.unreadableDeletions.length !== unreadableBefore || changed;
       if (memory === null) {
         changed = this.deletions.delete(id) || changed;
       } else if (isDeletedLoginMemory(memory)) {
@@ -549,17 +575,24 @@ export class CredentialVault {
         sealed: sealSecret(this.key, JSON.stringify(secret), c.id),
       };
     });
+    for (const entry of this.open().unreadable) if (!this.cache.has(entry.id)) entries.push(entry);
     const deletions: StoredDeletion[] = [...this.deletions.entries()].map(([key, d]) => ({
       key,
       origin: d.origin,
       at: d.at,
       sealed: sealSecret(this.key, JSON.stringify({ username: d.username, hashes: d.hashes }), key),
     }));
+    for (const stored of this.open().unreadableDeletions) if (!this.deletions.has(stored.key)) deletions.push(stored);
     const wrapped = this.cipher.encryptString(Buffer.from(this.key).toString("base64")).toString("base64");
     this.file.set({ v: 1, key: { data: wrapped }, entries, deletions });
   }
 
   flush(): void {
     this.opened?.file.flush();
+  }
+
+  /** The store's file was missing or unreadable at load (see JsonFile.fresh). */
+  get loadedFresh(): boolean {
+    return this.file.fresh;
   }
 }

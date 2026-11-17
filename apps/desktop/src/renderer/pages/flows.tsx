@@ -6,7 +6,7 @@ import { errorMessage, internalApi } from "../common/api";
 import { IconClose, IconEdit, IconPause, IconPlay, IconPointer, IconTrash } from "../common/icons";
 import { OriginBadge, UsageLine, WorkflowEditor, WorkflowRunForm, WorkflowStepList, ago } from "../common/workflows";
 import { LearnedSite, StatsLine } from "../common/site-memory";
-import { Toggle } from "../common/ui";
+import { ConfirmButton, Toggle } from "../common/ui";
 import "./flows.css";
 import { PageShell, mount } from "./shell";
 
@@ -105,7 +105,7 @@ function FlowsPage() {
               key={draft.createdAt}
               initial={draft.edit}
               saveLabel={t("Save workflow")}
-              cancelLabel="Discard"
+              cancelLabel={t("Discard")}
               onSave={(edit) => run(api.call("flow.saveDraft", edit))}
               onCancel={() => void api.call("flow.discardDraft").then(() => setDraft(null))}
             />
@@ -361,7 +361,7 @@ function FlowRow({ f, api, run }: { f: FlowView; api: Api; run: (p: Promise<Flow
           <WorkflowEditor
             initial={editOf(f)}
             saveLabel={t("Save changes")}
-            cancelLabel="Cancel"
+            cancelLabel={t("Cancel")}
             onSave={(edit) => {
               run(api.call("flow.update", f.id, edit));
               setMode("view");
@@ -430,9 +430,9 @@ function FlowRow({ f, api, run }: { f: FlowView; api: Api; run: (p: Promise<Flow
             <button className="icon-btn" title={t("Edit")} onClick={() => setMode("edit")}>
               <IconEdit size={15} />
             </button>
-            <button className="icon-btn" title={t("Delete")} onClick={() => run(api.call("flow.remove", f.id))}>
+            <ConfirmButton className="icon-btn" title={t("Delete")} confirm={t("Click again to delete")} onConfirm={() => run(api.call("flow.remove", f.id))}>
               <IconTrash size={15} />
-            </button>
+            </ConfirmButton>
           </>
         )}
       </div>

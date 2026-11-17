@@ -33,6 +33,7 @@ import { toMatch, type LoginAccount } from "./login-sources";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 import { personAutofillAllowed, personOpensDropdown } from "../shared/agent-tab-autofill";
 import { tr } from "./menu-i18n";
+import { atOriginOnly } from "./secret-fill-guard";
 
 const SCRIPT_TIMEOUT_MS = 4000;
 /** Single-page apps render the next step after the URL changes; probe again a little later. */
@@ -236,17 +237,26 @@ export class AutofillService {
     const answer = await this.askAutoSignIn(win, { host: hostOf(origin), username: login.username });
     if (answer.stopOffering) win.profile.autoSignIn.set(login.id, false);
     if (!answer.approved) return;
-    const current = win.profile.logins.forPage(login.id, this.pageUrl(tab));
-    if (!current) return;
+    const pageUrl = this.pageUrl(tab);
+    const current = win.profile.logins.forPage(login.id, pageUrl);
+    const pageOrigin = originOf(pageUrl);
+    if (!current || !pageOrigin) return;
     this.ctx.secretFills.mark(tab.id, [current.password]);
-    await this.run<boolean>(tab, fillLoginScript(current.username, current.password, { submit: true }));
+    await this.run<boolean>(tab, fillLoginScript(current.username, current.password, { submit: true }), pageOrigin);
   }
 
-  private async run<T>(tab: TabRuntime, code: string): Promise<T | null> {
+  /**
+   * Runs a script in the tab's page. With `origin` (a fill that writes a secret), only while the page
+   * is still of that origin: checked here and again in the page, so a page that navigated during an
+   * earlier await (another site committed meanwhile) never receives it.
+   */
+  private async run<T>(tab: TabRuntime, code: string, origin?: string): Promise<T | null> {
     const wc = pageOf(tab);
     if (!wc || !isWebPage(wc.getURL())) return null;
+    if (origin !== undefined && originOf(wc.getURL()) !== origin) return null;
+    const guarded = origin === undefined ? code : atOriginOnly(code, origin);
     try {
-      return (await withTimeout(wc.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code }]) as Promise<T>, SCRIPT_TIMEOUT_MS)) ?? null;
+      return (await withTimeout(wc.executeJavaScriptInIsolatedWorld(AUTOFILL_WORLD_ID, [{ code: guarded }]) as Promise<T>, SCRIPT_TIMEOUT_MS)) ?? null;
     } catch {
       return null;
     }
@@ -922,7 +932,10 @@ export class AutofillService {
 
   /** Fills an account of the page as fill() says; `note: false` leaves the site's last used account as it was. */
   private async fillAccount(win: BrowserWindowCtl, tab: TabRuntime, url: string, account: LoginAccount, pick: AccountPick, opts: { note?: boolean } = {}): Promise<void> {
-    const page = await this.run<LoginDetection>(tab, detectLoginScript());
+    // The account matched `url`: every write goes only to a page still of its origin.
+    const origin = originOf(url);
+    if (!origin) return;
+    const page = await this.run<LoginDetection>(tab, detectLoginScript(), origin);
     const plan = planAccountFill(pick, { hasTotp: Boolean(account.totp) }, { login: page?.hasPassword === true, identifier: page?.hasIdentifier === true, otp: page?.hasOtp === true });
     const totp = plan.code ? account.totp?.record.totp : undefined;
     const code = totp ? await codeToFill(totp) : null;
@@ -931,16 +944,16 @@ export class AutofillService {
     // A two-step sign-in's first step gets the username alone; its next step offers the account first.
     if (plan.usernameOnly) {
       this.identifiers.set(tab.id, { site: autofillSiteOf(url), username: account.username, accountId: account.id, at: Date.now() });
-      await this.run<boolean>(tab, fillIdentifierScript(account.username, { keepTyped: plan.login === "empty" }));
+      await this.run<boolean>(tab, fillIdentifierScript(account.username, { keepTyped: plan.login === "empty" }), origin);
     }
     const password = plan.usernameOnly ? "" : (account.password?.record.password ?? "");
     const secrets = [password, code?.code ?? ""].filter(Boolean);
     // Secrets in the page: agents may not script it until it navigates (see secret-fill-guard.ts).
     if (secrets.length > 0 || !plan.usernameOnly) this.ctx.secretFills.mark(tab.id, secrets);
-    if (plan.login !== "none" && !plan.usernameOnly) await this.run<boolean>(tab, fillLoginScript(account.username, password, { keepTyped: plan.login === "empty" }));
+    if (plan.login !== "none" && !plan.usernameOnly) await this.run<boolean>(tab, fillLoginScript(account.username, password, { keepTyped: plan.login === "empty" }), origin);
     if (!code) return;
     if (code.waitMs > 0) await delay(code.waitMs);
-    if (this.pageUrl(tab) === url) await this.run<number>(tab, fillOtpScript(code.code));
+    if (this.pageUrl(tab) === url) await this.run<number>(tab, fillOtpScript(code.code), origin);
   }
 
   /** Fills the current 2FA code of a page's account, and its login where those fields are empty. */

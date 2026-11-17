@@ -37,7 +37,7 @@ export async function offerExternalLink(url: string, tabId: string | null): Prom
     });
     if (!ok) return;
     if (Platform.OS === 'android' && BrowserKit) {
-      const result = await BrowserKit.openExternal(url);
+      const result = await BrowserKit.openExternal(url).catch(() => 'none');
       if (result.startsWith('web:') && tabId) loadInTab(tabId, result.slice(4));
       else if (result === 'none') showToast(t('No app on this phone opens this link.'), 'warning');
       return;

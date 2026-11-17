@@ -40,7 +40,34 @@ describe("cookie reuse", () => {
   });
 });
 
+describe("redirects", () => {
+  it("follows a redirect only within scope, with that host's cookies", async () => {
+    const send = okSend();
+    const cookieProvider = vi.fn(async (url: string) => `for=${new URL(url).host}`);
+    const engine = new WebScopeEngine({ scope, send, cookieProvider });
+    await engine.repeaterSend({ method: "GET", url: "https://example.com/x", headers: [], useProfileCookies: true, followRedirects: true });
+    const redirect = (send as unknown as { mock: { calls: Array<[OutboundRequest, { redirect: (url: string) => Promise<unknown> }]> } }).mock.calls[0]![1].redirect;
+    await expect(redirect("https://evil.com/steal")).resolves.toBeNull();
+    await expect(redirect("https://example.com/next")).resolves.toEqual({ cookieHeader: "for=example.com" });
+  });
+});
+
 describe("match/replace through the engine", () => {
+  it("never fuzzes a URL a rule rewrote out of scope", async () => {
+    const send = okSend();
+    const engine = new WebScopeEngine({ scope, send });
+    engine.setRules({ matchReplace: [{ id: "r", name: "", enabled: true, target: "request-url", match: "example.com", replace: "evil.com", regex: false }], block: [], hostOverride: [] });
+    const { rows } = await engine.fuzz({
+      template: { method: "GET", url: "https://example.com/§a§", headers: [] },
+      attack: "sniper",
+      payloadSets: [{ kind: "wordlist", values: ["1"] }],
+      requestsPerSecond: 50,
+      concurrency: 1,
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(rows[0]!.error).toMatch(/not in the allowlist/);
+  });
+
   it("applies block rules before sending", async () => {
     const send = okSend();
     const engine = new WebScopeEngine({ scope, send });

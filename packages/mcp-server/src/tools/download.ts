@@ -1,7 +1,7 @@
 import type { DownloadEntry } from "@corvus/shared";
 import { z } from "zod";
 import { checkAgentUrl, compactJson } from "../content.js";
-import { need, optionalTabId, untrusted, type ToolContext } from "./types.js";
+import { need, optionalTabId, sleep, untrusted, type ToolContext } from "./types.js";
 
 const DEFAULT_MAX_BYTES = 50 * 1024 * 1024;
 const HARD_MAX_BYTES = 500 * 1024 * 1024;
@@ -77,13 +77,3 @@ export function registerDownloadTools({ controller, register, resolveTab }: Tool
 
 const POLL_MS = 250;
 const FINISHED = new Set(["completed", "cancelled", "interrupted"]);
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
-  });
-}

@@ -248,7 +248,7 @@ function ScheduleRow({ s, api, run, onEdit }: { s: ScheduleView; api: Api; run: 
           </button>
           <span className={`pill sched-status ${status.cls}`}>{status.text}</span>
         </div>
-        <div className="sub muted">{t("{describeSchedule} · next", { describeSchedule: describeSchedule(s) })}{" "}{s.paused ? "paused" : when(s.nextRunAt)}
+        <div className="sub muted">{t("{describeSchedule} · next", { describeSchedule: describeSchedule(s) })}{" "}{s.paused ? t("paused") : when(s.nextRunAt)}
           {s.lastRun ? t(" · last run {startedAt}", { startedAt: ago(s.lastRun.startedAt) }) : ""}
         </div>
         <div className="sched-task-preview muted">{s.task}</div>
@@ -314,11 +314,23 @@ function ApprovalBanner({ s, api, run }: { s: ScheduleView; api: Api; run: (p: P
   );
 }
 
+/** A past run's status, in the UI language. */
+function runStatusText(status: ScheduleRunRecord["status"]): string {
+  return {
+    running: t("Running…"),
+    "awaiting-approval": t("Needs approval"),
+    done: t("Done"),
+    error: t("Error"),
+    stopped: t("Stopped"),
+    cancelled: t("Cancelled"),
+  }[status];
+}
+
 function HistoryItem({ r }: { r: ScheduleRunRecord }) {
   const cls = r.status === "error" ? "error" : r.status === "done" ? "ok" : "paused";
   return (
     <div className="sched-history-item">
-      <span className={`pill sched-status ${cls}`}>{r.status}</span>
+      <span className={`pill sched-status ${cls}`}>{runStatusText(r.status)}</span>
       <span className="muted small">{when(r.startedAt)}{" "}{t("· {steps} steps ·", { steps: r.steps })}{" "}{r.inputTokens + r.outputTokens}{" "}{t("tok")}</span>
       <div className="sched-history-summary">{r.summary || (r.error ? t("Error: {error}", { error: r.error }) : "—")}</div>
     </div>

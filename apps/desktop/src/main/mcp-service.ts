@@ -9,13 +9,15 @@ import { memoryHints } from "../shared/site-memory";
 import type { SavedFlow } from "../shared/flow";
 import { findFlow, flowSites, normalizeSite, workflowsForHost } from "../shared/workflow";
 import type { McpActivityQuery, McpActivityView, McpStatus } from "../shared/ipc";
-import { MCP_RATE_LIMITS, mcpAddCommand, resolveMcpAccessLevel } from "../shared/settings";
+import { MCP_RATE_LIMITS, type McpRateLimit, mcpAddCommand, resolveMcpAccessLevel } from "../shared/settings";
 import type { AppContext } from "./context";
 import { McpAuditLog } from "./mcp-audit";
 import { loadOptionalModule } from "./module-loader";
 import { tr } from "./menu-i18n";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** listen() errors of a port Windows reserved since it was picked (Hyper-V/WSL excluded ranges) or another program took. */
+const PORT_UNUSABLE = new Set(["EACCES", "EADDRINUSE"]);
 
 const callKey = (e: { client: string; tool: string; at: number }): string => JSON.stringify([e.client, e.tool, e.at]);
 
@@ -115,14 +117,40 @@ export class McpService {
       return;
     }
     this.available = true;
-    const { host, port, rateLimit } = this.ctx.settings.get().mcp;
+    const { startMcpServer } = mod;
+    const { host, port: savedPort, rateLimit } = this.ctx.settings.get().mcp;
     const accessLevel = this.accessLevel();
     const token = this.ctx.settings.mcpToken();
-    this.handle = await mod.startMcpServer({
+    const listen = (port: number): Promise<McpServerHandle> => startMcpServer(this.serverOptions(host, port, token, accessLevel, rateLimit));
+    let port = savedPort;
+    try {
+      this.handle = await listen(port);
+    } catch (err) {
+      // A port Corvus picked itself may be reserved or taken by now: pick another. One the person typed stays an error.
+      if (port === 0 || port !== this.autoPort() || !PORT_UNUSABLE.has((err as NodeJS.ErrnoException).code ?? "")) throw err;
+      port = 0;
+      this.handle = await listen(port);
+    }
+    this.error = null;
+    if (port === 0) {
+      // Persist the random port so the `claude mcp add` command keeps working across restarts.
+      this.runningConfig = JSON.stringify({ host, port: this.handle.port, accessLevel, token, rateLimit });
+      this.saveAutoPort(this.handle.port);
+      this.ctx.settings.update({ mcp: { port: this.handle.port } });
+    } else {
+      this.runningConfig = JSON.stringify({ host, port, accessLevel, token, rateLimit });
+    }
+    // The local stdio bridge always connects over loopback, even when the server also listens on all interfaces.
+    this.writeDiscovery(`http://127.0.0.1:${this.handle.port}/mcp`, token);
+    this.ctx.windows.broadcastState();
+  }
+
+  private serverOptions(host: string, port: number, token: string, accessLevel: AccessLevel, rateLimit: McpRateLimit): StartMcpServerOptions {
+    return {
       controller: this.ctx.controller,
       search: this.ctx.search.proxy,
       host,
-      port: port || 0,
+      port,
       token,
       accessLevel,
       webscope: () => this.ctx.webscope.activeEngine(),
@@ -154,18 +182,30 @@ export class McpService {
         // A call refused by the rate limit never started, so the activity timeline has no step for it.
         if (event.outcome !== "rate-limited") this.ctx.agents.toolResult(event);
       },
-    });
-    this.error = null;
-    if (port === 0) {
-      // Persist the random port so the `claude mcp add` command keeps working across restarts.
-      this.runningConfig = JSON.stringify({ host, port: this.handle.port, accessLevel, token, rateLimit });
-      this.ctx.settings.update({ mcp: { port: this.handle.port } });
-    } else {
-      this.runningConfig = JSON.stringify({ host, port, accessLevel, token, rateLimit });
+    };
+  }
+
+  /** Where the port Corvus picked itself is noted, to tell it from one the person typed in Settings. */
+  private autoPortFile(): string {
+    return path.join(app.getPath("userData"), "mcp-port.json");
+  }
+
+  /** The port Corvus last picked itself (0 = none noted). */
+  private autoPort(): number {
+    try {
+      const auto = (JSON.parse(fs.readFileSync(this.autoPortFile(), "utf8")) as { auto?: unknown }).auto;
+      return typeof auto === "number" ? auto : 0;
+    } catch {
+      return 0;
     }
-    // The local stdio bridge always connects over loopback, even when the server also listens on all interfaces.
-    this.writeDiscovery(`http://127.0.0.1:${this.handle.port}/mcp`, token);
-    this.ctx.windows.broadcastState();
+  }
+
+  private saveAutoPort(port: number): void {
+    try {
+      fs.writeFileSync(this.autoPortFile(), JSON.stringify({ auto: port }));
+    } catch {
+      // Without the note a later clash on this port stays an error, as for a typed port.
+    }
   }
 
   async stop(): Promise<void> {

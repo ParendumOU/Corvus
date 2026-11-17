@@ -38,7 +38,7 @@ import { myAsks } from '@/lib/asks';
 import { chainView, pullChain, type ChainView } from '@/lib/chain-view';
 import { dataStore } from '@/lib/data-store';
 import { bookmarkList, nextPosition } from '@/lib/library';
-import { Outbox } from '@/lib/outbox';
+import { Outbox, startOver } from '@/lib/outbox';
 import { isUnreachable, needsServerMessage } from '@/lib/reach';
 import type { Progress } from '@/lib/refresh';
 import { VAULT_KEY, vaultSealer } from '@/lib/password-vault';
@@ -361,10 +361,29 @@ async function answers(serverUrl: string): Promise<boolean> {
   }
 }
 
-async function usePairing(next: Pairing): Promise<Pairing> {
+/**
+ * Whether `pairing` is still the phone's pairing: a refresh that began before the phone was unpaired
+ * (or paired with another chain) must neither write it back nor clear what the phone now keeps.
+ */
+async function stillPaired(pairing: Pairing): Promise<boolean> {
+  return sameChain(await loadPairing(), pairing);
+}
+
+async function usePairing(next: Pairing): Promise<Pairing | null> {
+  if (!(await stillPaired(next))) return null;
   clients.delete(next.chainId);
   await secrets.set(PAIRING_KEY, JSON.stringify(next));
   return next;
+}
+
+/** Fetches everything again from the start, keeping the changes still waiting to be pushed (see startOver). */
+async function startAfresh(pairing: Pairing, client: CorvusSyncClient): Promise<void> {
+  await startOver(outboxFor(pairing), replicaFor(pairing), async () => {
+    await client.resetLocalState();
+    replicas.delete(pairing.chainId);
+    await dataStore.clear();
+    return replicaFor(pairing);
+  });
 }
 
 /**
@@ -385,9 +404,8 @@ export async function followChain(pairing: Pairing): Promise<Pairing | null> {
     } catch {
       continue;
     }
-    await client.resetLocalState();
-    replicas.delete(pairing.chainId);
-    await dataStore.clear();
+    if (!(await stillPaired(pairing))) return null;
+    await startAfresh(pairing, client);
     return usePairing(next);
   }
   return null;
@@ -407,11 +425,10 @@ export async function otherAddress(pairing: Pairing): Promise<Pairing | null> {
  * everything anew.
  */
 export async function rejoin(pairing: Pairing): Promise<void> {
+  if (!(await stillPaired(pairing))) throw new Error(t('This phone is not paired with a computer.'));
   const client = clientFor(pairing);
   await client.register();
-  await client.resetLocalState();
-  replicas.delete(pairing.chainId);
-  await dataStore.clear();
+  await startAfresh(pairing, client);
 }
 
 const oldServer = (): string => t('Your sync server does not support sending pages yet: update it to the latest Corvus sync server.');

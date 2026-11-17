@@ -107,7 +107,7 @@ function fakeContext(controller: ReturnType<typeof mockController>, askBeforeRis
     controller,
     agents,
     // RunTabs looks the run's tabs up here; these runs open none of their own.
-    windows: { findTab: () => undefined, regular: () => [] },
+    windows: { findTab: () => undefined, usable: () => [] },
     assist: { open: vi.fn() },
     agentCredentials: credentials.service,
     secretFills,
@@ -408,6 +408,23 @@ describe("AgentRunner", () => {
     expect(resumeProvider.seen[0]!.messages).toHaveLength(3);
     expect(store.get(id)!.status).toBe("done");
     expect(win.sendCommand).toHaveBeenCalledWith({ type: "open-command-palette" });
+  });
+
+  it("declines to resume a run that is still going", async () => {
+    const controller = mockController();
+    const { ctx, agents } = fakeContext(controller, false);
+    const { provider } = scripted([[{ type: "tool_use", id: "t", name: "page_snapshot", input: {} }]]);
+    const runner = new AgentRunner(ctx);
+    runner.setTestProvider(provider);
+    agents.setPaused(true);
+    const win = fakeWindow();
+    runner.start(win, "still going");
+    await waitFor(() => runner.windowExtras(win).agentRun?.status === "paused");
+    const id = runner.windowExtras(win).agentRun!.id;
+    const res = runner.resume(win, id);
+    expect(res.ok).toBe(false);
+    expect(runner.windowExtras(win).agentRun!.id).toBe(id);
+    runner.stop(win);
   });
 
   it("declines to resume a cleanly finished run", async () => {

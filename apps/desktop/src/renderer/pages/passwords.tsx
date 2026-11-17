@@ -1525,13 +1525,18 @@ function UnlockForm({ db, canRemember, onDone }: { db: KeePassDbView; canRemembe
   const unlock = async (): Promise<void> => {
     setBusy(true);
     setError(null);
-    const result = (await api.call("keepass.unlock", db.id, password, keyFile, keep)) as KeePassUnlockResult;
-    setBusy(false);
-    if (result.ok) {
-      setPassword("");
-      onDone();
-    } else {
-      setError(result.error);
+    try {
+      const result = (await api.call("keepass.unlock", db.id, password, keyFile, keep)) as KeePassUnlockResult;
+      if (result.ok) {
+        setPassword("");
+        onDone();
+      } else {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1588,10 +1593,15 @@ function ExportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
 
   const run = async (): Promise<void> => {
     setBusy(true);
-    const done = (await api.call("keepass.export", password)) as KeePassExportResult;
-    setResult(done);
-    if (done?.ok) onDone();
-    setBusy(false);
+    try {
+      const done = (await api.call("keepass.export", password)) as KeePassExportResult;
+      setResult(done);
+      if (done?.ok) onDone();
+    } catch (err) {
+      setResult({ ok: false, error: errorMessage(err) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -1694,7 +1704,7 @@ function KeePassSection({
         {state && state.sources.filter((s) => s.kind === "folder").map((s) => (
           <div key={s.id} className="kp-source">
             <IconFolder size={13} /> <span className="grow kp-path" title={s.path}>{s.path}</span>
-            <span className="pw-hint">{s.databases} {s.databases === 1 ? "database" : "databases"}</span>
+            <span className="pw-hint">{s.databases === 1 ? t("1 database") : t("{n} databases", { n: s.databases })}</span>
             <button className="icon-btn" title={t("Remove folder")} onClick={() => removeSource(s.id)}>
               <IconTrash size={14} />
             </button>

@@ -45,6 +45,8 @@ export function isAgentAllowedUrl(url: string): boolean {
       return parsed.href === "about:blank";
     case `${INTERNAL_SCHEME}:`: {
       const page = internalPageOf(url);
+      // The New Tab page itself, never the custom widget documents served under it.
+      if (page === "newtab") return parsed.pathname === "/" || parsed.pathname === "";
       return page !== null && AGENT_INTERNAL_PAGES.has(page);
     }
     default:

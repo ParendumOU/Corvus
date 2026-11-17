@@ -78,6 +78,14 @@ describe("splitSentences", () => {
   it("does not break on abbreviations or decimals", () => {
     expect(splitSentences("It cost 3.5 kg. Dr. Smith agreed.")).toEqual(["It cost 3.5 kg.", "Dr. Smith agreed."]);
   });
+  it("keeps text glued to a period and closing quotes, and drops lone punctuation", () => {
+    expect(splitSentences("See index.html. Then go.")).toEqual(["See index.html.", "Then go."]);
+    expect(splitSentences('He said "stop." Then left... ...')).toEqual(['He said "stop."', "Then left..."]);
+  });
+  it("stays linear on page text with a long run before a period", () => {
+    const run = "x".repeat(200_000);
+    expect(splitSentences(`${run}.y`)).toEqual([`${run}.y`]);
+  });
   it("returns a single chunk when there is no terminal punctuation", () => {
     expect(splitSentences("no period here")).toEqual(["no period here"]);
     expect(splitSentences("   ")).toEqual([]);
