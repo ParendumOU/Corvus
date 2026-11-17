@@ -9,6 +9,11 @@
 - **Links from your synced lists open only web pages.** Bookmarklets and links to other apps from bookmarks, history or sent pages no longer open from a list, and links to files on the phone no longer fail without a word.
 - **The Assist list and Home no longer sync over and over in the background**, and a failed action in a chat or a list now tells you.
 
+## v0.48.6
+
+### macOS
+- **Corvus for macOS catches up with 0.48.3, 0.48.4 and 0.48.5.** Windows and Linux are unchanged from 0.48.5.
+
 ## v0.48.5
 
 ### Your data
