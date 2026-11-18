@@ -111,3 +111,13 @@ describe("approvalReason", () => {
     expect(kp).not.toContain("s3cret-pw");
   });
 });
+
+describe("a remembered username (no password, no 2FA)", () => {
+  it("is never what an agent signs in with, trusted or opted in", () => {
+    const remembered = rec({ password: "", agentSignIn: true });
+    expect(pickAgentLogin([remembered], "signIn", base)).toMatchObject({ ok: false, status: "handoff" });
+    expect(pickAgentLogin([remembered], "signIn", { ...base, trusted: true })).toMatchObject({ ok: false, status: "handoff" });
+    const full = rec({ id: "b", username: "bob", agentSignIn: true });
+    expect(pickAgentLogin([remembered, full], "signIn", base)).toMatchObject({ ok: true, record: { id: "b" } });
+  });
+});

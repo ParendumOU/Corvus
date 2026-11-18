@@ -14,6 +14,7 @@ describe('saved logins', () => {
       a: { origin: 'https://alpha.example', username: 'bob', password: 'p2', notes: 'n' },
       c: { origin: 'https://alpha.example', username: 'al', password: 'p3' },
       bad: { origin: '', username: 'x', password: 'y' },
+      usernameOnly: { origin: 'https://alpha.example', username: 'remembered@example.com', password: '' },
       worse: null,
     });
     expect(logins.map((l) => l.id)).toEqual(['c', 'a', 'b']);

@@ -5,6 +5,7 @@
  * skips the setting, the opt-in and the prompt. Messages go to the model, so they name usernames and
  * hosts (not secret) but never a password, a code or a 2FA secret.
  */
+import { isUsernameOnly } from "../shared/credentials";
 import { resolveMcpAccessLevel, type Settings } from "../shared/settings";
 import type { LoginRecord } from "./login-sources";
 
@@ -40,11 +41,12 @@ export interface PolicyOptions {
 const what = (use: CredentialUse): string => (use === "totp" ? "2FA code" : "saved login");
 
 function optedIn(r: LoginRecord, use: CredentialUse): boolean {
-  return use === "totp" ? Boolean(r.totp) && r.agentTotp : r.agentSignIn;
+  return use === "totp" ? Boolean(r.totp) && r.agentTotp : r.agentSignIn && !isUsernameOnly(r);
 }
 
+/** A remembered username alone (no password, no 2FA) gives an agent nothing to sign in with. */
 function exists(r: LoginRecord, use: CredentialUse): boolean {
-  return use === "totp" ? Boolean(r.totp) : true;
+  return use === "totp" ? Boolean(r.totp) : !isUsernameOnly(r);
 }
 
 export function pickAgentLogin(records: LoginRecord[], use: CredentialUse, opts: PolicyOptions): PolicyResult {

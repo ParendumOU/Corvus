@@ -702,6 +702,8 @@ export const ES_UI: Record<string, string> = {
   "Also removes the 2FA-only login from the earlier import: {names}": "También elimina la entrada solo 2FA de la importación anterior: {names}",
   "Repairs": "Reparaciones",
   "2FA only": "Solo 2FA",
+  "Username only": "Solo usuario",
+  "Remembered when you signed in without a password; offered in the field next time": "Guardado al iniciar sesión sin contraseña; se ofrece en el campo la próxima vez",
   "Never for this site": "Nunca en este sitio",
   "Never offer to save passwords on {host}": "No ofrecer nunca guardar contraseñas en {host}",
   "Never saved": "Nunca se guardan",

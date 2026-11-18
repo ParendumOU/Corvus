@@ -357,7 +357,7 @@ function FieldMenu({ bridge }: { bridge: FieldMenuBridge }) {
           return (
             <div key={m.id} role="option" aria-selected={state.highlight === index} title={dropdownLabel(m, state.kind, words)} {...p} className={`af-row ${p.className}`}>
               <span className="af-fill">
-                <span className="af-icon">{state.kind === "login" && m.hasPassword ? <IconLock size={14} /> : <IconClock size={14} />}</span>
+                <span className="af-icon">{state.kind === "login" && !twoFaOnly ? <IconLock size={14} /> : <IconClock size={14} />}</span>
                 <span className="af-text">
                   <span className="af-user-line">
                     <span className="af-user">{user}</span>

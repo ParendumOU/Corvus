@@ -5,7 +5,7 @@ import { parseAddressCapture, parseAddressSave } from "../shared/addresses";
 import { cardSummary, luhnValid, parseCardCapture, parseCardSave } from "../shared/cards";
 import { AUTOFILL_FRAME_FILLED_CHANNEL, parseFieldSight, parseFrameAnswer, validDocToken } from "../shared/frame-fill";
 import { isBigChange } from "../shared/backup-reminder";
-import { credentialSummary, generatePassword, type PasswordOptions } from "../shared/credentials";
+import { credentialSummary, generatePassword, isUsernameOnly, type PasswordOptions } from "../shared/credentials";
 import { parseDropdownAction } from "../shared/field-dropdown";
 import {
   AUTOFILL_ADDRESS_CAPTURE_CHANNEL,
@@ -349,7 +349,7 @@ export function registerAutofillCapture(ctx: AppContext): void {
     const found = ctx.windows.byUnlockedTab(event.sender);
     const v = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
     if (!found || event.senderFrame !== event.sender.mainFrame || typeof v.origin !== "string" || typeof v.username !== "string") return;
-    if (v.origin.length <= MAX_FIELD && v.username.trim() && v.username.length <= MAX_FIELD) ctx.autofill.onIdentifierSent(found.window, found.tab, { origin: v.origin, username: v.username.trim() });
+    if (v.origin.length <= MAX_FIELD && v.username.trim() && v.username.length <= MAX_FIELD) ctx.autofill.onIdentifierSent(found.window, found.tab, { origin: v.origin, username: v.username.trim(), sent: v.sent === true });
   });
   // Field clicks come from the top frame and its subframes (a payment provider's iframe, a sign-in form
   // embedded in a page), each with its document's token, a subframe's also with how the field shows
@@ -466,7 +466,8 @@ export async function exportVaultToKdbx(profile: ProfileRuntime, file: string, p
   if (password.length < MIN_EXPORT_PASSWORD) return { ok: false, error: `Choose a master password of at least ${MIN_EXPORT_PASSWORD} characters.` };
   const target = /\.kdbx$/i.test(file) ? file : `${file}.kdbx`;
   if (fs.existsSync(target)) return { ok: false, error: "That file already exists. Corvus only exports to a new file and never overwrites a database." };
-  const creds = profile.credentials.all();
+  // A remembered username alone is no login to back up.
+  const creds = profile.credentials.all().filter((c) => !isUsernameOnly(c));
   if (creds.length === 0) return { ok: false, error: "There are no saved logins to export." };
   try {
     const bytes = await createKdbx(vaultExportEntries(creds), password, { name: "Corvus" });

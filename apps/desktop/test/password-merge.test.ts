@@ -48,6 +48,12 @@ describe("one merge path for browser import and CSV", () => {
     expect(planImport({ origin: "https://example.com", username: "ana", password: "current-pw" }, ctx([login()])).outcome).toBe("alreadySaved");
   });
 
+  it("a login without a password (a remembered username) takes the imported one, dated or not", () => {
+    const remembered = login({ password: "", changedAt: undefined });
+    expect(planImport({ origin: "https://example.com", username: "ana", password: "csv-pw" }, ctx([remembered]))).toEqual({ outcome: "updated", targetId: "id1" });
+    expect(planImport({ origin: "https://example.com", username: "ana", password: "old-pw", changedAt: 1 }, ctx([login({ password: "", changedAt: 5000 })])).outcome).toBe("updated");
+  });
+
   it("matches the login's history: left alone, no new entry", () => {
     const hist = [historyEntry("old-pw", 10)];
     expect(planImport({ origin: "https://example.com", username: "ana", password: "old-pw", changedAt: 50 }, ctx([login({ passwordHistory: hist })])).outcome).toBe("history");

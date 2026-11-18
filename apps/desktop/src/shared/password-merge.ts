@@ -89,6 +89,8 @@ export function planImport(incoming: IncomingLogin, ctx: MergeContext): MergePla
   const exact = ctx.loginsForOrigin.find((l) => l.username === incoming.username);
   if (exact) {
     if (exact.password === incoming.password) return { outcome: "alreadySaved", targetId: exact.id };
+    // A login without a password (a remembered username, a 2FA only) takes it: nothing is lost.
+    if (exact.password === "") return { outcome: "updated", targetId: exact.id };
     if (ctx.hashMatches(exact.passwordHistory ?? [], incoming.password)) return { outcome: "history", targetId: exact.id };
     // A difference: the dates decide which password is the newer one.
     if (dated(incoming.changedAt) && dated(exact.changedAt)) {

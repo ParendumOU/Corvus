@@ -137,12 +137,12 @@ export const LABEL_SEPARATOR = "  \u00b7  ";
 
 /**
  * What a menu shows next to an account's username: the site its password is saved for, its KeePass
- * database (unless the menu has a line of its own for it) and `twoFaOnly` when it has no password
+ * database (unless the menu has a line of its own for it) and `twoFaOnly` when it has a 2FA and no password
  * ("" to leave that out).
  */
 export function accountDetails(m: CredentialMatch, twoFaOnly: string, opts: { source?: boolean } = {}): string[] {
   const source = m.source === "keepass" && opts.source !== false ? [m.sourceName ? `KeePass: ${m.sourceName}` : "KeePass"] : [];
-  return [...(m.site ? [m.site] : []), ...source, ...(m.hasPassword || !twoFaOnly ? [] : [twoFaOnly])];
+  return [...(m.site ? [m.site] : []), ...source, ...(m.hasPassword || !m.hasTotp || !twoFaOnly ? [] : [twoFaOnly])];
 }
 
 /**
@@ -272,6 +272,14 @@ export function isValidCredential(value: unknown): value is Credential {
     typeof v.createdAt === "number" &&
     typeof v.updatedAt === "number"
   );
+}
+
+/**
+ * A login that holds only a username: what a sign-in that never asks for a password (an e-mail code)
+ * leaves, so the site offers the username again. A later password saves into it.
+ */
+export function isUsernameOnly(c: { password: string; totp?: unknown }): boolean {
+  return c.password === "" && !c.totp;
 }
 
 export function credentialSummary(c: Credential): CredentialSummary {

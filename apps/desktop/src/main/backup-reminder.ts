@@ -5,6 +5,7 @@
  * setting off. Never in a private window or over an AI agent's tab, and it shows no secret.
  */
 import { backupDue } from "../shared/backup-reminder";
+import { isUsernameOnly } from "../shared/credentials";
 import type { AppContext } from "./context";
 import { tr } from "./menu-i18n";
 import type { BrowserWindowCtl } from "./window";
@@ -25,7 +26,7 @@ export class BackupReminder {
   /** Whether the reminder is due for this window's profile now. */
   due(win: BrowserWindowCtl, now = Date.now()): boolean {
     const enabled = this.ctx.settings.get().passwords.backupReminder;
-    return backupDue(win.profile.backup.state(), { enabled, hasLogins: win.profile.credentials.all().length > 0, now });
+    return backupDue(win.profile.backup.state(), { enabled, hasLogins: win.profile.credentials.all().some((c) => !isUsernameOnly(c)), now });
   }
 
   /**

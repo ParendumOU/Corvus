@@ -452,11 +452,24 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     const hint = `${el.name || ""} ${el.id || ""} ${el.getAttribute("autocomplete") || ""} ${el.getAttribute("type") || ""}`.toLowerCase();
     return /email|user|login|account|phone|tel/.test(hint);
   };
-  // The username typed on such a step, as it is sent (the form's submit, Enter) or left changed: the
-  // next step may ask only for the password, and the save prompt then needs it. Only the username.
+  // The username typed on such a step, as it is sent (the form's submit, Enter, its button) or left
+  // changed: the next step may ask only for the password, and the save prompt then needs it; a sent one
+  // is remembered for the site (a sign-in by e-mail code never asks for a password). Only the username.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const reportIdentifier = (el: any): void => {
-    if (isIdentifier(el) && el.value) ipcRenderer.send(AUTOFILL_IDENTIFIER_CHANNEL, { origin: location.origin, username: String(el.value) });
+  const reportIdentifier = (el: any, sent: boolean): void => {
+    if (isIdentifier(el) && el.value) ipcRenderer.send(AUTOFILL_IDENTIFIER_CHANNEL, { origin: location.origin, username: String(el.value), sent });
+  };
+  // A button pressed next to such a field sends it too (sign-ins without a form: the page reads the
+  // field itself). The field is looked for as identifierFieldFacts scopes it: the button's form, else
+  // the nearest part of the page around the button that has inputs.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reportNear = (button: any): void => {
+    let scope = button.form || null;
+    for (let node = button.parentElement, depth = 0; !scope && node && depth < 6; node = node.parentElement, depth++) {
+      if (node.querySelector("input")) scope = node;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (scope) Array.prototype.slice.call(scope.querySelectorAll("input")).forEach((el: any) => reportIdentifier(el, true));
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const captureFrom = (scope: any): void => {
@@ -468,7 +481,8 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const pass = passwords.find((p: any, i: number) => p.value && roles[i] === "new") || Array.prototype.slice.call(scope.querySelectorAll("input[type=password]")).find((p: any) => p.value && !isCardData(p));
       if (!pass) {
-        Array.prototype.slice.call(scope.querySelectorAll("input")).forEach(reportIdentifier);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Array.prototype.slice.call(scope.querySelectorAll("input")).forEach((el: any) => reportIdentifier(el, true));
         return;
       }
       const fields = Array.prototype.slice
@@ -520,9 +534,24 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (e: any) => {
       try {
-        if (e.isTrusted) reportIdentifier(e.target);
+        if (e.isTrusted) reportIdentifier(e.target, false);
       } catch {
         // never let autofill break a page's own fields
+      }
+    },
+    true,
+  );
+  document.addEventListener(
+    "click",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (e: any) => {
+      try {
+        const button = e.isTrusted && e.button === 0 && e.target && e.target.closest ? e.target.closest("button, input[type=submit], input[type=button], [role=button]") : null;
+        // "Forgot e-mail?", "Back", a show-password eye: buttons that do not send what was typed.
+        const label = button ? String(button.textContent || button.value || button.getAttribute("aria-label") || "").toLowerCase() : "";
+        if (button && !button.disabled && button.type !== "reset" && !/forgot|olvid|back|atr[aá]s|volver|cancel|show|mostrar|hide|ocultar/.test(label)) reportNear(button);
+      } catch {
+        // never let autofill break a page's own clicks
       }
     },
     true,
@@ -583,7 +612,7 @@ if ((location.protocol === "https:" || location.protocol === "http:") && window.
     (e: any) => {
       try {
         if (e.isTrusted && e.key === "ArrowDown" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) report(fieldOf(e));
-        else if (e.isTrusted && e.key === "Enter") reportIdentifier(e.target);
+        else if (e.isTrusted && e.key === "Enter" && !e.isComposing) reportIdentifier(fieldOf(e), true);
       } catch {
         // never let autofill break a page's own keys
       }

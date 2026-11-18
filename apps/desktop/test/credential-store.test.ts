@@ -222,3 +222,44 @@ describe("CredentialVault", () => {
     expect(vault.get("t1")?.totp).toEqual(TOTP);
   });
 });
+
+describe("remembered usernames (a sign-in without a password)", () => {
+  it("are kept once per site, whatever the case, and never next to a login of that name", () => {
+    const vault = new CredentialVault(tmp(), keychain);
+    const first = vault.rememberUsername("https://example.com/signin", " ana@example.com ");
+    expect(first).toMatchObject({ origin: "https://example.com", username: "ana@example.com", password: "" });
+    expect(vault.rememberUsername("https://example.com/other", "ANA@example.com")).toBeNull();
+    vault.add({ origin: "https://example.org", username: "bob@example.org", password: "pw" });
+    expect(vault.rememberUsername("https://example.org", "bob@example.org")).toBeNull();
+    expect(vault.rememberUsername("about:blank", "x@example.com")).toBeNull();
+    expect(vault.rememberUsername("https://example.com", "  ")).toBeNull();
+    expect(vault.all()).toHaveLength(2);
+    // Nothing there to update: the save prompt treats a password for it as a new login.
+    expect(vault.usernamesAt("https://example.com")).toEqual([]);
+  });
+
+  it("take the password saved for them later instead of making a second login", () => {
+    const vault = new CredentialVault(tmp(), keychain);
+    const remembered = vault.rememberUsername("https://example.com", "ana@example.com")!;
+    const saved = vault.saveOnSubmit("https://example.com/login", "Ana@example.com", "pw-1");
+    expect(saved.id).toBe(remembered.id);
+    expect(vault.all().map((c) => [c.username, c.password])).toEqual([["Ana@example.com", "pw-1"]]);
+    expect(vault.usernamesAt("https://example.com")).toEqual(["Ana@example.com"]);
+  });
+
+  it("are offered on the site's pages like any login, without a password", () => {
+    const vault = new CredentialVault(tmp(), keychain);
+    vault.rememberUsername("https://example.com", "ana@example.com");
+    const matches = logins(vault).matchesFor("https://example.com/login");
+    expect(matches).toEqual([expect.objectContaining({ username: "ana@example.com", hasPassword: false, hasTotp: false })]);
+    expect(vault.list()[0]).toMatchObject({ hasPassword: false, hasTotp: false });
+  });
+
+  it("survive a restart encrypted like the rest of the vault", () => {
+    const dir = tmp();
+    new CredentialVault(dir, keychain).rememberUsername("https://example.com", "ana@example.com");
+    const raw = fs.readFileSync(path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith(".json"))!), "utf8");
+    expect(raw).not.toContain("ana@example.com");
+    expect(new CredentialVault(dir, keychain).all().map((c) => c.username)).toEqual(["ana@example.com"]);
+  });
+});

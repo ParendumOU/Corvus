@@ -9,6 +9,7 @@ import {
   MAX_DELETED_LOGINS,
   credentialSummary,
   isDeletedLoginMemory,
+  isUsernameOnly,
   isValidCredential,
   originKeyOf,
   passwordChangedAtOf,
@@ -326,9 +327,9 @@ export class CredentialVault {
     return this.all().find((c) => c.origin === origin && c.username === username);
   }
 
-  /** Usernames of the logins saved for exactly this origin (no passwords). */
+  /** Usernames of the logins saved for exactly this origin (no passwords), leaving out remembered usernames (nothing to update there). */
   usernamesAt(origin: string): string[] {
-    return this.all().filter((c) => c.origin === origin).map((c) => c.username);
+    return this.all().filter((c) => c.origin === origin && !isUsernameOnly(c)).map((c) => c.username);
   }
 
   add(input: CredentialInput): Credential {
@@ -382,16 +383,34 @@ export class CredentialVault {
     return next;
   }
 
-  /** Autofill save-on-submit: update the password of an existing login, or create a new one. */
+  /** Autofill save-on-submit: update the password of an existing login (or the remembered username it was sent as), or create a new one. */
   saveOnSubmit(pageUrl: string, username: string, password: string): Credential {
     const origin = originKeyOf(pageUrl);
     if (!origin) throw new Error("Logins can only be saved for http(s) sites");
-    const existing = this.findByLogin(origin, username);
+    const existing = this.findByLogin(origin, username) ?? this.rememberedAt(origin, username);
     if (existing) {
-      if (existing.password === password) return existing;
-      return this.update(existing.id, { password })!;
+      if (existing.password === password && existing.username === username) return existing;
+      return this.update(existing.id, { username, password })!;
     }
     return this.add({ origin, username, password });
+  }
+
+  /** The username remembered for this origin (see rememberUsername), compared as the person may retype it. */
+  private rememberedAt(origin: string, username: string): Credential | undefined {
+    const key = username.trim().toLowerCase();
+    return this.all().find((c) => c.origin === origin && isUsernameOnly(c) && c.username.trim().toLowerCase() === key);
+  }
+
+  /**
+   * Remembers a username sent on a sign-in that asks for no password (an e-mail code): a login with the
+   * username only, so the site offers it again. Nothing when the origin already has a login for it.
+   */
+  rememberUsername(pageUrl: string, username: string): Credential | null {
+    const origin = originKeyOf(pageUrl);
+    const name = username.trim();
+    const key = name.toLowerCase();
+    if (!origin || !name || this.all().some((c) => c.origin === origin && c.username.trim().toLowerCase() === key)) return null;
+    return this.add({ origin, username: name, password: "" });
   }
 
   /**

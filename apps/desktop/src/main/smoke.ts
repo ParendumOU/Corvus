@@ -52,6 +52,7 @@ import { runOtpFillSmoke, serveOtpFillSmokeRoute } from "./smoke-otp-fill";
 import { runSimilarLoginsSmoke } from "./smoke-similar-logins";
 import { runPasswordGeneratorSmoke, servePasswordGeneratorSmokeRoute } from "./smoke-pwgen";
 import { runIdentifierFirstSmoke, serveIdentifierFirstSmokeRoute } from "./smoke-idfirst";
+import { runRememberEmailSmoke, serveRememberEmailSmokeRoute } from "./smoke-remember-email";
 import { runFeaturesSmoke } from "./smoke-features";
 import { runLocalModelsSmoke } from "./smoke-local-models";
 import { narrowLayout, narrowWindow, runPairPhoneUiSmoke, runPairingAddressSmoke } from "./smoke-pairing";
@@ -126,6 +127,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     if (serveFrameFillSmokeRoute(req, res)) return;
     if (servePasswordGeneratorSmokeRoute(req, res)) return;
     if (serveIdentifierFirstSmokeRoute(req, res)) return;
+    if (serveRememberEmailSmokeRoute(req, res)) return;
     if (serveFaviconSmokeRoute(req, res)) return;
     if (serveMediaSmokeRoute(req, res)) return;
     if (serveUxSmokeRoute(req, res)) return;
@@ -313,6 +315,11 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
     // CORVUS_SMOKE_ONLY=idfirst: only the checks of two-step ("identifier first") sign-ins (with screenshots).
     if (process.env.CORVUS_SMOKE_ONLY === "idfirst") {
       await runIdentifierFirstSmoke(ctx, { url, win, check });
+      return;
+    }
+    // CORVUS_SMOKE_ONLY=rememberemail: only the checks of usernames remembered from sign-ins without a password (with screenshots).
+    if (process.env.CORVUS_SMOKE_ONLY === "rememberemail") {
+      await runRememberEmailSmoke(ctx, { url, win, check });
       return;
     }
     if (process.env.CORVUS_SMOKE_ONLY === "pwgen") {
@@ -505,6 +512,7 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       ["similarLogins", () => runSimilarLoginsSmoke(ctx, { url, win, check, capture })],
       ["passwordGenerator", () => runPasswordGeneratorSmoke(ctx, { url, win, check })],
       ["identifierFirst", () => runIdentifierFirstSmoke(ctx, { url, win, check })],
+      ["rememberEmail", () => runRememberEmailSmoke(ctx, { url, win, check })],
       ["backup", () => runBackupSmoke(ctx, { win, check, capture })],
       ["annotations", () => runAnnotationsSmoke(ctx, { url, win, check, capture })],
       ["agent", async () => {

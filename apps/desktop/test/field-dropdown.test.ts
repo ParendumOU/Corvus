@@ -66,6 +66,11 @@ describe("the field dropdown's rows", () => {
     expect(dropdownTwoFaOnly(only, "login")).toBe(true);
     expect(dropdownTwoFaOnly(only, "otp")).toBe(false);
     expect(dropdownTwoFaOnly(match("pw"), "login")).toBe(false);
+    // A remembered username (no password, no 2FA) is no "2FA only" account.
+    const remembered = match("remembered", { hasPassword: false });
+    expect(dropdownTwoFaOnly(remembered, "login")).toBe(false);
+    expect(dropdownLabel(remembered, "login", en)).toBe("remembered@example.com  ·  central.example.com");
+    expect(dropdownMayOpen({ login: false, identifier: true, otp: false }, [remembered])).toBe(true);
     expect(dropdownLabel(only, "login", en)).toBe("only@example.com  ·  central.example.com  ·  2FA only");
     expect(dropdownLabel(only, "otp", en)).toBe("2FA code for only@example.com  ·  central.example.com");
     expect(dropdownLabel(only, "login", es)).toBe("only@example.com  ·  central.example.com  ·  Solo 2FA");

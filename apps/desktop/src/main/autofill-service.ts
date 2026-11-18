@@ -4,7 +4,7 @@ import { addressLine, addressSaveDecision, capturedAddress, cleanAddressFields, 
 import { type AccountPick, planAccountFill } from "../shared/autofill-plan";
 import { capturedCard, cardLine, cardSaveDecision, cardTitle, cleanCardFields, type AutofillCard, type CardFields } from "../shared/cards";
 import { autofillSiteOf, neverSaveHostOf, sendIdentifier, sentIdentifierFor, type SentIdentifier } from "../shared/autofill-sites";
-import { loginDomainOf, originKeyOf, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
+import { isUsernameOnly, loginDomainOf, originKeyOf, type CredentialMatch, type PasswordOptions } from "../shared/credentials";
 import { type AutofillBarState, type AutofillCode, type CapturedAddress, type CapturedCard, type CapturedIdentifier, type CapturedSubmit, type DropdownAction, EMPTY_AUTOFILL, type FieldClick, type PendingSaveView, type SaveEdit } from "../shared/credentials-ipc";
 import { dropdownAccounts, dropdownMayOpen } from "../shared/field-dropdown";
 import {
@@ -228,7 +228,7 @@ export class AutofillService {
     if (ids.size === 0) return;
     const url = this.pageUrl(tab);
     const origin = originKeyOf(url);
-    const login = win.profile.logins.records(url).find((r) => ids.has(r.id));
+    const login = win.profile.logins.records(url).find((r) => ids.has(r.id) && r.password !== "");
     if (!origin || !login) return;
     const asked = this.autoAsked.get(tab.id) ?? new Map<string, number>();
     if (Date.now() - (asked.get(origin) ?? 0) < AUTO_SIGN_IN_QUIET_MS) return;
@@ -316,13 +316,29 @@ export class AutofillService {
   /**
    * The tab preload reported the username sent from a two-step sign-in's first step (typed, then sent or
    * left changed): kept in memory for a few minutes for the tab and site, so the next step offers its
-   * account first and the save prompt names it. Only from the page the tab shows.
+   * account first and the save prompt names it. Only from the page the tab shows. A sent one is also
+   * remembered for the site (see rememberUsername).
    */
   onIdentifierSent(win: BrowserWindowCtl, tab: TabRuntime, data: CapturedIdentifier): void {
     const url = this.pageUrl(tab);
     const site = autofillSiteOf(url);
     if (!site || originKeyOf(data.origin) !== originKeyOf(url)) return;
     this.identifiers.set(tab.id, sendIdentifier(this.identifiers.get(tab.id), { site, username: data.username, at: Date.now() }));
+    if (data.sent) this.rememberUsername(win, tab, url, data.username);
+  }
+
+  /**
+   * A username sent from a sign-in's username step is remembered for the site (a login with the
+   * username only), so a sign-in that never asks for a password (an e-mail code) offers it next time;
+   * a password step that follows saves into it. Never from a private window or an agent at work, nor
+   * on a site the person told never to save, nor when the site already has an account of that name.
+   */
+  private rememberUsername(win: BrowserWindowCtl, tab: TabRuntime, url: string, username: string): void {
+    const origin = originKeyOf(url);
+    if (!origin || win.isPrivate || tab.agentControlled || win.profile.locked || win.profile.siteSettings.isNeverSave(neverSaveHostOf(origin))) return;
+    const key = username.trim().toLowerCase();
+    if (win.profile.logins.accounts(url).some((a) => a.username.trim().toLowerCase() === key)) return;
+    win.profile.credentials.rememberUsername(origin, username);
   }
 
   /** A tab committed a navigation: its login probe is stale (a pending save survives to the new page). */
@@ -1016,13 +1032,18 @@ export class AutofillService {
   }
 
   /**
-   * "Never for this site": drops the pending save and stops offering to save logins on its exact host
-   * (another host of the same domain still asks). Settings > Passwords lists the host to take it off.
+   * "Never for this site": drops the pending save and the usernames remembered there, and stops offering
+   * to save logins on its exact host (another host of the same domain still asks). Settings > Passwords lists the host to take it off.
    */
   neverSave(win: BrowserWindowCtl, id: number): void {
     const found = this.pendingFor(win, id);
     if (!found) return;
     win.profile.siteSettings.setNeverSave(neverSaveHostOf(found.save.origin), true);
+    // The username remembered from its first step goes too: the person wants nothing kept for it.
+    const credentials = win.profile.credentials;
+    credentials.batch(() => {
+      for (const c of credentials.all()) if (c.origin === found.save.origin && isUsernameOnly(c)) credentials.remove(c.id);
+    });
     this.pending.delete(found.tab.id);
     win.pushState();
   }

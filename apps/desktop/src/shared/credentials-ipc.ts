@@ -182,13 +182,16 @@ export const AUTOFILL_CAPTURE_CHANNEL = "corvus:autofill-captured";
 
 /**
  * One-way channel: the tab preload reports the username typed on a two-step sign-in's first step, as
- * it is sent or left changed (the next step may ask only for the password; the save prompt names it).
+ * it is sent or left changed (the next step may ask only for the password; the save prompt names it;
+ * a sent one is remembered for the site, see AutofillService.onIdentifierSent).
  */
 export const AUTOFILL_IDENTIFIER_CHANNEL = "corvus:autofill-identifier";
 
 export interface CapturedIdentifier {
   origin: string;
   username: string;
+  /** Sent (the form's submit, Enter, its button), not only left changed: a sign-in that asks for no password then remembers it. */
+  sent: boolean;
 }
 
 /**

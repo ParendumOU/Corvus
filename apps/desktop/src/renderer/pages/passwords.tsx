@@ -1427,7 +1427,7 @@ function LoginRow({
       <div className="pt-meta">
         <div className="pt-status">{chips}</div>
         {code ?? <div className="pt-code" />}
-        <AutoSignInToggle id={id} on={autoOn} onChange={onAutoSignIn} />
+        {hasPassword ? <AutoSignInToggle id={id} on={autoOn} onChange={onAutoSignIn} /> : <span className="pt-option" />}
       </div>
       <div className="pt-actions">
         <RowAction className="pt-reveal" icon={<IconLock size={13} />} label={revealed !== undefined ? t("Hide") : t("Show")} name={revealed !== undefined ? t("Hide password") : t("Reveal password")} disabled={!hasPassword} onClick={onReveal} />
@@ -1444,6 +1444,7 @@ function LoginChips({ hasPassword, hasTotp, health, signIn, totp, agentAccess }:
   return (
     <>
       {!hasPassword && hasTotp && <span className="pill">{t("2FA only")}</span>}
+      {!hasPassword && !hasTotp && <span className="pill" title={t("Remembered when you signed in without a password; offered in the field next time")}>{t("Username only")}</span>}
       <HealthChips health={health} />
       <AgentChips signIn={signIn} totp={totp} globalOn={agentAccess} />
     </>

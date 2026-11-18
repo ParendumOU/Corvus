@@ -9,6 +9,11 @@
 - **Links from your synced lists open only web pages.** Bookmarklets and links to other apps from bookmarks, history or sent pages no longer open from a list, and links to files on the phone no longer fail without a word.
 - **The Assist list and Home no longer sync over and over in the background**, and a failed action in a chat or a list now tells you.
 
+## v0.48.8
+
+### Browser
+- **Corvus remembers the e-mail or username you sign in with, even when the site never asks for a password.** On sign-ins that send a code by e-mail, the address you sent is kept for that site (encrypted with your saved logins) and offered under the field next time. It is never kept from a private window, on a site set to "Never for this site", or while an agent works in the tab. It shows in Settings, Passwords as "Username only" and can be deleted there; if you later save a password for it, that login takes its place instead of a second entry. Phones and KeePass exports leave these entries out.
+
 ## v0.48.7
 
 ### Browser

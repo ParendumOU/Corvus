@@ -126,9 +126,9 @@ export function dropdownLines(m: CredentialMatch, words: Pick<DropdownWords, "no
   return { user, details: accountDetails(m, "").map((d) => middleEllipsis(d, DROPDOWN_LABEL_MAX)).join(LABEL_SEPARATOR) };
 }
 
-/** The row tags an account without a password "2FA only", under a login field (under a code field every row is about the code). */
+/** The row tags an account with a 2FA and no password "2FA only", under a login field (under a code field every row is about the code). */
 export function dropdownTwoFaOnly(m: CredentialMatch, kind: AutofillFieldKind): boolean {
-  return kind === "login" && !m.hasPassword;
+  return kind === "login" && !m.hasPassword && m.hasTotp;
 }
 
 /** An account's row in one line, as its tooltip and screen readers say it ("2FA code for" the username under a code field). */

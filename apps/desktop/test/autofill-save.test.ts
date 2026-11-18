@@ -200,7 +200,7 @@ describe("the account used last", () => {
 describe("a two-step sign-in", () => {
   it("names the save after the username sent from its first step when the password step has none", () => {
     const { win, autofill, tabs, submit } = setup();
-    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "step-one@example.com" });
+    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "step-one@example.com", sent: false });
     submit("t1", "", "pw-step-two");
     expect(autofill.pendingSave(win)).toMatchObject({ username: "step-one@example.com", password: "pw-step-two" });
     // A username on the password step wins.
@@ -210,9 +210,9 @@ describe("a two-step sign-in", () => {
 
   it("keeps the username per tab and site only", () => {
     const { win, autofill, tabs, submit, activate } = setup();
-    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "step-one@example.com" });
+    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "step-one@example.com", sent: false });
     // Another tab, or a report from a page the tab no longer shows, names nothing.
-    autofill.onIdentifierSent(win, tabs.get("t2")!, { origin: "https://other.example.org", username: "elsewhere@example.org" });
+    autofill.onIdentifierSent(win, tabs.get("t2")!, { origin: "https://other.example.org", username: "elsewhere@example.org", sent: false });
     submit("t2", "", "pw-t2");
     activate("t2");
     expect(autofill.pendingSave(win)?.username).toBe("");
@@ -229,7 +229,7 @@ describe("a two-step sign-in", () => {
     const bob = vault.add({ origin: SITE, username: "bob@example.com", password: "pw-b" });
     (vault.get(bob.id) as { updatedAt: number }).updatedAt = 1;
     expect(autofill.suggestions(win).map((m) => m.id)).toEqual([alice.id, bob.id]);
-    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "BOB@example.com" });
+    autofill.onIdentifierSent(win, tabs.get("t1")!, { origin: SITE, username: "BOB@example.com", sent: false });
     expect(autofill.suggestions(win).map((m) => m.id)).toEqual([bob.id, alice.id]);
   });
 });
@@ -315,5 +315,61 @@ describe("a similar site's login (example.com on example.es)", () => {
     await autofill.fill(win, phish.id, "code");
     expect(asked).toEqual([]);
     expect(vault.all()).toHaveLength(2);
+  });
+});
+
+describe("a sign-in without a password (an e-mail code)", () => {
+  const send = (autofill: AutofillService, win: BrowserWindowCtl, tab: TabRuntime, username: string, sent = true): void =>
+    autofill.onIdentifierSent(win, tab, { origin: `${SITE}/login`, username, sent });
+
+  it("remembers the username sent from its only step and offers it next time", () => {
+    const { vault, win, autofill, tabs } = setup();
+    send(autofill, win, tabs.get("t1")!, "left@example.com", false);
+    expect(vault.all()).toEqual([]);
+    send(autofill, win, tabs.get("t1")!, "ana@example.com");
+    send(autofill, win, tabs.get("t2")!, "ANA@example.com");
+    expect(vault.all().map((c) => [c.origin, c.username, c.password])).toEqual([[SITE, "ana@example.com", ""]]);
+    expect(autofill.suggestions(win)).toEqual([expect.objectContaining({ username: "ana@example.com", hasPassword: false })]);
+    // Nothing to save: no save prompt.
+    expect(autofill.stateFor(win).canSave).toBe(false);
+  });
+
+  it("keeps nothing from a private window, an agent's tab, a locked profile or a site never to save", () => {
+    const { vault, win, autofill, tabs, siteSettings } = setup();
+    (win as { isPrivate: boolean }).isPrivate = true;
+    send(autofill, win, tabs.get("t1")!, "private@example.com");
+    (win as { isPrivate: boolean }).isPrivate = false;
+    (tabs.get("t1") as { agentControlled: boolean }).agentControlled = true;
+    send(autofill, win, tabs.get("t1")!, "agent@example.com");
+    (tabs.get("t1") as { agentControlled: boolean }).agentControlled = false;
+    (win.profile as { locked: boolean }).locked = true;
+    send(autofill, win, tabs.get("t1")!, "locked@example.com");
+    (win.profile as { locked: boolean }).locked = false;
+    siteSettings.setNeverSave("example.com", true);
+    send(autofill, win, tabs.get("t1")!, "never@example.com");
+    expect(vault.all()).toEqual([]);
+  });
+
+  it("does not add a second entry next to a saved login, and a password step saves into it", () => {
+    const { vault, win, autofill, tabs, submit } = setup();
+    vault.add({ origin: SITE, username: "bob@example.com", password: "pw-b" });
+    send(autofill, win, tabs.get("t1")!, "Bob@example.com");
+    expect(vault.all()).toHaveLength(1);
+
+    send(autofill, win, tabs.get("t1")!, "ana@example.com");
+    submit("t1", "", "pw-a");
+    const save = autofill.pendingSave(win)!;
+    expect(save).toMatchObject({ username: "ana@example.com", savedUsernames: ["bob@example.com"] });
+    autofill.acceptSave(win, { id: save.id, username: save.username, password: "pw-a" });
+    expect(vault.all().map((c) => [c.username, c.password]).sort()).toEqual([["ana@example.com", "pw-a"], ["bob@example.com", "pw-b"]]);
+  });
+
+  it("forgets the site's remembered usernames on Never for this site", () => {
+    const { vault, win, autofill, tabs, submit } = setup();
+    vault.add({ origin: SITE, username: "bob@example.com", password: "pw-b" });
+    send(autofill, win, tabs.get("t1")!, "ana@example.com");
+    submit("t1", "carol@example.com", "pw-c");
+    autofill.neverSave(win, autofill.stateFor(win).saveId);
+    expect(vault.all().map((c) => c.username)).toEqual(["bob@example.com"]);
   });
 });

@@ -120,7 +120,7 @@ export function AutofillPanel({ autofill, matches, url, onDone }: AutofillPanelP
     return (
       <div className="af-row" key={m.id}>
         <button className="af-fill" title={tooltip} onMouseDown={(e) => { e.preventDefault(); act("autofill.fill", m.id); }}>
-          <span className="af-icon">{m.hasPassword ? <IconLock size={14} /> : <IconClock size={14} />}</span>
+          <span className="af-icon">{twoFaOnly ? <IconClock size={14} /> : <IconLock size={14} />}</span>
           <span className="af-text">
             <span className="af-user-line">
               <span className="af-user">{user}</span>

@@ -30,7 +30,8 @@ export function loginsOf(records: Record<string, unknown>): Login[] {
   const out: Login[] = [];
   for (const [id, raw] of Object.entries(records)) {
     const v = raw as Partial<Record<keyof Login, unknown>> | null;
-    if (!v || typeof v.origin !== 'string' || !v.origin || typeof v.username !== 'string' || typeof v.password !== 'string') continue;
+    // A login without a password (a 2FA only, a remembered username) has nothing for the phone to show or fill.
+    if (!v || typeof v.origin !== 'string' || !v.origin || typeof v.username !== 'string' || typeof v.password !== 'string' || !v.password) continue;
     out.push({ id, origin: v.origin, username: v.username, password: v.password, notes: typeof v.notes === 'string' ? v.notes : '', updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : 0 });
   }
   return out.sort((a, b) => loginHost(a.origin).localeCompare(loginHost(b.origin)) || a.username.localeCompare(b.username));
