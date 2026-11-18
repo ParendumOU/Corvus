@@ -76,6 +76,7 @@ import { runFaviconSmoke, serveFaviconSmokeRoute } from "./smoke-favicon";
 import { fakeSearchDeps, runSearchSmoke } from "./smoke-search";
 import { runSearchPerfSmoke } from "./smoke-search-perf";
 import { runSettingsLayoutSmoke } from "./smoke-settings";
+import { SMOKE_STEP_SECONDS, smokeShard, stepDeadlineMs } from "./smoke-shard";
 import { waitForInternalPage, waitForPage } from "./smoke-wait";
 import { runWebscopeSmoke } from "./smoke-webscope";
 
@@ -398,123 +399,164 @@ export async function runSmokeTest(ctx: AppContext): Promise<void> {
       await runSearchPerfSmoke(ctx, { win, check, capture });
       return;
     }
-    await capture("chrome", win.chrome.webContents);
-    await runFaviconSmoke(ctx, { url, win, check, capture });
-    const pages: Array<[string, string]> = [
-      ["newtab", ".nt-search"],
-      ["search?q=what%20is%20corvus", ".search-header"],
-      ["settings", "#agents"],
-      ["bookmarks", ".tree"],
-      ["history", ".list-row"],
-      ["extensions", ".notice"],
-      ["schedules", ".page-toolbar .btn.primary"],
-      ["agent-runs", ".side-nav a.active"],
-      ["site-profiles", ".page-toolbar .btn.primary"],
-      ["flows", ".side-nav"],
-      ["annotations", ".side-nav a.active"],
-      ["passwords", ".btn.primary"],
-      ["crash?url=https%3A%2F%2Fexample.com%2F&reason=crashed", ".crash-view .btn.primary"],
-      ["cert-error?url=https%3A%2F%2F10.0.10.1%2F&code=ERR_CERT_AUTHORITY_INVALID&kind=authority", ".cert-view .btn.primary"],
-      ["devices", ".devices-page"],
-      ["welcome", ".wz"],
+    const steps: Array<[string, () => Promise<void>]> = [
+      ["chromeShot", async () => {
+        await capture("chrome", win.chrome.webContents);
+      }],
+      ["favicon", () => runFaviconSmoke(ctx, { url, win, check, capture })],
+      ["pages", async () => {
+        const pages: Array<[string, string]> = [
+          ["newtab", ".nt-search"],
+          ["search?q=what%20is%20corvus", ".search-header"],
+          ["settings", "#agents"],
+          ["bookmarks", ".tree"],
+          ["history", ".list-row"],
+          ["extensions", ".notice"],
+          ["schedules", ".page-toolbar .btn.primary"],
+          ["agent-runs", ".side-nav a.active"],
+          ["site-profiles", ".page-toolbar .btn.primary"],
+          ["flows", ".side-nav"],
+          ["annotations", ".side-nav a.active"],
+          ["passwords", ".btn.primary"],
+          ["crash?url=https%3A%2F%2Fexample.com%2F&reason=crashed", ".crash-view .btn.primary"],
+          ["cert-error?url=https%3A%2F%2F10.0.10.1%2F&code=ERR_CERT_AUTHORITY_INVALID&kind=authority", ".cert-view .btn.primary"],
+          ["net-error?url=https%3A%2F%2Fexample.com%2F&code=ERR_NAME_NOT_RESOLVED", ".crash-view .btn.primary"],
+          ["devices", ".devices-page"],
+          ["welcome", ".wz"],
+        ];
+        for (const [page, selector] of pages) {
+          const internal = win.createTab(`corvus://${page}`);
+          const wc = internal.view.webContents;
+          // Each page draws once its first calls to the main process answer: seconds on a busy machine.
+          const shown = await waitForInternalPage(wc, selector);
+          check(`page corvus://${page}`, shown.ok, shown.ok ? { ms: shown.ms } : { selector, ...shown.detail });
+          // Let images and late sections settle for the screenshot.
+          await new Promise((r) => setTimeout(r, 300));
+          await capture(page.split("?")[0] ?? page, wc);
+        }
+      }],
+      ["search", () => runSearchSmoke(ctx, { win, check, capture })],
+      ["sync", async () => {
+        const historyTab = win.createTab("corvus://history");
+        const historyShown = await waitForPage(historyTab.view.webContents, "window.corvusInternal");
+        const remoteTabs = historyShown.ok ? await historyTab.view.webContents.executeJavaScript("window.corvusInternal.call('sync.remoteTabs')") : historyShown.detail;
+        check("history sync.remoteTabs IPC", Array.isArray(remoteTabs), remoteTabs);
+        await runPairingAddressSmoke(check);
+        await runBuiltinSyncSmoke(ctx, url, check, capture);
+        if (process.env.CORVUS_SMOKE_SYNC_URL) await smokeSync(ctx, process.env.CORVUS_SMOKE_SYNC_URL, url, check, capture);
+      }],
+      ["settingsLayout", () => runSettingsLayoutSmoke(ctx, { win, check, capture })],
+      ["ipcBridge", async () => {
+        const webTab = ctx.windows.findTab(tab.id)?.tab;
+        const leaked = await webTab?.view.webContents.executeJavaScript("typeof window.corvusInternal + '/' + typeof window.corvus");
+        check("no IPC bridge on web content", leaked === "undefined/undefined", leaked);
+      }],
+      ["browser", () => runBrowserSmoke(ctx, { url, agentTabId: tab.id, win, check, capture })],
+      ["downloads", () => runDownloadsSmoke(ctx, { win, check, capture })],
+      ["split", () => runSplitSmoke(ctx, { url, win, check, capture })],
+      ["ux", () => runUxSmoke(ctx, { url, win, check, capture })],
+      ["signIn", () => runSignInSmoke(ctx, { url, win, check })],
+      ["newTab", () => runNewTabSmoke(ctx, { url, win, check, capture })],
+      ["chromeUi", () => runChromeUiSmoke(ctx, { url, win, check, capture })],
+      ["tabSelect", () => runTabSelectSmoke(ctx, { url, win, check, capture })],
+      ["tabWindows", () => runTabWindowsSmoke(ctx, { url, win, check, capture })],
+      ["bookmarksBar", () => runBookmarksBarSmoke(ctx, { url, win, check, capture })],
+      ["sleep", () => runSleepSmoke(ctx, { url, win, check })],
+      ["media", () => runMediaSmoke(ctx, { url, win, check, capture })],
+      ["certError", () => runCertErrorSmoke(ctx, { win, check })],
+      ["externalApps", () => runExternalAppsSmoke(ctx, { win, check, capture }, false)],
+      ["tabClose", () => runTabCloseSmoke(ctx, { win, check, capture })],
+      ["viewSource", () => runViewSourceSmoke(ctx, { win, check, capture })],
+      ["userAction", () => runUserActionSmoke(ctx, { win, check, capture })],
+      ["mcpService", async () => {
+        ctx.settings.update({ mcp: { enabled: true } });
+        await ctx.mcp.apply();
+        const status = ctx.mcp.status();
+        check("mcp service", status.running || !status.available, { ...status, token: "<redacted>", command: status.command ? "<set>" : null });
+        ctx.settings.update({ mcp: { enabled: false } });
+        await ctx.mcp.apply();
+      }],
+      ["assist", () => runAssistSmoke(ctx, { win, check, capture })],
+      ["dictation", () => runDictationSmoke(ctx, { url, win, check, capture })],
+      ["dialogs", () => runDialogsSmoke(ctx, { url, win, check, capture })],
+      ["library", () => runLibrarySmoke(ctx, { win, check, capture })],
+      ["features", () => runFeaturesSmoke(ctx, { win, check, capture })],
+      ["localModels", () => runLocalModelsSmoke(ctx, { win, check, capture })],
+      ["phone", () => runPhoneSmoke(ctx, { url, win, check, capture })],
+      ["grabber", () => runGrabberSmoke(ctx, { win, check, capture })],
+      ["connections", () => runConnectionsSmoke(ctx, { win, check, capture })],
+      ["private", () => runPrivateSmoke(ctx, { win, check, capture })],
+      ["cookieConsent", () => runCookieConsentSmoke(ctx, { win, check, capture })],
+      ["defaultBrowser", () => runDefaultBrowserSmoke(ctx, { win, check, capture })],
+      ["browserImport", () => runBrowserImportSmoke(ctx, { win, check, capture })],
+      ["passwordImport", () => runPasswordImportSmoke(ctx, { win, check, capture })],
+      ["dpapi", () => runDpapiSmoke(ctx, { win, check, capture })],
+      ["liveHistory", () => runLiveHistorySmoke(ctx, { win, check, capture })],
+      ["downloadAi", () => runDownloadAiSmoke(ctx, { win, check, capture })],
+      ["profileTransfer", () => runProfileTransferSmoke(ctx, { win, check, capture })],
+      ["reader", () => runReaderSmoke(ctx, { win, check, capture })],
+      ["pdf", () => runPdfSmoke(ctx, { win, check, capture })],
+      ["credentials", () => runCredentialsSmoke(ctx, { url, win, check, capture })],
+      ["authenticatorImport", () => runAuthenticatorImportSmoke(ctx, { url, win, check, capture })],
+      ["otpFill", () => runOtpFillSmoke(ctx, { url, win, check, capture })],
+      ["addresses", () => runAddressesSmoke(ctx, { url, win, check, capture })],
+      ["cards", () => runCardsSmoke(ctx, { url, win, check, capture })],
+      ["frameFill", () => runFrameFillSmoke(ctx, { url, win, check })],
+      ["similarLogins", () => runSimilarLoginsSmoke(ctx, { url, win, check, capture })],
+      ["passwordGenerator", () => runPasswordGeneratorSmoke(ctx, { url, win, check })],
+      ["identifierFirst", () => runIdentifierFirstSmoke(ctx, { url, win, check })],
+      ["backup", () => runBackupSmoke(ctx, { win, check, capture })],
+      ["annotations", () => runAnnotationsSmoke(ctx, { url, win, check, capture })],
+      ["agent", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });
+      }],
+      ["scheduledAgent", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runScheduledAgentSmoke(ctx, { win, check, capture });
+      }],
+      ["agentRuns", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentRunsSmoke(ctx, { win, check, capture });
+      }],
+      ["flows", () => runFlowsSmoke(ctx, { win, check, capture })],
+      ["workflows", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runWorkflowsSmoke(ctx, { win, check, capture });
+      }],
+      ["siteMemory", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runSiteMemorySmoke(ctx, { win, check, capture });
+      }],
+      ["assistAgent", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAssistAgentSmoke(ctx, { win, check, capture });
+      }],
+      ["agentIsolation", async () => {
+        if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentIsolationSmoke(ctx, { win, check, capture });
+      }],
+      ["webscope", () => runWebscopeSmoke(ctx, { url, win, check, capture })],
+      // Its keychain stand-in (Docker has none) stays on for the rest of the run: after the secret stores' checks.
+      ["profileLock", () => runProfileLockSmoke(ctx, { win, check, capture })],
+      // Closes every window but `win` (which it hides and brings back).
+      ["tray", () => runTraySmoke(ctx, { url, win, check })],
+      ["extension", () => runExtensionSmoke(ctx, { check, capture, log })],
+      // Last: it moves the real pointer and keyboard focus of the display (put back afterwards).
+      ["bgTabs", () => runBgTabsSmoke(ctx, { win, check, capture, log })],
     ];
-    for (const [page, selector] of pages) {
-      const internal = win.createTab(`corvus://${page}`);
-      const wc = internal.view.webContents;
-      // Each page draws once its first calls to the main process answer: seconds on a busy machine.
-      const shown = await waitForInternalPage(wc, selector);
-      check(`page corvus://${page}`, shown.ok, shown.ok ? { ms: shown.ms } : { selector, ...shown.detail });
-      // Let images and late sections settle for the screenshot.
-      await new Promise((r) => setTimeout(r, 300));
-      await capture(page.split("?")[0] ?? page, wc);
+    // CORVUS_SMOKE_SHARD=k/n: only this run's share of the steps (scripts/validate.sh runs the shares side by side).
+    // CORVUS_SMOKE_STEPS=tabClose,sleep: only those steps (to repeat one that fails now and then).
+    const only = process.env.CORVUS_SMOKE_STEPS?.split(",").map((n) => n.trim());
+    const share = smokeShard(only ? steps.filter(([n]) => only.includes(n)) : steps, ([n]) => SMOKE_STEP_SECONDS[n], process.env.CORVUS_SMOKE_SHARD);
+    for (const [i, [name, step]] of share.entries()) {
+      const started = Date.now();
+      // A hung step fails by name within minutes instead of the whole share waiting for its timeout.
+      const deadline = stepDeadlineMs(name);
+      let timer: NodeJS.Timeout | undefined;
+      const hung = await Promise.race([step().then(() => false), new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(true), deadline)))]);
+      clearTimeout(timer);
+      log("step", { name, ms: Date.now() - started });
+      if (hung) {
+        // It keeps running in the background (saving logins, writing vaults): later steps would fail on its leftovers.
+        const skipped = share.slice(i + 1).map(([n]) => n);
+        check(`smoke step "${name}" finishes within ${deadline / 1000} s`, false, skipped.length ? `not run after it: ${skipped.join(", ")}` : undefined);
+        break;
+      }
     }
-    await runSearchSmoke(ctx, { win, check, capture });
-    const historyTab = win.createTab("corvus://history");
-    const historyShown = await waitForPage(historyTab.view.webContents, "window.corvusInternal");
-    const remoteTabs = historyShown.ok ? await historyTab.view.webContents.executeJavaScript("window.corvusInternal.call('sync.remoteTabs')") : historyShown.detail;
-    check("history sync.remoteTabs IPC", Array.isArray(remoteTabs), remoteTabs);
-    await runPairingAddressSmoke(check);
-    await runBuiltinSyncSmoke(ctx, url, check, capture);
-    if (process.env.CORVUS_SMOKE_SYNC_URL) await smokeSync(ctx, process.env.CORVUS_SMOKE_SYNC_URL, url, check, capture);
-    await runSettingsLayoutSmoke(ctx, { win, check, capture });
-
-    const webTab = ctx.windows.findTab(tab.id)?.tab;
-    const leaked = await webTab?.view.webContents.executeJavaScript("typeof window.corvusInternal + '/' + typeof window.corvus");
-    check("no IPC bridge on web content", leaked === "undefined/undefined", leaked);
-
-    await runBrowserSmoke(ctx, { url, agentTabId: tab.id, win, check, capture });
-    await runDownloadsSmoke(ctx, { win, check, capture });
-    await runSplitSmoke(ctx, { url, win, check, capture });
-    await runUxSmoke(ctx, { url, win, check, capture });
-    await runSignInSmoke(ctx, { url, win, check });
-    await runNewTabSmoke(ctx, { url, win, check, capture });
-    await runChromeUiSmoke(ctx, { url, win, check, capture });
-    await runTabSelectSmoke(ctx, { url, win, check, capture });
-    await runTabWindowsSmoke(ctx, { url, win, check, capture });
-    await runBookmarksBarSmoke(ctx, { url, win, check, capture });
-    await runSleepSmoke(ctx, { url, win, check });
-    await runMediaSmoke(ctx, { url, win, check, capture });
-    await runCertErrorSmoke(ctx, { win, check });
-    await runExternalAppsSmoke(ctx, { win, check, capture }, false);
-    await runTabCloseSmoke(ctx, { win, check, capture });
-    await runViewSourceSmoke(ctx, { win, check, capture });
-    await runUserActionSmoke(ctx, { win, check, capture });
-
-    ctx.settings.update({ mcp: { enabled: true } });
-    await ctx.mcp.apply();
-    const status = ctx.mcp.status();
-    check("mcp service", status.running || !status.available, { ...status, token: "<redacted>", command: status.command ? "<set>" : null });
-    ctx.settings.update({ mcp: { enabled: false } });
-    await ctx.mcp.apply();
-
-    await runAssistSmoke(ctx, { win, check, capture });
-    await runDictationSmoke(ctx, { url, win, check, capture });
-    await runDialogsSmoke(ctx, { url, win, check, capture });
-    await runLibrarySmoke(ctx, { win, check, capture });
-    await runFeaturesSmoke(ctx, { win, check, capture });
-    await runLocalModelsSmoke(ctx, { win, check, capture });
-    await runPhoneSmoke(ctx, { url, win, check, capture });
-    await runGrabberSmoke(ctx, { win, check, capture });
-    await runConnectionsSmoke(ctx, { win, check, capture });
-    await runPrivateSmoke(ctx, { win, check, capture });
-    await runCookieConsentSmoke(ctx, { win, check, capture });
-    await runDefaultBrowserSmoke(ctx, { win, check, capture });
-    await runBrowserImportSmoke(ctx, { win, check, capture });
-    await runPasswordImportSmoke(ctx, { win, check, capture });
-    await runDpapiSmoke(ctx, { win, check, capture });
-    await runLiveHistorySmoke(ctx, { win, check, capture });
-    await runDownloadAiSmoke(ctx, { win, check, capture });
-    await runProfileTransferSmoke(ctx, { win, check, capture });
-    await runReaderSmoke(ctx, { win, check, capture });
-    await runPdfSmoke(ctx, { win, check, capture });
-    await runCredentialsSmoke(ctx, { url, win, check, capture });
-    await runAuthenticatorImportSmoke(ctx, { url, win, check, capture });
-    await runOtpFillSmoke(ctx, { url, win, check, capture });
-    await runAddressesSmoke(ctx, { url, win, check, capture });
-    await runCardsSmoke(ctx, { url, win, check, capture });
-    await runFrameFillSmoke(ctx, { url, win, check });
-    await runSimilarLoginsSmoke(ctx, { url, win, check, capture });
-    await runPasswordGeneratorSmoke(ctx, { url, win, check });
-    await runIdentifierFirstSmoke(ctx, { url, win, check });
-    await runBackupSmoke(ctx, { win, check, capture });
-    await runAnnotationsSmoke(ctx, { url, win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentSmoke(ctx, { win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runScheduledAgentSmoke(ctx, { win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentRunsSmoke(ctx, { win, check, capture });
-    await runFlowsSmoke(ctx, { win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runWorkflowsSmoke(ctx, { win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runSiteMemorySmoke(ctx, { win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAssistAgentSmoke(ctx, { win, check, capture });
-    if (process.env.CORVUS_SMOKE_NO_AGENT !== "1") await runAgentIsolationSmoke(ctx, { win, check, capture });
-    await runWebscopeSmoke(ctx, { url, win, check, capture });
-    // Its keychain stand-in (Docker has none) stays on for the rest of the run: after the secret stores' checks.
-    await runProfileLockSmoke(ctx, { win, check, capture });
-    // Closes every window but `win` (which it hides and brings back).
-    await runTraySmoke(ctx, { url, win, check });
-
-    await runExtensionSmoke(ctx, { check, capture, log });
-    // Last: it moves the real pointer and keyboard focus of the display (put back afterwards).
-    await runBgTabsSmoke(ctx, { win, check, capture, log });
   } catch (err) {
     check("unexpected error", false, (err as Error).stack ?? String(err));
   } finally {

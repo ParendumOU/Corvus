@@ -2,6 +2,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { nativeTheme, type WebContents } from "electron";
 import { extractReadableText, type AnswerProvider, type ProviderEvent } from "@corvus/ai-engine";
+import { isWorkspaceTabUrl } from "../shared/workspaces";
 import type { AppContext } from "./context";
 import type { BrowserWindowCtl } from "./window";
 
@@ -125,6 +126,8 @@ export async function runFeaturesSmoke(ctx: AppContext, h: Helpers): Promise<voi
   await sleep(250);
 
   // ---------------------------------------------------------------- workspaces
+  // At least two pages worth saving, whichever smoke steps ran in this window before (background tabs wait unloaded).
+  for (let n = 1; win.workspaceTabs().filter((t) => isWorkspaceTabUrl(t.url)).length < 2; n++) win.createTab(`https://example.com/workspace-${n}`, { activate: false });
   win.profile.workspaces.save("Smoke workspace", win.workspaceTabs(), win.listGroups());
   const ws = win.profile.workspaces.list().find((w) => w.name === "Smoke workspace");
   check("workspace saved with the window's tabs", (ws?.tabs.length ?? 0) >= 2, ws?.tabs.length);

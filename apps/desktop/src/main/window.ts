@@ -5,6 +5,7 @@ import { AGENT_INPUT_GRACE_MS } from "../shared/agent-tab-autofill";
 import { BAR_FOLDER_ID, childrenOf } from "../shared/bookmark-tree";
 import type { FindState, PermissionResponse, SiteInfo } from "../shared/browser-ipc";
 import { certBlockReason, certErrorCode, certErrorKind, certHost, isCertNetError, type CertBlockReason } from "../shared/cert-errors";
+import { isNoResponseError } from "../shared/net-errors";
 import { downloadTabStep, downloadedByAgent, hasOwnPage } from "../shared/download-trust";
 import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
@@ -157,6 +158,8 @@ export interface TabRuntime {
   crashedUrl?: string;
   /** Its page failed on the site's certificate: the certificate error page stands in for it. */
   certError?: CertProblem & { block: CertBlockReason | null };
+  /** Its page got no response from the server: the "not available" page stands in for it. */
+  netError?: { url: string; code: string };
   /** Pending grace timer started when the renderer went unresponsive. */
   unresponsiveTimer?: NodeJS.Timeout;
   /** Find bar state; null when the find bar is closed. */
@@ -1381,14 +1384,15 @@ export class BrowserWindowCtl {
         tab.committedUrl = tab.url;
         return;
       }
-      // So is the certificate error page over the page that failed.
-      if (internalPageOf(url) === "cert-error") {
+      // So are the error pages over the page that failed.
+      if (internalPageOf(url) === "cert-error" || internalPageOf(url) === "net-error") {
         tab.committedUrl = tab.url;
-        this.tidyCertHistory(wc, tab.certError?.url);
+        this.tidyErrorHistory(wc, tab.certError?.url ?? tab.netError?.url);
         return;
       }
       delete tab.certError;
-      this.tidyCertHistory(wc);
+      delete tab.netError;
+      this.tidyErrorHistory(wc);
       const chain = redirects.commit(loaded, Date.now());
       // Bookmarks it went through on the way to another site show that site's icon from now on.
       if (!this.isPrivate) {
@@ -1434,7 +1438,7 @@ export class BrowserWindowCtl {
     });
     on("page-title-updated", (_e, title) => {
       tab.title = title;
-      if (isHistoryWorthy(tab.url) && !tab.certError && !this.isPrivate) this.profile.history.update(tab.url, { title });
+      if (isHistoryWorthy(tab.url) && !tab.certError && !tab.netError && !this.isPrivate) this.profile.history.update(tab.url, { title });
       push();
     });
     this.ctx.pageDialogs.watch(wc);
@@ -1459,6 +1463,7 @@ export class BrowserWindowCtl {
       } else {
         delete tab.certError;
         tab.title = `${hostOf(tab.url)} - ${description}`;
+        if (isNoResponseError(code)) this.showNetError(tab, description);
       }
       push();
     });
@@ -2253,17 +2258,33 @@ export class BrowserWindowCtl {
     });
   }
 
+  /** "Website not available right now" in place of a page whose server never answered; Reload tries it again. */
+  private showNetError(tab: TabRuntime, description: string): void {
+    const shown = { url: tab.url, code: description.replace(/^net::/, "") };
+    tab.netError = shown;
+    const query = new URLSearchParams({ url: shown.url, code: shown.code });
+    // Not from inside the failed navigation's own events, and not once something else was loaded meanwhile.
+    setImmediate(() => {
+      const wc = pageOf(tab.view);
+      if (tab.netError !== shown || !wc) return;
+      wc.loadURL(`corvus://net-error/?${query}`).catch(() => {
+        // The page is internal; a failure here just leaves the tab blank.
+      });
+    });
+  }
+
   /**
-   * History keeps no trace of a certificate error: not the failed load the error page stands in for
-   * (Back would fail on it again), nor error pages left behind (they would show stale errors).
+   * History keeps no trace of a certificate or network error: not the failed load the error page
+   * stands in for (Back would fail on it again), nor error pages left behind (they would show stale errors).
    */
-  private tidyCertHistory(wc: WebContents, failedUrl?: string): void {
+  private tidyErrorHistory(wc: WebContents, failedUrl?: string): void {
     const history = wc.navigationHistory;
     const active = history.getActiveIndex();
     for (let i = history.length() - 1; i >= 0; i--) {
       if (i === active) continue;
       const url = history.getEntryAtIndex(i)?.url ?? "";
-      if (internalPageOf(url) === "cert-error" || (i === active - 1 && url === failedUrl)) history.removeEntryAtIndex(i);
+      const page = internalPageOf(url);
+      if (page === "cert-error" || page === "net-error" || (i === active - 1 && url === failedUrl)) history.removeEntryAtIndex(i);
     }
   }
 
@@ -2330,6 +2351,7 @@ export class BrowserWindowCtl {
     tab.crashed = false;
     delete tab.crashedUrl;
     delete tab.certError;
+    delete tab.netError;
     url = pdfViewerRedirect(this.ctx, tab.agentControlled, url) ?? url;
     delete tab.pendingUrl;
     tab.url = url;
@@ -2446,6 +2468,7 @@ export class BrowserWindowCtl {
     const tab = this.tabs.get(id);
     if (tab?.crashedUrl) return this.recoverCrashed(tab);
     if (tab?.certError) return this.loadUrl(tab.id, tab.certError.url);
+    if (tab?.netError) return this.loadUrl(tab.id, tab.netError.url);
     if (tab?.pendingUrl) return this.loadPending(tab);
     const wc = pageOf(tab?.view);
     if (!wc) return;

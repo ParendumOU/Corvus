@@ -266,6 +266,8 @@ export class Controller implements BrowserController {
     const found = this.locate(id);
     const wc = pageOf(found.tab.view);
     if (!wc) throw tabClosed(id);
+    const failed = found.tab.netError;
+    if (failed) throw new AgentError(`${failed.url} did not respond (${failed.code})`);
     if (!isAgentAllowedUrl(wc.getURL() || found.tab.url)) throw new AgentError("Agents cannot access this page");
     const dialog = dialogs === "block" ? this.dialogs.pending(wc) : null;
     if (dialog) throw dialogBlocked(dialog);

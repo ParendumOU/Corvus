@@ -398,22 +398,56 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
       check("tab close: self-signed test server (openssl)", false);
     }
 
+    // A server that never answers: "Website not available right now" in its place, the tab keeps the address.
+    const closedPort = await new Promise<number>((resolve) => {
+      // A port that was free a moment ago: connecting to it is refused at once.
+      const probe = http.createServer().listen(0, "127.0.0.1", () => {
+        const { port } = probe.address() as AddressInfo;
+        probe.close(() => resolve(port));
+      });
+    });
+    const unreachableUrl = `http://127.0.0.1:${closedPort}/`;
+    const unreachable = await open(unreachableUrl);
+    const notAvailable = await until(() => unreachable.view.webContents.getURL().startsWith("corvus://net-error/") && unreachable.url === unreachableUrl);
+    check("net error: an unreachable site shows the not-available page and keeps its address", notAvailable, { url: unreachable.url, page: unreachable.view.webContents.getURL(), error: unreachable.netError });
+    w.reload(unreachable.id);
+    const retried = await until(() => unreachable.view.webContents.getURL().startsWith("corvus://net-error/") && !unreachable.loading && unreachable.netError?.url === unreachableUrl);
+    check("net error: Reload tries the site again and shows the page again", retried, { url: unreachable.url, page: unreachable.view.webContents.getURL() });
+    w.closeTab(unreachable.id);
+    await verify("a not-available page closed while shown");
+
     // A crashed tab, in the background and shown.
     const crashed = await open(at("crashed"));
     const crashedBack = await open(at("crashed-back"));
     for (const t of [crashed, crashedBack]) t.view.webContents.forcefullyCrashRenderer();
-    await until(() => crashed.crashed && crashedBack.crashed && crashedBack.view.webContents.getURL().startsWith("corvus://crash/"));
+    // The recovery pages loaded, not still on their way: the next crash must hit the recovery page itself.
+    // Both: the two tabs' recovery pages can share one renderer, and the next crash takes both.
+    const settled = (t: typeof crashed): boolean => t.crashed && t.view.webContents.getURL().startsWith("corvus://crash/") && !t.view.webContents.isLoading();
+    await until(() => settled(crashed) && settled(crashedBack));
     await verify("crashed tabs");
     // The recovery page's own process going too does not load it again (a loop when no page can start).
     let reloads = 0;
-    const countLoad = (): void => void reloads++;
+    const loads: string[] = [];
+    const countLoad = (): void => {
+      reloads++;
+      loads.push(crashedBack.view.webContents.getURL());
+    };
+    // Who started it, if it was Corvus.
+    const callers: string[] = [];
+    const bwc = crashedBack.view.webContents as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const originals = Object.fromEntries(["loadURL", "reload", "reloadIgnoringCache"].map((m) => [m, bwc[m]]));
+    for (const [m, fn] of Object.entries(originals)) bwc[m] = (...args: unknown[]) => {
+      callers.push(`${m} ${String(args[0] ?? "")} ${new Error().stack?.split("\n").slice(2, 6).join(" < ")}`);
+      return fn?.apply(crashedBack.view.webContents, args);
+    };
     crashedBack.view.webContents.on("did-start-loading", countLoad);
     crashedBack.view.webContents.forcefullyCrashRenderer();
     // A busy machine reports the crash late; then a while for a reload that must not come.
     await until(() => crashedBack.crashed, 20_000);
     await sleep(1500);
     crashedBack.view.webContents.removeListener("did-start-loading", countLoad);
-    check("tab close: a crash of the recovery page itself does not load it again", reloads === 0 && crashedBack.crashed, { reloads });
+    for (const [m, fn] of Object.entries(originals)) bwc[m] = fn!;
+    check("tab close: a crash of the recovery page itself does not load it again", reloads === 0 && crashedBack.crashed, { reloads, loads, callers, crashed: crashedBack.crashed });
     w.activate(crashed.id);
     await sleep(300);
     w.closeTab(crashedBack.id);

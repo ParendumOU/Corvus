@@ -62,9 +62,9 @@ log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 status=0
 if [ -n "$project" ]; then
-  docker compose -p "$project" run --rm -e CORVUS_SMOKE_TIMEOUT dev sh scripts/validate.sh 2>&1 | tee "$log" || status=$?
+  docker compose -p "$project" run --rm -e CORVUS_SMOKE_TIMEOUT -e CORVUS_SMOKE_SHARDS dev sh scripts/validate.sh 2>&1 | tee "$log" || status=$?
 else
-  docker compose run --rm -e CORVUS_SMOKE_TIMEOUT dev sh scripts/validate.sh 2>&1 | tee "$log" || status=$?
+  docker compose run --rm -e CORVUS_SMOKE_TIMEOUT -e CORVUS_SMOKE_SHARDS dev sh scripts/validate.sh 2>&1 | tee "$log" || status=$?
 fi
 
 # Only a run that ended in VALIDATION: OK is recorded, and only if the code did not change meanwhile.

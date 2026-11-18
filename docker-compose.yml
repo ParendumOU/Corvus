@@ -16,6 +16,10 @@ services:
     environment:
       CORVUS_SEARXNG_URL: http://searxng:8080
       CORVUS_SYNC_URL: http://sync-server:8787
+    # No core dumps: the smoke test crashes renderers on purpose, and Docker Desktop's WSL pipes each
+    # one (~650 MB) to the host's %TEMP%\wsl-crashes. A piped dump ignores a limit of 0; 1 skips it.
+    ulimits:
+      core: 1
 
   searxng:
     image: searxng/searxng:2026.11.1-10db664f1

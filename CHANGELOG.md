@@ -9,6 +9,14 @@
 - **Links from your synced lists open only web pages.** Bookmarklets and links to other apps from bookmarks, history or sent pages no longer open from a list, and links to files on the phone no longer fail without a word.
 - **The Assist list and Home no longer sync over and over in the background**, and a failed action in a chat or a list now tells you.
 
+## v0.48.7
+
+### Browser
+- **A site whose server does not answer shows "Website not available right now"** instead of a blank tab: when its name cannot be found, the connection is refused, times out or drops before any reply, or the computer is offline. The tab keeps the address, and Reload or "Try again" tries the site again. Pages the server did send, such as "404 Not Found", show as before.
+
+### Sync
+- **The sync server built into Corvus starts even when another program takes its port at the same moment**: it moves on to the next free port instead of failing with "address already in use".
+
 ## v0.48.6
 
 ### macOS

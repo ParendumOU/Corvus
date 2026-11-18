@@ -74,7 +74,19 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 10_000)
   return false;
 }
 
-const frameJs = <T>(frame: WebFrameMain | undefined | null, expr: string): Promise<T | null> => (frame && !frame.detached ? (frame.executeJavaScript(expr, true) as Promise<T>).catch(() => null) : Promise.resolve(null));
+/**
+ * A frame's answer to a script, or null. A frame that navigates away while the script runs may never answer:
+ * after FRAME_JS_TIMEOUT_MS it counts as no answer, so a wait on it cannot hang the step.
+ */
+const FRAME_JS_TIMEOUT_MS = 3000;
+export const frameJs = <T>(frame: WebFrameMain | undefined | null, expr: string): Promise<T | null> => {
+  if (!frame || frame.detached) return Promise.resolve(null);
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), FRAME_JS_TIMEOUT_MS);
+  });
+  return Promise.race([(frame.executeJavaScript(expr, true) as Promise<T>).catch(() => null), late]).finally(() => clearTimeout(timer));
+};
 
 /** A made-up 2FA secret: no real account's. */
 const fakeConfig = (seed: number): TotpConfig => ({ secret: base32Encode(Uint8Array.from({ length: 20 }, (_, i) => (seed * 53 + i * 29 + 7) & 0xff)), algorithm: "SHA1", digits: 6, period: 30 });

@@ -644,6 +644,8 @@ export interface InternalRpc extends BrowserInternalRpc, WebScopeRpc, WatchInter
   "certError.proceed"(): boolean;
   /** The certificate error page: "Back to safety". */
   "certError.back"(): void;
+  /** "Try again" on the not-available page: loads the site again. */
+  "netError.retry"(): void;
   /** Open the local crash-log folder in the OS file manager. Returns an error string or null. */
   "crashReports.openFolder"(): string | null;
   /** Opens the third-party licence notices shipped with the app; returns an error message or null. */

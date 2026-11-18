@@ -477,6 +477,9 @@ export async function runBgTabsSmoke(ctx: AppContext, h: BgTabsSmokeHelpers): Pr
     ctx.tabSleeper.freeShare = freeShare;
 
     // The person's click and key press reach the tab on screen, never a hidden agent tab painting under it.
+    // The real pointer clicks whatever is on top: windows earlier smoke steps left open go first.
+    for (const other of ctx.windows.all()) if (other !== win) other.close();
+    await until(() => ctx.windows.all().length === 1);
     win.activate(front.id);
     for (const t of agentTabs.slice(-4)) win.markAgent(t.id);
     await sleep(500);

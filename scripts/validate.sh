@@ -5,8 +5,10 @@
 #
 #   docker compose run --rm dev sh scripts/validate.sh
 #
-# CORVUS_SMOKE_TIMEOUT (default 1500) caps the smoke run, as for `pnpm test:smoke`: it only catches a
-# hung run (a full one takes about 10 minutes next to the type checks and unit tests).
+# The smoke steps run in CORVUS_SMOKE_SHARDS shares side by side (default one per 4 idle CPUs, at
+# most 6, each its own Electron and display; see apps/desktop/src/main/smoke-shard.ts): about
+# 3 minutes instead of 14 in one run on an idle 24+ CPU machine.
+# CORVUS_SMOKE_TIMEOUT (default 1500) caps each share, as for `pnpm test:smoke`: it only catches a hung run.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 t0=$(date +%s)
@@ -31,7 +33,21 @@ stamp "built"
 logs=$(mktemp -d)
 (pnpm -r typecheck >"$logs/typecheck.log" 2>&1; echo $? >"$logs/typecheck.rc") &
 (pnpm -r test >"$logs/test.log" 2>&1; echo $? >"$logs/test.rc") &
-(cd apps/desktop && CORVUS_SMOKE_TIMEOUT="${CORVUS_SMOKE_TIMEOUT:-1500}" pnpm test:smoke >"$logs/smoke.log" 2>&1; echo $? >"$logs/smoke.rc") &
+# The smoke steps are split into CORVUS_SMOKE_SHARDS shares, each its own Electron on its own display.
+# More shares than the CPUs can carry make every step slow and the timed ones fail. Idle CPUs: all
+# of them minus the 1-minute load average (other containers and builds on the same machine).
+cpus="$(nproc 2>/dev/null || echo 4)"
+busy="$(awk '{ printf "%d", $1 + 0.5 }' /proc/loadavg 2>/dev/null || echo 0)"
+default_shards=$(((cpus - busy) / 4))
+[ "$default_shards" -gt 6 ] && default_shards=6
+[ "$default_shards" -lt 1 ] && default_shards=1
+shards="${CORVUS_SMOKE_SHARDS:-$default_shards}"
+echo "[validate] smoke shares: $shards ($cpus CPUs, load $busy)"
+k=1
+while [ "$k" -le "$shards" ]; do
+  (cd apps/desktop && CORVUS_SMOKE_SHARD="$k/$shards" CORVUS_SMOKE_TIMEOUT="${CORVUS_SMOKE_TIMEOUT:-1500}" pnpm test:smoke >"$logs/smoke-$k.log" 2>&1) &
+  k=$((k + 1))
+done
 wait
 stamp "checks done"
 
@@ -48,8 +64,9 @@ if [ "$(cat "$logs/test.rc")" != "0" ]; then
 fi
 # vitest colours its summary, so strip the colour codes before looking for it.
 sed 's/\x1b\[[0-9;]*m//g' "$logs/test.log" | grep -E "Tests +[0-9]" | sed 's/^ */[validate] /'
-# The smoke run can exit 0 after failed checks: its RESULT line is what counts.
-if ! grep -q 'RESULT: "OK"' "$logs/smoke.log"; then
+# A smoke run can exit 0 after failed checks: every share's RESULT line is what counts.
+cat "$logs"/smoke-*.log >"$logs/smoke.log"
+if [ "$(grep -c 'RESULT: "OK"' "$logs/smoke.log")" != "$shards" ]; then
   ok=0
   echo "[validate] smoke FAILED:"
   grep -E "\[smoke\] (FAIL|RESULT)|Error" "$logs/smoke.log" | head -40

@@ -3,6 +3,7 @@ import type { WebContents, WebFrameMain } from "electron";
 import { dropdownEntries } from "../shared/field-dropdown";
 import type { AppContext } from "./context";
 import { windowShot } from "./smoke-cert-errors";
+import { frameJs } from "./smoke-frame-fill";
 import { dropdownDriver } from "./smoke-otp-fill";
 import type { BrowserWindowCtl, TabRuntime } from "./window";
 
@@ -75,8 +76,6 @@ async function until(cond: () => boolean | Promise<boolean>, timeoutMs = 10_000)
 }
 
 const js = <T>(wc: WebContents, expr: string): Promise<T | null> => (wc.isDestroyed() ? Promise.resolve(null) : (wc.executeJavaScript(expr, true) as Promise<T>).catch(() => null));
-const frameJs = <T>(frame: WebFrameMain | undefined, expr: string): Promise<T | null> => (frame && !frame.detached ? (frame.executeJavaScript(expr, true) as Promise<T>).catch(() => null) : Promise.resolve(null));
-
 /**
  * Every text a record keeps, where a secret could end up: without its ids and numbers (times, counts),
  * whose random digits may contain the secret's by chance.

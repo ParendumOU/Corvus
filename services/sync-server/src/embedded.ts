@@ -57,7 +57,13 @@ export async function startEmbeddedServer(opts: EmbeddedOptions): Promise<Embedd
   try {
     for (const port of portCandidates(remembered)) {
       if (port !== 0 && !(await portFree(port, host))) continue;
-      await app.listen({ port, host });
+      // Another process can take the port between the probe and the listen: then try the next one.
+      try {
+        await app.listen({ port, host });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") continue;
+        throw err;
+      }
       const address = app.server.address();
       return { app, port: typeof address === "object" && address ? address.port : port };
     }

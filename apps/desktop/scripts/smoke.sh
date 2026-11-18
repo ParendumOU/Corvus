@@ -4,9 +4,12 @@
 # renders every internal page and writes screenshots to out/smoke/.
 cd "$(dirname "$0")/.." || exit 1
 if [ -z "$DISPLAY" ]; then
-  Xvfb :99 -screen 0 1400x900x24 >/dev/null 2>&1 &
+  # Shares run side by side (CORVUS_SMOKE_SHARD=k/n, see scripts/validate.sh): one display each.
+  shard="${CORVUS_SMOKE_SHARD%%/*}"
+  display=":$((99 + ${shard:-0}))"
+  Xvfb "$display" -screen 0 1400x900x24 >/dev/null 2>&1 &
   XVFB_PID=$!
-  export DISPLAY=:99
+  export DISPLAY="$display"
   sleep 1
 fi
 export CORVUS_SMOKE_TEST=1
@@ -47,8 +50,11 @@ if [ "$(id -u)" = "0" ] && [ "$HAS_SYS_ADMIN" = "1" ] && id node >/dev/null 2>&1
 else
   export CORVUS_SMOKE_OUT="$OUT"
   export CORVUS_SMOKE_NO_SANDBOX=1
-  timeout "$TIMEOUT" "$ELECTRON" out/main/index.js --no-sandbox --disable-dev-shm-usage >"$LOG" 2>&1
+  # Its own home (~/.corvus, ~/.local/share): side-by-side shares must not share them.
+  RUN_HOME="$(mktemp -d)"
+  HOME="$RUN_HOME" timeout "$TIMEOUT" "$ELECTRON" out/main/index.js --no-sandbox --disable-dev-shm-usage >"$LOG" 2>&1
   status=$?
+  rm -rf "$RUN_HOME"
 fi
 grep -E '^\[(smoke|corvus)\]' "$LOG"
 [ -n "$CORVUS_SMOKE_LOG" ] && cp "$LOG" "$CORVUS_SMOKE_LOG"

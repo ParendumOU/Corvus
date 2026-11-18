@@ -74,4 +74,20 @@ describe("embedded server", () => {
       await second.app.close();
     }
   });
+
+  it("two servers starting at once on the same port both start, on different ports", async () => {
+    const { startEmbeddedServer } = await import("../src/embedded.js");
+    const probe = await startEmbeddedServer({ dbPath: ":memory:", remembered: 0, host: "127.0.0.1" });
+    const free = probe.port;
+    await probe.app.close();
+    const start = () => startEmbeddedServer({ dbPath: ":memory:", remembered: free, host: "127.0.0.1" });
+    const [a, b] = await Promise.all([start(), start()]);
+    try {
+      expect(a.port).not.toBe(b.port);
+      for (const s of [a, b]) expect((await fetch(`http://127.0.0.1:${s.port}/healthz`)).status).toBe(200);
+    } finally {
+      await a.app.close();
+      await b.app.close();
+    }
+  });
 });

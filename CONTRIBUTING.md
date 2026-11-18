@@ -32,7 +32,7 @@ docker compose run --rm dev pnpm -r test
 docker compose run --rm dev pnpm --filter @corvus/desktop test:smoke
 ```
 
-The smoke test starts the real Electron app under Xvfb and drives it end to end, with no network access needed. If you add an internal `corvus://` page, add it to the smoke page list too.
+The smoke test starts the real Electron app under Xvfb and drives it end to end, with no network access needed. If you add an internal `corvus://` page, add it to the smoke page list too. Full validation splits the smoke steps into shares that run side by side (`CORVUS_SMOKE_SHARD=k/n`), so each step must set up what it needs instead of relying on the steps before it; add a new step's time to `SMOKE_STEP_SECONDS` in `apps/desktop/src/main/smoke-shard.ts` (from its `[smoke] step` line).
 
 ## Code
 
