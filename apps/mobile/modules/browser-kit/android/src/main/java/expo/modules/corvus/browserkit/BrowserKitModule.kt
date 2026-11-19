@@ -3,9 +3,11 @@ package expo.modules.corvus.browserkit
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.autofill.AutofillManager
 import android.webkit.CookieManager
 import android.webkit.HttpAuthHandler
 import android.webkit.PermissionRequest
@@ -71,6 +73,7 @@ private class PageState {
  *   added at document start in every frame (consent/page.ts and GPC_PAGE_SCRIPT, built into the
  *   corvus-consent assets), the banner script's rules picked here per frame (ConsentRules), and what
  *   it reports validated (ConsentMessage) before the app hears of it (onConsent);
+ * - offers only the tab on screen to the system's autofill (setAutofillable, autofillMode);
  * - finds text in a page and reads a page's text for the app (evaluateJavascript hands the value to
  *   the app only). The one object a page could reach is the banner script's message port, which the
  *   script hides from enumeration and locks before the page's scripts run; nothing a page sends
@@ -195,6 +198,15 @@ class BrowserKitModule : Module() {
       CookieManager.getInstance().removeAllCookies { CookieManager.getInstance().flush(); promise.resolve(true) }
     }.runOnQueue(Queues.MAIN)
 
+    // The tab on screen takes part in the system's autofill (password managers), the others stay out
+    // (see autofillMode). A page that leaves the screen also ends its autofill session.
+    AsyncFunction("setAutofillable") { viewTag: Int, on: Boolean ->
+      val view = webView(viewTag) ?: return@AsyncFunction false
+      setAutofillable(view, on)
+      if (!on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.context.getSystemService(AutofillManager::class.java)?.cancel()
+      true
+    }.runOnQueue(Queues.MAIN)
+
     // Opens a link to another app the person agreed to open. Resolves "opened", "web:<address>" (a
     // web page to load in the tab instead: the link's own fallback, or a web address it carried) or
     // "none" (no app on the phone opens it).
@@ -223,6 +235,10 @@ class BrowserKitModule : Module() {
     return (view as? RNCWebViewWrapper)?.webView ?: view as? WebView
   }
 
+  private fun setAutofillable(view: WebView, on: Boolean) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.importantForAutofill = autofillMode(on)
+  }
+
   private fun tagOf(view: WebView): Int = (view.parent as? View)?.id ?: -1
 
   private fun stateOf(view: WebView): PageState = synchronized(pages) { pages.getOrPut(view) { PageState() } }
@@ -245,6 +261,9 @@ class BrowserKitModule : Module() {
       if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) WebSettingsCompat.setSafeBrowsingEnabled(view.settings, true)
       if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) WebSettingsCompat.setRequestedWithHeaderOriginAllowList(view.settings, emptySet())
       applyPrivacy(view)
+      // Out of autofill until the app shows it (setAutofillable): a tab opened in the background
+      // never offers its forms.
+      setAutofillable(view, false)
       // A tab's WebView leaves the window while another screen is on top (Settings among them).
       view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(attached: View) = applyPrivacy(view)
@@ -449,4 +468,13 @@ class BrowserKitModule : Module() {
 }
 
 /** A site's sign-in request waiting for the person: the WebView's handlers it answers. */
+/**
+ * A WebView's place in the system's autofill. Every tab's WebView stays mounted, the hidden ones
+ * under the one on screen, and Android hands the autofill service the forms of every WebView in the
+ * window at once: a password manager would read (and could fill) another site's sign-in as the one
+ * the person tapped. Only the tab on screen is offered; a hidden one, its page included, is not.
+ */
+internal fun autofillMode(onScreen: Boolean): Int =
+  if (onScreen) View.IMPORTANT_FOR_AUTOFILL_AUTO else View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+
 private class SignIn(val id: String, val viewTag: Int, val host: String, val realm: String, val handlers: MutableList<HttpAuthHandler>)

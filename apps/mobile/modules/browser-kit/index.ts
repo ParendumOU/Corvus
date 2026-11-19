@@ -86,6 +86,11 @@ interface BrowserKitNative {
   find(viewTag: number, text: string): Promise<boolean>;
   findNext(viewTag: number, forward: boolean): Promise<boolean>;
   clearFind(viewTag: number): Promise<boolean>;
+  /**
+   * Whether the page takes part in the system's autofill (password managers): only the tab on screen
+   * does, a new page starts out of it. False without that page.
+   */
+  setAutofillable(viewTag: number, on: boolean): Promise<boolean>;
   /** Forgets cookies, site storage and the cache of every site. */
   clearBrowsingData(): Promise<boolean>;
   /** "opened", "web:<address>" (load that in the tab instead) or "none". */

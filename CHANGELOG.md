@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+## v0.48.9
+
+### Desktop
+- No changes from 0.48.8: this release ships together with Corvus for mobile 0.12.3.
+
 ### Corvus for mobile
+- **Password managers on Android see only the tab on screen.** With several tabs open, the phone's autofill service (KeePassDX, Bitwarden, Google and others) also received the sign-in forms of the tabs in the background, so it could suggest or fill another site's login. Tabs in the background are now left out of autofill and screen readers, and a tab gets autofill back when you switch to it.
 - **Changes made offline no longer delete items on your other devices.** If the phone had to sync again from scratch (the server lost it, or your sync moved to another server) while it still had changes waiting, such as an article marked read or a watched page changed, those items could be deleted on every device. They are now kept and sent as they were. The same holds when a synced list on the phone cannot be read.
 - **Unpairing during a sync now stays unpaired.** A sync still running when you unpaired the phone, or paired it with another computer, could bring the old pairing back after a restart.
 - **A shown password hides again when the passwords lock.** It used to stay on screen after you left the app or the unlock time ran out.

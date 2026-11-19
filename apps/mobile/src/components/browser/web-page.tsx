@@ -151,6 +151,7 @@ export function WebPage({
   const [source, setSource] = useState(() => sourceOf(tab.url || request?.url || 'about:blank', gpc));
   const [epoch, setEpoch] = useState(0);
   const viewTag = useRef<number | null>(null);
+  const onScreen = useRef(visible);
   const lastRequest = useRef(request?.n ?? 0);
   const hidden = useRef<string | null>(null);
   // A navigation stopped at a certificate error (`refused`) never replaces the page that last loaded,
@@ -186,11 +187,19 @@ export function WebPage({
     else setSource(sourceOf(request.url, gpc));
   }, [request, source.uri, gpc]);
 
+  // Only the tab on screen is offered to the system's autofill (password managers): the hidden tabs'
+  // WebViews stay mounted, and Android would hand their sign-in forms (other sites') to the service too.
+  useEffect(() => {
+    onScreen.current = visible;
+    if (viewTag.current !== null) void BrowserKit?.setAutofillable(viewTag.current, visible);
+  }, [visible]);
+
   const seen = (e: { nativeEvent: object }): void => {
     const target = (e.nativeEvent as { target?: number }).target;
     if (typeof target === 'number' && target !== viewTag.current) {
       viewTag.current = target;
       setRuntime(id, { viewTag: target });
+      void BrowserKit?.setAutofillable(target, onScreen.current);
     }
   };
 
@@ -262,7 +271,14 @@ export function WebPage({
   };
 
   return (
-    <View style={[StyleSheet.absoluteFill, !visible && styles.hidden]} pointerEvents={visible ? 'auto' : 'none'} testID={visible ? 'browser-page' : undefined}>
+    <View
+      style={[StyleSheet.absoluteFill, !visible && styles.hidden]}
+      pointerEvents={visible ? 'auto' : 'none'}
+      // Screen readers skip the hidden tabs' pages too.
+      importantForAccessibility={visible ? 'auto' : 'no-hide-descendants'}
+      accessibilityElementsHidden={!visible}
+      testID={visible ? 'browser-page' : undefined}
+    >
       <WebView
         key={epoch}
         ref={ref}
