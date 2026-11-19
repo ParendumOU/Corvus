@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.48.10
+
+### Desktop
+- No changes from 0.48.9: this release ships together with Corvus for mobile 0.12.4.
+
+### Corvus for mobile
+- **Password managers on Android really see only the tab on screen now.** 0.12.3 still handed the autofill service the sign-in forms of tabs open in the background on some phones (Samsung One UI 8, Android 17): the browser engine offered them whatever the app asked. Tabs not on screen now offer the autofill service nothing and take no fill.
+
 ## v0.48.9
 
 ### Desktop

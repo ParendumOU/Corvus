@@ -2,14 +2,14 @@
   "expo": {
     "name": "Corvus",
     "slug": "corvus-mobile",
-    "version": "0.12.3",
+    "version": "0.12.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "corvus",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.parendum.corvus.mobile",
-      "buildNumber": "17",
+      "buildNumber": "18",
       "icon": "./assets/images/icon.png",
       "supportsTablet": false,
       "infoPlist": {
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.parendum.corvus.mobile",
-      "versionCode": 17,
+      "versionCode": 18,
       "adaptiveIcon": {
         "backgroundColor": "#1B1830",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

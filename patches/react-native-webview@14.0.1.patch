@@ -13,6 +13,52 @@ index 1b5c4c9..854ac3d 100644
  
          grantedPermissions = new ArrayList<>();
  
+diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+index 80c6803..f93422f 100644
+--- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
++++ b/android/src/main/java/com/reactnativecommunity/webview/RNCWebView.java
+@@ -8,7 +8,10 @@ import android.view.ActionMode;
+ import android.view.Menu;
+ import android.view.MenuItem;
+ import android.view.MotionEvent;
++import android.util.SparseArray;
+ import android.view.View;
++import android.view.ViewStructure;
++import android.view.autofill.AutofillValue;
+ import android.webkit.JavascriptInterface;
+ import android.webkit.ValueCallback;
+ import android.webkit.WebChromeClient;
+@@ -122,6 +125,30 @@ public class RNCWebView extends WebView implements LifecycleEventListener {
+         cleanupCallbacksAndDestroy();
+     }
+ 
++    // Corvus: a WebView the app keeps out of autofill (a tab not on screen) offers the autofill
++    // service no form fields and takes no fill: Chromium hands over its page's fields whatever the
++    // view's importantForAutofill, so the hidden tabs' logins went to the password manager too.
++    private boolean outOfAutofill() {
++        return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
++            && getImportantForAutofill() == IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS;
++    }
++
++    @Override
++    public void onProvideAutofillVirtualStructure(ViewStructure structure, int flags) {
++        if (outOfAutofill()) {
++            return;
++        }
++        super.onProvideAutofillVirtualStructure(structure, flags);
++    }
++
++    @Override
++    public void autofill(SparseArray<AutofillValue> values) {
++        if (outOfAutofill()) {
++            return;
++        }
++        super.autofill(values);
++    }
++
+     @Override
+     public boolean onTouchEvent(MotionEvent event) {
+         if (this.nestedScrollEnabled) {
 diff --git a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java b/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
 index 209b855..897fe7a 100644
 --- a/android/src/main/java/com/reactnativecommunity/webview/RNCWebViewClient.java
