@@ -1,6 +1,5 @@
-import os from "node:os";
 import { app } from "electron";
-import { tabsToSleep, tabsToSleepUnderPressure } from "../shared/tab-sleep";
+import { memoryFreeShare, tabsToSleep, tabsToSleepUnderPressure } from "../shared/tab-sleep";
 import type { AppContext } from "./context";
 
 const TICK_MS = 60_000;
@@ -29,17 +28,30 @@ export class TabSleeper {
 
   /** One pass over every window; returns how many tabs went to sleep. */
   async tick(now: number): Promise<number> {
-    // Low on memory, fewer agent tabs keep painting while hidden.
-    this.ctx.backgroundRender.enforce();
     const memory = this.ctx.settings.get().memory;
-    if (!memory.sleepTabs) return 0;
+    if (!memory.sleepTabs) return this.relievePressure();
     let slept = 0;
-    // Low on memory: the least recently used background tabs sleep early, a few per pass.
-    const freeShare = this.freeShare();
     for (const win of this.ctx.windows.all()) {
-      const candidates = win.sleepCandidates();
-      const due = new Set([...tabsToSleep(candidates, now, memory.sleepAfterMinutes), ...tabsToSleepUnderPressure(candidates, freeShare)]);
-      for (const id of due) {
+      for (const id of tabsToSleep(win.sleepCandidates(), now, memory.sleepAfterMinutes)) {
+        if (await win.pageIsEdited(id)) continue;
+        if (win.sleepTab(id)) slept++;
+      }
+    }
+    return slept + (await this.relievePressure());
+  }
+
+  /**
+   * Low on memory: fewer agent tabs keep painting while hidden, and the least recently used
+   * background tabs sleep early, a few per window per pass, before Windows starts refusing pages
+   * memory and they crash. Runs with every memory refresh, not only every minute.
+   */
+  async relievePressure(): Promise<number> {
+    this.ctx.backgroundRender.enforce();
+    if (!this.ctx.settings.get().memory.sleepTabs) return 0;
+    const freeShare = this.freeShare();
+    let slept = 0;
+    for (const win of this.ctx.windows.all()) {
+      for (const id of tabsToSleepUnderPressure(win.sleepCandidates(), freeShare)) {
         if (await win.pageIsEdited(id)) continue;
         if (win.sleepTab(id)) slept++;
       }
@@ -48,10 +60,11 @@ export class TabSleeper {
   }
 
   /** Share of the system memory that is free (tests set it). */
-  freeShare: () => number = () => os.freemem() / Math.max(1, os.totalmem());
+  freeShare: () => number = () => memoryFreeShare(process.getSystemMemoryInfo(), process.platform === "win32");
 
   /** Per-process memory (working set, KB) for every window's tab strip. */
   refreshMemory(): void {
+    void this.relievePressure();
     const byPid = new Map<number, number>();
     for (const metric of app.getAppMetrics()) byPid.set(metric.pid, metric.memory.workingSetSize);
     for (const win of this.ctx.windows.all()) win.setProcessMemory(byPid);

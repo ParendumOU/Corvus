@@ -420,10 +420,16 @@ export async function runTabCloseSmoke(ctx: AppContext, { win, check, capture }:
     const crashed = await open(at("crashed"));
     const crashedBack = await open(at("crashed-back"));
     for (const t of [crashed, crashedBack]) t.view.webContents.forcefullyCrashRenderer();
-    // The recovery pages loaded, not still on their way: the next crash must hit the recovery page itself.
-    // Both: the two tabs' recovery pages can share one renderer, and the next crash takes both.
+    // Out of sight it goes to sleep and loads again when shown; on screen it reloads by itself, once.
+    const sleptAfterCrash = await until(() => Boolean(crashed.asleep) && !crashed.crashed && crashed.pendingUrl === at("crashed"));
+    check("tab crash: a background tab whose page died sleeps instead of showing the recovery page", sleptAfterCrash, { crashed: crashed.crashed, pending: crashed.pendingUrl, page: crashed.view.webContents.getURL() });
+    const reloadedAfterCrash = await until(() => !crashedBack.crashed && crashedBack.view.webContents.getURL() === at("crashed-back") && !crashedBack.view.webContents.isLoading() && !crashedBack.view.webContents.isCrashed());
+    check("tab crash: the tab on screen reloads its page by itself", reloadedAfterCrash && crashedBack.crashReloadedAt !== undefined, { crashed: crashedBack.crashed, page: crashedBack.view.webContents.getURL() });
+    // Dying again soon after: the recovery page, not a reload loop.
+    crashedBack.view.webContents.forcefullyCrashRenderer();
+    // The recovery page loaded, not still on its way: the next crash must hit the recovery page itself.
     const settled = (t: typeof crashed): boolean => t.crashed && t.view.webContents.getURL().startsWith("corvus://crash/") && !t.view.webContents.isLoading();
-    await until(() => settled(crashed) && settled(crashedBack));
+    check("tab crash: a page that dies again soon shows the recovery page", await until(() => settled(crashedBack)), { page: crashedBack.view.webContents.getURL() });
     await verify("crashed tabs");
     // The recovery page's own process going too does not load it again (a loop when no page can start).
     let reloads = 0;

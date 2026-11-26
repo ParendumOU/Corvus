@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { defaultSettings, mergeSettings } from "../src/shared/settings";
-import { EDITED_PAGE_SCRIPT, LOW_MEMORY_SHARE, PRESSURE_BATCH, formatMemory, tabsToSleep, tabsToSleepUnderPressure, type SleepCandidate } from "../src/shared/tab-sleep";
+import { CRASH_RELOAD_GAP_MS, EDITED_PAGE_SCRIPT, LOW_MEMORY_SHARE, PRESSURE_BATCH, formatMemory, mayReloadCrashedPage, memoryFreeShare, pageCanComeBack, tabsToSleep, tabsToSleepUnderPressure, type SleepCandidate } from "../src/shared/tab-sleep";
 
 const HOUR = 3_600_000;
 const tab = (patch: Partial<SleepCandidate>): SleepCandidate => ({
@@ -53,6 +53,24 @@ describe("sleeping tabs", () => {
     ];
     expect(tabsToSleepUnderPressure(tabs, LOW_MEMORY_SHARE + 0.05)).toEqual([]);
     expect(tabsToSleepUnderPressure(tabs, LOW_MEMORY_SHARE / 2)).toEqual(["c", "b", "d"].slice(0, PRESSURE_BATCH));
+  });
+
+  it("measures memory pressure by the tighter of RAM and, on Windows, the commit limit", () => {
+    const info = { total: 16_000_000, free: 8_000_000, swapTotal: 20_000_000, swapFree: 1_000_000 };
+    expect(memoryFreeShare(info, true)).toBe(0.05);
+    // Elsewhere swap is only swap: a full swap with free RAM is no pressure.
+    expect(memoryFreeShare(info, false)).toBe(0.5);
+    expect(memoryFreeShare({ total: 16_000_000, free: 800_000 }, true)).toBe(0.05);
+    expect(memoryFreeShare({ total: 16_000_000, free: 8_000_000, swapTotal: 0, swapFree: 0 }, true)).toBe(0.5);
+  });
+
+  it("brings back a page whose process died, but never in a loop", () => {
+    for (const reason of ["oom", "crashed", "abnormal-exit", "killed"]) expect(pageCanComeBack(reason)).toBe(true);
+    for (const reason of ["launch-failed", "integrity-failure", "clean-exit"]) expect(pageCanComeBack(reason)).toBe(false);
+    const now = 10 * CRASH_RELOAD_GAP_MS;
+    expect(mayReloadCrashedPage(undefined, now)).toBe(true);
+    expect(mayReloadCrashedPage(now - 1000, now)).toBe(false);
+    expect(mayReloadCrashedPage(now - CRASH_RELOAD_GAP_MS, now)).toBe(true);
   });
 
   it("keeps a page awake when the person typed into it", () => {

@@ -11,7 +11,7 @@ import { keepsFavicon, pickFavicon } from "../shared/favicon";
 import { RedirectChain, bookmarkPageKeys, isPersonInput } from "../shared/favicon-redirects";
 import { holdsMedia, newTabPaint, openAllPlan, paintedScript, type PaintReason } from "../shared/background-tabs";
 import { MEDIA_RELEASE_CHANNEL } from "../shared/media-hold";
-import { EDITED_PAGE_SCRIPT, type SleepCandidate } from "../shared/tab-sleep";
+import { EDITED_PAGE_SCRIPT, mayReloadCrashedPage, pageCanComeBack, type SleepCandidate } from "../shared/tab-sleep";
 import { PIP_ENTER_SCRIPT, PIP_EXIT_SCRIPT, PIP_WORLD_ID, shouldAutoPip, type PipEnterResult } from "../shared/media";
 import type { PermissionDecision, PermissionKind } from "../shared/permissions";
 import { serializeWindow, visibleBounds, type SessionBounds, type SessionWindow } from "../shared/session-state";
@@ -156,6 +156,8 @@ export interface TabRuntime {
   mediaHold?: { muted: boolean };
   /** Real page URL to reload after a crash while the recovery page is shown. */
   crashedUrl?: string;
+  /** When Corvus last reloaded its page by itself after the page's process died (epoch ms). */
+  crashReloadedAt?: number;
   /** Its page failed on the site's certificate: the certificate error page stands in for it. */
   certError?: CertProblem & { block: CertBlockReason | null };
   /** Its page got no response from the server: the "not available" page stands in for it. */
@@ -1475,7 +1477,7 @@ export class BrowserWindowCtl {
       this.ctx.crashReporter.record("tab-renderer-gone", { url: tab.url, reason: details.reason, exitCode: details.exitCode });
       if (details.reason === "launch-failed") this.warnLaunchFailed();
       // The recovery page's own process went too: loading it again would only repeat that, forever.
-      if (!tab.crashed) this.enterCrashed(tab, details.reason);
+      if (!tab.crashed) this.afterPageGone(tab, wc, details.reason);
       push();
     });
     on("unresponsive", () => {
@@ -2222,6 +2224,32 @@ export class BrowserWindowCtl {
       },
       this,
     );
+  }
+
+  /**
+   * A web page's process died, most often because Windows ran out of memory for it. Out of sight
+   * the tab goes to sleep instead and loads again when shown; on screen Corvus frees memory and
+   * reloads it once by itself. Only when that does not help does the recovery page show.
+   */
+  private afterPageGone(tab: TabRuntime, wc: WebContents, reason: string): void {
+    const now = Date.now();
+    const shown = this.shownTabIds.includes(tab.id);
+    if (!/^https?:/i.test(tab.url) || !pageCanComeBack(reason) || (shown && !mayReloadCrashedPage(tab.crashReloadedAt, now))) {
+      this.enterCrashed(tab, reason);
+      return;
+    }
+    if (!shown) {
+      // Not from inside the webContents' own event: releasing it closes it.
+      setImmediate(() => {
+        if (this.disposed || this.tabs.get(tab.id) !== tab || tab.view.webContents !== wc) return;
+        if (!this.releasePage(tab)) this.enterCrashed(tab, reason);
+        this.pushState();
+      });
+      return;
+    }
+    tab.crashReloadedAt = now;
+    void this.ctx.tabSleeper.relievePressure();
+    wc.reload();
   }
 
   /** Show the in-tab recovery page over a crashed/hung renderer, keeping the tab's real URL. */

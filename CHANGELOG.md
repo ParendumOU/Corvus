@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.48.11
+
+### Desktop
+- **Fewer "This page crashed" pages with many tabs open.** Corvus now also watches the memory Windows can still hand out (RAM plus the page file), not only free RAM, and checks every 15 seconds instead of every minute: when it runs low, the least recently used background tabs go to sleep before Windows starts refusing pages memory. A background tab whose page dies anyway goes to sleep instead of showing the recovery page and loads again when you open it; the tab on screen (a video you are watching) reloads by itself once, and only shows the recovery page if it dies again within 5 minutes.
+
 ## v0.48.10
 
 ### Desktop

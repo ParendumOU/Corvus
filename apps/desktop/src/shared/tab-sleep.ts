@@ -35,6 +35,26 @@ export function tabsToSleep(tabs: readonly SleepCandidate[], now: number, afterM
 
 /** Free memory below this share of the total puts background tabs to sleep early. */
 export const LOW_MEMORY_SHARE = 0.1;
+
+/** Electron's process.getSystemMemoryInfo(), in KB. */
+export interface SystemMemory {
+  total: number;
+  free: number;
+  swapTotal?: number;
+  swapFree?: number;
+}
+
+/**
+ * Share of memory still free: the tighter of physical memory and, on Windows, the commit limit.
+ * There swapTotal/swapFree are the commit limit (RAM + page file) and what is left of it: a page
+ * dies when an allocation would pass that limit, even with RAM to spare. Elsewhere they are only
+ * the swap space, which says nothing about pressure.
+ */
+export function memoryFreeShare(info: SystemMemory, windows: boolean): number {
+  const physical = info.free / Math.max(1, info.total);
+  if (!windows || !info.swapTotal || info.swapFree === undefined) return physical;
+  return Math.min(physical, info.swapFree / info.swapTotal);
+}
 /** Tabs put to sleep per pass under memory pressure (the least recently used first). */
 export const PRESSURE_BATCH = 3;
 
@@ -48,6 +68,22 @@ export function tabsToSleepUnderPressure(tabs: readonly SleepCandidate[], freeSh
     .sort((a, b) => idleSince(a) - idleSince(b))
     .slice(0, PRESSURE_BATCH)
     .map((t) => t.id);
+}
+
+/**
+ * Ends of a page's process that loading the page again can get over: out of memory, a crash, a kill
+ * from outside. Not a process that could not start, nor one Chromium ended for a security breach.
+ */
+export function pageCanComeBack(reason: string): boolean {
+  return reason === "oom" || reason === "crashed" || reason === "abnormal-exit" || reason === "killed";
+}
+
+/** A page on screen is reloaded by itself after its process died at most once in this long. */
+export const CRASH_RELOAD_GAP_MS = 5 * 60_000;
+
+/** True when the page on screen may be reloaded by itself: it was not already, recently (a page that keeps dying shows the recovery page). */
+export function mayReloadCrashedPage(lastReloadAt: number | undefined, now: number): boolean {
+  return lastReloadAt === undefined || now - lastReloadAt >= CRASH_RELOAD_GAP_MS;
 }
 
 /** Since when the tab has been out of sight: last shown, or opened if it never was. */
